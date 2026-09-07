@@ -1,0 +1,39 @@
+# No game content or local output belongs in this repository.
+*.abyss
+*.partial
+*.pck
+*.wasm
+*.apk
+*.aab
+*.keystore
+*.jar
+*.class
+*.zip
+*.png
+*.bmp
+*.jpg
+*.jpeg
+*.webp
+*.glb
+*.gltf
+*.blend
+*.wav
+*.ogg
+*.mid
+*.amr
+*.mbac
+*.mtra
+# Only reviewed, independently authored UI assets may be committed.
+!game/ui/**
+**/.godot/
+**/__pycache__/
+content/
+reference/
+captures/
+build/
+.local/
+# The exported Web build is committed for static hosting.
+!public/**
+# The per-file source review is kept with the working tree, never published.
+provenance/source-provenance.json
+public/provenance/source-provenance.json

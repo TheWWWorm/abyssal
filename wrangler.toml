@@ -1,0 +1,14 @@
+# Deploys the exported Web build as Cloudflare Workers static assets.
+# `npx wrangler deploy` uploads public/ as-is; there is no build step, because
+# public/ already holds a built export. Change `name` to match your Worker.
+#
+# worker.js only handles paths with no stored asset. It exists because assets
+# above the 25 MiB limit are stored gzip-encoded under a .gz name, and the
+# encoding has to be declared in a response header the asset server preserves.
+name = "abyssal-engine"
+main = "worker.js"
+compatibility_date = "2026-09-07"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"

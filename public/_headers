@@ -1,0 +1,15 @@
+# Served by static hosts that read _headers.
+# The single-threaded Web export needs no cross-origin isolation.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
+/*.wasm
+  Content-Type: application/wasm
+
+# Game packs carry a content hash in their filename, so they never change in place.
+/*.pck
+  Cache-Control: public, max-age=31536000, immutable
+
+/importer/vendor/*
+  Cache-Control: public, max-age=604800

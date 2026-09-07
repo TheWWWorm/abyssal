@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "note": "Unmodified runtime dependencies fetched at Web export time, outside the source tree. See THIRD_PARTY_NOTICES.md for corresponding source and license details.",
+  "files": [
+    {
+      "path": "vendor/pyodide.js",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js",
+      "sha256": "23e89e2adb3efdbaaeb275977d797d91ada6c06d5f6fe38d341b5cc293cfef49",
+      "bytes": 17340
+    },
+    {
+      "path": "vendor/pyodide.asm.js",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.asm.js",
+      "sha256": "d95b16f8e3114c802ba89ef50f2727dd53ac253ed8c420a805261c5dfa73e0c0",
+      "bytes": 1072977
+    },
+    {
+      "path": "vendor/pyodide.asm.wasm",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.asm.wasm",
+      "sha256": "bfc24d3d89379e529aabea84e989294cffa797adcdbf8ff74019e690a06488d9",
+      "bytes": 8645911
+    },
+    {
+      "path": "vendor/python_stdlib.zip",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/python_stdlib.zip",
+      "sha256": "9fb268300c752b54e507b196fcb753e7a15326971e192ebe0396e12778a0df84",
+      "bytes": 2416715
+    },
+    {
+      "path": "vendor/pyodide-lock.json",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide-lock.json",
+      "sha256": "f6e6f42f451f42affbbcddb00e8c9a3278dcbf399f57aab9f3f568839a7ff4a6",
+      "bytes": 109732
+    },
+    {
+      "path": "vendor/amrnb.js",
+      "url": "https://raw.githubusercontent.com/yxl/opencore-amr-js/dcf3d2b5f384a1d9ded2a54e4c137a81747b222b/js/amrnb.js",
+      "sha256": "90224e0d5f8e768b8f4c229e30673dee6273c322e7ee36e41d3524cf9f4f9b32",
+      "bytes": 484604
+    },
+    {
+      "path": "licenses/Pyodide-MPL-2.0.txt",
+      "url": "https://raw.githubusercontent.com/pyodide/pyodide/0.28.2/LICENSE",
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "bytes": 16725
+    },
+    {
+      "path": "licenses/CPython-3.13.2.txt",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.13.2/LICENSE",
+      "sha256": "78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb",
+      "bytes": 13809
+    },
+    {
+      "path": "licenses/Emscripten-4.0.9.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.9/LICENSE",
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+      "bytes": 5093
+    },
+    {
+      "path": "licenses/OpenCORE-AMR.txt",
+      "url": "https://raw.githubusercontent.com/yxl/opencore-amr-js/dcf3d2b5f384a1d9ded2a54e4c137a81747b222b/LICENSE",
+      "sha256": "8b3f1762349248d444ab9acbafe73941254e36e1064954da56bb9ddbd5873ddb",
+      "bytes": 10271
+    },
+    {
+      "path": "licenses/zlib.txt",
+      "url": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE",
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "bytes": 1002
+    },
+    {
+      "path": "licenses/bzip2.txt",
+      "url": "https://raw.githubusercontent.com/libarchive/bzip2/bzip2-1.0.8/LICENSE",
+      "sha256": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3",
+      "bytes": 1896
+    },
+    {
+      "path": "licenses/libffi.txt",
+      "url": "https://raw.githubusercontent.com/libffi/libffi/v3.4.6/LICENSE",
+      "sha256": "67894089811f93fca47a76f85e017da6f8582d4ba0905963c6e0f1ad6df7a195",
+      "bytes": 1132
+    },
+    {
+      "path": "licenses/OpenCORE-NOTICE.txt",
+      "url": "https://raw.githubusercontent.com/yxl/opencore-amr-js/dcf3d2b5f384a1d9ded2a54e4c137a81747b222b/opencore/NOTICE",
+      "sha256": "d106802b5e406073c1d10fbe9f638234c6973ebce37df71773179642085eb489",
+      "bytes": 12498
+    },
+    {
+      "path": "licenses/musl-COPYRIGHT.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.9/system/lib/libc/musl/COPYRIGHT",
+      "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
+      "bytes": 6204
+    },
+    {
+      "path": "licenses/compiler-rt-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.9/system/lib/compiler-rt/LICENSE.TXT",
+      "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d",
+      "bytes": 16708
+    },
+    {
+      "path": "licenses/libcxx-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.9/system/lib/libcxx/LICENSE.TXT",
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+      "bytes": 16703
+    },
+    {
+      "path": "licenses/libcxxabi-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.9/system/lib/libcxxabi/LICENSE.TXT",
+      "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+      "bytes": 16706
+    }
+  ]
+}

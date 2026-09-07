@@ -1,0 +1,43 @@
+# Preview 2 validation - 7 September 2026
+
+Unsigned development preview. Original game content is not included.
+
+## Checked behaviour
+
+- Closed open triangular sockets on imported engine and split-bridge station parts; opaque station panels render from either side. The fan aperture remains open.
+- Departure uses the blue-lit rectangular hangar aperture, slides panels inside the retained frame, clips the ship while it emerges, and closes the door after clearance. Skip and queued navigation remain functional.
+- Higher-tech tower variants support up to eight additional levels and alternating branches. Direct inspection covered a 35-module, 360-metre-tall station.
+- Colonist docking credits all cargo at fixed catalog values after deliveries due there; fish-only cargo is identified explicitly in the dock receipt. The receipt persists across dock-service navigation. Rebel cargo is retained and repeat docking cannot duplicate payment.
+- JAR acceptance is structural rather than a fixed digest. The Sony Ericsson 1.0.8 build the engine is developed on and the Sony Ericsson 1.0.3 Russian build both convert and both pass the full twelve-case engine check suite; the 1.0.3 build yields the same ship, station, creature and campaign counts and plays in Russian. The Nokia 1.0.3 build decodes its resources but is refused by the restricted data reader, with a message naming the unapproved call.
+
+## Execution evidence
+
+PLATFORM_INPUT: 112 checks, 0 failures, covering the relocating stick, the look surface, simultaneous fingers, the fullscreen control, the browser that offers none, list drag-scrolling against a live scroll container, gamepad right-stick aim, and the strafe routing under all three settings. NATIVE_TRAVEL additionally confirms that sideways thrust disengages a plotted course. ENGINE_UI: 0 failures. ENGINE_STREAM: 0 failures, including all-station connectivity, roofs and floors, socket-ray occlusion, fan animation and large-layout checks. NATIVE_SAVE_ROUND_TRIP passed with actual portable-imported data. Dedicated native visual checks captured the receipt, five departure states and a large station; STATION_FOLLOWUP: 0 failures. The final door shader compiled and rendered in Godot's OpenGL Compatibility renderer.
+
+Linux direct-JAR import without installed tools was exercised in preview 1; the converter is unchanged. Archive integrity and executable permissions are checked after packaging. The Python suites and the source audit pass against the source in this release.
+
+## Scope of this build
+
+These archives were rebuilt from the source snapshot published alongside them. Relative to the run that produced the gameplay evidence above, the source changed in these ways only:
+
+- The macOS package is now Apple Silicon only. Godot's official template is a universal binary, so packaging keeps its arm64 slice and embeds only the Apple Silicon Node.js runtime. The engine binary is otherwise the same build output.
+- The unreachable Intel branch of the desktop importer's runtime lookup was removed. On an Apple Silicon-only bundle that branch could never be taken; Windows and Linux selection is unchanged.
+- Documentation prose was removed from the distributable source. Archives carry the repository README, licence, third-party notices and the decoder provenance record.
+- The Web export emits a `_headers` file for static hosts, and a Cloudflare publishing path was added to the tools. Assets above the host's per-file limit are stored as numbered parts and streamed back together by a Worker, so the host applies its own compression.
+- The engine source is licensed under Apache-2.0, with the full licence text in `LICENSE.md`.
+- The fixed-digest JAR gate was removed from the Python importer, the portable converter, the Java resource adapter, the desktop and browser entry points and the Godot content boundary. Acceptance is now structural: the archive must be a DEEP MIDlet within the existing size and entry bounds, and conversion decides whether the build's data layout matches. Caches and portable packs are keyed by the digest of the JAR actually imported, so several builds coexist. The localisation directory is discovered from the build instead of assuming English.
+- The per-file source review record is no longer distributed. It is kept with the working tree and is excluded from the source manifest, the repository and these archives. Packaging still reads the explicit file allowlist and rejects unexpected files, symlinks and disguised binaries, and still fails if the Java bridge reintroduces original-game class loading. The audit tool applies the recorded per-file hashes only where that local record is present.
+- Touch play was reworked for handhelds. The on-screen stick now appears wherever the left thumb lands instead of a fixed pad, any free area of the screen is a look surface feeding the same steering path the mouse uses, the weapon and throttle cluster keeps clear of the depth gauge, and the flight readouts reflow into the band between the stick and that cluster. A fullscreen control was added to the touch row alongside the existing pause-menu entry and F11. The hosted page declares handheld viewport, web-app and overscroll behaviour so drags reach the game instead of scrolling the page.
+- The web build identity no longer draws a banner across the top of the running game, where it covered the touch row; it is recorded in an invisible page-head meta tag instead. The fullscreen control now checks whether the browser actually provides a Fullscreen API. iPhone Safari provides none, so the game explains the Add to Home Screen route rather than failing silently, and the button is dropped once the page already runs without browser chrome.
+- Sideways thrust is now a flight axis of its own. A and D, and the gamepad left stick, slide the submarine along its own right axis instead of turning it, and the right stick was added as a second aim input so a pad can still turn. The on-screen touch stick keeps turning, because a thumb has nothing else to turn with. A three-way Auto / Always strafe / Always turn setting overrides that default on any platform and is stored with the other control settings. Lateral thrust runs at a fraction of cruise speed, ignores the throttle and counts as manual control, so it disengages an autopilot course.
+- On-screen lists scroll by dragging their contents. Rows are buttons, and a button consumes the touch before the scroll container can begin its own drag, so only the narrow scroll bar responded to a finger. The gesture is now tracked alongside the container and the row press is cancelled once the finger has clearly travelled, so a tap still selects and a drag scrolls. The atlas keeps its own pan and pinch.
+
+The relaxation removes an identity check, not a boundary. The 16 MiB archive bound, entry count and size limits, path validation, the resource-only extraction allowlist and the restricted class-data evaluator are all unchanged, and no Java VM, application method or constructor runs. A non-DEEP archive is still refused before any converter or Java process starts.
+
+Rendering and save behaviour are unmodified. The touch work changes input handling and on-screen control placement only. The strafe work adds one movement axis to the simulation: it displaces the hull sideways and disengages autopilot, and leaves speed, steering rates, collision response and every other simulated behaviour as they were. The gameplay evidence above was recorded on the Sony Ericsson 1.0.8 build and was not re-executed against these exact archives.
+
+## Not verified
+
+Touch play was exercised through the automated input checks and rendered at handheld aspect on a desktop build; it has not been played through a browser on a physical phone or tablet, and the hosted page was verified only under browser device emulation. The iPhone fullscreen path was reproduced by forcing the browser feature flags off, not on an actual iPhone. Strafing was verified through the automated input and travel checks rather than by hand-flying a build, and the gamepad right stick was exercised with synthetic joypad events rather than a physical controller. Windows and macOS have not been executed on their native systems; both are unsigned and macOS is not notarized. A successful export is not device validation. No complete human campaign playthrough has been performed. Android is not included.
+
+Runtime dependency hashes and archive SHA-256 values are recorded in `release.json` and `SHA256SUMS`. No `.jar`, `.abyss` or `.class` content is distributed. The engine source is licensed under Apache-2.0; the original game and any converted content are not. See `LICENSE.md`.

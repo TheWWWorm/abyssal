@@ -1,0 +1,20 @@
+{
+  "Loader": {
+    "commit": "9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc",
+    "url": "https://raw.githubusercontent.com/nikita36078/J2ME-Loader/9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc/app/src/main/java/com/mascotcapsule/micro3d/v3/Loader.java",
+    "upstream_sha256": "c9ce7f92c78d3a25893b0bfa55af6f55cf377cc4239ed8f63f46e46767a6299d",
+    "matches_downloaded_reference": true
+  },
+  "Action": {
+    "commit": "9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc",
+    "url": "https://raw.githubusercontent.com/nikita36078/J2ME-Loader/9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc/app/src/main/java/com/mascotcapsule/micro3d/v3/Action.java",
+    "upstream_sha256": "f1e53adedaa688c7456c401e7a8a3ca68ad6b98ade1a8bd266e298d91ca98d77",
+    "matches_downloaded_reference": true
+  },
+  "Model": {
+    "commit": "9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc",
+    "url": "https://raw.githubusercontent.com/nikita36078/J2ME-Loader/9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc/app/src/main/java/com/mascotcapsule/micro3d/v3/Model.java",
+    "upstream_sha256": "7e142a42a3e04c62a97d8a4d479f6d188321f81b18ab469871f9cf07a57e7f26",
+    "matches_downloaded_reference": true
+  }
+}
