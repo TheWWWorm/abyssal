@@ -170,3 +170,7 @@ Packaging reads the explicit allowlist in `source-manifest.json`, checks that th
 Prepared archives are attached to [releases](https://github.com/TheWWWorm/abyssal/releases) rather than committed, which keeps this repository small.
 
 See also [third-party notices](THIRD_PARTY_NOTICES.md) and [license status](LICENSE.md). Each release carries its own `VALIDATION.md` recording what was actually executed for that build.
+
+## Donations
+If you want to support this development or ones similar to it, you can do it here https://ko-fi.com/wwworm
+Please only do it if you have money for it and always be financially responsibe. Nevertheless I am grateful for any support given. 
