@@ -20,7 +20,7 @@ Needs WebGL 2 and a desktop-class browser. For the smoothest experience, and to 
 | --- | --- | --- |
 | Windows x86-64 | `…-windows.zip` | `abyssal.exe` |
 | Linux x86-64 | `…-linux.tar.gz` | `AbyssalEngine/abyssal.x86_64` |
-| macOS Apple Silicon | `…-macos.zip` | `abyssal.app` |
+| macOS Apple Silicon | `…-macos.zip` | `Abyssal Compatibility Engine.app` |
 | Android 8+ (ARM64 / x86-64) | `…-android.apk` | Install the APK, then open **Abyssal Engine** |
 | Browser (WebGL 2) | `…-web.zip` | Host the archive yourself, or [use the hosted build](https://abyssal.wwworm.com/) |
 
@@ -38,14 +38,14 @@ The desktop packages can prepare that pack with their bundled converter; no addi
 
 ```sh
 # Linux
-./importer/bin/linux/node importer/import.js /path/to/DEEP.jar /path/to/private.abyss
+./importer/bin/linux/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
 # macOS Apple Silicon
-./abyssal.app/Contents/Resources/importer/bin/macos-arm64/node ./abyssal.app/Contents/Resources/importer/import.js /path/to/DEEP.jar /path/to/private.abyss
+"./Abyssal Compatibility Engine.app/Contents/Resources/importer/bin/macos-arm64/node" "./Abyssal Compatibility Engine.app/Contents/Resources/importer/import.js" "/path/to/DEEP.jar" "/path/to/private.abyss"
 ```
 
 ```powershell
 # Windows PowerShell
-.\importer\bin\windows\node.exe .\importer\import.js C:\path\DEEP.jar C:\path\private.abyss
+.\importer\bin\windows\node.exe .\importer\import.js "C:\path\DEEP.jar" "C:\path\private.abyss"
 ```
 
 Transfer only your own private pack to your Android device. It contains converted game assets and is not a public release file.
