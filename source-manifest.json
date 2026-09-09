@@ -123,6 +123,7 @@
     "tests/content_pack_check.gd",
     "tests/engine_stream_check.gd",
     "tests/engine_ui_check.gd",
+    "tests/gamepad_ui_check.gd",
     "tests/modern_gameplay_check.gd",
     "tests/native_open_world_mission_check.gd",
     "tests/native_session_check.gd",

@@ -30,6 +30,18 @@ window/size/window_height_override=720
 window/stretch/mode="canvas_items"
 window/handheld/orientation=0
 
+[input]
+
+; Keep keyboard activation alongside gamepad south/east buttons on every device.
+ui_accept={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"keycode":4194309), Object(InputEventKey,"keycode":4194310), Object(InputEventKey,"keycode":32), Object(InputEventJoypadButton,"device":-1,"button_index":0)]
+}
+ui_cancel={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"keycode":4194305), Object(InputEventJoypadButton,"device":-1,"button_index":1)]
+}
+
 [input_devices]
 
 pointing/emulate_mouse_from_touch=true

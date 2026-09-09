@@ -288,7 +288,7 @@ func open_page(title: String, id: String) -> void:
 	if id not in ["station","dialogue","failure","transit"]:
 		var back := button("CLOSE" if id=="destinations" else "BACK",dock_back,header)
 		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.custom_minimum_size=Vector2(90,32)
-	var scroll := ScrollContainer.new();sheet_scroll=scroll; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
+	var scroll := ScrollContainer.new();sheet_scroll=scroll;scroll.follow_focus=true; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
 	scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_AUTO if touch.enabled() or id in ["station","destinations","controls"] else ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	column=VBoxContainer.new(); column.size_flags_horizontal=Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",7); scroll.add_child(column)
 	touch_scroll.scroll=scroll;touch_scroll.gesture_control=null;touch_scroll.release()
@@ -568,6 +568,13 @@ func _notification(what: int) -> void:
 		if session!=null and page.is_empty():show_pause()
 	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null:touch_action("menu")
 func _input(event: InputEvent) -> void:
+	var was_touch := touch.enabled()
+	touch.update_input(event,controller.deadzone)
+	if was_touch!=touch.enabled():
+		mouse_steer=Vector2.ZERO
+		if touch.enabled():Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+		elif not OS.has_feature("web"):capture_flight_mouse()
+		layout()
 	if page=="departure":
 		var skip: bool=(event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER,KEY_SPACE,KEY_ESCAPE]) or (event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT) or (event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_A,JOY_BUTTON_B]) or (event is InputEventScreenTouch and event.pressed)
 		if skip:finish_departure()

@@ -148,6 +148,11 @@ func _ready() -> void:
 	scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	scrim.hide()
 	ui.add_child(modal)
+	# The scrim blocks pointer clicks; also keep keyboard/controller focus inside
+	# the dialog instead of navigating to the title buttons behind it.
+	modal.visibility_changed.connect(func():
+		var behavior := Control.FOCUS_BEHAVIOR_DISABLED if modal.visible else Control.FOCUS_BEHAVIOR_INHERITED
+		title_menu.focus_behavior_recursive=behavior;panel.focus_behavior_recursive=behavior)
 	modal.add_theme_stylebox_override("panel",style(Color("07151df5"),Color("409bbd")))
 	modal.hide()
 	add_child(portable)
@@ -329,6 +334,7 @@ func save_capture() -> void:
 	get_tree().quit()
 
 func _input(event: InputEvent) -> void:
+	preload("res://native/input/touch_controls.gd").record_input(event)
 	if modal.visible and event is InputEventJoypadButton and event.pressed and event.button_index==JOY_BUTTON_B:
 		close_modal()
 		get_viewport().set_input_as_handled()

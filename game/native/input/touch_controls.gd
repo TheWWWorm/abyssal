@@ -2,7 +2,9 @@ extends Control
 ## Independent finger ownership allows steering, looking, thrust and weapons at the same time.
 signal action(name: String)
 var mode := 0 # Auto, On, Off
-var detected := false
+# Shared across the title/gameplay scene change; a pad used in menus also wins
+# over touchscreen availability when the dive starts.
+static var last_input := ""
 var active := false
 var fingers := {}
 var steer := Vector2.ZERO
@@ -27,7 +29,26 @@ func _ready() -> void:
 	z_index=60
 	resized.connect(arrange);arrange()
 func enabled() -> bool:
-	return mode==1 or (mode==0 and (detected or DisplayServer.is_touchscreen_available()))
+	return mode==1 or (mode==0 and (last_input=="touch" or (last_input.is_empty() and DisplayServer.is_touchscreen_available())))
+static func record_input(event: InputEvent, deadzone: float=.18) -> void:
+	# Godot generates mouse events for touch taps. They are still touch input.
+	if event.device==InputEvent.DEVICE_ID_EMULATION:return
+	if (event is InputEventScreenTouch and event.pressed and not event.canceled) or event is InputEventScreenDrag:
+		last_input="touch"
+	elif event is InputEventKey and event.pressed and not event.echo:
+		last_input="keyboard"
+	elif (event is InputEventMouseButton and event.pressed) or (event is InputEventMouseMotion and not event.relative.is_zero_approx()):
+		last_input="mouse"
+	elif event is InputEventJoypadButton and event.pressed:
+		last_input="gamepad"
+	elif event is InputEventJoypadMotion:
+		var strength: float = event.axis_value if event.axis in [JOY_AXIS_TRIGGER_LEFT,JOY_AXIS_TRIGGER_RIGHT] else absf(event.axis_value)
+		if strength>maxf(deadzone,.25):last_input="gamepad"
+func update_input(event: InputEvent, deadzone: float=.18) -> void:
+	var before := enabled()
+	record_input(event,deadzone)
+	if before!=enabled():
+		reset();visible=active and enabled()
 func reset() -> void:
 	fingers.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;queue_redraw()
 func set_active(value: bool) -> void:
@@ -87,7 +108,7 @@ func button_at(point: Vector2) -> String:
 	return ""
 func handle(event: InputEvent) -> bool:
 	if event is InputEventScreenTouch and event.pressed:
-		detected=true;visible=active and enabled()
+		update_input(event)
 	if not active or not enabled():return false
 	if event is InputEventScreenTouch:
 		if event.pressed:
