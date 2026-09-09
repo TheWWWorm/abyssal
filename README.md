@@ -32,6 +32,24 @@ Extract the **entire** archive and keep the files together. You do not need Godo
 
 On Android, allow your browser or file manager to install the APK when prompted. Keep Android System WebView enabled and up to date; it runs the bundled offline converter during the first import. Choose your JAR from the system file picker and keep the app open until conversion finishes. The APK supports 64-bit ARM devices and x86-64 emulators, requires OpenGL ES 3, and requests no network or broad storage permission. Later APK updates preserve content and saves; uninstalling removes them. You can also select a private `.abyss` pack prepared on a computer with `tools/pack_content.py`.
 
+**Android validation:** prepared-pack import, native gameplay, touch input, Android Back and reopening saved content were checked in an Android 15 x86-64 emulator. Direct JAR conversion could not be verified there because Android System WebView stopped before the decoder started. Physical ARM64 devices have not been tested. If direct import fails, create a private `.abyss` pack on a computer and select it on Android.
+
+The desktop packages can prepare that pack with their bundled converter; no additional runtime installation is needed. From the extracted package, run the command for the computer's platform, replacing the two absolute file paths:
+
+```sh
+# Linux
+./importer/bin/linux/node importer/import.js /path/to/DEEP.jar /path/to/private.abyss
+# macOS Apple Silicon
+./abyssal.app/Contents/Resources/importer/bin/macos-arm64/node ./abyssal.app/Contents/Resources/importer/import.js /path/to/DEEP.jar /path/to/private.abyss
+```
+
+```powershell
+# Windows PowerShell
+.\importer\bin\windows\node.exe .\importer\import.js C:\path\DEEP.jar C:\path\private.abyss
+```
+
+Transfer only your own private pack to your Android device. It contains converted game assets and is not a public release file.
+
 Your JAR never leaves your device. The game remembers imported content and station checkpoints in your user storage, so you only import once.
 
 ### Which DEEP builds work
