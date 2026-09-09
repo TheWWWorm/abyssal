@@ -89,6 +89,7 @@ func button(text: String, action: Callable, parent: Node=column) -> Button:
 	return node
 
 func _ready() -> void:
+	get_tree().quit_on_go_back=false
 	project_root=ProjectSettings.globalize_path("res://").get_base_dir().get_base_dir()
 	get_viewport().disable_3d=false
 	add_child(camera)
@@ -133,7 +134,7 @@ func _ready() -> void:
 	button("Back to main menu",hide_tools)
 	button("Ship systems · native rule checks",show_systems)
 	button("Headlights  ·  L",toggle_lights)
-	button("Choose a JAR",func(): chooser.popup_centered_ratio(0.65))
+	button("Choose game content",choose_content)
 	
 	column.add_child(HSeparator.new())
 	details=label("Orbit: drag right mouse / right stick\nZoom: mouse wheel\nFullscreen: F11",14,Color("81a2b0"))
@@ -182,25 +183,25 @@ func _ready() -> void:
 	elif source_import_available() and FileAccess.file_exists(jar_path): import_jar(jar_path)
 	else: status.text="Choose your DEEP JAR to begin."
 	title_menu.footer.text=content_picker_label()
-	if not ready_for_preview:status.text="Choose your private .abyss content pack." if not source_import_available() and not OS.has_feature("web") else "Choose your JAR or private .abyss content pack."
+	if not ready_for_preview:status.text="Choose your private .abyss content pack." if not source_import_available() and not OS.has_feature("web") and portable.android==null else "Choose your JAR or private .abyss content pack."
 	refresh_title()
 
 func content_picker_label() -> String:
-	return "Choose JAR / content pack…" if source_import_available() or OS.has_feature("web") else "Choose content pack…"
+	return "Choose JAR / content pack…" if source_import_available() or OS.has_feature("web") or portable.android!=null else "Choose content pack…"
 
 func desktop_importer_root() -> String:
 	var folder:=OS.get_executable_path().get_base_dir()
-	return folder.path_join("../Resources/importer").simplify_path() if OS.has_feature("macOS") else folder.path_join("importer")
+	return folder.path_join("../Resources/importer").simplify_path() if OS.has_feature("macos") else folder.path_join("importer")
 
 func desktop_importer_command() -> String:
-	var platform:="macos-arm64" if OS.has_feature("macOS") else "windows" if OS.has_feature("Windows") else "linux"
-	return desktop_importer_root().path_join("bin/"+platform+"/"+("node.exe" if OS.has_feature("Windows") else "node"))
+	var platform:="macos-arm64" if OS.has_feature("macos") else "windows" if OS.has_feature("windows") else "linux"
+	return desktop_importer_root().path_join("bin/"+platform+"/"+("node.exe" if OS.has_feature("windows") else "node"))
 
 func bundled_import_available() -> bool:
-	return not OS.has_feature("web") and not OS.has_feature("Android") and FileAccess.file_exists(desktop_importer_command()) and FileAccess.file_exists(desktop_importer_root().path_join("import.js"))
+	return not OS.has_feature("web") and not OS.has_feature("android") and FileAccess.file_exists(desktop_importer_command()) and FileAccess.file_exists(desktop_importer_root().path_join("import.js"))
 
 func source_import_available() -> bool:
-	return bundled_import_available() or (not OS.has_feature("web") and not OS.has_feature("Android") and FileAccess.file_exists(project_root.path_join("tools/import_native.py")))
+	return bundled_import_available() or (not OS.has_feature("web") and not OS.has_feature("android") and FileAccess.file_exists(project_root.path_join("tools/import_native.py")))
 
 func choose_content() -> void:
 	if import_busy:return

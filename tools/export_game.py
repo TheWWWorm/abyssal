@@ -61,12 +61,12 @@ def stamp_web_build(output):
     temporary=page.with_suffix('.html.tmp');temporary.write_text(html);temporary.replace(page)
     return digest[:12]
 
-def stage_project(stage, platform):
+def stage_project(stage, platform, version="0.1.0-preview.3", version_code=3):
     names=json.loads((ROOT/'source-manifest.json').read_text())['files']
     for name in names:
         if not name.startswith('game/'):continue
         source=ROOT/name
-        if source.is_symlink() or source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid'}:raise ValueError('Unexpected runtime source: '+name)
+        if source.is_symlink() or source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg'}:raise ValueError('Unexpected runtime source: '+name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text().replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
@@ -76,7 +76,7 @@ def stage_project(stage, platform):
     settings.write_text(text)
     options={'texture_format/s3tc_bptc':'true','texture_format/etc2_astc':'false'}
     if platform=='web':options={'variant/extensions_support':'false','variant/thread_support':'false','vram_texture_compression/for_desktop':'true','vram_texture_compression/for_mobile':'true','html/export_icon':'false','html/canvas_resize_policy':'2','progressive_web_app/enabled':'false'}
-    elif platform=='android':options={'architectures/armeabi-v7a':'false','architectures/arm64-v8a':'true','architectures/x86_64':'false','package/unique_name':'"org.abyssal.engine"','package/name':'"Abyssal Engine"','package/signed':'true','version/code':'1','version/name':'"0.1-dev"','screen/immersive_mode':'true','permissions/internet':'false'}
+    elif platform=='android':options={'architectures/armeabi-v7a':'false','architectures/arm64-v8a':'true','architectures/x86_64':'true','architectures/x86':'false','gradle_build/use_gradle_build':'true','gradle_build/min_sdk':'26','gradle_build/target_sdk':'36','package/unique_name':'"org.abyssal.engine"','package/name':'"Abyssal Engine"','package/signed':'true','version/code':str(version_code),'version/name':json.dumps(version),'screen/immersive_mode':'true','permissions/internet':'false','permissions/read_external_storage':'false','permissions/write_external_storage':'false','permissions/manage_external_storage':'false'}
     elif platform=='macos':options={'application/bundle_identifier':'"org.abyssal.engine"','application/short_version':'"0.1"','application/version':'"0.1"','binary_format/architecture':'"universal"','codesign/codesign':'0','notarization/notarization':'0'}
     else:options['binary_format/architecture']='"x86_64"'
     header=f'''[preset.0]
@@ -117,7 +117,8 @@ def write_static_headers(output):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.3');p.add_argument('--version-code',type=int,default=3);args=p.parse_args()
+    if args.version_code<1:p.error("Android version code must be positive")
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):p.error('Export outside the source directory.')
     if not args.godot and not args.stage_only:p.error('Install Godot 4.7 and matching export templates, or pass --godot.')
@@ -127,9 +128,12 @@ def main():
     output.mkdir(parents=True,exist_ok=True)
     home=cache_home()/'exports';home.mkdir(parents=True,exist_ok=True)
     if args.stage_only:
-        stage=output/'project';stage.mkdir(exist_ok=False);stage_project(stage,args.platform);print(stage);return
+        stage=output/'project';stage.mkdir(exist_ok=False);stage_project(stage,args.platform,args.version,args.version_code);print(stage);return
     with tempfile.TemporaryDirectory(prefix=args.platform+'-',dir=home) as temporary:
-        stage=pathlib.Path(temporary);stage_project(stage,args.platform)
+        stage=pathlib.Path(temporary);stage_project(stage,args.platform,args.version,args.version_code)
+        if args.platform=='android':
+            from android_runtime import stage as stage_android
+            stage_android(stage,args.godot,args.release)
         subprocess.run([args.godot,'--headless','--path',str(stage),'--editor','--import','--quit'],check=True)
         subprocess.run([args.godot,'--headless','--path',str(stage),'--export-release' if args.release else '--export-debug',args.platform,str(output/PLATFORMS[args.platform][1])],check=True)
     if args.platform=='web':

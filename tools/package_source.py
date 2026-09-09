@@ -4,7 +4,7 @@ import argparse, hashlib, json, pathlib, zipfile
 from paths import ROOT
 from audit_provenance import verify as verify_provenance
 MANIFEST=ROOT/'source-manifest.json'
-ALLOWED={'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.java','.py','.md','.txt','.json','.uid','.js','.toml'}
+ALLOWED={'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.java','.py','.md','.txt','.json','.uid','.js','.toml','.svg'}
 IGNORED={'.godot','__pycache__','.git','public'}
 
 def source_files():

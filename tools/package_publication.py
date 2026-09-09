@@ -73,11 +73,14 @@ def pck_entries(data, source_names):
         if entry_flags or base + offset + size > len(data):
             raise ValueError('Invalid/encrypted game pack payload: ' + name)
         source = name[:-6] if name.endswith('.remap') else name
+        if source.endswith('.import'):
+            source = source[:-7]
         if source.endswith('.gdc'):
             source = source[:-1]
         generated = name in {'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
         scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', name)
-        if not generated and not scene and 'game/' + source not in source_names:
+        icon = name == '.godot/imported/icon.svg-'+hashlib.md5(b'res://icon.svg').hexdigest()+'.ctex' and 'game/icon.svg' in source_names
+        if not generated and not scene and not icon and 'game/' + source not in source_names:
             raise ValueError('Unreviewed resource in game pack: ' + name)
         names.append(name)
     if len(names) != len(set(names)):
@@ -110,7 +113,52 @@ def inspect_zip(data, source_names, depth=0):
     return count, packs
 
 
+def inspect_apk(path, source_names):
+    """Check native APK game assets and every bundled offline importer byte."""
+    from browser_runtime import SOURCES
+    from android_runtime import INDEX_HTML
+    lock = json.loads((ROOT/'browser/dependencies.json').read_text())
+    expected = {item['path']: item['sha256'] for item in lock['files']}
+    for name, source in {'import.js':'android/import.js', 'audio.js':'browser/audio.js',
+                         'worker.js':'browser/worker.js', 'dependencies.json':'browser/dependencies.json',
+                         'LICENSE.md':'LICENSE.md', 'THIRD_PARTY_NOTICES.md':'THIRD_PARTY_NOTICES.md'}.items():
+        expected[name] = digest(ROOT/source)
+    with zipfile.ZipFile(path) as archive:
+        if archive.testzip() is not None: raise ValueError('Corrupt APK')
+        names = archive.namelist()
+        if len(names) != len(set(names)): raise ValueError('Duplicate APK entry')
+        prefix = 'assets/abyssal-importer/'
+        importer = {name[len(prefix):] for name in names if name.startswith(prefix) and not name.endswith('/')}
+        if importer != set(expected)|{'index.html','sources.zip','GODOT_LICENSES.txt'}:
+            raise ValueError('Unexpected Android importer inventory')
+        if archive.read(prefix+'index.html') != INDEX_HTML.encode(): raise ValueError('Android importer page differs')
+        for name, checksum in expected.items():
+            if hashlib.sha256(archive.read(prefix+name)).hexdigest() != checksum:
+                raise ValueError('Android importer checksum mismatch: '+name)
+        with zipfile.ZipFile(io.BytesIO(archive.read(prefix+'sources.zip'))) as sources:
+            if set(sources.namelist()) != set(SOURCES): raise ValueError('Unexpected decoder modules')
+            for name, source in SOURCES.items():
+                if sources.read(name) != (ROOT/source).read_bytes(): raise ValueError('Decoder differs: '+name)
+        for name in names:
+            if not name.startswith('assets/') or name.startswith(prefix) or name.endswith('/'): continue
+            resource = name[len('assets/'):]
+            safe_name(resource)
+            source = resource[:-7] if resource.endswith('.import') else resource[:-6] if resource.endswith('.remap') else resource
+            if source.endswith('.gdc'): source=source[:-1]
+            generated = resource in {'_cl_', 'assets.sparsepck', 'dexopt/baseline.prof', 'dexopt/baseline.profm', 'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
+            scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', resource)
+            icon = resource == '.godot/imported/icon.svg-'+hashlib.md5(b'res://icon.svg').hexdigest()+'.ctex' and 'game/icon.svg' in source_names
+            if not generated and not scene and not icon and 'game/'+source not in source_names:
+                raise ValueError('Unreviewed Android game asset: '+resource)
+        abis={name.split('/')[1] for name in names if name.endswith('/libgodot_android.so')}
+        if abis != {'arm64-v8a','x86_64'}: raise ValueError('Unexpected Android architectures')
+    return {'file':path.name, 'archive_entries_including_nested':len(names),
+            'android_architectures':sorted(abis), 'offline_importer_verified':True}
+
+
 def inspect_archive(path, source_names):
+    if path.suffix == '.apk':
+        return inspect_apk(path, source_names)
     if path.suffix == '.zip':
         count, packs = inspect_zip(path.read_bytes(), source_names)
     else:
@@ -219,7 +267,7 @@ This is the single distribution root. It contains the reviewed engine source and
 
 ## Play
 
-[Download a prepared Windows, Linux or macOS package](releases/{version}/README.md), extract the complete archive and launch its executable/app. Select your own DEEP JAR. Players do not install build tools. A Web hosting package is included too. See the [engine README](engine/README.md) and [actual validation results](releases/{version}/VALIDATION.md).
+[Download a prepared Windows, Linux, macOS or Android package](releases/{version}/README.md), extract the complete archive and launch its executable/app, or install the Android APK. Select your own DEEP JAR. Players do not install build tools. A Web hosting package is included too. See the [engine README](engine/README.md) and [actual validation results](releases/{version}/VALIDATION.md).
 
 ## Contents
 
@@ -263,6 +311,7 @@ Thumbs.db
 # Prepared player archives are published as release assets, not committed.
 releases/**/*.zip
 releases/**/*.tar.gz
+releases/**/*.apk
 ''')
         (stage / 'LICENSE.md').write_text('# License\n\nThe engine source is licensed under the Apache License 2.0; see [engine/LICENSE.md](engine/LICENSE.md) and [third-party notices](engine/THIRD_PARTY_NOTICES.md). The original game and any content converted from it are not licensed by this project and are not included here. Packaging does not change ownership or licensing.\n')
         record = {'schema': 1, 'version': version, 'legal_clearance': False,

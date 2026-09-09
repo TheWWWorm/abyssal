@@ -8,8 +8,17 @@ var dialog := FileDialog.new()
 var callback: JavaScriptObject
 var browser: JavaScriptObject
 var busy := false
+var android: Object
 func _ready() -> void:
-	if OS.has_feature("web"):
+	if OS.has_feature("android") and Engine.has_singleton("AbyssalImporter"):
+		android=Engine.get_singleton("AbyssalImporter")
+		android.connect("progress",func(message):progress.emit(message))
+		android.connect("failed",func(message):failed.emit(message))
+		android.connect("busy_changed",set_busy)
+		android.connect("selected",func(path):
+			selected.emit(path)
+			DirAccess.remove_absolute(path))
+	elif OS.has_feature("web"):
 		callback=JavaScriptBridge.create_callback(received)
 		JavaScriptBridge.eval("""
 window.abyssalFiles = {
@@ -54,7 +63,8 @@ window.abyssalFiles = {
 		dialog.use_native_dialog=true;dialog.filters=PackedStringArray(["*.abyss ; Private Abyssal content pack ; application/octet-stream,application/zip"])
 		dialog.file_selected.connect(func(path):selected.emit(path))
 func choose() -> void:
-	if OS.has_feature("web"):browser.choose(callback)
+	if android!=null:android.choose()
+	elif OS.has_feature("web"):browser.choose(callback)
 	else:dialog.popup_centered_ratio(.8)
 func set_busy(value: bool) -> void:
 	if busy==value:return
@@ -75,5 +85,6 @@ func received(args: Array) -> void:
 		DirAccess.remove_absolute(path);failed.emit("Browser storage is full. Free space and try again.");return
 	selected.emit(path);DirAccess.remove_absolute(path)
 func _exit_tree() -> void:
+	if android!=null and busy:android.cancel()
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("if(window.abyssalFiles){window.abyssalFiles.generation++;if(window.abyssalFiles.worker)window.abyssalFiles.worker.terminate();window.abyssalFiles.worker=null;}",true)

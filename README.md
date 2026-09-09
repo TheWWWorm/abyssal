@@ -14,22 +14,25 @@ Needs WebGL 2 and a desktop-class browser. For the smoothest experience, and to 
 
 ## Download and play
 
-**[Download the latest release →](https://github.com/TheWWWorm/abyssal/releases/latest)**
+**[Download the latest release →](https://github.com/TheWWWorm/abyssal/releases)**
 
 | Platform | Download | Start |
 | --- | --- | --- |
 | Windows x86-64 | `…-windows.zip` | `abyssal.exe` |
 | Linux x86-64 | `…-linux.tar.gz` | `AbyssalEngine/abyssal.x86_64` |
 | macOS Apple Silicon | `…-macos.zip` | `abyssal.app` |
+| Android 8+ (ARM64 / x86-64) | `…-android.apk` | Install the APK, then open **Abyssal Engine** |
 | Browser (WebGL 2) | `…-web.zip` | Host the archive yourself, or [use the hosted build](https://abyssal.wwworm.com/) |
 
-Extract the **entire** archive and keep the files together. You do not need Godot, Python, Java, Node.js or a compiler - the desktop packages carry everything they need, and conversion runs completely offline.
+Extract the **entire** archive and keep the files together. You do not need Godot, Python, Java, Node.js or a compiler - the desktop and Android packages carry their converter, and conversion runs completely offline.
 
 1. Launch the application.
 2. Choose your DEEP JAR when asked. Its filename does not matter.
 3. Wait for the first conversion to finish before closing the app.
 
-Your JAR never leaves your computer. The game remembers imported content and station checkpoints in your user storage, so you only import once.
+On Android, allow your browser or file manager to install the APK when prompted. Keep Android System WebView enabled and up to date; it runs the bundled offline converter during the first import. Choose your JAR from the system file picker and keep the app open until conversion finishes. The APK supports 64-bit ARM devices and x86-64 emulators, requires OpenGL ES 3, and requests no network or broad storage permission. Later APK updates preserve content and saves; uninstalling removes them. You can also select a private `.abyss` pack prepared on a computer with `tools/pack_content.py`.
+
+Your JAR never leaves your device. The game remembers imported content and station checkpoints in your user storage, so you only import once.
 
 ### Which DEEP builds work
 
@@ -53,9 +56,9 @@ If a build does not match, import stops with a message naming what did not fit, 
 
 - **Windows and macOS have never been run on their native systems.** They are built and packaged, but not tested on real hardware. Both are unsigned and macOS is not notarized, so those systems may warn about or block them.
 - **macOS is Apple Silicon only.** Intel Macs cannot run this build.
-- **Linux** is the only platform where gameplay has been rendered and visually checked.
+- **Linux and Android** have local rendering checks; see the release’s `VALIDATION.md` for the exact checks and hardware limits.
 - **The browser build needs a web host.** Opening `index.html` from your disk will not work.
-- **Android** is not a player release. There is a developer target that accepts prepared content packs only.
+- **Android** is a sideloaded preview APK. Physical ARM64 hardware performance is not yet verified; Android validation uses an x86-64 emulator.
 
 ## Controls
 
@@ -127,7 +130,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 This is a **development preview**, and its public release provenance is unresolved.
 
-The importer checks your JAR against the supported SHA-256, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
+The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
 It does, however, inspect and evaluate parts of original method bodies. Because some content is derived that way, this is reverse engineering and **not** a clean-room reimplementation. Decoded models, textures, audio, catalogue rows and narrative records exist only in your own local cache - none are distributed here.
 
@@ -142,8 +145,8 @@ The name is a working title, not a trademark claim. Menus and instrument frames 
 Requires Godot **4.7 Standard** with matching export templates, and Python 3.10+. Run everything from the repository root and keep builds and game content outside it.
 
 ```sh
-# All player archives, including the offline desktop importers:
-python3 tools/package_releases.py --version 0.1.0-preview.2 --output /outside/repo/releases/0.1.0-preview.2
+# All player packages, including the offline desktop and Android importers:
+python3 tools/package_releases.py --version 0.1.0-preview.3 --output /outside/repo/releases/0.1.0-preview.3
 # A single unpackaged export (windows, linux, macos, web, android):
 python3 tools/export_game.py --platform linux --release --output /outside/repo/builds/linux
 ```
@@ -156,6 +159,18 @@ To run from source with direct JAR conversion you also need JDK 17+ and FFmpeg:
 python3 tools/run.py --jar /private/path/deep3d.jar --compatibility
 python3 tools/serve_web.py --directory /outside/repo/builds/web --port 8060   # local web testing
 ```
+
+### Building Android
+
+Install Godot 4.7 and its matching Android build template (`android_source.zip`), JDK 17 or newer, and the Android SDK versions required by that template. Configure the Java and Android SDK paths in Godot’s editor settings. The Gradle build and pinned importer dependencies are downloaded at build time into external caches; the installed app converts entirely offline.
+
+```sh
+python3 tools/export_game.py --platform android --output /path/outside/source/android
+```
+
+This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 0.1.0-preview.3 --version-code 3`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
+
+The Android build stages a small Java plugin into Godot’s official Gradle template. A private Android import process shows conversion progress and returns to the game when finished. Android System WebView runs the same Python data reader and procedural audio converter used by the browser and desktop packages. All converter files are bundled in APK assets, all network requests are blocked, and gameplay remains native Godot. License inventories are bundled under `assets/abyssal-importer/` inside the APK.
 
 Checks and packaging:
 
@@ -173,4 +188,4 @@ See also [third-party notices](THIRD_PARTY_NOTICES.md) and [license status](LICE
 
 ## Donations
 If you want to support this development or ones similar to it, you can do it here https://ko-fi.com/wwworm
-Please only do it if you have money for it and always be financially responsibe. Nevertheless I am grateful for any support given. 
+Please only do it if you have money for it and always be financially responsibe. Nevertheless I am grateful for any support given.

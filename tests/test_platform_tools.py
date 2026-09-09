@@ -67,5 +67,13 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertNotIn('forward_plus',(stage/'project.godot').read_text())
                 self.assertFalse(any(p.suffix in {'.jar','.wav','.png','.abyss'} for p in stage.rglob('*')))
             self.assertIn('variant/thread_support=false',(pathlib.Path(folder)/'web/export_presets.cfg').read_text())
-            self.assertIn('permissions/internet=false',(pathlib.Path(folder)/'android/export_presets.cfg').read_text())
+            android=(pathlib.Path(folder)/'android/export_presets.cfg').read_text()
+            for option in ['permissions/internet=false','permissions/manage_external_storage=false',
+                           'architectures/arm64-v8a=true','architectures/x86_64=true',
+                           'gradle_build/use_gradle_build=true']:
+                self.assertIn(option,android)
+            stage=pathlib.Path(folder)/'versioned';stage.mkdir()
+            export_game.stage_project(stage,'android','0.2.0',17)
+            self.assertIn('version/code=17',(stage/'export_presets.cfg').read_text())
+            self.assertIn('version/name="0.2.0"',(stage/'export_presets.cfg').read_text())
 if __name__=='__main__':unittest.main()
