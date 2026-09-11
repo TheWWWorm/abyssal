@@ -173,6 +173,13 @@ func pattern_at(sample: int) -> int:
 				pattern=int(animation[0].patterns[key])
 	return pattern
 
+func refresh_station_filtering() -> void:
+	if int(record.id)<3300 or int(record.id)>=3400:return
+	# Keep mesh nodes and their attached collision bodies/shadow settings.
+	# Hidden animation variants refresh their materials when next selected.
+	fade_materials.clear();portal_materials.clear();sampled_frame=-1
+	refresh()
+
 func refresh() -> void:
 	var sample := clock.sample()
 	var pattern := pattern_at(sample)
@@ -195,6 +202,7 @@ func refresh() -> void:
 			return
 	var call := {"biology":biological_look,"replacement":material_look,"replacement_texture":pack.texture_for(int(record.id)) if pack!=null else null,"resource":record.model,"textures":record.textures,"pattern":pattern,"bones":current_bones,"layout":{"transform":[4096,0,0,0,0,4096,0,0,0,0,4096,0]},"effect":{"lit":true,"ambient":300 if modern_graphics else 1800,"intensity":512 if modern_graphics else 2200,"direction":[1134,3929,0]}}
 	call.pixelated_station=int(record.id)>=3300 and int(record.id)<3400 and not library.station_smoothing
+	call.smoothed_station=int(record.id)>=3300 and int(record.id)<3400 and library.station_smoothing
 	call.station_coating=modern_graphics and int(record.id)>=3300 and int(record.id)<3400
 	call.hull_coating=modern_graphics and (call.station_coating or int(record.id)>=0 and int(record.id)<12)
 	call.bioluminescence=.38 if modern_graphics and int(record.id)==4426 else 0.0
@@ -210,6 +218,8 @@ func refresh() -> void:
 			add_child(pattern_figures[pattern])
 		figure=pattern_figures[pattern]; figure.show()
 		last_pattern=pattern
+	if (call.pixelated_station or call.smoothed_station) and figure.get_meta("station_smoothing",false)!=library.station_smoothing:
+		library.apply_figure_materials(figure,call)
 	library.pose(figure,call)
 	apply_stream_visibility()
 	apply_portal_clip()

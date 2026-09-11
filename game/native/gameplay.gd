@@ -167,6 +167,7 @@ func _ready() -> void:
 		dive_audio.music_gain=float(config.get_value("audio","music",0.65)); dive_audio.effects_gain=float(config.get_value("audio","effects",0.75))
 		view.camera_mode=clampi(int(config.get_value("view","camera",0)),0,3)
 	touch.mode=clampi(int(config.get_value("input","touch",0)),0,2)
+	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
 	controller.deadzone=clampf(float(config.get_value("input","deadzone",.18)),.05,.45)
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
 	strafe_mode=clampi(int(config.get_value("input","strafe",0)),0,2)
@@ -417,7 +418,7 @@ func _process(delta: float) -> void:
 		dashboard.visible=false
 		hud.visible=flight_visible;hints.visible=flight_visible;objective_label.visible=flight_visible
 		hints.text="LMB guns · RMB hook · %s fire · %s destination · %s chart"%[OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map)]
-		if touch.enabled():hints.text=("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look"+(" · FULL for fullscreen" if touch.show_fullscreen else "")
+		if touch.enabled():hints.text=("Drag anywhere to look" if touch.drag_anywhere else ("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look")+(" · FULL for fullscreen" if touch.show_fullscreen else "")
 		elif controller.device>=0:hints.text=("Left stick strafe · right stick turn" if strafe_enabled() else "Left stick steer")+" · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu"
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
 		bank_label.visible=flight_visible
@@ -740,12 +741,13 @@ func show_controls() -> void:
 	label("Gamepad: right stick turns · left stick strafes or turns · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",16)
 	label("X bank · Y dock · LB route · RB time · View map · D-pad left camera / right lights · Start/B menu",16)
 	button("Touch controls · "+["Auto","On","Off"][touch.mode],func():touch.mode=(touch.mode+1)%3;update_render_resolution();save_settings();show_controls())
+	button("Touch look area · "+("Whole screen" if touch.drag_anywhere else "Outside analog area"),func():touch.drag_anywhere=not touch.drag_anywhere;touch.arrange();save_settings();show_controls())
 	button("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls())
 	button("Invert gamepad pitch · "+("On" if controller.invert else "Off"),func():controller.invert=not controller.invert;save_settings();show_controls())
 	label("Gamepad deadzone",16)
 	var deadzone:=HSlider.new();deadzone.min_value=.05;deadzone.max_value=.45;deadzone.step=.01;deadzone.value=controller.deadzone;deadzone.custom_minimum_size.y=44;column.add_child(deadzone)
 	deadzone.value_changed.connect(func(value):controller.deadzone=value;save_settings())
-	label("Touch: left thumb places the stick where it lands · drag elsewhere to look around · hold speed/guns/hook/boost · tap the top row for travel, menus and fullscreen",16)
+	label("Touch: Whole screen lets you drag to look in the analog area too, using Touch look sensitivity. Otherwise the left thumb places a steering stick. Hold speed/guns/hook/boost; tap the top row for travel and menus.",16)
 	label("Touch look sensitivity",16)
 	var touch_look := HSlider.new(); touch_look.min_value=0.2; touch_look.max_value=2.0; touch_look.step=0.1; touch_look.custom_minimum_size.y=44; touch_look.value=touch_look_sensitivity; column.add_child(touch_look)
 	touch_look.value_changed.connect(func(value): touch_look_sensitivity=value; save_settings())
@@ -772,6 +774,7 @@ func save_settings() -> void:
 	config.set_value("view","temporal_aa",temporal_aa)
 	config.set_value("keys","mouse_sensitivity",mouse_sensitivity); config.set_value("keys","invert_mouse",invert_mouse)
 	config.set_value("input","touch_look",touch_look_sensitivity)
+	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
 	config.set_value("input","strafe",strafe_mode)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
@@ -782,8 +785,9 @@ func apply_graphics() -> void:
 	update_render_resolution()
 	dive_audio.set_enabled(graphics.audio)
 	# Rebuild both directions: every actor, station and cached neighbor changes together.
-	var rebuild: bool=view.pack.enabled!=(false) or view.modern_graphics!=modern_graphics or view.library.station_smoothing!=graphics.station_smoothing
-	view.modern_graphics=modern_graphics;view.pack.enabled=false;view.library.station_smoothing=graphics.station_smoothing
+	var rebuild: bool=view.pack.enabled!=(false) or view.modern_graphics!=modern_graphics
+	view.modern_graphics=modern_graphics;view.pack.enabled=false
+	view.set_station_smoothing(graphics.station_smoothing)
 	if rebuild:view.revision=-1
 	terrain.apply_pack(view.pack)
 	abyss.set_headlights(modern_graphics and graphics.headlights)

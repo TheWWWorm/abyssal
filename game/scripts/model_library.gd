@@ -164,8 +164,13 @@ func figure(call: Dictionary) -> Node3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	node.add_child(instance)
+	instance.mesh = mesh_for(call.resource, int(call.pattern))[0]
+	apply_figure_materials(node,call)
+	return node
+
+func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
+	var instance := node.get_node("Mesh") as MeshInstance3D
 	var mesh_data := mesh_for(call.resource, int(call.pattern))
-	instance.mesh = mesh_data[0]
 	for i in mesh_data[1].size():
 		var g: Dictionary = mesh_data[1][i]
 		var resource_name := ""
@@ -173,7 +178,7 @@ func figure(call: Dictionary) -> Node3D:
 			resource_name = call.textures[g.texture]
 		var blend: int = g.blend if call.effect.get("transparency",true) else 0
 		var look: Dictionary = call.get("replacement",{})
-		var mat := affine_material(resource_name,blend,g.double,(g.lit or not look.is_empty()) and call.effect.lit,g.alpha,int(call.get("sky_pass",0)),bool(call.get("pixelated_station",false)))
+		var mat := affine_material(resource_name,blend,g.double,(g.lit or not look.is_empty()) and call.effect.lit,g.alpha,int(call.get("sky_pass",0)),bool(call.get("pixelated_station",false)),bool(call.get("smoothed_station",false)))
 		if not look.is_empty() and blend==0 and sky_pass_for_call(call)==0:
 			mat.set_shader_parameter("replacement_enabled",true)
 			mat.set_shader_parameter("replacement_albedo",call.replacement_texture)
@@ -195,7 +200,7 @@ func figure(call: Dictionary) -> Node3D:
 					mat.set_shader_parameter("biology_eye_right",biology.eyes[1])
 		mat.set_shader_parameter("hangar_door",g.get("door",false))
 		instance.set_surface_override_material(i, mat)
-	return node
+	node.set_meta("station_smoothing",station_smoothing)
 
 static func sky_pass_for_call(call: Dictionary) -> int:
 	return int(call.get("sky_pass",0))
@@ -252,9 +257,9 @@ func pose_bounds(resource: String, transforms: Array[Transform3D]) -> AABB:
 	# Keep zero-thickness faces and float-rounding at the boundary visible.
 	return result.grow(0.001)
 
-func affine_material(resource: String, blend: int, double_sided: bool, lit: bool, alpha: bool, sky_pass: int = 0, pixelated: bool = false) -> ShaderMaterial:
+func affine_material(resource: String, blend: int, double_sided: bool, lit: bool, alpha: bool, sky_pass: int = 0, pixelated: bool = false, smoothed: bool = false) -> ShaderMaterial:
 	var modern := enhanced and sky_pass == 0
-	var key := str([blend,double_sided,lit,alpha,enhanced,resource != "",sky_pass,pixelated])
+	var key := str([blend,double_sided,lit,alpha,enhanced,resource != "",sky_pass,pixelated,smoothed])
 	if not shaders.has(key):
 		var modes := ["cull_disabled" if double_sided else "cull_back"]
 		if not lit or not modern:
@@ -268,7 +273,8 @@ func affine_material(resource: String, blend: int, double_sided: bool, lit: bool
 				modes.append("fog_disabled")
 		# Sky ramps must never share mip levels with the neighboring ramp.
 		var filtering := "filter_linear" if sky_pass != 0 and enhanced else ("filter_linear_mipmap_anisotropic" if modern else "filter_nearest")
-		if pixelated:filtering="filter_nearest_mipmap"
+		if smoothed:filtering="filter_linear_mipmap_anisotropic"
+		elif pixelated:filtering="filter_nearest_mipmap"
 		var code := "shader_type spatial;\nrender_mode %s;\n" % ", ".join(modes)
 		code += '#include "res://native/presentation/ocean_background.gdshaderinc"\nuniform float distance_haze=0.0;\n'
 		# Sky samples are numeric byte-color data. Avoid losing dark ramp values
@@ -355,7 +361,7 @@ void vertex() {
 			code += "discard;\n"
 		# Perspective interpolation can turn a constant integer U=4 into 3.999999.
 		# Stabilize the source's integer texel convention at sub-texel precision.
-		var coords := "(surface_uv+vec2(0.5))/texture_size" if enhanced and not pixelated else "(floor(surface_uv+vec2(0.0001))+vec2(0.5))/texture_size"
+		var coords := "(surface_uv+vec2(0.5))/texture_size" if (enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(0.0001))+vec2(0.5))/texture_size"
 		code += "vec4 color="+("texture(albedo,%s)" % coords if resource != "" else "vec4(OUTPUT_IS_SRGB?COLOR.rgb:to_linear(COLOR.rgb),COLOR.a)")+";\n"
 		if alpha:
 			code += "if(color.a<0.5){discard;}\n"

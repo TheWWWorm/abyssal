@@ -61,7 +61,7 @@ def stamp_web_build(output):
     temporary=page.with_suffix('.html.tmp');temporary.write_text(html);temporary.replace(page)
     return digest[:12]
 
-def stage_project(stage, platform, version="0.1.0-preview.4", version_code=4):
+def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     names=json.loads((ROOT/'source-manifest.json').read_text())['files']
     for name in names:
         if not name.startswith('game/'):continue
@@ -117,7 +117,7 @@ def write_static_headers(output):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.4');p.add_argument('--version-code',type=int,default=4);args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);args=p.parse_args()
     if args.version_code<1:p.error("Android version code must be positive")
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):p.error('Export outside the source directory.')

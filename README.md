@@ -108,6 +108,8 @@ On a touchscreen the stick is not fixed in place: it appears wherever your left 
 
 On the world map, tap a station, drag to pan and pinch to zoom. With a mouse, right-drag and scroll. Controller users can navigate a searchable station list without pointing at the map.
 
+Touch players can select **Controls → Touch look area → Whole screen** to drag to look in the analog-stick area as well. **Touch look sensitivity** applies across the whole look surface; action buttons retain their own touch targets. Select **Outside analog area** to restore the floating stick.
+
 ## Playing
 
 The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible in flight, and quest destinations get gold labels and off-screen direction markers.
@@ -116,7 +118,7 @@ Map search offers continuous autopilot or a STREAM transfer. Time acceleration r
 
 Encounters come from reusable mission types with generated formations and routes. Colonist stations buy all remaining cargo at fixed catalog prices once deliveries due there are complete, and the dock keeps an explicit sale receipt. Other stations keep your cargo for manual trading and crafting.
 
-Classic instruments work with either classic or enhanced lighting, and both use the original models and textures. Modern lighting derives hull relief, roughness and warm window masks from your own imported textures at runtime; the source textures and silhouettes are preserved. Station textures stay pixelated by default - turn on **Station texture smoothing** in Graphics if you prefer filtered surfaces.
+Classic instruments work with either classic or enhanced lighting, and both use the original models and textures. Modern lighting derives hull relief, roughness and warm window masks from your own imported textures at runtime; the source textures and silhouettes are preserved. Station textures stay pixelated by default - turn on **Station texture smoothing** in Graphics if you prefer filtered surfaces in either lighting mode. The change applies immediately, including to distant stations.
 
 Campaign and radio content comes from your local JAR. Exact choreography, timings and balance can differ from the original. Existing engine saves migrate to the native RNG, so future random outcomes may change.
 
@@ -166,7 +168,7 @@ Requires Godot **4.7 Standard** with matching export templates, and Python 3.10+
 
 ```sh
 # All player packages, including the offline desktop and Android importers:
-python3 tools/package_releases.py --version 0.1.0-preview.4 --output /outside/repo/releases/0.1.0-preview.4
+python3 tools/package_releases.py --version 0.1.0-preview.5 --output /outside/repo/releases/0.1.0-preview.5
 # A single unpackaged export (windows, linux, macos, web, android):
 python3 tools/export_game.py --platform linux --release --output /outside/repo/builds/linux
 ```
@@ -188,7 +190,7 @@ Install Godot 4.7 and its matching Android build template (`android_source.zip`)
 python3 tools/export_game.py --platform android --output /path/outside/source/android
 ```
 
-This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 0.1.0-preview.4 --version-code 4`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
+This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 0.1.0-preview.5 --version-code 5`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
 
 The Android build stages a small Java plugin into Godot’s official Gradle template. A private Android import process shows conversion progress and returns to the game when finished. Android System WebView runs the same Python data reader and procedural audio converter used by the browser and desktop packages. All converter files are bundled in APK assets, all network requests are blocked, and gameplay remains native Godot. License inventories are bundled under `assets/abyssal-importer/` inside the APK.
 

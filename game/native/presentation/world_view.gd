@@ -63,6 +63,16 @@ func configure_model(visual, id: int, frame_ms: int) -> void:
 func release_object(entry: Dictionary) -> void:
 	entry.visual.queue_free()
 	if entry.secondary!=null: entry.secondary.queue_free()
+func set_station_smoothing(value: bool) -> void:
+	if library.station_smoothing==value:return
+	library.station_smoothing=value
+	refresh_station_filtering(self)
+
+func refresh_station_filtering(parent: Node) -> void:
+	for child in parent.get_children():
+		if child is Model:child.refresh_station_filtering()
+		else:refresh_station_filtering(child)
+
 func rebuild() -> void:
 	clear_player_clip()
 	var keep_scene := revision>=0 and rendered_modern==modern_graphics and rendered_pack==pack.enabled

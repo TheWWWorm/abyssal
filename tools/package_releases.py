@@ -35,10 +35,10 @@ def archive_build(folder,target,platform):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=pathlib.Path,required=True)
-    parser.add_argument('--version',default='0.1.0-preview.4')
+    parser.add_argument('--version',default='0.1.0-preview.5')
     parser.add_argument('--platform',action='append',choices=['linux','windows','macos','web','android'])
     parser.add_argument('--godot',default=shutil.which('godot-4') or shutil.which('godot'))
-    parser.add_argument('--version-code',type=int,default=4,help='Monotonically increasing Android version code')
+    parser.add_argument('--version-code',type=int,default=5,help='Monotonically increasing Android version code')
     parser.add_argument('--validation',type=pathlib.Path,help='Player-facing platform support notes included with the release')
     args=parser.parse_args()
     if not re.fullmatch(r'[0-9][A-Za-z0-9.-]{0,60}',args.version):parser.error('Invalid version identifier')

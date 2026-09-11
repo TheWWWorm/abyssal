@@ -64,9 +64,30 @@ func run():
  root.size=Vector2i(1280,720);await process_frame
  expect(game.camera.far==10000,"Open ocean retains 10 km visibility")
  expect(not game.graphics.station_smoothing,"Station smoothing defaults off")
- game.set_graphics_mode(true);expect(not game.view.library.station_smoothing,"Quality lighting keeps pixelated station textures")
- game.graphics.station_smoothing=true;game.apply_graphics();expect(game.view.library.station_smoothing,"Station smoothing can be enabled independently")
- game.graphics.station_smoothing=false;game.apply_graphics()
+ for modern in [false,true]:
+  game.set_graphics_mode(modern);game.view._process(0)
+  expect(not game.view.library.station_smoothing,"Lighting mode keeps the independent pixelated station setting")
+  var station=game.view.station_nodes[0]
+  var station_mesh: MeshInstance3D=station.figure.get_node("Mesh")
+  var geometry: Mesh=station_mesh.mesh
+  var collision_bodies: Array=station_mesh.find_children("*","StaticBody3D",false,false)
+  expect(not collision_bodies.is_empty(),"Detailed station has ray collision bodies before filtering")
+  var revision: int=game.view.revision
+  var neighbor_root:=Node3D.new();game.view.add_child(neighbor_root)
+  var neighbor=game.view.model(int(station.record.id),32,neighbor_root,false)
+  neighbor.set_stream_visibility(.35)
+  for smoothing in [true,false,true,false]:
+   game.graphics.station_smoothing=smoothing;game.apply_graphics()
+   expect(game.view.revision==revision and game.view.station_nodes[0]==station,"Filtering leaves the ocean scene and station identity intact")
+   expect(station.figure.get_node("Mesh")==station_mesh and station_mesh.mesh==geometry,"Station filtering preserves mesh nodes and geometry")
+   expect(collision_bodies.all(func(body):return is_instance_valid(body) and body.get_parent()==station_mesh),"Filtering preserves the attached station ray collision bodies")
+   expect(station_mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED,"Filtering retains double-sided station shadows")
+   expect(neighbor.stream_visibility==.35 and neighbor.get_parent()==neighbor_root,"Filtering preserves a streamed station's fade and parent")
+   for visual in [station,neighbor]:
+    var mesh: MeshInstance3D=visual.figure.get_node("Mesh")
+    var mat: ShaderMaterial=mesh.get_surface_override_material(0)
+    expect(mat.shader.code.contains("albedo : source_color, filter_linear_mipmap_anisotropic" if smoothing else "albedo : source_color, filter_nearest_mipmap"),"Current and distant stations use the selected texture filter in either lighting mode")
+  neighbor_root.queue_free()
  for pair in [[KEY_P,KEY_T],[KEY_T,KEY_Y]]:
   game.key_bindings.autopilot=pair[0];game.key_bindings.time=pair[1];game.migrate_travel_bindings()
   expect(game.key_bindings.autopilot==KEY_R and game.key_bindings.time==KEY_T,"Previous default bindings migrate to R/T")

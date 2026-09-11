@@ -65,6 +65,21 @@ func run() -> void:
  finger(touch,3,free,false)
  finger(touch,0,landing,false);expect(touch.steer==Vector2.ZERO and touch.stick_center.is_equal_approx(touch.stick_home),"Releasing the stick returns it home")
  touch.set_active(false);expect(touch.fingers.is_empty() and touch.steer==Vector2.ZERO and touch.look==Vector2.ZERO,"Opening a menu releases all touch inputs")
+ touch.drag_anywhere=true;touch.arrange();touch.set_active(true)
+ finger(touch,0,touch.stick_home,true)
+ expect(not touch.engaged and touch.fingers[0]=="look","Whole-screen look includes the former analog pad")
+ drag(touch,0,touch.stick_home+Vector2(50,-24),Vector2(50,-24))
+ finger(touch,1,touch.zones.guns.get_center(),true)
+ finger(touch,2,touch.zones.throttle_up.get_center(),true)
+ var full_look:=touch.snapshot()
+ expect(full_look.look==looked.look and full_look.yaw==0 and full_look.pitch==0,"The same drag has the same look delta inside and outside the analog area")
+ expect(full_look.guns and full_look.throttle==1,"Whole-screen look preserves simultaneous weapons and throttle")
+ finger(touch,0,touch.stick_home,false,true)
+ expect(touch.snapshot().look==Vector2.ZERO and touch.snapshot().guns,"Canceling look keeps other fingers held without residual motion")
+ touch.set_active(false);touch.drag_anywhere=false;touch.arrange();touch.set_active(true)
+ finger(touch,0,landing,true);drag(touch,0,landing+Vector2(40,-30),Vector2(40,-30))
+ expect(touch.engaged and touch.snapshot().yaw>0,"Switching back restores analog steering")
+ touch.set_active(false)
  # Lists must scroll by dragging their contents, not only the narrow scroll bar.
  var sheet:=ScrollContainer.new();root.add_child(sheet)
  sheet.position=Vector2(20,20);sheet.size=Vector2(300,200)
@@ -99,6 +114,10 @@ func run() -> void:
  app.open_cache(args[0]);app.launch_game(false,"Control check");await process_frame;await process_frame
  var game=current_scene;game.close_page();game.touch.mode=1;game._process(0)
  expect(game.touch.active,"Touch overlay active while flying")
+ game.touch.drag_anywhere=true;game.save_settings()
+ var touch_config:=ConfigFile.new();touch_config.load(game.settings_path)
+ expect(bool(touch_config.get_value("input","touch_drag_anywhere",false)),"Whole-screen touch look is saved")
+ game.touch.drag_anywhere=false;game.save_settings()
  # A browser with no Fullscreen API must say so rather than fail silently.
  game.fullscreen_supported=false;game.message.text="";game.notification_time=0
  var unchanged:=DisplayServer.window_get_mode()

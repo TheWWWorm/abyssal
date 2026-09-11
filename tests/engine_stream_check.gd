@@ -22,6 +22,29 @@ func light_frame(viewport: SubViewport) -> Image:
  for i in 3:await process_frame
  await RenderingServer.frame_post_draw
  return viewport.get_texture().get_image()
+func check_station_filtering() -> void:
+ if DisplayServer.get_name()=="headless":return
+ var viewport:=SubViewport.new();viewport.size=Vector2i(128,128);viewport.own_world_3d=true
+ viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
+ var camera:=Camera3D.new();camera.position.z=3;camera.projection=Camera3D.PROJECTION_ORTHOGONAL;camera.size=2;viewport.add_child(camera)
+ var wall:=MeshInstance3D.new();var quad:=QuadMesh.new();quad.size=Vector2(2,2);wall.mesh=quad;viewport.add_child(wall)
+ var library=load("res://scripts/model_library.gd").new()
+ var pixels:=Image.create(2,2,false,Image.FORMAT_RGBA8);pixels.fill(Color.BLACK)
+ pixels.set_pixel(1,0,Color.WHITE);pixels.set_pixel(1,1,Color.WHITE);pixels.generate_mipmaps()
+ library.textures["filter-probe.png"]=ImageTexture.create_from_image(pixels)
+ var bones: Array[Transform3D]=[]
+ for i in 64:bones.append(Transform3D.IDENTITY)
+ for modern in [false,true]:
+  library.enhanced=modern
+  for smoothing in [false,true,false]:
+   var mat: ShaderMaterial=library.affine_material("filter-probe.png",0,true,false,false,0,not smoothing,smoothing)
+   mat.set_shader_parameter("source_bones",bones);wall.material_override=mat
+   var rendered:=await light_frame(viewport)
+   var shades: Dictionary={}
+   for x in range(8,120):shades[rendered.get_pixel(x,64).to_rgba32()]=true
+   expect(shades.size()>16 if smoothing else shades.size()<=2,"Rendered station texels blend only with smoothing enabled, lighting mode %s"%modern)
+ viewport.queue_free();await process_frame
+
 func check_headlight_surfaces() -> void:
  expect(not ProjectSettings.get_setting("rendering/lights_and_shadows/positional_shadow/atlas_16_bits",true),"Long-range spot shadows retain depth precision in exported configuration")
  if DisplayServer.get_name()=="headless":return
@@ -340,6 +363,7 @@ func check_depth_lighting() -> void:
 func run():
  check_imported_material_hints()
  check_depth_lighting()
+ await check_station_filtering()
  await check_headlight_surfaces()
  await check_blend_distance()
  await check_particle_motion()

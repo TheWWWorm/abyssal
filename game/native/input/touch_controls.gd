@@ -5,6 +5,7 @@ var mode := 0 # Auto, On, Off
 # Shared across the title/gameplay scene change; a pad used in menus also wins
 # over touchscreen availability when the dive starts.
 static var last_input := ""
+var drag_anywhere := false
 var active := false
 var fingers := {}
 var steer := Vector2.ZERO
@@ -94,12 +95,12 @@ func arrange() -> void:
 	cluster_top=zones.throttle_up.position.y
 	gauge_reserve=gauge
 	# The band between the stick and the weapon cluster stays free for the HUD.
-	free_left=stick_home.x+stick_radius+12*s
 	free_right=zones.boost.position.x-12*s
 	# The stick floats: it appears wherever the left thumb lands in this region.
 	stick_radius=104.0*s
 	stick_home=Vector2(safe.position.x+inset+stick_radius,safe.end.y-inset-stick_radius)
 	stick_center=stick_home
+	free_left=safe.position.x+inset if drag_anywhere else stick_home.x+stick_radius+12*s
 	var top:=safe.position.y+bh+24*s
 	steer_region=Rect2(Vector2(safe.position.x,top),Vector2(safe.size.x*.46,safe.end.y-top))
 func button_at(point: Vector2) -> String:
@@ -115,7 +116,7 @@ func handle(event: InputEvent) -> bool:
 			var key:=button_at(event.position)
 			if not key.is_empty() and key not in fingers.values():
 				fingers[event.index]=key;queue_redraw();return true
-			if key.is_empty() and "steer" not in fingers.values() and steer_region.has_point(event.position):
+			if not drag_anywhere and key.is_empty() and "steer" not in fingers.values() and steer_region.has_point(event.position):
 				fingers[event.index]="steer";engaged=true
 				stick_center=clamp_stick(event.position);steer=Vector2.ZERO
 				queue_redraw();return true
@@ -148,9 +149,10 @@ func _draw() -> void:
 	if not active:return
 	var held:=fingers.values()
 	var idle:=Color("679fba66") if not engaged else Color("8bd6eedd")
-	draw_circle(stick_center,stick_radius,Color("102a4055"))
-	draw_arc(stick_center,stick_radius,0,TAU,48,idle,2,true)
-	draw_circle(stick_center+steer*stick_radius*.72,stick_radius*.3,Color("8bd6eedd") if engaged else Color("679fbaaa"))
+	if not drag_anywhere:
+		draw_circle(stick_center,stick_radius,Color("102a4055"))
+		draw_arc(stick_center,stick_radius,0,TAU,48,idle,2,true)
+		draw_circle(stick_center+steer*stick_radius*.72,stick_radius*.3,Color("8bd6eedd") if engaged else Color("679fbaaa"))
 	for key in zones:
 		var area: Rect2=zones[key]
 		var color:=Color("8bd6eedd") if key in held else Color("679fbaaa")
