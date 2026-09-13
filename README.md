@@ -20,6 +20,7 @@ Needs WebGL 2 and a desktop-class browser. For the smoothest experience, and to 
 | --- | --- | --- |
 | Windows x86-64 | `…-windows.zip` | `abyssal.exe` |
 | Linux x86-64 | `…-linux.tar.gz` | `AbyssalEngine/abyssal.x86_64` |
+| Linux ARM64 (AArch64) | `…-linux-arm64.tar.gz` | `AbyssalEngine/abyssal.arm64` |
 | macOS Apple Silicon | `…-macos.zip` | `Abyssal Compatibility Engine.app` |
 | Android 8+ (ARM64 / x86-64) | `…-android.apk` | Install the APK, then open **Abyssal Engine** |
 | Browser (WebGL 2) | `…-web.zip` | Host the archive yourself, or [use the hosted build](https://abyssal.wwworm.com/) |
@@ -37,8 +38,10 @@ On Android, allow your browser or file manager to install the APK when prompted.
 The desktop packages can prepare that pack with their bundled converter; no additional runtime installation is needed. From the extracted package, run the command for the computer's platform, replacing the two absolute file paths:
 
 ```sh
-# Linux
+# Linux x86-64
 ./importer/bin/linux/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
+# Linux ARM64
+./importer/bin/linux-arm64/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
 # macOS Apple Silicon
 "./Abyssal Compatibility Engine.app/Contents/Resources/importer/bin/macos-arm64/node" "./Abyssal Compatibility Engine.app/Contents/Resources/importer/import.js" "/path/to/DEEP.jar" "/path/to/private.abyss"
 ```
@@ -74,7 +77,8 @@ If a build does not match, import stops with a message naming what did not fit, 
 
 - **Windows and macOS have never been run on their native systems.** They are built and packaged, but not tested on real hardware. Both are unsigned and macOS is not notarized, so those systems may warn about or block them.
 - **macOS is Apple Silicon only.** Intel Macs cannot run this build.
-- **Linux and Android** have local rendering checks; see the release’s `VALIDATION.md` for the exact checks and hardware limits.
+- **Linux x86-64 and Android** have local rendering checks; see the release’s `VALIDATION.md` for the exact checks and hardware limits.
+- **Linux ARM64** requires a 64-bit ARM Linux system and working OpenGL 3.3 or OpenGL ES 3.0 drivers. Native ARM Linux execution and gameplay are not yet verified. The archive is a desktop export; PortMaster handhelds require additional launcher and runtime integration, and compatibility depends on the device and firmware.
 - **The browser build needs a web host.** Opening `index.html` from your disk will not work.
 - **Android** is a sideloaded preview APK. Physical ARM64 hardware performance is not yet verified; Android validation uses an x86-64 emulator.
 
@@ -169,11 +173,15 @@ Requires Godot **4.7 Standard** with matching export templates, and Python 3.10+
 ```sh
 # All player packages, including the offline desktop and Android importers:
 python3 tools/package_releases.py --version 0.1.0-preview.5 --output /outside/repo/releases/0.1.0-preview.5
-# A single unpackaged export (windows, linux, macos, web, android):
+# A single unpackaged export (windows, linux, linux-arm64, macos, web, android):
 python3 tools/export_game.py --platform linux --release --output /outside/repo/builds/linux
+# A standalone ARM64 Linux package:
+python3 tools/package_releases.py --platform linux-arm64 --version 0.1.0-preview.5 --output /outside/repo/releases/arm64
 ```
 
 Builds fetch and verify pinned runtimes once into an external cache (`~/.cache/abyssal-engine` on Linux, `~/Library/Caches/abyssal-engine` on macOS, `%LOCALAPPDATA%/abyssal-engine` on Windows; override with `ABYSSAL_CACHE_HOME`). No JAR is needed to build. Pass `--godot /path/to/godot` or set `GODOT_PATH` if it is not on your PATH.
+
+ARM64 Linux exports can be built from an x86-64 development machine using the matching Godot `linux_release.arm64` template (`linux_debug.arm64` for debug exports). They bundle a separate, checksum-pinned ARM64 Node.js converter. On systems exposing OpenGL ES instead of desktop OpenGL, launch `./abyssal.arm64 --rendering-driver opengl3_es`. The build includes both desktop and ETC2/ASTC texture formats. A successful cross-export does not establish handheld performance or PortMaster support.
 
 To run from source with direct JAR conversion you also need JDK 17+ and FFmpeg:
 

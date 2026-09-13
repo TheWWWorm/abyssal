@@ -67,6 +67,12 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertNotIn('forward_plus',(stage/'project.godot').read_text())
                 self.assertFalse(any(p.suffix in {'.jar','.wav','.png','.abyss'} for p in stage.rglob('*')))
             self.assertIn('variant/thread_support=false',(pathlib.Path(folder)/'web/export_presets.cfg').read_text())
+            for platform,architecture in [('linux','x86_64'),('linux-arm64','arm64')]:
+                preset=(pathlib.Path(folder)/platform/'export_presets.cfg').read_text()
+                self.assertIn('platform="Linux"',preset)
+                self.assertIn('binary_format/architecture="'+architecture+'"',preset)
+                self.assertEqual(export_game.PLATFORMS[platform][1],'abyssal.'+architecture)
+            self.assertIn('texture_format/etc2_astc=true',(pathlib.Path(folder)/'linux-arm64/export_presets.cfg').read_text())
             android=(pathlib.Path(folder)/'android/export_presets.cfg').read_text()
             for option in ['permissions/internet=false','permissions/manage_external_storage=false',
                            'architectures/arm64-v8a=true','architectures/x86_64=true',

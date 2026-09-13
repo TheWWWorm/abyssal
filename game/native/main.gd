@@ -200,6 +200,7 @@ func desktop_importer_root() -> String:
 
 func desktop_importer_command() -> String:
 	var platform:="macos-arm64" if OS.has_feature("macos") else "windows" if OS.has_feature("windows") else "linux"
+	if platform=="linux" and OS.has_feature("arm64"):platform="linux-arm64"
 	return desktop_importer_root().path_join("bin/"+platform+"/"+("node.exe" if OS.has_feature("windows") else "node"))
 
 func bundled_import_available() -> bool:

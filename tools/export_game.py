@@ -2,7 +2,7 @@
 """Export an engine-only game from manifest-listed source into an external directory."""
 import argparse, hashlib, json, os, pathlib, re, shutil, subprocess, tempfile
 from paths import ROOT, cache_home
-PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'windows':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
+PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'linux-arm64':('Linux','abyssal.arm64'),'windows':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
 
 VIEWPORT_DEFAULT = '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">'
 VIEWPORT_MOBILE = '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, viewport-fit=cover">'
@@ -72,12 +72,13 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     text=settings.read_text().replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
     if platform in {'web','android'}:
         text=text.replace('anti_aliasing/quality/msaa_3d=2','anti_aliasing/quality/msaa_3d=0').replace('atlas_size=8192','atlas_size=2048').replace('directional_shadow/size=4096','directional_shadow/size=1024')
-    if platform in {'web','android','macos'}:text=text.replace('[rendering]','[rendering]\n\ntextures/vram_compression/import_etc2_astc=true')
+    if platform in {'web','android','macos','linux-arm64'}:text=text.replace('[rendering]','[rendering]\n\ntextures/vram_compression/import_etc2_astc=true')
     settings.write_text(text)
     options={'texture_format/s3tc_bptc':'true','texture_format/etc2_astc':'false'}
     if platform=='web':options={'variant/extensions_support':'false','variant/thread_support':'false','vram_texture_compression/for_desktop':'true','vram_texture_compression/for_mobile':'true','html/export_icon':'false','html/canvas_resize_policy':'2','progressive_web_app/enabled':'false'}
     elif platform=='android':options={'architectures/armeabi-v7a':'false','architectures/arm64-v8a':'true','architectures/x86_64':'true','architectures/x86':'false','gradle_build/use_gradle_build':'true','gradle_build/min_sdk':'26','gradle_build/target_sdk':'36','package/unique_name':'"org.abyssal.engine"','package/name':'"Abyssal Engine"','package/signed':'true','version/code':str(version_code),'version/name':json.dumps(version),'screen/immersive_mode':'true','permissions/internet':'false','permissions/read_external_storage':'false','permissions/write_external_storage':'false','permissions/manage_external_storage':'false'}
     elif platform=='macos':options={'application/bundle_identifier':'"org.abyssal.engine"','application/short_version':'"0.1"','application/version':'"0.1"','binary_format/architecture':'"universal"','codesign/codesign':'0','notarization/notarization':'0'}
+    elif platform=='linux-arm64':options.update({'binary_format/architecture':'"arm64"','texture_format/etc2_astc':'true'})
     else:options['binary_format/architecture']='"x86_64"'
     header=f'''[preset.0]
 name="{platform}"
@@ -141,7 +142,7 @@ def main():
         stage_browser_runtime(output)
         write_static_headers(output)
         print('Web build:',stamp_web_build(output))
-    if args.platform in {"linux","windows","macos"}:
+    if args.platform in {"linux","linux-arm64","windows","macos"}:
         from desktop_runtime import stage as stage_desktop_runtime, embed_macos
         stage_desktop_runtime(output,args.platform)
         if args.platform=="macos":embed_macos(output)

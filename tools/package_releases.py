@@ -20,7 +20,7 @@ def archive_build(folder,target,platform):
     files=sorted(p for p in folder.rglob('*') if p.is_file() or p.is_symlink())
     if any(p.is_symlink() or p.suffix.lower() in {'.jar','.abyss','.class'} for p in files):
         raise ValueError('Private content or symlink in release staging')
-    if platform=='linux':
+    if platform in {'linux','linux-arm64'}:
         with tarfile.open(target,'w:gz') as archive:
             for p in files:archive.add(p,arcname='AbyssalEngine/'+p.relative_to(folder).as_posix(),recursive=False)
     else:
@@ -36,7 +36,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=pathlib.Path,required=True)
     parser.add_argument('--version',default='0.1.0-preview.5')
-    parser.add_argument('--platform',action='append',choices=['linux','windows','macos','web','android'])
+    parser.add_argument('--platform',action='append',choices=['linux','linux-arm64','windows','macos','web','android'])
     parser.add_argument('--godot',default=shutil.which('godot-4') or shutil.which('godot'))
     parser.add_argument('--version-code',type=int,default=5,help='Monotonically increasing Android version code')
     parser.add_argument('--validation',type=pathlib.Path,help='Player-facing platform support notes included with the release')
@@ -46,7 +46,7 @@ def main():
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):parser.error('Keep releases outside the engine source tree')
     output.mkdir(parents=True,exist_ok=True)
-    platforms=args.platform or ['linux','windows','macos','web','android']
+    platforms=args.platform or ['linux','linux-arm64','windows','macos','web','android']
     records=[]
     for platform in platforms:
         with tempfile.TemporaryDirectory(prefix='release-'+platform+'-',dir=output) as temp:
@@ -54,7 +54,7 @@ def main():
             subprocess.run([sys.executable,str(ROOT/'tools/export_game.py'),'--platform',platform,'--output',str(folder),'--release','--godot',args.godot,'--version',args.version,'--version-code',str(args.version_code)],check=True)
             add_documents(folder)
             if args.validation:shutil.copyfile(args.validation,folder/"VALIDATION.md")
-            name=f'abyssal-engine-{args.version}-{platform}'+('.tar.gz' if platform=='linux' else '.apk' if platform=='android' else '.zip')
+            name=f'abyssal-engine-{args.version}-{platform}'+('.tar.gz' if platform in {'linux','linux-arm64'} else '.apk' if platform=='android' else '.zip')
             target=output/name
             if target.exists():raise FileExistsError('Release archive already exists: '+str(target))
             if platform=="android":shutil.copyfile(folder/"abyssal.apk",target)
