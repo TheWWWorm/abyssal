@@ -1722,7 +1722,6 @@ func update_stream_passage() -> void:
 			view.assign_player_basis(arrival.basis)
 			world.previous_render_poses.clear();stream_armed=false;stream_exit_active=true;stream_exit_frame=exit
 			view.clip_player_at_gate(exit,-stream_entry_side);dive_audio.cue("gate")
-			TravelFade.uncover(ui)
 		else:notice(world.message);stream_armed=false;view.clear_player_clip()
 	stream_previous_z=local.z;stream_previous_local=local
 

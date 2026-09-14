@@ -193,11 +193,20 @@ func check_oblique_portals(game) -> void:
    if station.id!=0 and game.world.stream_denial(station.id).is_empty():game.stream_selection=station.id;break
   game.begin_stream_transit()
   var ticks:=0
+  # Drive the passage the way the game does. Advancing the world alone reaches
+  # the far station without ever running the crossing itself, which left the
+  # emergence untested until a cover was painted over it.
   while ticks<1000 and game.session.station_id==0:
-   game.world.advance(.04);ticks+=1
+   game.world.advance(.04);game.update_stream_passage();ticks+=1
   expect(game.session.station_id!=0 and not game.stream_armed,"Oblique STREAM entry crosses the aperture from side %d"%side)
   var exit: Transform3D=game.view.gate_nodes[game.world.region.gate_index(1)].global_transform
   expect(exit.origin.distance_to(game.world.region.player.pose.godot_transform().origin)<60,"STREAM emerges at the visible exit aperture")
+  # The crossing is an animation, not a cut: the submarine is clipped against the
+  # gate plane on the way in and against the exit plane on the way out, and stays
+  # clipped until it has cleared. Anything painted over the view hides all of it.
+  expect(game.view.player_model.portal_enabled and game.stream_exit_active,"The submarine emerges clipped against the exit aperture rather than appearing whole")
+  var covering: Array=game.ui.get_children().filter(func(node):return node.get_script()==preload("res://native/presentation/travel_fade.gd"))
+  expect(covering.is_empty(),"Nothing is painted over the gate transition")
 
 func check_dock_navigation(game) -> void:
  game.session.docked=true;game.show_station()
