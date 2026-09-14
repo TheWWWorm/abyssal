@@ -37,6 +37,15 @@ var gate_preview := false
 var departure_hangar
 var departure_frame := Transform3D.IDENTITY
 var departure_progress := -1.0
+## The STREAM passage, framed from outside the submarine. Negative when no
+## crossing is under way. Driven by how far the submarine has actually
+## travelled rather than by a clock, so it cannot run ahead of the dive.
+var transit_progress := -1.0
+var transit_frame := Transform3D.IDENTITY
+var transit_side := 1.0
+## True once the submarine is on the far side, where the shot has to sit much
+## closer to the aperture to keep it and the emerging hull in the same frame.
+var transit_emerging := false
 var departure_start := Vector3.ZERO
 var departure_end := Vector3.ZERO
 var portal_materials: Array=[]
@@ -203,6 +212,14 @@ func _process(delta: float) -> void:
 		camera.global_position=player_model.global_position+departure_frame.basis*Vector3(35,12,48)
 		camera.look_at(player_pose.origin,Vector3.UP)
 		camera.global_transform=camera.global_transform.interpolate_with(chase,smoothstep(.65,1.0,departure_progress))
+	if transit_progress>=0 and player_model!=null:
+		# Stand off to the side of the aperture so the submarine is seen entering
+		# it, then hand the frame back to the ordinary chase once it is through.
+		var following:=camera.global_transform
+		var stand: Vector3=Vector3(58,17,transit_side*56) if transit_emerging else Vector3(44,15,transit_side*118)
+		camera.global_position=transit_frame.origin+transit_frame.basis*stand
+		camera.look_at(player_pose.origin,Vector3.UP)
+		camera.global_transform=camera.global_transform.interpolate_with(following,smoothstep(.62,1.0,transit_progress))
 	previous_camera_mode=camera_mode
 	var frustum: Array[Plane] = camera.get_frustum()
 	for actor in region.creatures+region.enemies+region.friends:
@@ -383,6 +400,10 @@ func aim_point() -> Array:
 	var point := origin+direction*distance
 	return [roundi(point.x*100),roundi(-point.y*100),roundi(-point.z*100)]
 
+func begin_transit(frame: Transform3D, side: float) -> void:
+	transit_frame=frame;transit_side=side;transit_progress=0.0;transit_emerging=false
+func end_transit() -> void:
+	transit_progress=-1.0;transit_emerging=false
 func begin_departure() -> void:
 	departure_hangar=null
 	for station in station_nodes:

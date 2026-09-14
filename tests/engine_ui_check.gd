@@ -196,8 +196,18 @@ func check_oblique_portals(game) -> void:
   # Drive the passage the way the game does. Advancing the world alone reaches
   # the far station without ever running the crossing itself, which left the
   # emergence untested until a cover was painted over it.
+  var framed:=false
+  var framed_before_crossing:=false
   while ticks<1000 and game.session.station_id==0:
-   game.world.advance(.04);game.update_stream_passage();ticks+=1
+   game.world.advance(.04);game.update_stream_passage();game.advance_transit_view();ticks+=1
+   if game.view.transit_progress>=0:
+    framed=true
+    if game.session.station_id==0:framed_before_crossing=true
+  # The passage is shown from outside, starting on the run at the aperture, so
+  # the submarine is seen going in and not only arriving.
+  expect(framed_before_crossing,"The crossing is framed from outside before the submarine reaches the aperture")
+  expect(framed,"The crossing is framed at all")
+  expect(game.view.transit_emerging,"The shot moves to the far aperture once the submarine is through")
   expect(game.session.station_id!=0 and not game.stream_armed,"Oblique STREAM entry crosses the aperture from side %d"%side)
   var exit: Transform3D=game.view.gate_nodes[game.world.region.gate_index(1)].global_transform
   expect(exit.origin.distance_to(game.world.region.player.pose.godot_transform().origin)<60,"STREAM emerges at the visible exit aperture")
@@ -207,6 +217,11 @@ func check_oblique_portals(game) -> void:
   expect(game.view.player_model.portal_enabled and game.stream_exit_active,"The submarine emerges clipped against the exit aperture rather than appearing whole")
   var covering: Array=game.ui.get_children().filter(func(node):return node.get_script()==preload("res://native/presentation/travel_fade.gd"))
   expect(covering.is_empty(),"Nothing is painted over the gate transition")
+  # Flying clear of the far gate hands the camera back; it must not hold.
+  for i in 400:
+   game.world.advance(.04);game.advance_transit_view()
+   if game.view.transit_progress<0:break
+  expect(game.view.transit_progress<0,"The shot hands the camera back once the submarine is clear")
 
 func check_dock_navigation(game) -> void:
  game.session.docked=true;game.show_station()

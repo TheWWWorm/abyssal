@@ -51,6 +51,11 @@ var stream_aligning := false
 var stream_previous_local := Vector3.ZERO
 var stream_previous_z := 0.0
 var stream_exit_active := false
+## Length of the framed passage along the gate axis: the 110 units from the
+## alignment point to the aperture, and the 260 beyond it.
+const TRANSIT_REACH := 370.0
+## Which way along the framed gate axis the submarine is travelling.
+var transit_axis := 1.0
 var stream_exit_frame := Transform3D.IDENTITY
 var atlas_autopilot_only := false
 var autopilot_pressed_at := -1
@@ -510,7 +515,7 @@ func _process(delta: float) -> void:
 		collect_damage_bearings()
 		consume_events()
 		if page.is_empty():
-			update_stream_passage();check_stream_proximity()
+			update_stream_passage();check_stream_proximity();advance_transit_view()
 			if stream_exit_active:
 				var exit_local: Vector3=stream_exit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
 				if absf(exit_local.z)>view.player_model.solid_bounds().size.length():
@@ -1692,6 +1697,22 @@ func begin_stream_transit() -> void:
 	world.fly_to([roundi(target.x*100),roundi(-target.y*100),roundi(-target.z*100)])
 	world.approach_planned=true;world.approach_path.clear();world.stream_destination=stream_selection;world.gate_navigation=true
 	stream_armed=true;close_page();notice("STREAM armed · fly through the aperture. Steering remains available.")
+func advance_transit_view() -> void:
+	"""Holds the passage framed from the run at the aperture until the submarine
+	is clear of the far one. It follows travelled distance rather than a clock, so
+	a slow approach simply holds the shot longer instead of cutting away early."""
+	if view.transit_progress<0: return
+	if world.region==null or session.docked or view.player_model==null: view.end_transit(); return
+	# A run that was armed and is no longer, without a crossing behind it, was
+	# refused or called off. The shot has nothing left to follow.
+	if not stream_armed and not stream_exit_active and not view.transit_emerging: view.end_transit(); return
+	var local: Vector3=view.transit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
+	var travelled := 110.0-local.z*transit_axis
+	# Turning back is a change of mind, not a passage. Hand the camera over rather
+	# than holding a cinematic shot of a submarine flying away from the gate.
+	if travelled<-40.0: view.end_transit(); return
+	view.transit_progress=clampf(travelled/TRANSIT_REACH,0,1)
+	if view.transit_progress>=1.0: view.end_transit()
 func advance_stream_transit(_delta: float) -> void:
 	# Compatibility entry point: transit follows position, never a timer.
 	update_stream_passage()
@@ -1703,6 +1724,7 @@ func update_stream_passage() -> void:
 	if stream_aligning:
 		if local.distance_to(Vector3(0,0,stream_entry_side*110))<24:
 			stream_aligning=false
+			transit_axis=stream_entry_side;view.begin_transit(frame,stream_entry_side)
 			var target: Vector3=frame*Vector3(0,0,-stream_entry_side*260)
 			world.fly_to([roundi(target.x*100),roundi(-target.y*100),roundi(-target.z*100)])
 			world.gate_navigation=true;world.stream_destination=stream_selection;world.approach_planned=true
@@ -1722,7 +1744,10 @@ func update_stream_passage() -> void:
 			view.assign_player_basis(arrival.basis)
 			world.previous_render_poses.clear();stream_armed=false;stream_exit_active=true;stream_exit_frame=exit
 			view.clip_player_at_gate(exit,-stream_entry_side);dive_audio.cue("gate")
-		else:notice(world.message);stream_armed=false;view.clear_player_clip()
+			# The passage continues on the far side, so the shot moves to that
+			# aperture rather than restarting: the submarine has not stopped.
+			view.transit_frame=exit;view.transit_side=-stream_entry_side;view.transit_emerging=true
+		else:notice(world.message);stream_armed=false;view.clear_player_clip();view.end_transit()
 	stream_previous_z=local.z;stream_previous_local=local
 
 func equipment_browser(station: Dictionary, ships: bool=false) -> void:
