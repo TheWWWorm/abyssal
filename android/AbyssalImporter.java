@@ -13,17 +13,23 @@ import java.util.zip.ZipFile;
 
 /** Offline transport for the shared data-only JAR decoder. No network permission. */
 public final class AbyssalImporter extends GodotPlugin {
-    private static final int PICK = 4821, CONVERT = 4822, LIMIT = 128 * 1024 * 1024;
+    private static final int PICK = 4821, CONVERT = 4822, SAVE_PICK = 4823, SAVE_WRITE = 4824;
+    private static final int LIMIT = 128 * 1024 * 1024, SAVE_LIMIT = 8 * 1024 * 1024;
     private volatile int generation;
     private volatile boolean busy;
     private File input;
+    /** Export payload waiting for the destination the document picker returns. */
+    private volatile String pendingSave;
 
     public AbyssalImporter(Godot godot) { super(godot); }
     @Override public String getPluginName() { return "AbyssalImporter"; }
     @Override public Set<SignalInfo> getPluginSignals() {
         return new HashSet<>(Arrays.asList(new SignalInfo("progress", String.class),
             new SignalInfo("selected", String.class), new SignalInfo("failed", String.class),
-            new SignalInfo("busy_changed", Boolean.class)));
+            new SignalInfo("busy_changed", Boolean.class),
+            new SignalInfo("save_selected", String.class),
+            new SignalInfo("save_exported", String.class),
+            new SignalInfo("save_failed", String.class)));
     }
     @UsedByGodot public void choose() {
         getActivity().runOnUiThread(() -> {
@@ -36,7 +42,81 @@ public final class AbyssalImporter extends GodotPlugin {
             catch (Exception e) { emitSignal("failed", "No file picker is available: " + e.getMessage()); }
         });
     }
+    @UsedByGodot public void choose_save() {
+        getActivity().runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            // Providers disagree on the type of a custom extension; filter in Godot.
+            intent.setType("*/*");
+            try { getActivity().startActivityForResult(intent, SAVE_PICK); }
+            catch (Exception e) { emitSignal("save_failed", "No file picker is available: " + e.getMessage()); }
+        });
+    }
+
+    @UsedByGodot public void export_save(String name, String text) {
+        pendingSave = text;
+        getActivity().runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/json");
+            intent.putExtra(Intent.EXTRA_TITLE, name);
+            try { getActivity().startActivityForResult(intent, SAVE_WRITE); }
+            catch (Exception e) { pendingSave = null; emitSignal("save_failed", "No file picker is available: " + e.getMessage()); }
+        });
+    }
+
+    /** Copies the chosen export into cache so Godot reads an ordinary path. */
+    private void receiveSave(Uri uri) {
+        new Thread(() -> {
+            File staged = null;
+            try {
+                staged = File.createTempFile("abyssal-save-", ".abyssave", getActivity().getCacheDir());
+                try (InputStream src = getActivity().getContentResolver().openInputStream(uri);
+                     OutputStream dst = new FileOutputStream(staged)) {
+                    byte[] buffer = new byte[65536]; int count; long total = 0;
+                    while ((count = src.read(buffer)) != -1) {
+                        total += count;
+                        if (total > SAVE_LIMIT) throw new IOException("Export exceeds 8 MiB.");
+                        dst.write(buffer, 0, count);
+                    }
+                }
+                final File ready = staged;
+                staged = null;
+                getActivity().runOnUiThread(() -> emitSignal("save_selected", ready.getAbsolutePath()));
+            } catch (Exception e) {
+                final String reason = String.valueOf(e.getMessage());
+                getActivity().runOnUiThread(() -> emitSignal("save_failed", "Cannot read this export: " + reason));
+            } finally { if (staged != null) staged.delete(); }
+        }, "abyssal-save-import").start();
+    }
+
+    private void deliverSave(Uri uri) {
+        final String text = pendingSave;
+        pendingSave = null;
+        if (text == null) { emitSignal("save_failed", "The export was no longer ready."); return; }
+        new Thread(() -> {
+            try (OutputStream dst = getActivity().getContentResolver().openOutputStream(uri, "wt")) {
+                if (dst == null) throw new IOException("The chosen location refused the file.");
+                dst.write(text.getBytes("UTF-8"));
+                dst.flush();
+                getActivity().runOnUiThread(() -> emitSignal("save_exported", "Expedition exported."));
+            } catch (Exception e) {
+                final String reason = String.valueOf(e.getMessage());
+                getActivity().runOnUiThread(() -> emitSignal("save_failed", "Could not write the export: " + reason));
+            }
+        }, "abyssal-save-export").start();
+    }
+
     @Override public void onMainActivityResult(int request, int result, Intent data) {
+        if (request == SAVE_PICK) {
+            if (result == Activity.RESULT_OK && data != null && data.getData() != null) receiveSave(data.getData());
+            return;
+        }
+        if (request == SAVE_WRITE) {
+            if (result == Activity.RESULT_OK && data != null && data.getData() != null) deliverSave(data.getData());
+            else pendingSave = null;
+            return;
+        }
         if (request == CONVERT) {
             if (result == Activity.RESULT_OK && data != null && data.hasExtra("selected"))
                 finish(generation, "selected", data.getStringExtra("selected"));

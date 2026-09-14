@@ -6,6 +6,13 @@ var mode := 0 # Auto, On, Off
 # over touchscreen availability when the dive starts.
 static var last_input := ""
 var drag_anywhere := false
+const Layout = preload("res://native/input/touch_layout.gd")
+## Player placements, as offsets from the standard composition. Empty means the
+## arrangement below is used exactly as designed.
+var layout := {}
+## Draws every control regardless of finger state, for the placement editor.
+var layout_preview := false
+var unit := 1.0
 var active := false
 var fingers := {}
 var steer := Vector2.ZERO
@@ -49,12 +56,16 @@ func update_input(event: InputEvent, deadzone: float=.18) -> void:
 	var before := enabled()
 	record_input(event,deadzone)
 	if before!=enabled():
-		reset();visible=active and enabled()
+		reset();refresh_visibility()
 func reset() -> void:
 	fingers.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;queue_redraw()
 func set_active(value: bool) -> void:
 	if active!=value:reset()
-	active=value;visible=active and enabled()
+	active=value;refresh_visibility()
+func refresh_visibility() -> void:
+	"""The placement editor needs the controls drawn while it deliberately keeps
+	them from steering, so previewing counts as a reason to be on screen."""
+	visible=(active or layout_preview) and enabled()
 func safe_rect() -> Rect2:
 	"""Keep controls clear of notches and rounded corners when the platform reports them."""
 	var full := Rect2(Vector2.ZERO,size)
@@ -103,6 +114,29 @@ func arrange() -> void:
 	free_left=safe.position.x+inset if drag_anywhere else stick_home.x+stick_radius+12*s
 	var top:=safe.position.y+bh+24*s
 	steer_region=Rect2(Vector2(safe.position.x,top),Vector2(safe.size.x*.46,safe.end.y-top))
+	unit=s
+	apply_layout(s)
+func apply_layout(s: float) -> void:
+	"""Moves and resizes what the player placed, then re-derives the free bands
+	the HUD is laid out against so nothing ends up underneath a moved control."""
+	for key in zones:
+		var placement: float = Layout.scale_of(layout,key)
+		var shift: Vector2 = Layout.offset_of(layout,key)*s
+		if shift==Vector2.ZERO and is_equal_approx(placement,1.0): continue
+		var area: Rect2 = zones[key]
+		var middle := area.get_center()+shift
+		var extent: Vector2 = area.size*placement
+		zones[key]=Rect2(middle-extent*.5,extent)
+	stick_radius=104.0*s*Layout.scale_of(layout,"stick")
+	stick_home+=Layout.offset_of(layout,"stick")*s
+	stick_center=stick_home
+	cluster_top=zones.throttle_up.position.y if zones.has("throttle_up") else cluster_top
+	free_right=zones.boost.position.x-12*s if zones.has("boost") else free_right
+	free_left=safe_rect().position.x+28.0*s if drag_anywhere else stick_home.x+stick_radius+12*s
+func control_rect(id: String) -> Rect2:
+	"""The on-screen area of one control, including any player placement."""
+	if id=="stick": return Rect2(stick_home-Vector2.ONE*stick_radius,Vector2.ONE*stick_radius*2)
+	return zones.get(id,Rect2())
 func button_at(point: Vector2) -> String:
 	for key in zones:
 		if zones[key].has_point(point):return key
@@ -146,7 +180,7 @@ func snapshot() -> Dictionary:
 	var drag:=look;look=Vector2.ZERO
 	return {"yaw":steer.x,"pitch":-steer.y,"look":drag,"guns":"guns" in held,"hook":"hook" in held,"boost":"boost" in held,"throttle":int("throttle_up" in held)-int("throttle_down" in held)}
 func _draw() -> void:
-	if not active:return
+	if not active and not layout_preview:return
 	var held:=fingers.values()
 	var idle:=Color("679fba66") if not engaged else Color("8bd6eedd")
 	if not drag_anywhere:

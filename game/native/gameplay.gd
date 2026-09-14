@@ -8,6 +8,7 @@ const Map = preload("res://native/presentation/overworld_map.gd")
 const Scanner = preload("res://native/presentation/scanner.gd")
 const ContactMarker = preload("res://native/presentation/contact_marker.gd")
 const EquipmentInfo = preload("res://native/presentation/equipment_info.gd")
+const Library = preload("res://scripts/model_library.gd")
 var content
 var imported_art := preload("res://native/presentation/imported_art.gd").new()
 var stream_prompted := false
@@ -31,6 +32,8 @@ var column: VBoxContainer
 var classic_frame := preload("res://native/presentation/classic_frame.gd").new()
 var dashboard := preload("res://native/presentation/flight_dashboard.gd").new()
 var hazard_warning := preload("res://native/presentation/hazard_warning.gd").new()
+var damage_feedback := preload("res://native/presentation/damage_feedback.gd").new()
+var damage_seen_ms := -1
 var hints := Label.new()
 var render_quality := 2
 var temporal_aa := false
@@ -104,11 +107,25 @@ var invert_mouse := false
 var strafe_mode := 0 # 0 auto · 1 always strafe · 2 always turn
 var mouse_steer := Vector2.ZERO
 var looking := false
+# The browser owns pointer lock and can revoke it (Escape, tab change, a refused
+# re-request) while Godot still reports MOUSE_MODE_CAPTURED. Steering has to
+# follow the real lock, and a lock lost mid-dive has to pause the game once.
+var web_lock_observed := false
+var mouse_flight_enabled := false
 var weapon_presses: Dictionary={}
 var controller := preload("res://native/input/flight_controls.gd").new()
 var touch := preload("res://native/input/touch_controls.gd").new()
 var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
 var save_path := "user://native/campaign.json"
+var transfer := preload("res://native/simulation/save_transfer.gd").new()
+var save_files := preload("res://native/platform/save_file.gd").new()
+# A settings row that rebuilds its page hands its own key back here, so focus
+# returns to the row the player just changed instead of the top of the list.
+var focus_option := ""
+var freeze_view
+var layout_editor
+const Display = preload("res://native/presentation/display_settings.gd")
+var aspect_ratio := "auto"
 var settings_path := "user://native/settings.cfg"
 func _ready() -> void:
 	original_ui_size=get_window().content_scale_size
@@ -121,6 +138,7 @@ func _ready() -> void:
 	ui.add_child(classic_frame);classic_frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(dashboard); dashboard.imported_art=imported_art; dashboard.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(hazard_warning);hazard_warning.z_index=20
+	ui.add_child(damage_feedback);damage_feedback.z_index=19
 	ui.add_child(hints); hints.add_theme_font_size_override("font_size",12); hints.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; hints.modulate=Color("9bc2cf")
 	pressure_material.shader=preload("res://native/presentation/pressure_overlay.gdshader"); pressure_overlay.material=pressure_material
 	ui.add_child(pressure_overlay); pressure_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); pressure_overlay.mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -147,12 +165,16 @@ func _ready() -> void:
 	ui.add_child(overlay); overlay.add_theme_stylebox_override("panel",box_style())
 	ui.add_child(touch);touch.action.connect(touch_action)
 	add_child(touch_scroll)
+	add_child(save_files)
+	save_files.chosen.connect(import_transfer)
+	save_files.delivered.connect(notice)
+	save_files.failed.connect(notice)
 	fullscreen_supported=fullscreen_available();touch.show_fullscreen=not web_standalone()
 	Input.joy_connection_changed.connect(controller_connection)
 	ui.resized.connect(layout); overlay.minimum_size_changed.connect(func(): layout.call_deferred()); layout()
 	var config := ConfigFile.new()
 	if config.load(settings_path)==OK:
-		for key in key_bindings: key_bindings[key]=int(config.get_value("keys",key,key_bindings[key]))
+		for key in key_bindings: key_bindings[key]=setting_keycode(config,key,key_bindings[key])
 		migrate_travel_bindings()
 		for key in graphics: graphics[key]=bool(config.get_value("graphics",key,graphics[key]))
 		modern_graphics=bool(config.get_value("graphics","modern",graphics.materials))
@@ -160,20 +182,25 @@ func _ready() -> void:
 		if not config.has_section_key("graphics","modern") and not graphics.materials:graphics.materials=true
 		if key_bindings.up==KEY_W: key_bindings.up=KEY_UP
 		if key_bindings.down==KEY_S: key_bindings.down=KEY_DOWN
-		mouse_sensitivity=float(config.get_value("keys","mouse_sensitivity",0.8)); invert_mouse=bool(config.get_value("keys","invert_mouse",false))
-		touch_look_sensitivity=clampf(float(config.get_value("input","touch_look",0.7)),0.2,2.0)
-		render_quality=int(config.get_value("view","resolution_v5",2))
+		mouse_sensitivity=setting_number(config,"keys","mouse_sensitivity",0.8,0.2,2.0); invert_mouse=bool(config.get_value("keys","invert_mouse",false))
+		touch_look_sensitivity=setting_number(config,"input","touch_look",0.7,0.2,2.0)
+		render_quality=setting_index(config,"view","resolution_v5",2,2)
 		temporal_aa=bool(config.get_value("view","temporal_aa",false))
-		dive_audio.music_gain=float(config.get_value("audio","music",0.65)); dive_audio.effects_gain=float(config.get_value("audio","effects",0.75))
-		view.camera_mode=clampi(int(config.get_value("view","camera",0)),0,3)
-	touch.mode=clampi(int(config.get_value("input","touch",0)),0,2)
+		dive_audio.music_gain=setting_number(config,"audio","music",0.65,0.0,1.0); dive_audio.effects_gain=setting_number(config,"audio","effects",0.75,0.0,1.0)
+		view.camera_mode=setting_index(config,"view","camera",0,3)
+		dive_audio.apply_levels()
+	touch.mode=setting_index(config,"input","touch",0,2)
 	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
-	controller.deadzone=clampf(float(config.get_value("input","deadzone",.18)),.05,.45)
+	controller.deadzone=setting_number(config,"input","deadzone",.18,.05,.45)
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
-	strafe_mode=clampi(int(config.get_value("input","strafe",0)),0,2)
+	strafe_mode=setting_index(config,"input","strafe",0,2)
+	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input","touch_layout",""))
+	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
+	touch.arrange()
 	if continue_save:
 		session=store.read(save_path,content.data)
 		if session==null: session=Session.new(); session.new_game(content.data,player_name,Time.get_unix_time_from_system()); notice(store.failure)
+		elif store.recovered: notice("Your save could not be read. Restored the previous checkpoint.")
 	else:
 		session=Session.new(); session.new_game(content.data,player_name,int(Time.get_unix_time_from_system())); session.face_layers=player_face.duplicate()
 	imported_art.root=content.root
@@ -200,7 +227,7 @@ func layout() -> void:
 		overlay.size=Vector2(minf(700,ui.size.x-48),minf(ui.size.y-48,column.get_combined_minimum_size().y+130));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="pause":
 		overlay.size=Vector2(minf(430,ui.size.x-48),minf(ui.size.y-64,maxf(sheet_full_height,column.get_combined_minimum_size().y)+136));overlay.position=Vector2(64,(ui.size.y-overlay.size.y)*.5)
-	elif page in ["controls","graphics","profile","journal","ship_status","failure","hangar","station_missions","station_status","system"]:
+	elif page in ["controls","graphics","profile","journal","ship_status","failure","hangar","station_missions","station_status","system","confirm","transfer"]:
 		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,maxf(sheet_full_height,column.get_combined_minimum_size().y)+136));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="dialogue":
 		overlay.size=Vector2(minf(660,ui.size.x-64),minf(300,ui.size.y-100)); overlay.position=(ui.size-overlay.size)*.5
@@ -273,11 +300,22 @@ func button(text: String, action: Callable, parent: Node=null) -> Button:
 	node.add_theme_color_override("font_color",Color("c5e1e8")); node.alignment=HORIZONTAL_ALIGNMENT_LEFT; node.custom_minimum_size.y=64 if touch.enabled() else 44; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL; node.add_theme_font_size_override("font_size",20 if touch.enabled() else 16); node.pressed.connect(action)
 	(parent if parent!=null else column).add_child(node)
 	return node
+func option(text: String, key: String, action: Callable, parent: Node=null) -> Button:
+	"""A settings row whose action rebuilds the page it lives on."""
+	var node := button(text,func(): focus_option=key; action.call(),parent)
+	node.set_meta("option",key)
+	return node
+func confirm(title: String, question: String, accept: String, act: Callable, cancel: Callable) -> void:
+	"""Destructive menu actions ask first. The answer is the only way back."""
+	open_page(title,"confirm")
+	label(question,17)
+	button(accept,act)
+	button("Cancel",cancel)
 func open_page(title: String, id: String) -> void:
 	dive_audio.set_context(id,session!=null and session.docked)
 	touch.set_active(false);controller.blocked=true
 	autopilot_pressed_at=-1
-	page=id; weapon_presses.clear();world.weapon_pending.clear();world.speed=1; world.mouse_pending=Vector2.ZERO; looking=false; mouse_steer=Vector2.ZERO; Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+	page=id; weapon_presses.clear();world.weapon_pending.clear();world.speed=1; world.mouse_pending=Vector2.ZERO; looking=false; release_flight_mouse()
 	overlay.add_theme_stylebox_override("panel",box_style())
 	auto_fire=false
 	for child in overlay.get_children(): overlay.remove_child(child); child.queue_free()
@@ -297,7 +335,7 @@ func open_page(title: String, id: String) -> void:
 	var legend := label(("ESC / B  CLOSE" if id=="destinations" else "ESC / B  BACK")+"     D-PAD / ARROWS  NAVIGATE     ENTER / A  SELECT",10,shell);legend.modulate=Color("9b9579")
 	overlay.show(); layout();layout.call_deferred();fit_sheets.call_deferred();focus_page.call_deferred()
 	if id!="dialogue":
-		for control in [classic_frame,hazard_warning,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
+		for control in [classic_frame,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
 	for marker in markers:marker.hide()
 func fit_sheets() -> void:
 	# Content pages replace overflowing lists; no hidden clipping or tiny scrollbars.
@@ -345,7 +383,36 @@ func close_page() -> void:
 	# browser pointer-lock request before that menu decision has finished.
 	capture_flight_mouse.call_deferred()
 func capture_flight_mouse() -> void:
-	if page.is_empty() and DisplayServer.get_name()!="headless" and not session.docked and not touch.enabled(): Input.mouse_mode=Input.MOUSE_MODE_CAPTURED
+	if page.is_empty() and DisplayServer.get_name()!="headless" and not session.docked and not touch.enabled():
+		mouse_flight_enabled=true
+		web_lock_observed=false
+		Input.mouse_mode=Input.MOUSE_MODE_CAPTURED
+func release_flight_mouse() -> void:
+	mouse_steer=Vector2.ZERO
+	mouse_flight_enabled=false
+	web_lock_observed=false
+	Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+func mouse_is_captured() -> bool:
+	# Ask the document rather than Godot: a revoked or refused lock leaves the
+	# engine's own mouse mode saying Captured with no pointer lock in place.
+	if OS.has_feature("web"): return browser_flag("document.pointerLockElement !== null")
+	return Input.mouse_mode==Input.MOUSE_MODE_CAPTURED
+func mouse_steering_enabled() -> bool:
+	if touch.enabled(): return false
+	# Some browsers refuse to re-lock after Escape even from a fresh click, so
+	# canvas motion stays usable while a new capture gesture is pending.
+	return mouse_flight_enabled if OS.has_feature("web") else Input.mouse_mode==Input.MOUSE_MODE_CAPTURED
+func watch_browser_capture() -> void:
+	if not OS.has_feature("web") or not page.is_empty() or not mouse_flight_enabled: return
+	var captured := mouse_is_captured()
+	if web_lock_observed and not captured:
+		# Escape's browser default can swallow the key event entirely. A real
+		# locked -> unlocked transition still has to pause the dive, once.
+		# A refused first request never gets here, nor does a menu release.
+		release_flight_mouse()
+		show_pause()
+		return
+	web_lock_observed=captured
 func notice(text: String) -> void:
 	if text.begins_with("Time ·"):
 		pending_notices=pending_notices.filter(func(value):return not value.begins_with("Time ·"))
@@ -380,18 +447,24 @@ func flight_hint() -> String:
 	return "%s · %s fire · %s pilot · %s map · %s dock · Esc menu"%[steering,OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map),OS.get_keycode_string(key_bindings.dock)]
 func _process(delta: float) -> void:
 	if session==null: return
-	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:release_flight_mouse()
+	watch_browser_capture()
 	if autopilot_pressed_at>=0 and not autopilot_hold_used and Time.get_ticks_msec()-autopilot_pressed_at>=450:
 		autopilot_hold_used=true;autonavigate_objective()
+	# Placement keeps the controls on screen without letting them steer, so the
+	# per-frame active state must not take them away from the editor drawing them.
 	touch.set_active(page.is_empty() and not session.docked and not world.region.cinematic())
+	if page=="layout": touch.refresh_visibility()
 	dive_audio.set_context(page,session.docked)
 	if page=="departure":
 		departure_elapsed+=minf(delta,.1)
 		view.place_departure(clampf(departure_elapsed/3.2,0,1))
 		if departure_elapsed>=3.2:finish_departure()
+	if page=="freeze": return
 	if page=="transit": advance_stream_transit(delta)
 	if page.is_empty() and not session.docked:
 		world.advance(delta,flight_input())
+		collect_damage_bearings()
 		consume_events()
 		if page.is_empty():
 			update_stream_passage();check_stream_proximity()
@@ -456,6 +529,19 @@ func _process(delta: float) -> void:
 			get_viewport().get_texture().get_image().save_png(capture_path if not capture_path.is_empty() else "user://native-world.png"); print("GAMEPLAY_CAPTURE")
 			# Let audio/render resources retire before ending the capture process.
 			var tree:=get_tree();tree.create_timer(.2).timeout.connect(tree.quit);queue_free()
+func collect_damage_bearings() -> void:
+	"""Reads hits the simulation already reported. Each is shown once, and a new
+	region (whose clock restarts) starts over rather than replaying old ones."""
+	var region = world.region
+	if region==null: return
+	if region.elapsed_ms<damage_seen_ms: damage_seen_ms=-1;damage_feedback.clear()
+	var here: Vector3 = world.render_pose(region.player).origin
+	for event in region.visual_events:
+		if event.kind!="impact" or not event.get("player",false): continue
+		if int(event.time)<=damage_seen_ms: continue
+		damage_feedback.record(camera,Library.point(event.position),here)
+		damage_seen_ms=maxi(damage_seen_ms,int(event.time))
+	damage_feedback.advance(get_process_delta_time())
 func update_catch_feedback(region, show_feedback: bool) -> void:
 	struggle.hide();catch_status.hide();catch_status.text=""
 	for hook in region.fishing:
@@ -503,9 +589,7 @@ func flight_input() -> Dictionary:
 	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point()}
 func _unhandled_input(event: InputEvent) -> void:
 	if page=="transit": return
-	# Embedded browsers can refuse pointer lock after an Escape unlock. Keep
-	# steering with ordinary canvas motion while the lock request is unavailable.
-	if page.is_empty() and event is InputEventMouseMotion and not touch.enabled() and (Input.mouse_mode==Input.MOUSE_MODE_CAPTURED or OS.has_feature("web")):
+	if page.is_empty() and event is InputEventMouseMotion and mouse_steering_enabled():
 		mouse_steer+=event.relative*mouse_sensitivity*Vector2(1,1 if invert_mouse else -1)
 	if event is InputEventKey and event.physical_keycode==key_bindings.autopilot and binding_action.is_empty() and page.is_empty():
 		if event.echo:return
@@ -524,7 +608,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				key_bindings[binding_action]=event.physical_keycode; save_settings()
 			binding_action=""; show_controls(); return
 		if event.keycode==KEY_ESCAPE:
-			if page=="dialogue": return
+			if page in ["dialogue","freeze"]: return
 			if page.is_empty(): show_pause()
 			elif session.docked: dock_back()
 			else: close_page()
@@ -573,7 +657,7 @@ func _input(event: InputEvent) -> void:
 	touch.update_input(event,controller.deadzone)
 	if was_touch!=touch.enabled():
 		mouse_steer=Vector2.ZERO
-		if touch.enabled():Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+		if touch.enabled():release_flight_mouse()
 		elif not OS.has_feature("web"):capture_flight_mouse()
 		layout()
 	if page=="departure":
@@ -591,16 +675,27 @@ func _input(event: InputEvent) -> void:
 	if touch.handle(event):get_viewport().set_input_as_handled();return
 	if page=="transit":return
 	if event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_B,JOY_BUTTON_START]:
+		if page=="freeze":return
 		if page.is_empty():show_pause()
 		elif page not in ["dialogue","failure"]:dock_back()
 		get_viewport().set_input_as_handled()
 	# Pointer lock must originate in a browser user gesture, after content/menu loading.
-	if OS.has_feature("web") and page.is_empty() and event is InputEventMouseButton and event.pressed and not touch.enabled() and Input.mouse_mode!=Input.MOUSE_MODE_CAPTURED:
-		Input.mouse_mode=Input.MOUSE_MODE_CAPTURED
+	if OS.has_feature("web") and page.is_empty() and event is InputEventMouseButton and event.pressed and not touch.enabled() and not mouse_is_captured():
+		capture_flight_mouse()
 		# Pointer lock and the first weapon press can share the same gesture.
 		# A refused lock must not swallow subsequent hook attempts either.
+func find_option(node: Node, key: String) -> Button:
+	if node is Button and node.get_meta("option","")==key and node.is_visible_in_tree() and not node.disabled: return node
+	for child in node.get_children():
+		var found := find_option(child,key)
+		if found!=null: return found
+	return null
 func focus_page() -> void:
 	if not overlay.visible or not is_instance_valid(column):return
+	if not focus_option.is_empty():
+		var wanted := find_option(column,focus_option)
+		focus_option=""
+		if wanted!=null: wanted.grab_focus(); return
 	if page=="market":
 		var selected:=column.find_child("Stock_"+str(market_selection),true,false) as Button
 		if selected!=null and selected.is_visible_in_tree():selected.grab_focus();return
@@ -641,10 +736,19 @@ func show_pause() -> void:
 	button("Mission journal",show_journal)
 	button("Ship and cargo",show_ship_status)
 	button("Profile and medals",show_profile)
+	var freeze := button("Action freeze",show_action_freeze)
+	freeze.disabled=session.docked or world.region==null
+	freeze.tooltip_text="Hold the dive still and look around it." if not freeze.disabled else "Available while diving."
 	button("Controls",show_controls)
 	button("Graphics",show_graphics)
-	button("Reload station checkpoint",reload_game)
-	button("Return to main menu",return_to_menu)
+	button("Transfer expedition",show_transfer)
+	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
+		"Return to your last saved station? Everything since that checkpoint is lost.",
+		"Reload checkpoint",reload_game,show_pause))
+	button("Return to main menu",func(): confirm("Main menu",
+		("Your expedition is saved at this station first." if session.docked
+			else "You are away from a station, so this dive since your last checkpoint is lost."),
+		"Return to main menu",return_to_menu,show_pause))
 func show_journal() -> void:
 	open_page("Mission journal","journal")
 	var info=preload("res://native/presentation/mission_info.gd")
@@ -670,7 +774,9 @@ func show_journal() -> void:
 		if mission.reward>0: label("Reward: %d cr"%mission.reward,16,card)
 		var deadline: String = info.deadline(mission)
 		if not deadline.is_empty(): label(deadline,16,card)
-		if mission==session.campaign.secondary: button("Abandon contract",func(): session.abandon_contract(); show_journal(),card)
+		if mission==session.campaign.secondary: button("Abandon contract",func(): confirm("Abandon contract",
+			"Give up \"%s\"? The deposit is not returned." % session.title(mission),
+			"Abandon contract",func(): session.abandon_contract(); show_journal(),show_journal),card)
 	label("Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d"%[session.counters.k,session.counters.m,session.counters.h,session.counters.f],16)
 	button("Back",dock_back if session.docked else show_pause)
 func autonavigate_from_journal(destination: int) -> void:
@@ -740,10 +846,13 @@ func show_controls() -> void:
 	label("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle",16)
 	label("Gamepad: right stick turns · left stick strafes or turns · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",16)
 	label("X bank · Y dock · LB route · RB time · View map · D-pad left camera / right lights · Start/B menu",16)
-	button("Touch controls · "+["Auto","On","Off"][touch.mode],func():touch.mode=(touch.mode+1)%3;update_render_resolution();save_settings();show_controls())
-	button("Touch look area · "+("Whole screen" if touch.drag_anywhere else "Outside analog area"),func():touch.drag_anywhere=not touch.drag_anywhere;touch.arrange();save_settings();show_controls())
-	button("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls())
-	button("Invert gamepad pitch · "+("On" if controller.invert else "Off"),func():controller.invert=not controller.invert;save_settings();show_controls())
+	option("Touch controls · "+["Auto","On","Off"][touch.mode],"touch_mode",func():touch.mode=(touch.mode+1)%3;update_render_resolution();save_settings();show_controls())
+	var placement := button("Adjust touch control placement…",show_layout_editor)
+	placement.disabled=not touch.enabled()
+	placement.tooltip_text="Move and resize the on-screen controls." if touch.enabled() else "Turn touch controls on first."
+	option("Touch look area · "+("Whole screen" if touch.drag_anywhere else "Outside analog area"),"touch_area",func():touch.drag_anywhere=not touch.drag_anywhere;touch.arrange();save_settings();show_controls())
+	option("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],"strafe",func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls())
+	option("Invert gamepad pitch · "+("On" if controller.invert else "Off"),"invert_pad",func():controller.invert=not controller.invert;save_settings();show_controls())
 	label("Gamepad deadzone",16)
 	var deadzone:=HSlider.new();deadzone.min_value=.05;deadzone.max_value=.45;deadzone.step=.01;deadzone.value=controller.deadzone;deadzone.custom_minimum_size.y=44;column.add_child(deadzone)
 	deadzone.value_changed.connect(func(value):controller.deadzone=value;save_settings())
@@ -754,14 +863,112 @@ func show_controls() -> void:
 	label("Mouse sensitivity",16)
 	var sensitivity := HSlider.new(); sensitivity.min_value=0.2; sensitivity.max_value=2.0; sensitivity.step=0.1; sensitivity.custom_minimum_size.y=44; sensitivity.value=mouse_sensitivity; column.add_child(sensitivity)
 	sensitivity.value_changed.connect(func(value): mouse_sensitivity=value; save_settings())
-	button("Invert vertical mouse · "+("On" if invert_mouse else "Off"),func(): invert_mouse=not invert_mouse; save_settings(); show_controls())
+	option("Invert vertical mouse · "+("On" if invert_mouse else "Off"),"invert_mouse",func(): invert_mouse=not invert_mouse; save_settings(); show_controls())
 	var bindings := GridContainer.new();bindings.columns=2;bindings.add_theme_constant_override("h_separation",24);column.add_child(bindings)
 	for action in key_bindings: button(action.capitalize()+"    "+OS.get_keycode_string(key_bindings[action]),func(): binding_action=action; notice("Press a key for "+action),bindings)
 	button("Back",show_system if session.docked else show_pause)
+func show_action_freeze() -> void:
+	"""Holds the dive still and hands the camera over. Nothing is simulated or
+	saved while frozen, so resuming continues the same dive untouched."""
+	if session.docked or world.region==null or is_instance_valid(freeze_view): return
+	page="freeze"
+	overlay.hide()
+	touch.set_active(false)
+	controller.blocked=true
+	release_flight_mouse()
+	touch_scroll.scroll=null;touch_scroll.gesture_control=null;touch_scroll.release()
+	# The flight view owns the camera every frame; it has to stand down first.
+	view.process_mode=Node.PROCESS_MODE_DISABLED
+	freeze_view=preload("res://native/presentation/action_freeze.gd").new()
+	ui.add_child(freeze_view)
+	freeze_view.z_index=70
+	freeze_view.configure(self)
+	freeze_view.closed.connect(end_action_freeze)
+func end_action_freeze(resume: bool) -> void:
+	if is_instance_valid(freeze_view):
+		freeze_view.restore_scene()
+		ui.remove_child(freeze_view)
+		freeze_view.queue_free()
+	freeze_view=null
+	view.process_mode=Node.PROCESS_MODE_INHERIT
+	page=""
+	if resume: close_page()
+	else: show_pause()
+func show_transfer() -> void:
+	open_page("Transfer expedition","transfer")
+	label("Move this expedition between your devices. An export carries the saved expedition only \u2014 never imported game content, which each device imports from its own JAR.",16)
+	label("An export can only be loaded by a copy that imported the same game content.",15).modulate=Color("9dc9bd")
+	var exportable: bool=FileAccess.file_exists(save_path)
+	var export_button := button("Export expedition\u2026",func():
+		var record: Dictionary=transfer.collect(content.data,save_path)
+		if record.is_empty(): notice(transfer.failure); return
+		save_files.export_text(transfer.default_name(session),JSON.stringify(record)))
+	export_button.disabled=not exportable
+	export_button.tooltip_text="Dock and save at a station first." if not exportable else "Write this expedition to a file you can carry."
+	if session!=null and not session.docked:
+		label("Your export is the last checkpoint you saved at a station, not this dive in progress.",15).modulate=Color("d7c399")
+	button("Import expedition\u2026",func(): save_files.choose_import())
+	label("Importing replaces the expedition on this device. The replaced one is kept as the backup checkpoint.",15).modulate=Color("d7c399")
+	button("Back",show_system if session.docked else show_pause)
+func import_transfer(path: String) -> void:
+	var record: Dictionary=transfer.read_export(content.data,path)
+	if record.is_empty(): notice(transfer.failure); return
+	if not transfer.install(content.data,save_path,record): notice(transfer.failure); return
+	notice("Expedition imported. Reloading it now\u2026")
+	reload_game()
+func cycle_aspect_ratio() -> void:
+	var choices: Array = Display.names()
+	aspect_ratio=choices[(choices.find(aspect_ratio)+1)%choices.size()]
+	update_render_resolution()
+	layout()
+	save_settings()
+	show_graphics()
+func show_layout_editor() -> void:
+	"""Placing the controls is something a player does while looking at them, so
+	it happens over the live overlay rather than inside a settings list."""
+	if is_instance_valid(layout_editor) or not touch.enabled(): return
+	var previous := page
+	page="layout"
+	overlay.hide()
+	layout_editor=preload("res://native/presentation/touch_layout_editor.gd").new()
+	ui.add_child(layout_editor)
+	layout_editor.z_index=80
+	layout_editor.configure(touch)
+	layout_editor.closed.connect(func(result: Dictionary):
+		touch.layout=result
+		touch.arrange()
+		save_settings()
+		if is_instance_valid(layout_editor):
+			ui.remove_child(layout_editor)
+			layout_editor.queue_free()
+		layout_editor=null
+		page=previous
+		show_controls())
 func migrate_travel_bindings() -> void:
 	# Move only the previous default pairs; preserve player-defined bindings.
 	if [key_bindings.autopilot,key_bindings.time] in [[KEY_P,KEY_T],[KEY_T,KEY_Y]] and not KEY_R in key_bindings.values():
 		key_bindings.autopilot=KEY_R;key_bindings.time=KEY_T
+func setting_number(config: ConfigFile, section: String, key: String, fallback: float, low: float, high: float) -> float:
+	"""A settings file is text a player can edit, and older builds wrote other
+	shapes. A value that is missing, the wrong type, NAN or INF has to come back
+	as the default rather than reaching audio gain or a sensitivity multiplier."""
+	var value: Variant = config.get_value(section,key,fallback)
+	if value is not float and value is not int: return fallback
+	var number := float(value)
+	return clampf(number,low,high) if is_finite(number) else fallback
+func setting_index(config: ConfigFile, section: String, key: String, fallback: int, highest: int) -> int:
+	var value: Variant = config.get_value(section,key,fallback)
+	if value is not int and value is not float: return fallback
+	if value is float and not is_finite(value): return fallback
+	return clampi(int(value),0,highest)
+func setting_keycode(config: ConfigFile, key: String, fallback: int) -> int:
+	var value: Variant = config.get_value("keys",key,fallback)
+	if value is not int and value is not float: return fallback
+	if value is float and not is_finite(value): return fallback
+	var code := int(value)
+	# Rebinding only ever stores a physical keycode; anything else would leave
+	# an action permanently unreachable with no way to notice from the menu.
+	return code if code>0 and not OS.get_keycode_string(code).is_empty() else fallback
 func save_settings() -> void:
 	var config := ConfigFile.new(); config.load(settings_path)
 	for key in key_bindings: config.set_value("keys",key,key_bindings[key])
@@ -776,6 +983,8 @@ func save_settings() -> void:
 	config.set_value("input","touch_look",touch_look_sensitivity)
 	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
 	config.set_value("input","strafe",strafe_mode)
+	config.set_value("input","touch_layout",preload("res://native/input/touch_layout.gd").encode(touch.layout))
+	config.set_value("view","aspect_ratio",aspect_ratio)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
 func set_graphics_mode(modern: bool) -> void:
@@ -799,22 +1008,23 @@ func apply_graphics() -> void:
 	layout()
 func show_graphics() -> void:
 	open_page("Ocean presentation","graphics")
-	var mode := button("GRAPHICS  ·  "+("ENHANCED LIGHTING" if modern_graphics else "CLASSIC LIGHTING")+"  ⇄",func():set_graphics_mode(not modern_graphics);show_graphics())
+	var mode := option("GRAPHICS  ·  "+("ENHANCED LIGHTING" if modern_graphics else "CLASSIC LIGHTING")+"  ⇄","lighting",func():set_graphics_mode(not modern_graphics);show_graphics())
 	mode.name="GraphicsMode"
 	label("Original JAR models and textures. Classic instruments in both lighting modes.",14)
 	var names := {"headlights":"Headlights","volumetric":"Volumetric light","detail":"Surface shading detail"}
 	var settings_grid:=GridContainer.new();settings_grid.columns=2;settings_grid.add_theme_constant_override("h_separation",20);column.add_child(settings_grid)
 	for key in names:
-		var option := button(names[key]+(" · On" if modern_graphics and graphics[key] else " · Off"),func():graphics[key]=not graphics[key];apply_graphics();save_settings();show_graphics(),settings_grid)
-		option.disabled=not modern_graphics;option.set_meta("modern_option",true)
-	button("Station texture smoothing · "+("On" if graphics.station_smoothing else "Off · pixelated"),func():graphics.station_smoothing=not graphics.station_smoothing;apply_graphics();save_settings();show_graphics())
-	var taa := button("Temporal antialiasing · "+("On" if modern_graphics and temporal_aa else "Off"),func():temporal_aa=not temporal_aa;update_render_resolution();save_settings();show_graphics())
+		var toggle := option(names[key]+(" · On" if modern_graphics and graphics[key] else " · Off"),key,func():graphics[key]=not graphics[key];apply_graphics();save_settings();show_graphics(),settings_grid)
+		toggle.disabled=not modern_graphics;toggle.set_meta("modern_option",true)
+	option("Station texture smoothing · "+("On" if graphics.station_smoothing else "Off · pixelated"),"smoothing",func():graphics.station_smoothing=not graphics.station_smoothing;apply_graphics();save_settings();show_graphics())
+	var taa := option("Temporal antialiasing · "+("On" if modern_graphics and temporal_aa else "Off"),"taa",func():temporal_aa=not temporal_aa;update_render_resolution();save_settings();show_graphics())
 	taa.disabled=not modern_graphics;taa.set_meta("modern_option",true)
-	var resolution := button("3D resolution · "+(["Performance · 1080p","Quality · 1440p","Native · full display resolution"][render_quality] if modern_graphics else "Native"),func():render_quality=(render_quality+1)%3;update_render_resolution();save_settings();show_graphics())
+	var resolution := option("3D resolution · "+(["Performance · 1080p","Quality · 1440p","Native · full display resolution"][clampi(render_quality,0,2)] if modern_graphics else "Native"),"resolution",func():render_quality=(render_quality+1)%3;update_render_resolution();save_settings();show_graphics())
 	resolution.disabled=not modern_graphics;resolution.set_meta("modern_option",true)
-	button("Game audio · "+("On" if graphics.audio else "Off"),func():graphics.audio=not graphics.audio;apply_graphics();save_settings();show_graphics())
-	volume_slider("Music",dive_audio.music_gain,func(value):dive_audio.music_gain=value;save_settings())
-	volume_slider("Effects",dive_audio.effects_gain,func(value):dive_audio.effects_gain=value;save_settings())
+	option("Aspect ratio · "+aspect_ratio.capitalize(),"aspect",cycle_aspect_ratio)
+	option("Game audio · "+("On" if graphics.audio else "Off"),"audio",func():graphics.audio=not graphics.audio;apply_graphics();save_settings();show_graphics())
+	volume_slider("Music",dive_audio.music_gain,func(value):dive_audio.music_gain=value;dive_audio.apply_levels();save_settings())
+	volume_slider("Effects",dive_audio.effects_gain,func(value):dive_audio.effects_gain=value;dive_audio.apply_levels();save_settings())
 	button("Fullscreen / windowed",toggle_fullscreen)
 	button("Back",show_system if session.docked else show_pause)
 func station_identity(parent: Node) -> void:
@@ -869,8 +1079,13 @@ func show_system() -> void:
 	button("Save game",save_game)
 	button("Controls",show_controls)
 	button("Graphics & audio",show_graphics)
-	button("Reload station checkpoint",reload_game)
-	button("Main menu",return_to_menu)
+	button("Transfer expedition",show_transfer)
+	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
+		"Return to your last saved station? Everything since that checkpoint is lost.",
+		"Reload checkpoint",reload_game,show_system))
+	button("Main menu",func(): confirm("Main menu",
+		"Your expedition is saved at this station first.",
+		"Return to main menu",return_to_menu,show_system))
 func dock_back() -> void:
 	if not session.docked:close_page();return
 	if page=="market":
@@ -967,9 +1182,11 @@ func save_game(feedback: bool=true) -> void:
 func reload_game() -> void:
 	var restored=store.read(save_path,content.data)
 	if restored==null: notice(store.failure); return
+	var fell_back: bool=store.recovered
 	world.dispose(); session=restored; world.configure(session); economy.configure(session)
 	world.build_docked_view()
 	show_station()
+	if fell_back: notice("Your save could not be read. Restored the previous checkpoint.")
 func return_to_menu() -> void:
 	if session.docked: save_game(false)
 	world.dispose(); get_tree().change_scene_to_file("res://scenes/native_main.tscn")
@@ -1228,7 +1445,7 @@ func _exit_tree() -> void:
 	if is_instance_valid(get_window()):
 		if get_window().size_changed.is_connected(update_render_resolution): get_window().size_changed.disconnect(update_render_resolution)
 		get_window().content_scale_size=original_ui_size
-	Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+	release_flight_mouse()
 
 	world.dispose()
 
@@ -1304,7 +1521,7 @@ func update_render_resolution() -> void:
 	if pixels.x<=0 or pixels.y<=0: return
 	var virtual_width := 1280 if touch.enabled() else clampi(pixels.x,1280,1920)
 	var virtual_size := Vector2i(virtual_width,roundi(virtual_width*float(pixels.y)/pixels.x))
-	if get_window().content_scale_size!=virtual_size: get_window().content_scale_size=virtual_size
+	Display.apply(get_window(),aspect_ratio,virtual_size)
 	var budget: float = [1920.0*1080.0,2560.0*1440.0,999999999.0][clampi(render_quality,0,2)]
 	get_viewport().scaling_3d_scale=clampf(sqrt(budget/maxf(1,pixels.x*pixels.y)),0.35,1.0) if modern_graphics else 1.0
 	get_viewport().scaling_3d_mode=Viewport.SCALING_3D_MODE_FSR if RenderingServer.get_current_rendering_method()=="forward_plus" else Viewport.SCALING_3D_MODE_BILINEAR

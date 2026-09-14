@@ -7,6 +7,9 @@ const Ship = preload("res://native/simulation/ship_stats.gd")
 const MISSION_FIELDS := ["kind","sponsor","sponsor_faction","portrait","reward","deposit","destination","destination_name","difficulty","jump_limit","jumps","terminal","story","failed","completed","briefing","item_id","item_count","target_kind","total","minimum","percentage","threshold"]
 const SESSION_FIELDS := ["name","credits","elapsed_ms","counters","discovered","fish_found","goods_found","station_id","recent_stations","hull","shield","armor","docked","entered_gate","last_arrival_ms","pending_cargo_payment","notices"]
 var failure := ""
+## Set when read() had to fall back to the previous checkpoint. The caller tells
+## the player, so a silently older expedition never looks like the saved one.
+var recovered := false
 
 static func fields(object, names: Array) -> Dictionary:
 	var result: Dictionary = {}
@@ -156,10 +159,35 @@ func write(path: String, session) -> bool:
 	if error!=OK: failure="Could not finish saving."; return false
 	return true
 
-func read(path: String, data: Dictionary):
-	failure=""
+static func quiet_parse(text: String):
+	"""A damaged save is reported through failure text, not pushed to the log:
+	the player needs the message, and a recovery from the backup is not an error."""
+	var reader := JSON.new()
+	return reader.data if reader.parse(text)==OK else null
+func read_one(path: String, data: Dictionary):
 	var file := FileAccess.open(path,FileAccess.READ)
 	if file==null: failure="No native save was found."; return null
-	var value = JSON.parse_string(file.get_as_text())
+	var value = quiet_parse(file.get_as_text())
 	if value is not Dictionary: failure="The save file could not be read."; return null
 	return restore(data,value)
+
+func read(path: String, data: Dictionary):
+	"""write() keeps the previous checkpoint beside the save. A truncated write,
+	a full disk or a copied-in file leaves that backup as the only way back, so
+	an unreadable save falls through to it instead of ending the expedition."""
+	failure=""
+	recovered=false
+	var session = read_one(path,data)
+	if session!=null: return session
+	var backup := path+".bak"
+	if not FileAccess.file_exists(backup): return null
+	var primary_failure := failure
+	failure=""
+	session = read_one(backup,data)
+	if session==null:
+		# Report the real save's problem; the backup is an unusable second copy.
+		failure=primary_failure
+		return null
+	recovered=true
+	failure=""
+	return session

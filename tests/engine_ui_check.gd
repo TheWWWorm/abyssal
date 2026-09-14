@@ -131,6 +131,13 @@ func run():
  await check_departure(game)
  await check_enemy_cues(game)
  check_oblique_portals(game)
+ await check_confirmations(game)
+ await check_option_focus(game)
+ check_settings_sanitizing(game)
+ check_display_ratios(game)
+ check_damage_bearings(game)
+ await check_action_freeze(game)
+ check_save_transfer(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
@@ -266,3 +273,147 @@ func check_enemy_cues(game) -> void:
  var scanner=load("res://native/presentation/scanner.gd")
  expect(scanner.edge_position(Vector2(3000,360),Vector2(1280,720),false,true).x==1260,"Offscreen threat square reaches the right screen margin")
  marker.queue_free();await process_frame
+
+func named_button(game, caption: String) -> Button:
+ for node in game.column.find_children("*","Button",true,false):
+  if str(node.text).begins_with(caption):return node
+ return null
+
+func check_confirmations(game) -> void:
+ # Losing a dive is the sort of thing a menu should ask about first.
+ game.session.docked=false;game.show_pause();await process_frame
+ named_button(game,"Return to main menu").pressed.emit();await process_frame
+ expect(game.page=="confirm","Returning to the menu asks before discarding the dive")
+ expect(game.overlay.get_combined_minimum_size().y>0 and named_button(game,"Cancel")!=null,"The confirmation offers a way back")
+ named_button(game,"Cancel").pressed.emit();await process_frame
+ expect(game.page=="pause","Cancelling a confirmation returns to the menu it came from")
+ named_button(game,"Reload station checkpoint").pressed.emit();await process_frame
+ expect(game.page=="confirm","Reloading a checkpoint asks before discarding progress")
+ named_button(game,"Cancel").pressed.emit();await process_frame
+ expect(game.page=="pause","Declining a reload leaves the dive untouched")
+ game.close_page()
+
+func check_option_focus(game) -> void:
+ # A long settings list that jumps back to the top on every toggle is unusable
+ # on a pad. Focus has to stay on the row the player just changed.
+ game.show_controls();await process_frame;await process_frame
+ var before: bool=game.invert_mouse
+ var row := named_button(game,"Invert vertical mouse")
+ expect(row!=null and row.get_meta("option","")=="invert_mouse","Settings rows carry the key focus returns to")
+ row.pressed.emit();await process_frame;await process_frame
+ expect(game.invert_mouse!=before,"The row still performs its setting")
+ var focused := root.gui_get_focus_owner()
+ expect(focused!=null and focused.get_meta("option","")=="invert_mouse","Focus stays on the toggled row instead of the top of the list")
+ row=named_button(game,"Invert vertical mouse");row.pressed.emit();await process_frame;await process_frame
+ expect(game.invert_mouse==before,"Toggling back restores the original setting")
+ game.close_page()
+
+func check_settings_sanitizing(game) -> void:
+ # A settings file is text a player can edit, and older builds wrote other shapes.
+ var config := ConfigFile.new()
+ config.set_value("audio","music","loud")
+ config.set_value("audio","effects",INF)
+ config.set_value("keys","mouse_sensitivity",NAN)
+ config.set_value("view","resolution_v5",99)
+ config.set_value("view","camera",-4)
+ config.set_value("keys","fire",-1)
+ expect(game.setting_number(config,"audio","music",0.65,0,1)==0.65,"A non-numeric volume falls back to the default")
+ expect(game.setting_number(config,"audio","effects",0.75,0,1)==0.75,"An infinite volume falls back rather than reaching the mixer")
+ expect(game.setting_number(config,"keys","mouse_sensitivity",0.8,0.2,2.0)==0.8,"A NAN sensitivity never becomes a steering multiplier")
+ expect(game.setting_index(config,"view","resolution_v5",2,2)==2,"An out-of-range resolution is clamped to a real option")
+ expect(game.setting_index(config,"view","camera",0,3)==0,"A negative camera index is clamped")
+ expect(game.setting_keycode(config,"fire",KEY_SPACE)==KEY_SPACE,"An impossible keycode keeps the action reachable")
+ expect(game.setting_number(config,"audio","missing",0.4,0,1)==0.4,"A missing value uses its default")
+
+func check_display_ratios(game) -> void:
+ var display=preload("res://native/presentation/display_settings.gd")
+ expect(display.valid("nonsense")=="auto","An unknown picture ratio falls back to filling the window")
+ var window := root.get_window()
+ var previous: String=game.aspect_ratio
+ game.aspect_ratio="4:3";game.update_render_resolution()
+ expect(window.content_scale_aspect==Window.CONTENT_SCALE_ASPECT_KEEP and window.content_scale_size==display.RATIOS["4:3"],"A fixed ratio pins the picture shape")
+ game.aspect_ratio="auto";game.update_render_resolution()
+ expect(window.content_scale_aspect==Window.CONTENT_SCALE_ASPECT_EXPAND,"Auto returns the picture to the window")
+ game.aspect_ratio=previous;game.update_render_resolution()
+
+func check_damage_bearings(game) -> void:
+ var feedback=game.damage_feedback
+ feedback.clear()
+ var here: Vector3=game.camera.global_transform.origin
+ feedback.record(game.camera,here-game.camera.global_transform.basis.z*60,here)
+ expect(feedback.marks.size()==1,"A hit leaves a bearing to read")
+ var ahead: float=feedback.marks[0].angle
+ feedback.record(game.camera,here-game.camera.global_transform.basis.z*62,here)
+ expect(feedback.marks.size()==1,"A second hit from the same bearing reinforces the first")
+ feedback.record(game.camera,here+game.camera.global_transform.basis.z*60,here)
+ expect(feedback.marks.size()==2,"A hit from behind is a separate bearing")
+ expect(absf(angle_difference(feedback.marks[1].angle,ahead))>1.5,"Front and rear hits do not share a direction")
+ feedback.advance(10.0)
+ expect(feedback.marks.is_empty(),"Bearings fade instead of accumulating")
+ feedback.record(null,here,here)
+ expect(feedback.marks.is_empty(),"No camera means no invented bearing")
+
+func toolbar_button(node: Node, caption: String) -> Button:
+ for child in node.find_children("*","Button",true,false):
+  if str(child.text)==caption:return child
+ return null
+
+func check_action_freeze(game) -> void:
+ game.session.docked=false;game.close_page()
+ var before: Transform3D=game.camera.global_transform
+ var elapsed: int=game.world.region.elapsed_ms
+ game.show_action_freeze();await process_frame;await process_frame
+ expect(game.page=="freeze" and is_instance_valid(game.freeze_view),"Action freeze takes over from the flight view")
+ # Without a visible way out, a touch player is stranded in the frozen scene.
+ var bar: Control=game.freeze_view.toolbar
+ for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2000,1175)]:
+  root.size=dimensions;await process_frame;await process_frame
+  expect(Rect2(Vector2.ZERO,game.freeze_view.size).encloses(bar.get_global_rect()),"Action freeze controls stay on screen at %s"%dimensions)
+ root.size=Vector2i(1280,720);await process_frame;await process_frame
+ expect(toolbar_button(bar,"Resume dive")!=null and toolbar_button(bar,"Back to pause")!=null,"Action freeze offers a way out that needs no keyboard")
+ expect(game.view.process_mode==Node.PROCESS_MODE_DISABLED,"The flight view stops driving the camera while frozen")
+ game.freeze_view.orbit(Vector2(120,0));game.freeze_view.zoom(1.4)
+ expect(game.camera.global_transform!=before,"The frozen camera actually moves")
+ game._process(0.2)
+ expect(game.world.region.elapsed_ms==elapsed,"Nothing is simulated while the dive is frozen")
+ # Escape has to leave the freeze without reaching the dive or the scene behind it.
+ var escape:=InputEventKey.new();escape.pressed=true;escape.keycode=KEY_ESCAPE;escape.physical_keycode=KEY_ESCAPE
+ game.freeze_view._input(escape);await process_frame;await process_frame
+ expect(game.page=="pause" and game.freeze_view==null,"Escape leaves the freeze and returns to the pause menu")
+ expect(game.view.process_mode==Node.PROCESS_MODE_INHERIT,"The flight view takes the camera back")
+ expect(game.camera.global_transform.is_equal_approx(before),"Leaving restores the flight camera exactly")
+ # And the on-screen button does the same thing, for players with no keyboard.
+ game.close_page();game.show_action_freeze();await process_frame;await process_frame
+ toolbar_button(game.freeze_view.toolbar,"Resume dive").pressed.emit();await process_frame;await process_frame
+ expect(game.page=="" and game.freeze_view==null,"The Resume control returns to the dive")
+ expect(game.camera.global_transform.is_equal_approx(before),"Resuming restores the flight camera exactly")
+
+func check_save_transfer(game) -> void:
+ var transfer=preload("res://native/simulation/save_transfer.gd").new()
+ var path := "user://engine-ui-transfer.json"
+ var export_path := "user://engine-ui-transfer.abyssave"
+ game.session.docked=true
+ expect(game.store.write(path,game.session),"A checkpoint can be written for export")
+ var record: Dictionary=transfer.collect(game.content.data,path)
+ expect(not record.is_empty() and record.format=="abyssal-native-save","An expedition exports as a data-only record")
+ expect(record.content_id==game.content.data.jar_sha256,"An export names the content it was played on")
+ expect(transfer.write(export_path,record),"The export reaches a file")
+ var reread: Dictionary=transfer.read_export(game.content.data,export_path)
+ expect(not reread.is_empty() and reread.save.name==game.session.name,"An export reads back as the same expedition")
+ var foreign: Dictionary=record.duplicate(true);foreign.content_id="0".repeat(64)
+ expect(transfer.validate(game.content.data,foreign).is_empty(),"An export from other game content is refused")
+ expect(transfer.validate(game.content.data,{"format":"something-else","version":1}).is_empty(),"An unrelated file is refused")
+ var damaged: Dictionary=record.duplicate(true);damaged.save=damaged.save.duplicate(true);damaged.save.erase("ship")
+ expect(transfer.validate(game.content.data,damaged).is_empty(),"An incomplete expedition is refused")
+ # Importing replaces the local expedition and keeps the displaced one.
+ var displaced := "user://engine-ui-displaced.json"
+ game.store.write(displaced,game.session)
+ expect(transfer.install(game.content.data,displaced,record),"An import installs over the local expedition")
+ expect(FileAccess.file_exists(displaced+".bak"),"The replaced expedition is kept as the backup")
+ # The backup is what an unreadable save falls through to.
+ var broken := FileAccess.open(displaced,FileAccess.WRITE);broken.store_string("{ not json");broken.close()
+ var store=preload("res://native/simulation/save_store.gd").new()
+ var recovered=store.read(displaced,game.content.data)
+ expect(recovered!=null and store.recovered,"An unreadable save falls back to the checkpoint beside it")
+ expect(store.failure.is_empty(),"A successful recovery reports no failure")
+ for name in [path,path+".bak",export_path,displaced,displaced+".bak"]:DirAccess.remove_absolute(name)

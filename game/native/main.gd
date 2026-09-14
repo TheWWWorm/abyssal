@@ -448,7 +448,8 @@ func refresh_title() -> void:
 			var saved = store.read(save_path,content.data)
 			if saved!=null:
 				title_menu.continue_button.disabled=false
-				status.text="%s · %s credits\nReturn to your last checkpoint" % [saved.name,saved.credits]
+				status.text="%s · %s credits\n%s" % [saved.name,saved.credits,
+					"Your latest save is damaged; this is the previous checkpoint" if store.recovered else "Return to your last checkpoint"]
 			else: status.text=store.failure
 		else: status.text="A new expedition awaits."
 	focus_title()

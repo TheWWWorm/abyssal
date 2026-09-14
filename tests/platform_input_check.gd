@@ -173,6 +173,87 @@ func run() -> void:
  for i in 4:await process_frame
  var footer: Node=game.column.get_child(game.column.get_child_count()-1)
  expect(game.sheet_scroll.get_global_rect().encloses(footer.get_global_rect()),"Touch station footer stays visible at 720p")
+ await check_touch_placement(game)
  game.queue_free();touch.queue_free();await process_frame
  for name in ["platform-check.cfg","platform-check.json","platform-check.json.bak"]:DirAccess.remove_absolute("user://"+name)
  print("PLATFORM_INPUT ",checks," checks; ",failures," failures");quit(1 if failures else 0)
+
+func check_touch_placement(game) -> void:
+ var layout=preload("res://native/input/touch_layout.gd")
+ # Settings are text a player can edit, and older builds wrote other shapes.
+ expect(layout.sanitize("not a layout").is_empty(),"A layout that is not a dictionary is discarded")
+ var nonsense: Dictionary=layout.sanitize({"guns":{"x":NAN,"y":INF,"scale":99}})
+ expect(layout.offset_of(nonsense,"guns")==Vector2.ZERO,"A control placed nowhere returns to its standard place")
+ expect(layout.scale_of(nonsense,"guns")==layout.MAX_SCALE,"An impossible stored size is clamped to one that still draws")
+ expect(layout.sanitize({"nonexistent":{"x":5,"y":5,"scale":1}}).is_empty(),"A control this build does not place is dropped")
+ var stored: Dictionary=layout.sanitize({"guns":{"x":10,"y":-20,"scale":1.5},"map":{"x":0,"y":0,"scale":1}})
+ expect(stored.has("guns") and not stored.has("map"),"Only controls actually moved are stored")
+ expect(layout.scale_of(stored,"guns")==1.5 and layout.offset_of(stored,"guns")==Vector2(10,-20),"A stored placement reads back unchanged")
+ expect(layout.decode(layout.encode(stored))==stored,"A layout survives the settings file round trip")
+ expect(layout.decode("{ not json").is_empty(),"A damaged layout falls back to the standard composition")
+ expect(layout.adjusted(stored,"guns",Vector2.ZERO,1.0).is_empty(),"Returning a control home leaves nothing behind")
+ expect(layout.scale_of(layout.adjusted(stored,"guns",Vector2.ZERO,9.0),"guns")==layout.MAX_SCALE,"An oversized control is clamped to a size that still draws")
+ # The same offsets have to mean the same composition on a different screen.
+ var touch=game.touch
+ touch.mode=1;touch.set_active(true)
+ touch.layout={};touch.size=Vector2(1280,720);touch.arrange()
+ var anchor: Vector2=touch.control_rect("guns").get_center()
+ var stick_anchor: Vector2=touch.control_rect("stick").get_center()
+ touch.layout={"guns":{"x":-40,"y":-30,"scale":1.5},"stick":{"x":25,"y":0,"scale":1.0}}
+ touch.arrange()
+ var moved: Rect2=touch.control_rect("guns")
+ expect(moved.get_center().is_equal_approx(anchor+Vector2(-40,-30)*touch.unit),"A placement moves its control by the offset it stored")
+ expect(is_equal_approx(moved.size.x/110.0/touch.unit,1.5),"A placement resizes its control about its own centre")
+ expect(touch.control_rect("stick").get_center().is_equal_approx(stick_anchor+Vector2(25,0)*touch.unit),"The steering stick follows its placement too")
+ expect(touch.button_at(moved.get_center())=="guns","A moved control answers touches where it now is")
+ expect(touch.free_right<=touch.zones.boost.position.x,"The free HUD band is re-derived from the moved controls")
+ # Editing happens over the live controls, with the panel out of the way.
+ var editor=preload("res://native/presentation/touch_layout_editor.gd").new()
+ game.ui.add_child(editor);editor.size=touch.size;editor.configure(touch);await process_frame
+ expect(touch.layout_preview,"The editor draws every control, not only the held ones")
+ expect(editor.anchors.has("guns"),"The editor measures each control at its standard place")
+ editor.select("guns")
+ var target: Vector2=touch.control_rect("guns").get_center()
+ expect(editor.at(target)=="guns","A touch on a control selects that control")
+ editor.begin(target,0)
+ expect(not editor.panel.visible,"The panel gets out of the way while a control is dragged")
+ editor.move_to(target+Vector2(60,0))
+ expect(touch.control_rect("guns").get_center().x>target.x,"Dragging moves the control with the finger")
+ editor.move_to(Vector2(9000,9000))
+ var pushed: Rect2=touch.control_rect("guns")
+ expect(Rect2(Vector2.ZERO,touch.size).encloses(pushed),"A control cannot be dragged off the screen")
+ editor.finish()
+ expect(editor.panel.visible,"The panel returns when the finger lifts")
+ editor.reset_selected()
+ expect(touch.control_rect("guns").get_center().is_equal_approx(anchor),"Resetting one control returns it to the standard composition")
+ editor.reset_all()
+ expect(editor.working.is_empty() and touch.control_rect("stick").get_center().is_equal_approx(stick_anchor),"Resetting all returns every control")
+ # The controls have to be visible and named while they are being placed: an
+ # unlabelled outline tells a player nothing about what they are resizing.
+ expect(touch.visible,"The controls stay on screen while their placement is edited")
+ expect(not touch.active,"Placing the controls does not let them steer the submarine")
+ # Nothing may sit under the panel, or that control cannot be dragged at all.
+ for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2000,1175)]:
+  editor.size=dimensions;touch.size=dimensions;touch.arrange();editor.place_panel()
+  await process_frame
+  var panel_rect: Rect2 = editor.panel.get_rect()
+  expect(Rect2(Vector2.ZERO,editor.size).encloses(panel_rect),"The editor panel stays on screen at %s"%dimensions)
+  var hidden: Array = []
+  for id in layout.IDS:
+   var control: Rect2 = touch.control_rect(id)
+   if control.size.x>0 and panel_rect.intersects(control): hidden.append(id)
+  expect(hidden.is_empty(),"No control sits under the editor panel at %s: %s"%[dimensions,hidden])
+ editor.size=Vector2(1280,720);touch.size=Vector2(1280,720);touch.arrange();editor.place_panel();await process_frame
+ # A player who still needs the space can move the panel out of the way.
+ var start: Vector2 = editor.panel.position
+ var press:=InputEventScreenTouch.new();press.index=0;press.pressed=true;press.position=start+Vector2(10,10)
+ editor.drag_panel(press)
+ var shove:=InputEventScreenDrag.new();shove.index=0;shove.position=start+Vector2(90,10)
+ editor.drag_panel(shove)
+ expect(editor.panel.position.x>start.x,"The editor panel can be dragged aside")
+ var lift:=InputEventScreenTouch.new();lift.index=0;lift.pressed=false;lift.position=shove.position
+ editor.drag_panel(lift)
+ expect(editor.panel_finger<0,"Releasing ends the panel drag")
+ editor.queue_free();await process_frame
+ expect(not touch.layout_preview,"Leaving the editor stops previewing idle controls")
+ touch.layout={};touch.arrange();touch.set_active(false)

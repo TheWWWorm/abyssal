@@ -172,7 +172,8 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 			# A held harpoon rechecks its attachment each tick. It is not a
 			# new impact: repeated flashes made a white trail behind the catch.
 			if not weapon.fishing:
-				visual_event({"kind":"impact","position":impact.position.duplicate(),"duration":400})
+				# Presentation reads who was hit; the shot itself is unchanged.
+				visual_event({"kind":"impact","position":impact.position.duplicate(),"duration":400,"player":impact.target==player})
 				audio_event("impact",impact.position)
 		weapon.impacts.clear()
 	pressure(delta_ms)

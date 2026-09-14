@@ -13,6 +13,7 @@ const SPECS := {
 	"shot":["",40,200], "beam":["",40,300], "torpedo":["",40,450], "impact":["",30,120]
 }
 const VOICES := 8
+const Mix = preload("res://native/presentation/audio_settings.gd")
 static var ambience: AudioStreamWAV
 static var wave_cache := {}
 var world
@@ -49,8 +50,11 @@ func _ready() -> void:
 		var factory=JavaScriptBridge.get_interface("AbyssalMusic")
 		if factory!=null:web_music=factory.create()
 	if ambience==null: ambience=synthesize(false)
+	Mix.ensure_buses()
+	bus=Mix.MUSIC
 	for i in VOICES:
-		var voice := AudioStreamPlayer.new(); add_child(voice); voices.append(voice)
+		var voice := AudioStreamPlayer.new(); voice.bus=Mix.EFFECTS; add_child(voice); voices.append(voice)
+	apply_levels()
 	volume_db=-22
 func configure(owner_world, directory: String) -> void:
 	world=owner_world
@@ -103,7 +107,11 @@ func set_enabled(value: bool) -> void:
 		if web_music!=null:web_music.stop()
 		stop()
 		for voice in voices: voice.stop()
+	apply_levels()
 	previous_bed=""
+func apply_levels() -> void:
+	"""One place decides what each group is worth, including silence."""
+	Mix.apply(music_gain,effects_gain,enabled)
 func cue(kind: String) -> void:
 	if not enabled or not SPECS.has(kind): return
 	if ui_requests.size()>=16: ui_requests.pop_front()
@@ -161,7 +169,7 @@ func play_cue(kind: String, gain: float, now_ms: int) -> bool:
 		for voice in voices:
 			if selected==null or int(voice.get_meta("started",0))<int(selected.get_meta("started",0)): selected=voice
 	selected.stop(); selected.stream=sounds[kind]
-	selected.volume_db=-12+linear_to_db(maxf(effects_gain,0.0001))+linear_to_db(maxf(gain,0.0001))+(4.0 if kind in ["pressure","message","gate","signal"] else 0.0)
+	selected.volume_db=-12+linear_to_db(maxf(gain,0.0001))+(4.0 if kind in ["pressure","message","gate","signal"] else 0.0)
 	selected.set_meta("cue",kind); selected.set_meta("started",now_ms)
 	if DisplayServer.get_name()!="headless": selected.play()
 	last_played[kind]=now_ms
@@ -181,7 +189,8 @@ func _process(_delta: float) -> void:
 		web_bed=prepare_web_music(bed,stream)
 		if web_bed:stop()
 		elif DisplayServer.get_name()!="headless":play()
-	volume_db=-12+linear_to_db(maxf(music_gain,0.0001))
+	volume_db=-12
+	apply_levels()
 	var paused: bool=music_gain<=0 or context=="paused" or context=="failure"
 	if web_bed:
 		music_paused=paused
