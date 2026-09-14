@@ -211,6 +211,16 @@ func check_oblique_portals(game) -> void:
   expect(game.session.station_id!=0 and not game.stream_armed,"Oblique STREAM entry crosses the aperture from side %d"%side)
   var exit: Transform3D=game.view.gate_nodes[game.world.region.gate_index(1)].global_transform
   expect(exit.origin.distance_to(game.world.region.player.pose.godot_transform().origin)<60,"STREAM emerges at the visible exit aperture")
+  # Every region lies on one side of its gate. Entering from either side has to
+  # put the submarine down on that side, heading into the region, or it arrives
+  # facing open water with the gate between it and everything else.
+  var arrived: Transform3D=game.world.region.player.pose.godot_transform()
+  var local: Vector3=exit.affine_inverse()*arrived.origin
+  var station: Array=game.world.region.station.parts
+  var station_local: Vector3=exit.affine_inverse()*Vector3(station[0].origin[0]/100.0,-station[0].origin[1]/100.0,-station[0].origin[2]/100.0)
+  var heading: Vector3=exit.basis.inverse()*(-arrived.basis.z)
+  expect(signf(station_local.z)==signf(heading.z),"The submarine emerges heading into the region rather than away from it")
+  expect(absf(local.z)<40,"The submarine emerges at the aperture, not somewhere beyond it")
   # The crossing is an animation, not a cut: the submarine is clipped against the
   # gate plane on the way in and against the exit plane on the way out, and stays
   # clipped until it has cleared. Anything painted over the view hides all of it.

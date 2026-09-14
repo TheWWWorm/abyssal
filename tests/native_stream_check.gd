@@ -68,7 +68,7 @@ func checks() -> void:
 	# Leave the arrival portal and let it close before testing a fresh opening.
 	world.region.player.pose.origin[0]+=16000;world.update_gates(1000)
 	expect(world.plan_stream(0),"Return transfer is in range")
-	world.region.player.pose.origin=world.region.gates[0].duplicate(); world.update_gates(400)
+	world.region.player.pose.origin=world.region.gates[0].duplicate(); world.update_gates(world.GATE_OPEN_MS/2)
 	expect(not world.stream_transfer() and owner.station_id==target,"Partly opened gate cannot transfer early")
 	expect(world.gate_frame(0)>0 and world.gate_frame(0)<20,"Gate has intermediate opening frames")
 	world.region.player.pose.origin[0]+=15000; world.update_gates(40)

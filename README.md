@@ -126,7 +126,7 @@ The dock keeps the original Hangar, Missions, Map, Trade, Status and System grou
 
 Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its − and + steps, or press **Max** for as much as the purse, the hold and the station's shelf allow, then Buy or Sell in one press. Each button offers only what it can actually move, and reports what it actually moved.
 
-A STREAM crossing is shown from outside: once you line up on the aperture the view stands off to watch the submarine go in, follows it through, and hands the camera back as it clears the far gate. Steering stays yours throughout.
+A STREAM crossing is shown from outside. The view stands off as the gate splits open, watches the submarine run at the aperture, follows it through, and hands the camera back once it is clear of the far gate. You always come out on the side the region is on, heading in towards it, whichever side you entered from. Steering stays yours throughout.
 
 Map search offers continuous autopilot or a STREAM transfer. Time acceleration runs ordinary simulation ticks - T cycles 1×/2× in manual flight and up to 16× during clear autopilot travel, dropping back to 1× near danger or on arrival. Autopilot passes stations vertically within your ship's pressure limits.
 

@@ -216,9 +216,13 @@ func _process(delta: float) -> void:
 		# Stand off to the side of the aperture so the submarine is seen entering
 		# it, then hand the frame back to the ordinary chase once it is through.
 		var following:=camera.global_transform
-		var stand: Vector3=Vector3(58,17,transit_side*56) if transit_emerging else Vector3(44,15,transit_side*118)
+		# Going in, stand back beyond the submarine and aim between it and the
+		# aperture, so the gate splitting and the run at it share the frame.
+		# Coming out, sit close to the far aperture and follow the hull itself.
+		var stand: Vector3=Vector3(58,17,transit_side*56) if transit_emerging else Vector3(96,28,transit_side*205)
 		camera.global_position=transit_frame.origin+transit_frame.basis*stand
-		camera.look_at(player_pose.origin,Vector3.UP)
+		var subject: Vector3=player_pose.origin if transit_emerging else transit_frame.origin.lerp(player_pose.origin,.5)
+		camera.look_at(subject,Vector3.UP)
 		camera.global_transform=camera.global_transform.interpolate_with(following,smoothstep(.62,1.0,transit_progress))
 	previous_camera_mode=camera_mode
 	var frustum: Array[Plane] = camera.get_frustum()

@@ -16,7 +16,10 @@ var stream_destination := -1
 var departure_gate := 0
 var gate_time := [0,0]
 var gate_closing := [0,0]
-const GATE_OPEN_MS := 608
+## One frame of the gate's split. The whole opening is twenty of them, so this
+## sets how sharply the gate snaps apart as a submarine runs at it.
+const GATE_FRAME_MS := 16
+const GATE_OPEN_MS := GATE_FRAME_MS*20
 var local_target = null
 var autopilot := false
 var encounter_autopilot := false
@@ -352,11 +355,11 @@ func update_gates(milliseconds: int) -> void:
 			gate_closing[i]=0; gate_time[i]+=milliseconds
 			if gate_time[i]>=GATE_OPEN_MS+640: gate_time[i]=GATE_OPEN_MS
 		else:
-			if gate_time[i]>0: region.audio_event("gate",region.gates[i]); gate_closing[i]=gate_frame(i)*32; gate_time[i]=0
+			if gate_time[i]>0: region.audio_event("gate",region.gates[i]); gate_closing[i]=gate_frame(i)*GATE_FRAME_MS; gate_time[i]=0
 			gate_closing[i]=maxi(0,gate_closing[i]-milliseconds)
 func gate_frame(index: int) -> int:
-	if gate_closing[index]>0: return int(gate_closing[index]/32)
-	return int(gate_time[index]/32) if gate_time[index]<GATE_OPEN_MS else 20+int((gate_time[index]-GATE_OPEN_MS)/32)
+	if gate_closing[index]>0: return int(gate_closing[index]/GATE_FRAME_MS)
+	return int(gate_time[index]/GATE_FRAME_MS) if gate_time[index]<GATE_OPEN_MS else 20+int((gate_time[index]-GATE_OPEN_MS)/GATE_FRAME_MS)
 func stream_transfer() -> bool:
 	if region==null or session.docked: return false
 	if region.failed or region.pending_mission!=null or region.active_transmission!=null: return false
