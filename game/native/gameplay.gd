@@ -42,6 +42,9 @@ var dock_prompt := Label.new()
 var dock_caption := Label.new()
 var market_selection := 0
 var market_page := 0
+## How many tonnes one press of Buy or Sell moves. Kept between rows so a run of
+## identical trades is set up once rather than once per commodity.
+var market_quantity := 1
 var stream_armed := false
 var stream_entry_side := 1.0
 var stream_aligning := false
@@ -115,6 +118,13 @@ var mouse_flight_enabled := false
 var weapon_presses: Dictionary={}
 var controller := preload("res://native/input/flight_controls.gd").new()
 var touch := preload("res://native/input/touch_controls.gd").new()
+var motion := preload("res://native/input/motion_steering.gd").new()
+## Tilt steering, for devices that have the sensor for it. Off by default:
+## a submarine that turns because the player shifted in their chair is worse
+## than one that needs a thumb.
+var motion_steering := false
+var motion_sensitivity := 0.5
+var invert_motion_pitch := false
 var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
 var save_path := "user://native/campaign.json"
 var transfer := preload("res://native/simulation/save_transfer.gd").new()
@@ -122,8 +132,11 @@ var save_files := preload("res://native/platform/save_file.gd").new()
 # A settings row that rebuilds its page hands its own key back here, so focus
 # returns to the row the player just changed instead of the top of the list.
 var focus_option := ""
+## Which Controls page is open. Empty is the list of sections itself.
+var controls_section := ""
 var freeze_view
 var layout_editor
+const TravelFade = preload("res://native/presentation/travel_fade.gd")
 const Display = preload("res://native/presentation/display_settings.gd")
 var aspect_ratio := "auto"
 var settings_path := "user://native/settings.cfg"
@@ -200,6 +213,11 @@ func _ready() -> void:
 	strafe_mode=setting_index(config,"input","strafe",0,2)
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input","touch_layout",""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
+	motion_steering=bool(config.get_value("input","motion",false))
+	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
+	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
+	motion.notice.connect(notice)
+	if motion_steering: motion.enable()
 	touch.arrange()
 	if continue_save:
 		session=store.read(save_path,content.data)
@@ -488,7 +506,7 @@ func _process(delta: float) -> void:
 	if page=="freeze": return
 	if page=="transit": advance_stream_transit(delta)
 	if page.is_empty() and not session.docked:
-		world.advance(delta,flight_input())
+		world.advance(delta,flight_input(delta))
 		collect_damage_bearings()
 		consume_events()
 		if page.is_empty():
@@ -586,7 +604,7 @@ func strafe_enabled() -> bool:
 	# Auto strafes wherever something else can turn the boat: a mouse, or the
 	# right stick. A thumb on the touch stick has neither, so it keeps turning.
 	return not touch.enabled() if strafe_mode==0 else strafe_mode==1
-func flight_input() -> Dictionary:
+func flight_input(seconds: float=0.0) -> Dictionary:
 	if not page.is_empty() or session.docked or world.region.cinematic(): return {}
 	var horizontal := float(Input.is_physical_key_pressed(key_bindings.right))-int(Input.is_physical_key_pressed(key_bindings.left))
 	var pitch := float(Input.is_physical_key_pressed(key_bindings.up))-int(Input.is_physical_key_pressed(key_bindings.down))
@@ -608,6 +626,12 @@ func flight_input() -> Dictionary:
 	var yaw := clampf(pad.look.x,-1,1)
 	if strafe_enabled(): strafe=horizontal
 	else: yaw=clampf(yaw+horizontal,-1,1)
+	if motion_steering:
+		# Tilt turns; it never strafes. A device held level reports nothing, so
+		# this sits alongside the stick rather than replacing it.
+		var tilted := motion.look(seconds,motion_sensitivity)
+		yaw=clampf(yaw+tilted.x,-1,1)
+		pitch=clampf(pitch+tilted.y*(-1.0 if invert_motion_pitch else 1.0),-1,1)
 	pitch=clampf(pitch+pad.pitch+screen.pitch+pad.look.y,-1,1)
 	throttle=clampi(throttle+pad.throttle+screen.throttle,-1,1)
 	fire=fire or pad.fire;guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
@@ -863,35 +887,83 @@ func show_profile(medal_view: bool=false) -> void:
 			badge.modulate=[Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")][tier]
 			if tier>0: label(session.text(int(content.data.constants.e["a:[[S"][id][1]),str(int(content.data.constants.f["a:[[I"][id][tier-1]))),15,card)
 	button("Back",dock_back if session.docked else show_pause)
-func show_controls() -> void:
-	open_page("Controls","controls")
-	var travel_keys:=HBoxContainer.new();column.add_child(travel_keys)
-	for action in ["autopilot","time"]:button(("Autopilot (tap / hold)" if action=="autopilot" else "Time acceleration")+" · "+OS.get_keycode_string(key_bindings[action]),func():binding_action=action;notice("Press a key for "+action),travel_keys)
-	label("Select an action to rebind. Esc cancels. Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation.",16)
-	label("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle",16)
-	label("Gamepad: right stick turns · left stick strafes or turns · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",16)
-	label("X bank · Y dock · LB route · RB time · View map · D-pad left camera / right lights · Start/B menu",16)
-	option("Touch controls · "+["Auto","On","Off"][touch.mode],"touch_mode",func():touch.mode=(touch.mode+1)%3;update_render_resolution();save_settings();show_controls())
+func section_row(text: String, key: String, act: Callable) -> Button:
+	"""A row that opens another page, carrying the key that page hands focus back
+	to. `option` cannot serve here: that one is for rows that rebuild their own."""
+	var node := button(text,act)
+	node.set_meta("option",key)
+	return node
+func show_controls(section: String="") -> void:
+	"""One page per kind of control. All of it on a single page was longer than a
+	pad could comfortably walk, and the sliders sat at the bottom of it. Leaving a
+	section puts focus back on the row that opened it, so a pass through several
+	settings never restarts at the top."""
+	controls_section=section
+	open_page({"steering":"Steering","gamepad":"Gamepad","touch":"Touch controls",
+		"bindings":"Key bindings","reference":"Control reference"}.get(section,"Controls"),"controls")
+	match section:
+		"steering": controls_steering()
+		"gamepad": controls_gamepad()
+		"touch": controls_touch()
+		"bindings": controls_bindings()
+		"reference": controls_reference()
+		_:
+			section_row("Steering · mouse, keys and stick","steering",func():show_controls("steering"))
+			section_row("Gamepad · "+("connected" if controller.device>=0 else "none connected"),"gamepad",func():show_controls("gamepad"))
+			section_row("Touch controls · "+["Auto","On","Off"][touch.mode],"touch",func():show_controls("touch"))
+			section_row("Key bindings","bindings",func():show_controls("bindings"))
+			section_row("Control reference","reference",func():show_controls("reference"))
+	if section.is_empty(): button("Back",show_system if session.docked else show_pause)
+	else: button("Back",func():focus_option=section;show_controls(""))
+func slider_setting(caption: String, low: float, high: float, value: float, act: Callable) -> HSlider:
+	label(caption,16)
+	var node := HSlider.new()
+	node.min_value=low;node.max_value=high;node.step=.1;node.value=value;node.custom_minimum_size.y=44
+	column.add_child(node)
+	node.value_changed.connect(act)
+	return node
+func controls_steering() -> void:
+	option("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],"strafe",func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls("steering"))
+	slider_setting("Mouse sensitivity",0.2,2.0,mouse_sensitivity,func(value): mouse_sensitivity=value; save_settings())
+	option("Invert vertical mouse · "+("On" if invert_mouse else "Off"),"invert_mouse",func(): invert_mouse=not invert_mouse; save_settings(); show_controls("steering"))
+	label("Tilt steering uses the device's motion sensor. Desktop machines have none.",16)
+	option("Steer by tilting · "+("On" if motion_steering else "Off"),"motion",func():
+		motion_steering=not motion_steering
+		# A browser only grants the sensor from inside a user gesture, and this
+		# press is one. Asking at startup is refused before the player sees it.
+		if motion_steering: motion.enable()
+		save_settings();show_controls("steering"))
+	if motion_steering:
+		var tilt:=slider_setting("Tilt sensitivity",0.0,1.0,motion_sensitivity,func(value): motion_sensitivity=value; save_settings())
+		tilt.step=.05
+		option("Invert tilt pitch · "+("On" if invert_motion_pitch else "Off"),"motion_invert",func(): invert_motion_pitch=not invert_motion_pitch; save_settings(); show_controls("steering"))
+		option("Centre tilt on how it is held now","motion_centre",func():
+			if motion.calibrate(): notice("Tilt centred")
+			show_controls("steering"))
+func controls_gamepad() -> void:
+	option("Invert gamepad pitch · "+("On" if controller.invert else "Off"),"invert_pad",func():controller.invert=not controller.invert;save_settings();show_controls("gamepad"))
+	var deadzone:=slider_setting("Gamepad deadzone",.05,.45,controller.deadzone,func(value):controller.deadzone=value;save_settings())
+	deadzone.step=.01
+	label("Raise the deadzone if the submarine drifts with the sticks at rest.",16)
+func controls_touch() -> void:
+	option("Touch controls · "+["Auto","On","Off"][touch.mode],"touch_mode",func():touch.mode=(touch.mode+1)%3;update_render_resolution();save_settings();show_controls("touch"))
 	var placement := button("Adjust touch control placement…",show_layout_editor)
 	placement.disabled=not touch.enabled()
 	placement.tooltip_text="Move and resize the on-screen controls." if touch.enabled() else "Turn touch controls on first."
-	option("Touch look area · "+("Whole screen" if touch.drag_anywhere else "Outside analog area"),"touch_area",func():touch.drag_anywhere=not touch.drag_anywhere;touch.arrange();save_settings();show_controls())
-	option("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],"strafe",func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls())
-	option("Invert gamepad pitch · "+("On" if controller.invert else "Off"),"invert_pad",func():controller.invert=not controller.invert;save_settings();show_controls())
-	label("Gamepad deadzone",16)
-	var deadzone:=HSlider.new();deadzone.min_value=.05;deadzone.max_value=.45;deadzone.step=.01;deadzone.value=controller.deadzone;deadzone.custom_minimum_size.y=44;column.add_child(deadzone)
-	deadzone.value_changed.connect(func(value):controller.deadzone=value;save_settings())
-	label("Touch: Whole screen lets you drag to look in the analog area too, using Touch look sensitivity. Otherwise the left thumb places a steering stick. Hold speed/guns/hook/boost; tap the top row for travel and menus.",16)
-	label("Touch look sensitivity",16)
-	var touch_look := HSlider.new(); touch_look.min_value=0.2; touch_look.max_value=2.0; touch_look.step=0.1; touch_look.custom_minimum_size.y=44; touch_look.value=touch_look_sensitivity; column.add_child(touch_look)
-	touch_look.value_changed.connect(func(value): touch_look_sensitivity=value; save_settings())
-	label("Mouse sensitivity",16)
-	var sensitivity := HSlider.new(); sensitivity.min_value=0.2; sensitivity.max_value=2.0; sensitivity.step=0.1; sensitivity.custom_minimum_size.y=44; sensitivity.value=mouse_sensitivity; column.add_child(sensitivity)
-	sensitivity.value_changed.connect(func(value): mouse_sensitivity=value; save_settings())
-	option("Invert vertical mouse · "+("On" if invert_mouse else "Off"),"invert_mouse",func(): invert_mouse=not invert_mouse; save_settings(); show_controls())
+	option("Touch look area · "+("Whole screen" if touch.drag_anywhere else "Outside analog area"),"touch_area",func():touch.drag_anywhere=not touch.drag_anywhere;touch.arrange();save_settings();show_controls("touch"))
+	slider_setting("Touch look sensitivity",0.2,2.0,touch_look_sensitivity,func(value): touch_look_sensitivity=value; save_settings())
+	label("Whole screen lets you drag to look in the analog area too, using Touch look sensitivity. Otherwise the left thumb places a steering stick. Hold speed/guns/hook/boost; tap the top row for travel and menus.",16)
+func controls_bindings() -> void:
+	var travel_keys:=HBoxContainer.new();column.add_child(travel_keys)
+	for action in ["autopilot","time"]:button(("Autopilot (tap / hold)" if action=="autopilot" else "Time acceleration")+" · "+OS.get_keycode_string(key_bindings[action]),func():binding_action=action;notice("Press a key for "+action),travel_keys)
+	label("Select an action to rebind. Esc cancels.",16)
 	var bindings := GridContainer.new();bindings.columns=2;bindings.add_theme_constant_override("h_separation",24);column.add_child(bindings)
 	for action in key_bindings: button(action.capitalize()+"    "+OS.get_keycode_string(key_bindings[action]),func(): binding_action=action; notice("Press a key for "+action),bindings)
-	button("Back",show_system if session.docked else show_pause)
+func controls_reference() -> void:
+	label("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle",16)
+	label("Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation.",16)
+	label("Gamepad: right stick turns · left stick strafes or turns · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",16)
+	label("X bank · Y dock · LB route · RB time · View map · D-pad left camera / right lights · Start/B menu",16)
 func show_action_freeze() -> void:
 	"""Holds the dive still and hands the camera over. Nothing is simulated or
 	saved while frozen, so resuming continues the same dive untouched."""
@@ -1008,6 +1080,8 @@ func save_settings() -> void:
 	config.set_value("input","touch_look",touch_look_sensitivity)
 	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
 	config.set_value("input","strafe",strafe_mode)
+	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
+	config.set_value("input","motion_invert",invert_motion_pitch)
 	config.set_value("input","touch_layout",preload("res://native/input/touch_layout.gd").encode(touch.layout))
 	config.set_value("view","aspect_ratio",aspect_ratio)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
@@ -1112,6 +1186,8 @@ func show_system() -> void:
 		"Your expedition is saved at this station first.",
 		"Return to main menu",return_to_menu,show_system))
 func dock_back() -> void:
+	# Back inside Controls means the section list, not the way out of settings.
+	if page=="controls" and not controls_section.is_empty(): focus_option=controls_section;show_controls("");return
 	if not session.docked:close_page();return
 	if page=="market":
 		if market_category in ["ships","equipment","manufacture"]:show_hangar();return
@@ -1211,10 +1287,29 @@ func reload_game() -> void:
 	world.dispose(); session=restored; world.configure(session); economy.configure(session)
 	world.build_docked_view()
 	show_station()
+	TravelFade.uncover(ui)
 	if fell_back: notice("Your save could not be read. Restored the previous checkpoint.")
 func return_to_menu() -> void:
 	if session.docked: save_game(false)
 	world.dispose(); get_tree().change_scene_to_file("res://scenes/native_main.tscn")
+func buy_limit(item) -> int:
+	"""What the purse, the hold and the station's shelf allow, whichever runs out
+	first. A free commodity would divide by nothing, so it buys what fits."""
+	var space: int = session.ship.capacity()-session.ship.cargo_used
+	var affordable: int = session.credits/item.price if item.price>0 else space
+	return maxi(0,mini(int(item.stock),mini(affordable,space)))
+func trade_amount(station: Dictionary, item, buying: bool, count: int) -> void:
+	"""Repeats the single trade the player would otherwise click, so the station's
+	repricing, its stock and the hold all move exactly as they do one at a time.
+	Stops at the first refusal, and reports what actually moved rather than what
+	was asked for, because a part-filled order is the ordinary case here."""
+	var before: int = session.credits
+	var moved := 0
+	for _index in maxi(0,count):
+		if not economy.trade(station,item.id,buying): break
+		moved+=1
+	if moved<1: notice("Insufficient credits, cargo space or stock."); return
+	notice("%s %d t of %s for %d cr"%["Bought" if buying else "Sold",moved,item_name(item.id),absi(session.credits-before)])
 func show_market(kind: String) -> void:
 	if market_category!=kind: market_selection=0;market_page=0;market_category=kind
 	var denial: int = session.service_denial(kind)
@@ -1627,6 +1722,7 @@ func update_stream_passage() -> void:
 			view.assign_player_basis(arrival.basis)
 			world.previous_render_poses.clear();stream_armed=false;stream_exit_active=true;stream_exit_frame=exit
 			view.clip_player_at_gate(exit,-stream_entry_side);dive_audio.cue("gate")
+			TravelFade.uncover(ui)
 		else:notice(world.message);stream_armed=false;view.clear_player_clip()
 	stream_previous_z=local.z;stream_previous_local=local
 
@@ -1745,7 +1841,27 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 			show_market(kind),detail).disabled=item.owned<2
 	else:
 		label("UNIT PRICE  %d cr\nIN HOLD  %d t\nSTATION STOCK  %d t"%[item.price,item.owned,item.stock],14,detail).modulate=Color("a8dbcc")
-		button("Buy one · %d cr"%item.price,func():
-			if not economy.trade(station,item.id,true):notice("Insufficient credits, cargo space or stock.")
-			show_market(kind),detail).disabled=item.stock<1 or session.credits<item.price or not session.ship.can_carry(1)
-		button("Sell one · %d cr"%item.price,func():economy.trade(station,item.id,false);show_market(kind),detail).disabled=item.owned<1
+		var affordable := buy_limit(item)
+		var sellable: int = maxi(0,item.owned)
+		var reachable: int = maxi(1,maxi(affordable,sellable))
+		market_quantity=clampi(market_quantity,1,reachable)
+		# The amount is chosen once and both trades read it, because a hold is
+		# usually filled at one station and emptied at the next.
+		var amount:=HBoxContainer.new();amount.add_theme_constant_override("separation",6);detail.add_child(amount)
+		var caption:=label("AMOUNT  %d t"%market_quantity,12,amount);caption.custom_minimum_size.x=96;caption.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;caption.modulate=Color("93b5aa")
+		for entry in [["−",-1],["+",1]]:
+			var stride: int=entry[1]
+			var step:=option(entry[0],"amount"+entry[0],func():market_quantity=clampi(market_quantity+stride,1,reachable);show_market(kind),amount)
+			step.custom_minimum_size.x=52;step.alignment=HORIZONTAL_ALIGNMENT_CENTER;step.size_flags_horizontal=Control.SIZE_SHRINK_CENTER
+		var most:=option("Max","amount_max",func():market_quantity=reachable;show_market(kind),amount)
+		most.custom_minimum_size.x=64;most.alignment=HORIZONTAL_ALIGNMENT_CENTER;most.size_flags_horizontal=Control.SIZE_SHRINK_CENTER
+		# Each button offers what it can actually move, so the number on it is never
+		# a promise the hold or the purse is about to refuse.
+		var buying: int=mini(market_quantity,affordable)
+		var selling: int=mini(market_quantity,sellable)
+		button("Buy %d · %d cr"%[maxi(1,buying),item.price*maxi(1,buying)],func():
+			trade_amount(station,item,true,buying)
+			show_market(kind),detail).disabled=buying<1
+		button("Sell %d · %d cr"%[maxi(1,selling),item.price*maxi(1,selling)],func():
+			trade_amount(station,item,false,selling)
+			show_market(kind),detail).disabled=selling<1

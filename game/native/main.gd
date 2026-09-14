@@ -167,6 +167,10 @@ func _ready() -> void:
 	chooser.access=FileDialog.ACCESS_FILESYSTEM
 	chooser.filters=PackedStringArray(["*.jar,*.abyss ; Game JAR or private content pack"])
 	chooser.file_selected.connect(func(path):import_pack(path) if path.get_extension().to_lower()=="abyss" else import_jar(path))
+	# A window that ignores a dropped JAR looks broken. Only the desktop builds
+	# have a filesystem to drop from; the browser and Android reach their files
+	# through their own pickers.
+	if not OS.has_feature("web") and not OS.has_feature("android"): get_window().files_dropped.connect(dropped_files)
 	ui.resized.connect(layout_ui)
 	layout_ui()
 	var args := OS.get_cmdline_user_args()
@@ -190,6 +194,16 @@ func _ready() -> void:
 	title_menu.footer.text=content_picker_label()
 	if not ready_for_preview:status.text="Choose your private .abyss content pack." if not source_import_available() and not OS.has_feature("web") and portable.android==null else "Choose your JAR or private .abyss content pack."
 	refresh_title()
+
+func dropped_files(paths: PackedStringArray) -> void:
+	"""A dropped file is the same request the picker makes, so it takes the same
+	two routes. Anything else is said out loud rather than quietly ignored."""
+	if paths.is_empty() or import_busy or portable.busy: return
+	var path: String = paths[0]
+	match path.get_extension().to_lower():
+		"abyss": import_pack(path)
+		"jar": import_jar(path)
+		_: status.text="Drop a DEEP .jar, or an .abyss content pack prepared on a computer."
 
 func content_picker_label() -> String:
 	return "Choose JAR / content pack…" if source_import_available() or OS.has_feature("web") or portable.android!=null else "Choose content pack…"

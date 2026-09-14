@@ -17,6 +17,15 @@ func run():
  app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
  expect(app.title_menu.continue_button.disabled,"No checkpoint disables load")
+ # A window that ignores a dropped game file looks broken, so a drop it cannot
+ # use has to say so rather than do nothing at all.
+ app.status.text=""
+ app.dropped_files(PackedStringArray(["/tmp/not-a-game.txt"]))
+ expect(app.status.text.contains(".jar"),"A dropped file of the wrong kind says what would have worked")
+ app.import_busy=true;app.status.text="unchanged"
+ app.dropped_files(PackedStringArray(["/tmp/whatever.jar"]))
+ expect(app.status.text=="unchanged","A drop during an import is ignored rather than starting a second one")
+ app.import_busy=false
  for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(3440,1440),Vector2i(5120,2880)]:
   root.size=dimensions;await process_frame;await process_frame
   for node in [app.title_menu.logo,app.title_menu.panel,app.title_menu.status,app.title_menu.footer,app.title_menu.edition]:
@@ -113,7 +122,7 @@ func run():
  game.close_page();key.pressed=true;game._unhandled_input(key);game.autopilot_pressed_at-=500;game._process(0)
  expect(game.world.autopilot and game.page.is_empty(),"Hold R navigates the current objective without opening a menu")
  key.pressed=false;game._unhandled_input(key);game.world.cancel_autopilot()
- game.show_controls()
+ game.show_controls("bindings")
  for i in 4:await process_frame
  expect(game.column.find_children("*","Button",true,false).any(func(node):return node.text.begins_with("Autopilot (tap / hold)") and node.is_visible_in_tree()),"Autopilot control is prominently visible")
  game.show_map();await process_frame
@@ -139,6 +148,10 @@ func run():
  check_damage_bearings(game)
  await check_action_freeze(game)
  check_save_transfer(game)
+ await check_controls_sections(game)
+ await check_trade_quantity(game)
+ await check_travel_fade(game)
+ check_motion_steering()
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
@@ -297,7 +310,7 @@ func check_confirmations(game) -> void:
 func check_option_focus(game) -> void:
  # A long settings list that jumps back to the top on every toggle is unusable
  # on a pad. Focus has to stay on the row the player just changed.
- game.show_controls();await process_frame;await process_frame
+ game.show_controls("steering");await process_frame;await process_frame
  var before: bool=game.invert_mouse
  var row := named_button(game,"Invert vertical mouse")
  expect(row!=null and row.get_meta("option","")=="invert_mouse","Settings rows carry the key focus returns to")
@@ -305,6 +318,7 @@ func check_option_focus(game) -> void:
  expect(game.invert_mouse!=before,"The row still performs its setting")
  var focused := root.gui_get_focus_owner()
  expect(focused!=null and focused.get_meta("option","")=="invert_mouse","Focus stays on the toggled row instead of the top of the list")
+ expect(game.controls_section=="steering","A setting rebuilds its own section rather than dropping to the section list")
  row=named_button(game,"Invert vertical mouse");row.pressed.emit();await process_frame;await process_frame
  expect(game.invert_mouse==before,"Toggling back restores the original setting")
  game.close_page()
@@ -450,3 +464,95 @@ func check_save_feedback(game) -> void:
  game.session.docked=false;game.message.text="";game.notification_time=0
  game.save_game(true)
  expect(game.message.text.begins_with("Dock at a station"),"Saving away from a station explains why it cannot")
+
+func check_controls_sections(game) -> void:
+ # Every control on one page was longer than a pad could comfortably walk, and
+ # the sliders sat at the bottom of it.
+ game.session.docked=false;game.show_controls();await process_frame;await process_frame
+ expect(game.controls_section.is_empty(),"Controls opens on its list of sections")
+ for key in ["steering","gamepad","touch","bindings","reference"]:
+  expect(game.find_option(game.column,key)!=null,"Controls lists the %s section"%key)
+ expect(game.column.find_children("*","HSlider",true,false).is_empty(),"The section list carries no settings of its own")
+ game.find_option(game.column,"touch").pressed.emit();await process_frame;await process_frame
+ expect(game.controls_section=="touch" and game.page=="controls","A section row opens that section")
+ expect(named_button(game,"Touch controls ·")!=null,"The touch section carries the touch settings")
+ game.dock_back();await process_frame;await process_frame
+ expect(game.controls_section.is_empty(),"Back inside Controls returns to the section list, not out of settings")
+ var focused := root.gui_get_focus_owner()
+ expect(focused!=null and focused.get_meta("option","")=="touch","Leaving a section puts focus back on the row that opened it")
+ game.show_controls("steering");await process_frame;await process_frame
+ expect(named_button(game,"Steer by tilting")!=null,"Tilt steering is offered beside the other steering settings")
+ expect(named_button(game,"Tilt sensitivity")==null,"Tilt settings stay hidden until tilt steering is on")
+ game.close_page()
+
+func check_trade_quantity(game) -> void:
+ # Filling a hold one tonne per press was the longest chore in the game.
+ game.session.docked=true
+ var station: Dictionary=game.session.stations[game.session.station_id]
+ var stocked: Array=game.economy.market(station).filter(func(entry):return entry.stock>0 and entry.price>0)
+ if stocked.is_empty():
+  expect(false,"The station offers cargo to trade")
+  return
+ var item=stocked[0]
+ game.session.credits=1000000
+ var space: int=game.session.ship.capacity()-game.session.ship.cargo_used
+ expect(game.buy_limit(item)==mini(int(item.stock),mini(game.session.credits/int(item.price),space)),"The buy limit is whichever of purse, hold and shelf runs out first")
+ var carried: int=game.session.ship.cargo_used
+ var wanted: int=mini(3,game.buy_limit(item))
+ expect(wanted>1,"The station stocks enough to test a bulk purchase")
+ game.trade_amount(station,item,true,wanted)
+ expect(game.session.ship.cargo_used==carried+wanted,"Buying an amount moves that many tonnes from one press")
+ var held=game.economy.market(station).filter(func(entry):return entry.id==item.id)[0]
+ game.trade_amount(station,held,false,int(held.owned))
+ expect(game.session.ship.cargo_used==carried,"Selling what is held empties it again")
+ # An order the purse cannot start must not report a purchase it did not make.
+ game.session.credits=0
+ game.trade_amount(station,item,true,4)
+ expect(game.session.ship.cargo_used==carried,"A trade that cannot start moves nothing")
+ expect(game.buy_limit(item)==0,"No credits means no buy limit")
+ game.session.credits=1000000
+ game.market_category="";game.show_market("trade");await process_frame;await process_frame
+ expect(named_button(game,"Buy ")!=null and named_button(game,"Sell ")!=null,"Trade offers an amount to buy and to sell")
+ var most:=named_button(game,"Max")
+ expect(most!=null,"Trade reaches its maximum in one press")
+ most.pressed.emit();await process_frame;await process_frame
+ var ceiling: int=game.market_quantity
+ expect(ceiling>1,"Max raises the amount past a single tonne")
+ named_button(game,"+").pressed.emit();await process_frame;await process_frame
+ expect(game.market_quantity==ceiling,"The amount stops at what that row can actually move")
+ named_button(game,"−").pressed.emit();await process_frame;await process_frame
+ expect(game.market_quantity==maxi(1,ceiling-1),"The step lowers the amount again")
+ game.market_quantity=1;game.close_page();game.session.docked=false
+
+func check_travel_fade(game) -> void:
+ # A stream crossing swaps every piece of scenery on a single frame.
+ var Fade=load("res://native/presentation/travel_fade.gd")
+ var before: int=game.ui.get_child_count()
+ Fade.uncover(game.ui,.05)
+ expect(game.ui.get_child_count()==before+1,"The cover is placed over the view it hides")
+ var cover=game.ui.get_child(game.ui.get_child_count()-1)
+ expect(cover.color.a==1.0,"The cover starts opaque, on the frame the swap landed")
+ expect(cover.mouse_filter==Control.MOUSE_FILTER_IGNORE,"The cover never takes a press from a player who is still flying")
+ expect(cover.size==game.ui.size,"The cover reaches the whole view")
+ var lifted:=false
+ for i in 300:
+  await process_frame
+  if game.ui.get_child_count()==before:lifted=true;break
+ expect(lifted,"The cover fades out and frees itself rather than staying over the dive")
+
+func check_motion_steering() -> void:
+ # None of this can be held in a hand here, so the arithmetic is what gets checked.
+ var Motion=load("res://native/input/motion_steering.gd")
+ var tilt=Motion.new()
+ expect(Motion.angles(Vector3(0,-9.8,0)).is_zero_approx(),"A device held level reads as centred")
+ expect(Motion.angles(Vector3(-4,-9,0)).x<0,"Rolling left steers left, like a stick pushed left")
+ expect(tilt.sample(Vector3.ZERO,.1,.5)==Vector2.ZERO,"A sensor with nothing to say steers nothing")
+ tilt.sample(Vector3(0,-9.8,0),1.0,.5)
+ expect(tilt.calibrated,"The first reading becomes the centre, so an uncalibrated player still steers")
+ expect(tilt.sample(Vector3(0,-9.8,0),1.0,.5).length()<.01,"Held where it was centred, it steers nothing")
+ var deflection: Vector2=Vector2.ZERO
+ for i in 40: deflection=tilt.sample(Vector3(-6,-8,0),.05,.5)
+ expect(deflection.x<-.2,"Tilting away from centre steers, and goes on steering")
+ expect(absf(deflection.x)<=1.0 and absf(deflection.y)<=1.0,"Deflection stays inside the range a stick reports")
+ tilt.filtered=Vector2.ZERO
+ expect(tilt.sample(Vector3(0,-9.8,0).rotated(Vector3(0,0,1),deg_to_rad(1.0)),.05,.5).is_zero_approx(),"A wobble smaller than the deadband is a hand, not an instruction")

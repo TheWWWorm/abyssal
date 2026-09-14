@@ -88,7 +88,7 @@ func run() -> void:
  expect(game.page=="map","A opens the world map")
  await tap(JOY_BUTTON_B);await settle()
  expect(game.page!="map","B leaves the world map")
- game.show_controls();await settle()
+ game.show_controls("steering");await settle()
  var navigated:=false
  for i in 40:
   await tap(JOY_BUTTON_DPAD_DOWN)
@@ -97,10 +97,25 @@ func run() -> void:
    var before: float=control.value
    await tap(JOY_BUTTON_DPAD_RIGHT)
    expect(control.value>before,"D-pad adjusts a settings slider")
-   expect(game.sheet_scroll.scroll_vertical>0,"Settings scroll to the focused slider")
    expect(game.sheet_scroll.get_global_rect().intersects(control.get_global_rect()),"Focused settings stay on screen")
    navigated=true;break
  expect(navigated,"Controller navigation reaches the settings sliders")
+ # Sections are short enough now that none of them scrolls on a normal window,
+ # which is the point of them. Following focus down a page still has to work on
+ # a window too short to hold one, so that is where it gets checked.
+ root.size=Vector2i(1280,420);await settle()
+ game.show_controls("bindings");await settle()
+ var scrolled:=false
+ for i in 40:
+  await tap(JOY_BUTTON_DPAD_DOWN)
+  var control:=root.gui_get_focus_owner()
+  if control==null:continue
+  expect(game.sheet_scroll.get_global_rect().intersects(control.get_global_rect()),"A focused binding stays on screen")
+  if game.sheet_scroll.scroll_vertical>0:scrolled=true;break
+ expect(scrolled,"A page longer than the window scrolls to the focused row")
+ await tap(JOY_BUTTON_B);await settle()
+ expect(game.page=="controls" and game.controls_section.is_empty(),"B inside a section returns to the section list")
+ root.size=Vector2i(1280,720);await settle()
  game.show_dialogue([{"speaker":"Test","text":"Controller briefing"}],game.close_page);await settle()
  await tap(JOY_BUTTON_A);await settle()
  expect(game.page.is_empty(),"A advances dialogue and resumes gameplay")

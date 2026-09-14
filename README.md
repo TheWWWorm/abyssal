@@ -28,7 +28,7 @@ Needs WebGL 2 and a desktop-class browser. For the smoothest experience, and to 
 Extract the **entire** archive and keep the files together. You do not need Godot, Python, Java, Node.js or a compiler - the desktop and Android packages carry their converter, and conversion runs completely offline.
 
 1. Launch the application.
-2. Choose your DEEP JAR when asked. Its filename does not matter.
+2. Choose your DEEP JAR when asked, or drag it onto the window. Its filename does not matter.
 3. Wait for the first conversion to finish before closing the app.
 
 On Android, allow your browser or file manager to install the APK when prompted. Keep Android System WebView enabled and up to date; it runs the bundled offline converter during the first import. Choose your JAR from the system file picker and keep the app open until conversion finishes. The APK supports 64-bit ARM devices and x86-64 emulators, requires OpenGL ES 3, and requests no network or broad storage permission. Later APK updates preserve content and saves; uninstalling removes them. You can also select a private `.abyss` pack prepared on a computer with `tools/pack_content.py`.
@@ -100,7 +100,9 @@ If a build does not match, import stops with a message naming what did not fit, 
 | Menus | Arrows / Enter | D-pad or stick / A | Tap |
 | Auto fire / fullscreen | Q / F11 | - | Hold weapon / FULL |
 
-**Controls** in the options menu offers keyboard remapping, mouse sensitivity and inversion, controller deadzone and inversion, touch look sensitivity, Touch **Auto / On / Off**, touch control placement, and left/right handling as **Auto / Always strafe / Always turn**. Only the most recently used controller owns flight. The game pauses if a controller disconnects or the window loses focus. In the browser it also pauses if the page gives your pointer back, which is what pressing Escape there does.
+**Controls** in the options menu is grouped into **Steering**, **Gamepad**, **Touch controls**, **Key bindings** and a **Control reference**, so each page is short enough to walk with a D-pad; leaving a section puts the highlight back on the row that opened it. Between them they offer keyboard remapping, mouse sensitivity and inversion, tilt steering, controller deadzone and inversion, touch look sensitivity, Touch **Auto / On / Off**, touch control placement, and left/right handling as **Auto / Always strafe / Always turn**. Only the most recently used controller owns flight. The game pauses if a controller disconnects or the window loses focus. In the browser it also pauses if the page gives your pointer back, which is what pressing Escape there does.
+
+**Steer by tilting**, under Controls · Steering, flies the submarine by tilting a phone or tablet. It reads the device's own motion sensor, so a desktop machine has nothing to offer it, and a browser asks permission the moment you switch it on. Tilt turns; it never strafes, and the stick and touch controls keep working alongside it. **Centre tilt on how it is held now** makes your current grip the neutral position, and **Tilt sensitivity** sets how far you have to lean for a full turn.
 
 Changing a setting keeps the highlight on the row you changed, so a long list stays usable on a gamepad. Actions that cannot be undone - reloading a checkpoint, leaving for the main menu, abandoning a contract - ask before they act.
 
@@ -121,6 +123,8 @@ Touch players can select **Controls → Touch look area → Whole screen** to dr
 ## Playing
 
 The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible in flight, and quest destinations get gold labels and off-screen direction markers.
+
+Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its − and + steps, or press **Max** for as much as the purse, the hold and the station's shelf allow, then Buy or Sell in one press. Each button offers only what it can actually move, and reports what it actually moved.
 
 Map search offers continuous autopilot or a STREAM transfer. Time acceleration runs ordinary simulation ticks - T cycles 1×/2× in manual flight and up to 16× during clear autopilot travel, dropping back to 1× near danger or on arrival. Autopilot passes stations vertically within your ship's pressure limits.
 
