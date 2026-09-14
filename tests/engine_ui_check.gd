@@ -131,6 +131,7 @@ func run():
  await check_departure(game)
  await check_enemy_cues(game)
  check_oblique_portals(game)
+ await check_save_feedback(game)
  await check_confirmations(game)
  await check_option_focus(game)
  check_settings_sanitizing(game)
@@ -417,3 +418,35 @@ func check_save_transfer(game) -> void:
  expect(recovered!=null and store.recovered,"An unreadable save falls back to the checkpoint beside it")
  expect(store.failure.is_empty(),"A successful recovery reports no failure")
  for name in [path,path+".bak",export_path,displaced,displaced+".bak"]:DirAccess.remove_absolute(name)
+
+func check_save_feedback(game) -> void:
+ # Saving from a menu has to answer where the player is looking. The notice
+ # draws above everything, so an open panel must be given room rather than
+ # drawn through: a confirmation landing on a menu row reads as a fault.
+ # Only the docked flag matters here; rebuilding the docked view would replace
+ # a live region the earlier checks are still using.
+ game.session.docked=true
+ for i in 3:await process_frame
+ for dimensions in [Vector2i(1280,720),Vector2i(1280,560),Vector2i(1920,1080),Vector2i(2000,919)]:
+  root.size=dimensions
+  for i in 4:await process_frame
+  game.show_system()
+  for i in 3:await process_frame
+  game.message.text="";game.notification_time=0
+  game.save_game(true)
+  for i in 2:await process_frame
+  expect(game.message.text=="Expedition saved","Saving an expedition says so at %s"%dimensions)
+  expect(game.message.visible,"The save confirmation is actually shown at %s"%dimensions)
+  var notice_rect := Rect2(game.message.position,game.message.size)
+  expect(Rect2(Vector2.ZERO,game.ui.size).encloses(notice_rect),"The confirmation stays on screen at %s"%dimensions)
+  var covered: Array = []
+  for row in game.column.find_children("*","Button",true,false):
+   if row.is_visible_in_tree() and row.get_global_rect().intersects(notice_rect): covered.append(row.text)
+  expect(covered.is_empty(),"The confirmation covers no menu row at %s: %s"%[dimensions,covered])
+  game.close_page();await process_frame
+ root.size=Vector2i(1280,720)
+ for i in 3:await process_frame
+ # Away from a station there is nothing to save, and that has to be said too.
+ game.session.docked=false;game.message.text="";game.notification_time=0
+ game.save_game(true)
+ expect(game.message.text.begins_with("Dock at a station"),"Saving away from a station explains why it cannot")

@@ -155,6 +155,10 @@ func _ready() -> void:
 	var fill := StyleBoxFlat.new();fill.bg_color=Color("8fddc4");struggle.add_theme_stylebox_override("fill",fill)
 	message.z_index=50;message.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
 	message.add_theme_color_override("font_shadow_color",Color.BLACK);message.add_theme_constant_override("shadow_offset_y",2)
+	var toast := StyleBoxFlat.new()
+	toast.bg_color=Color("04131de8");toast.border_color=Color("3d8fa3");toast.set_border_width_all(1);toast.set_corner_radius_all(2)
+	toast.content_margin_left=16;toast.content_margin_right=16;toast.content_margin_top=7;toast.content_margin_bottom=8
+	message.add_theme_stylebox_override("normal",toast)
 	ui.add_child(message); message.add_theme_font_size_override("font_size",16); message.add_theme_color_override("font_color",Color("9ce5d1")); message.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	ui.add_child(crosshair); crosshair.text="+"; crosshair.add_theme_font_size_override("font_size",24); crosshair.add_theme_color_override("font_color",Color("b3d1cf99"))
 	ui.add_child(dock_prompt); dock_prompt.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; dock_prompt.add_theme_font_size_override("font_size",17); dock_prompt.modulate=Color("b6ecd7"); dock_prompt.mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -241,7 +245,7 @@ func layout() -> void:
 		overlay.size=Vector2(minf(1000,ui.size.x-64),ui.size.y-64);overlay.position=(ui.size-overlay.size)*.5
 	else:
 		overlay.position=Vector2(maxf(160,ui.size.x-minf(740,ui.size.x-190)-22),140);overlay.size=Vector2(minf(740,ui.size.x-190),maxf(260,ui.size.y-304))
-	message.position=Vector2(ui.size.x*.5-300,ui.size.y-180); message.size=Vector2(600,44)
+	place_message()
 	hazard_warning.size=Vector2(minf(640,ui.size.x-64),108);hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,146)
 	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*.5+72,ui.size.y-282));catch_status.size=Vector2(480,44)
 	struggle.position=Vector2(ui.size.x*.5-120,catch_status.position.y+42);struggle.size=Vector2(240,4)
@@ -258,6 +262,26 @@ func layout() -> void:
 	dock_prompt.position=Vector2(ui.size.x*.5-250,ui.size.y*.5+48);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
 	if page=="map" and is_instance_valid(map_widget): fit_map()
+func place_message() -> void:
+	"""The notice sits above everything, so an open menu has to be given room
+	rather than drawn through: a confirmation landing on a menu row reads as a
+	rendering fault, not as an answer to what the player just did."""
+	var font: Font = message.get_theme_font("font")
+	var font_size: int = message.get_theme_font_size("font_size")
+	var width := minf(maxf(220.0,font.get_string_size(message.text,HORIZONTAL_ALIGNMENT_CENTER,-1,font_size).x+40.0),minf(640.0,ui.size.x-40.0))
+	var height := 44.0
+	message.size=Vector2(width,height)
+	var middle := (ui.size.x-width)*.5
+	if overlay.visible:
+		var below := overlay.position.y+overlay.size.y+14
+		var above := overlay.position.y-height-14
+		# Under the panel by preference, over it when there is room there, and
+		# otherwise along the panel's own bottom edge, where it covers the key
+		# legend rather than a row the player is reading.
+		var y := below if below+height<=ui.size.y-12 else (above if above>=12 else overlay.position.y+overlay.size.y-height-6)
+		message.position=Vector2(clampf((overlay.position.x+overlay.size.x*.5)-width*.5,12,maxf(12,ui.size.x-width-12)),y)
+	else:
+		message.position=Vector2(middle,ui.size.y-180)
 func fit_hud() -> void:
 	var font: Font = hud.get_theme_font("font")
 	var font_size := 18
@@ -425,6 +449,7 @@ func notice(text: String) -> void:
 		pending_notices.append(text)
 	else:message.text=text;notification_time=7
 	message.show()
+	place_message()
 func item_name(id: int, kind: String="goods") -> String:
 	var key := "c:[[S" if kind=="goods" else "b:[[S"
 	var table: Array = content.data.constants.e[key]
@@ -518,7 +543,7 @@ func _process(delta: float) -> void:
 	notification_time-=delta
 	if notification_time<=0:
 		message.text=""
-		if not pending_notices.is_empty():message.text=pending_notices.pop_front();notification_time=7
+		if not pending_notices.is_empty():message.text=pending_notices.pop_front();notification_time=7;place_message()
 	if message.text.begins_with("Time ·"):message.text="Time · %d×"%world.speed
 	message.visible=not message.text.is_empty()
 	if simulated_capture:
