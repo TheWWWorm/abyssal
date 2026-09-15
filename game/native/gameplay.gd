@@ -1412,31 +1412,48 @@ func show_map(autopilot_only: bool=false) -> void:
 	column=root_column
 func map_key(parent: Node) -> void:
 	"""Shows the markers rather than naming their colours, so the key is read by
-	comparing it with the chart instead of by translating it."""
+	comparing it with the chart instead of by translating it. The routes and the
+	waypoint are listed only while the chart is actually drawing them, which is
+	also the only time anyone needs to ask what they are."""
 	var flow := HFlowContainer.new(); flow.add_theme_constant_override("h_separation",16); flow.add_theme_constant_override("v_separation",4); parent.add_child(flow)
-	for entry in [
+	var entries := [
 			{"body":"05bbff","core":"0d2170","text":"Colonist"},
 			{"body":"65e53e","core":"14501a","text":"Resistance"},
 			{"body":"0d2170","core":"05bbff","text":"Unvisited"},
 			{"body":"ff8000","core":"ffff00","text":"Your station"},
 			{"body":"ff0000","core":"c00000","text":"Mission destination"},
-			{"disc":true,"text":"S.T.R.E.A.M. reach"}]:
+			{"kind":"arrow","text":"You"},
+			{"kind":"disc","text":"S.T.R.E.A.M. reach"}]
+	if world.autopilot and world.destination>=0: entries.append({"kind":"dash","tint":"97e4d3","text":"Autopilot route"})
+	if world.stream_destination>=0: entries.append({"kind":"dash","tint":"bdabf2","text":"S.T.R.E.A.M. transfer"})
+	if world.encounter_navigation_point()!=null: entries.append({"kind":"ring","tint":"91e4d4","text":"Encounter waypoint"})
+	for entry in entries:
 		var item := HBoxContainer.new(); item.add_theme_constant_override("separation",6); flow.add_child(item)
 		item.add_child(map_marker(entry))
 		var text := label(entry.text,14,item); text.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN; text.autowrap_mode=TextServer.AUTOWRAP_OFF
 func map_marker(entry: Dictionary) -> Control:
-	var node := Control.new(); node.custom_minimum_size=Vector2(18,18); node.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+	var node := Control.new(); node.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+	# A line needs a longer chip than a square does before it reads as dashed.
+	node.custom_minimum_size=Vector2(29,19) if entry.get("kind","")=="dash" else Vector2(19,19)
 	node.draw.connect(func():
-		var middle := node.size*0.5
-		# Each marker sits on a chip of the chart's own field, so the key is read
+		# Each mark sits on a chip of the chart's own field, so the key is read
 		# against the blue the chart is read against rather than the page's dark.
+		# Whole pixels around a centre pixel, as on the chart itself.
 		node.draw_rect(Rect2(Vector2.ZERO,node.size),Color("2f43b4"),true)
-		if entry.get("disc",false):
+		var middle := (node.size*0.5).floor()
+		var kind: String = entry.get("kind","station")
+		if kind=="disc":
 			node.draw_circle(middle,8,Color("6e86ff4d"),true)
 			node.draw_arc(middle,8,0,TAU,24,Color("9fb4ff"),1.5,true)
+		elif kind=="ring":
+			node.draw_arc(middle,6,0,TAU,16,Color(entry.tint),2,true)
+		elif kind=="dash":
+			node.draw_dashed_line(middle+Vector2(-13,0),middle+Vector2(13,0),Color(entry.tint),2,4)
+		elif kind=="arrow":
+			node.draw_colored_polygon(PackedVector2Array([middle+Vector2(0,-7),middle+Vector2(-3.5,4),middle+Vector2(3.5,4)]),Color("f4fafb"))
 		else:
-			node.draw_rect(Rect2(middle-Vector2(6,6),Vector2(12,12)),Color(entry.body),true)
-			node.draw_rect(Rect2(middle-Vector2(2.4,2.4),Vector2(4.8,4.8)),Color(entry.core),true))
+			node.draw_rect(Rect2(middle-Vector2(5,5),Vector2(11,11)),Color(entry.body),true)
+			node.draw_rect(Rect2(middle-Vector2(1,1),Vector2(3,3)),Color(entry.core),true))
 	return node
 func fit_map() -> void:
 	map_widget.custom_minimum_size=Vector2(340,clampf(ui.size.y-300,260,440))

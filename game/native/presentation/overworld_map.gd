@@ -51,15 +51,19 @@ func _draw() -> void:
 		# over whoever holds them, orange and red, as they do on the original.
 		if station.id==session.station_id: body=Color("ff8000"); core=Color("ffff00")
 		if objective: body=Color("ff0000"); core=Color("c00000")
-		if station.id==selected_id: draw_arc(p,12,0,TAU,24,Color.WHITE,2,true)
-		# A visited station is drawn a pixel wider as well, which the original
+		# Both squares are whole pixels wide, odd, and centred on the same pixel.
+		# Drawn on the fractional position they landed on, the inner one rounded
+		# to whichever side the fraction fell, and the centres looked scattered.
+		var middle := p.round()
+		if station.id==selected_id: draw_arc(middle,12,0,TAU,24,Color.WHITE,2,true)
+		# A visited station is drawn a little wider as well, which the original
 		# does not do, but which reads before the colours are compared.
-		var extent := 4.0 if discovered else 3.0
-		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),body,true)
-		var core_extent := extent*0.4
-		draw_rect(Rect2(p-Vector2(core_extent,core_extent),Vector2(core_extent,core_extent)*2),core,true)
+		var side := 9.0 if discovered else 7.0
+		var reach_out := floorf(side*0.5)
+		draw_rect(Rect2(middle-Vector2(reach_out,reach_out),Vector2(side,side)),body,true)
+		draw_rect(Rect2(middle-Vector2(1,1),Vector2(3,3)),core,true)
 		if zoom>1.7 or station.id==selected_id or objective:
-			draw_string(ThemeDB.fallback_font,p+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
+			draw_string(ThemeDB.fallback_font,middle+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
 	var encounter = world.encounter_navigation_point()
 	if encounter!=null:
 		var anchor: Array=world.station_origin(session.station_id)
@@ -73,10 +77,12 @@ func _draw() -> void:
 		draw_dashed_line(p,point(target.x,target.y),Color("97e4d3"),2,6)
 	var direction:=heading()
 	if direction.length_squared()<.001:
-		draw_circle(p,4,Color("f4fafb")) # Straight up/down has no planar heading.
+		draw_circle(p,3,Color("f4fafb")) # Straight up/down has no planar heading.
 	else:
+		# Kept small: it is parked on a station most of the time, and the marker
+		# underneath says who holds the place you are sitting in.
 		var right:=Vector2(-direction.y,direction.x)
-		draw_colored_polygon(PackedVector2Array([p+direction*9,p-direction*6-right*5,p-direction*6+right*5]),Color("f4fafb"))
+		draw_colored_polygon(PackedVector2Array([p+direction*7,p-direction*4-right*3.5,p-direction*4+right*3.5]),Color("f4fafb"))
 func heading() -> Vector2:
 	if world==null or world.region==null:return Vector2.ZERO
 	var forward: Array=world.region.player.pose.forward
