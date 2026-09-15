@@ -33,18 +33,24 @@ func _draw() -> void:
 		draw_dashed_line(point(home.x,home.y),point(arrival.x,arrival.y),Color("bdabf2"),2,6)
 	for station in session.stations:
 		var p := point(station.x,station.y)
-		var color := Color("7d3346") if session.campaign.rebel_stations[station.id] else Color("1f2f96")
-		if not session.discovered[station.id]: color=color.darkened(0.3)
+		# Both holdings were painted in blues a shade off the field itself, which
+		# left them to be read by their outlines alone. Cyan and rose carry far
+		# enough off the blue to be told apart at a glance, and a discovered
+		# station holds the bright end of its hue while the rest sit back.
+		var discovered: bool = session.discovered[station.id]
+		var color := Color("ff7d92") if session.campaign.rebel_stations[station.id] else Color("5cdcf2")
+		if not discovered: color=color.darkened(0.4)
 		if not filtered.is_empty() and not str(station.name).to_lower().contains(filtered): continue
 		var objective: bool = station.id==session.campaign.primary.destination and session.campaign.primary.kind>=0
 		if objective: draw_arc(p,9,0,TAU,24,Color("e7ce89"),2,true)
 		if station.id==selected_id: draw_arc(p,12,0,TAU,24,Color.WHITE,2,true)
 		# Stations are squares on the original chart, and the home one is the
-		# single orange marker among them.
-		var extent := 4.0 if session.discovered[station.id] else 3.0
+		# single orange marker among them. A visited one is both larger and more
+		# sharply outlined, so the two states read without comparing sizes.
+		var extent := 4.0 if discovered else 3.0
 		if station.id==session.station_id: color=Color("ffb23c")
 		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),color,true)
-		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),Color("b9c8ff"),false,1.0)
+		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),Color("f4f9ff") if discovered else Color("93a4d6"),false,1.5 if discovered else 1.0)
 		if zoom>1.7 or station.id==selected_id or objective:
 			draw_string(ThemeDB.fallback_font,p+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
 	var encounter = world.encounter_navigation_point()

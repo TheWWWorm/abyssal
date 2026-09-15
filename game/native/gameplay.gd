@@ -1377,7 +1377,7 @@ func show_map(autopilot_only: bool=false) -> void:
 	var picker := OptionButton.new(); map_picker=picker
 	for station in session.stations: picker.add_item(station.name,station.id)
 	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); column.add_child(picker)
-	label("Gold · Story · Green · S.T.R.E.A.M. reach\nCyan · Colonist · Amber · Rebel\nDim · Undiscovered",14)
+	label("Cyan · Colonist · Rose · Rebel · Amber · Your station\nGold ring · Story · Pale disc · S.T.R.E.A.M. reach\nDim · Undiscovered",14)
 	if world.encounter_navigation_point()!=null:
 		label("Local encounter active · follow its waypoint before travelling to the next story station.",14)
 		button("Navigate encounter waypoint",func():
