@@ -4,6 +4,7 @@ const DRAW_DISTANCE := 10000.0
 const DETAIL_DISTANCE := 2200.0
 const DETAIL_RELEASE_DISTANCE := 2600.0
 const STREAM_RELEASE_DISTANCE := 10500.0
+const GATE_EFFECT_BOOST := 2.6
 const STREAM_FADE_SECONDS := 1.2
 
 static func far_visibility(distance: float) -> float:
@@ -183,13 +184,20 @@ func _process(delta: float) -> void:
 		animate_model(station_nodes[i],delta,1.0)
 	for i in gate_nodes.size():
 		if not gate_nodes[i].visible:continue
-		gate_nodes[i].clock.frame=world.gate_frame(i); gate_nodes[i].refresh()
 		if gate_nodes[i].has_meta("gate_surface"):
 			var distance: float=player_pose.origin.distance_to(gate_nodes[i].position)
 			var opening := maxf(clampf(float(world.gate_frame(i))/20.0,0,1),clampf(1.0-distance/550.0,0,1)*.65)
 			gate_nodes[i].get_meta("gate_surface").set_shader_parameter("opening",opening)
 			gate_nodes[i].get_meta("gate_light").light_energy=opening*14.0
 			gate_nodes[i].get_meta("gate_field_mesh").scale=Vector3.ONE*(1.0+opening*.45)
+			# The gate carries the original's own effects: a flare at the aperture
+			# and the trails that stream off the arms as they swing out. They are
+			# drawn at the level the rest of the game's effects are toned to, which
+			# leaves them invisible here, and the gate is the one place they are
+			# the whole point. Set before the pose, and stepped, because a pose is
+			# built once per key and cached under it.
+			gate_nodes[i].effect_boost=snappedf(opening,.1)*GATE_EFFECT_BOOST
+		gate_nodes[i].clock.frame=world.gate_frame(i); gate_nodes[i].refresh()
 	for neighbor in neighbors.values():
 		neighbor.age=minf(STREAM_FADE_SECONDS,neighbor.age+delta)
 		for part in neighbor.root.get_children():

@@ -152,6 +152,7 @@ func run():
  await check_trade_quantity(game)
  await check_travel_fade(game)
  check_motion_steering()
+ check_gate_effects(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
@@ -230,6 +231,39 @@ func check_oblique_portals(game) -> void:
   # The launch is a temporary multiplier. Leaving it on would make the rest of
   # the expedition fly at gate speed.
   expect(is_equal_approx(game.world.region.player.speed_factor,2.0),"Ordinary speed is handed back when the shot ends")
+
+func check_gate_effects(game) -> void:
+ # The gate model carries the original's own additive effects: the flare in the
+ # aperture and the trails that stream off the arms as they swing out. They were
+ # discarded for years by a rule written to hide the glow meshes on submarine
+ # hulls, whose id range ran past the hulls and took the gate with it.
+ game.world.enter_region(0);game.view.rebuild()
+ var gate=game.view.gate_nodes[0]
+ expect(int(gate.record.id)>=12,"The S.T.R.E.A.M. gate is not a submarine hull")
+ game.view._process(.04)
+ var mesh: MeshInstance3D=null
+ var pending: Array[Node]=[gate]
+ while not pending.is_empty():
+  var part: Node=pending.pop_front()
+  if part is MeshInstance3D and part.mesh!=null and part.material_override==null: mesh=part;break
+  pending.append_array(part.get_children())
+ expect(mesh!=null,"The gate figure is built from imported geometry")
+ var additive:=0
+ for i in mesh.mesh.get_surface_count():
+  var applied=mesh.get_active_material(i)
+  if applied is ShaderMaterial and applied.shader!=null and applied.shader.code.contains("blend_add"):
+   additive+=1
+   expect(bool(applied.get_shader_parameter("source_glow_visible")),"The gate's own effects are drawn rather than discarded as hull glow")
+ expect(additive>0,"The gate model has additive effect geometry to draw")
+ # Toned to the rest of the game's effects they are invisible, which is what
+ # kept them unnoticed. The gate is the one place they are the point.
+ gate.effect_boost=game.view.GATE_EFFECT_BOOST;gate.refresh()
+ var boosted:=0
+ for i in mesh.mesh.get_surface_count():
+  var applied=mesh.get_active_material(i)
+  if applied is ShaderMaterial and applied.shader!=null and applied.shader.code.contains("blend_add"):
+   if float(applied.get_shader_parameter("effect_glow"))>game.view.library.effect_glow+1.0: boosted+=1
+ expect(boosted>0,"A gate's effect level reaches the material that draws it")
 
 func check_dock_navigation(game) -> void:
  game.session.docked=true;game.show_station()

@@ -239,7 +239,7 @@ func pose(node: Node3D, call: Dictionary) -> void:
 		mat.set_shader_parameter("bioluminescence",float(call.get("bioluminescence",0.0)))
 		mat.set_shader_parameter("surface_roughness",surface_roughness)
 		mat.set_shader_parameter("surface_specular",surface_specular)
-		mat.set_shader_parameter("effect_glow",maxf(effect_glow,1.1) if bool(call.get("station_coating",false)) else effect_glow)
+		mat.set_shader_parameter("effect_glow",(maxf(effect_glow,1.1) if bool(call.get("station_coating",false)) else effect_glow)+float(call.get("effect_boost",0.0)))
 	if not pose_key.is_empty():
 		if native_pose_cache.size()>=512: native_pose_cache.erase(native_pose_cache.keys()[0])
 		native_pose_cache[pose_key]={"materials":pose_materials,"bounds":mesh.custom_aabb}

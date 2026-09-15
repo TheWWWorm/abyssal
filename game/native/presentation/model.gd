@@ -32,6 +32,11 @@ var fade_materials := {}
 var hangar_open := 0.0
 var hangar_materials: Dictionary={}
 var hangar_interior: MeshInstance3D
+# Raises this model's own additive effect surfaces above the level the rest of
+# the game's effects are toned to. Poses are cached by key, so it belongs to the
+# call rather than being written onto a material after the fact.
+var effect_boost := 0.0
+var posed_boost := 0.0
 var portal_enabled := false
 var portal_plane := Vector4.ZERO
 var portal_materials := {}
@@ -184,7 +189,10 @@ func refresh() -> void:
 	var sample := clock.sample()
 	var pattern := pattern_at(sample)
 	var motion:=int(elapsed*60/1000)%60 if machinery else -1
-	if sample==sampled_frame and pattern==last_pattern and motion==machinery_sample: return
+	# effect_boost belongs here too: a gate holds one pose while its glow still
+	# rises with the player's approach, and skipping the re-pose freezes it.
+	if sample==sampled_frame and pattern==last_pattern and motion==machinery_sample and is_equal_approx(effect_boost,posed_boost): return
+	posed_boost=effect_boost
 	machinery_sample=motion
 	sampled_frame=sample
 	var bone_key: String = str(record.model)+":"+str(sample)+":"+str(machinery_sample)
@@ -209,8 +217,13 @@ func refresh() -> void:
 	call.distance_haze=0.0015 if int(record.id)>=3300 and int(record.id)<3400 else 0.00032
 	# Ship glow geometry was a lighting approximation. Modern flight supplies
 	# actual headlights and wakes; these large meshes clip through front views.
-	call.source_glow_visible=not (modern_graphics and int(record.id)>=0 and int(record.id)<20)
-	call.native_pose_key=str([record.id,sample,machinery_sample,pattern,material_look,modern_graphics,library.station_smoothing,library.ocean_strength,library.effect_glow])
+	# Hulls only, which is ids 0-11 and the range hull_coating already uses. The
+	# cut ran to 20 and took the mine, the torpedo and the S.T.R.E.A.M. gate with
+	# it, whose additive geometry is not a lighting stand-in: on the gate it is
+	# the flare in the aperture and the trails that stream off the arms.
+	call.source_glow_visible=not (modern_graphics and int(record.id)>=0 and int(record.id)<12)
+	call.effect_boost=effect_boost
+	call.native_pose_key=str([record.id,sample,machinery_sample,pattern,material_look,modern_graphics,library.station_smoothing,library.ocean_strength,library.effect_glow,effect_boost])
 	if figure==null or pattern!=last_pattern:
 		if figure!=null: figure.hide()
 		if not pattern_figures.has(pattern):
