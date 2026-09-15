@@ -51,9 +51,6 @@ var stream_aligning := false
 var stream_previous_local := Vector3.ZERO
 var stream_previous_z := 0.0
 var stream_exit_active := false
-## Set while the map is open so the arrows either side of the name can reuse
-## the same selection path the chart itself uses.
-var stream_select
 ## The original map has two modes, Navigate and Species. This is the second.
 var stream_species := false
 ## Length of the framed passage along the gate axis: the 110 units from the
@@ -1683,15 +1680,9 @@ func show_stream_menu() -> void:
 	for station in session.stations:
 		if world.stream_denial(station.id).is_empty(): eligible.append(station.id)
 	if not stream_selection in eligible: stream_selection=eligible[0] if not eligible.is_empty() else -1
-	# The original steps through exits with arrows either side of the name rather
-	# than dropping a list over the chart, which hid the very thing being chosen.
-	var picker := HBoxContainer.new();picker.add_theme_constant_override("separation",8);detail.add_child(picker)
-	var back_button := button("<",func(): step_stream_selection(eligible,-1),picker)
-	back_button.custom_minimum_size.x=54;back_button.alignment=HORIZONTAL_ALIGNMENT_CENTER;back_button.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
-	var title := label("",22,picker);title.size_flags_horizontal=Control.SIZE_EXPAND_FILL;title.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;title.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;title.modulate=Color("8bd6ee")
-	var next_button := button(">",func(): step_stream_selection(eligible,1),picker)
-	next_button.custom_minimum_size.x=54;next_button.alignment=HORIZONTAL_ALIGNMENT_CENTER;next_button.size_flags_horizontal=Control.SIZE_SHRINK_END
-	back_button.disabled=eligible.size()<2;next_button.disabled=eligible.size()<2
+	var options := OptionButton.new();options.custom_minimum_size.y=40;detail.add_child(options)
+	for id in eligible: options.add_item(str(session.stations[id].name),id)
+	options.disabled=eligible.size()<2
 	var modes := HBoxContainer.new();modes.add_theme_constant_override("separation",8);detail.add_child(modes)
 	var navigate_mode := button("NAVIGATE",func(): stream_species=false; show_stream_menu(),modes)
 	var species_mode := button("SPECIES",func(): stream_species=true; show_stream_menu(),modes)
@@ -1702,11 +1693,11 @@ func show_stream_menu() -> void:
 	var select := func(id):
 		stream_selection=id;chart.selected_id=id;chart.queue_redraw()
 		if id<0:
-			title.text="NO EXIT IN RANGE"
 			info.text="No safe exits in range. Upgrade the engine or pressure protection."
 			confirm.disabled=true;return
 		var station: Dictionary=session.stations[id]
-		title.text=str(station.name)
+		var index := options.get_item_index(id)
+		if index>=0: options.select(index)
 		var denial: String=world.stream_denial(id)
 		# The original reads out who holds the station, its tech level and its
 		# depth. The reach and distance are this engine's own, and matter here.
@@ -1716,8 +1707,8 @@ func show_stream_menu() -> void:
 			world.stream_distance(id)*.4,world.stream_range()*.4,"Exit ready" if denial.is_empty() else denial]
 		confirm.disabled=not denial.is_empty()
 		if stream_species: info.text="";show_habitat(id,habitat_rows)
-	stream_select=select
 	chart.selected.connect(select)
+	options.item_selected.connect(func(at): select.call(options.get_item_id(at)))
 	select.call(stream_selection)
 
 func show_habitat(id: int, parent: Node) -> void:
@@ -1741,12 +1732,6 @@ func show_habitat(id: int, parent: Node) -> void:
 		name_label.modulate=Color("d7edf1") if known else Color("6d8894")
 		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		if known: label("caught",12,line).modulate=Color("c9ae79")
-
-func step_stream_selection(eligible: Array, stride: int) -> void:
-	"""Walks the exits the way the original does, wrapping at either end."""
-	if eligible.is_empty() or not stream_select is Callable: return
-	var at := eligible.find(stream_selection)
-	stream_select.call(eligible[posmod(at+stride,eligible.size())] if at>=0 else eligible[0])
 
 func begin_stream_transit() -> void:
 	var denial: String=world.stream_denial(stream_selection)

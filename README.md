@@ -128,7 +128,7 @@ Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its �
 
 A STREAM crossing is shown from outside. The view stands off as the gate splits open, watches the submarine run at the aperture, follows it through, and hands the camera back once it is clear of the far gate. You always come out on the side the region is on, heading in towards it, whichever side you entered from. Steering stays yours throughout.
 
-At a gate, the chart opens as **MAP**, with the discovered count in its heading. Step through the exits in range with the arrows either side of the station name, or pick one off the chart. **NAVIGATE** reads out who holds the station, its tech level and depth alongside the distance and your reach; **SPECIES** lists the six species that live there and which of them you have already caught.
+At a gate, the chart opens as **MAP**, with the discovered count in its heading. Choose an exit in range from the list, or pick one off the chart. **NAVIGATE** reads out who holds the station, its tech level and depth alongside the distance and your reach; **SPECIES** lists the six species that live there and which of them you have already caught.
 
 Map search offers continuous autopilot or a STREAM transfer. Time acceleration runs ordinary simulation ticks - T cycles 1×/2× in manual flight and up to 16× during clear autopilot travel, dropping back to 1× near danger or on arrival. Autopilot passes stations vertically within your ship's pressure limits.
 
