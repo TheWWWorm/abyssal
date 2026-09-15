@@ -19,8 +19,12 @@ void fragment(){
  float threads=exp(-contour*contour*25.0);
  float lace=pow(1.0-abs(sin(turbulence*14.0+TIME*.25)),8.0);
  float cloud=smoothstep(.25,.75,turbulence)*.12;
- float intensity=rim*.24+threads*.16+lace*.10+cloud*.5;
- ALBEDO=mix(vec3(.23,.035,.60),vec3(.67,.34,1.0),clamp(threads+rim,0.0,1.0))*.95;
- EMISSION=ALBEDO*.6;
- ALPHA=(.20+opening*.80)*intensity*(.92+.08*sin(TIME*1.7));
+ // The flash sits at the centroid, where the barycentric mapping puts the
+ // origin, and grows with the opening: a shut gate is a dim ember, an open one
+ // is the white core a submarine goes into.
+ float core=exp(-radius*radius*9.0);
+ float intensity=rim*.55+threads*.30+lace*.18+cloud*.35+core*(.35+opening*.95);
+ ALBEDO=mix(vec3(.10,.42,.62),vec3(.88,.99,1.0),clamp(threads+rim+core*1.4,0.0,1.0));
+ EMISSION=ALBEDO*(1.1+opening*1.6);
+ ALPHA=clamp((.30+opening*.70)*intensity*(.94+.06*sin(TIME*1.7)),0.0,1.0);
 }

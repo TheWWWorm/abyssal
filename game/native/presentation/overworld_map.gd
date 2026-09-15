@@ -16,27 +16,35 @@ func _ready() -> void:
 func point(x: float,y: float) -> Vector2:
 	return size*0.5+(Vector2(x,y)-Vector2(50,50))*minf(size.x,size.y)*0.0085*zoom+pan
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO,size),Color("071923"))
-	for axis in range(0,101,10):
-		draw_line(point(axis,0),point(axis,100),Color("153342"),1)
-		draw_line(point(0,axis),point(100,axis),Color("153342"),1)
+	# The original chart is a flat blue field with a dark grid over it, stations
+	# as small squares and the sonar reach as a filled disc rather than a ring.
+	draw_rect(Rect2(Vector2.ZERO,size),Color("2f43b4"))
+	for axis in range(0,101,25):
+		draw_line(point(axis,0),point(axis,100),Color("101a52"),2)
+		draw_line(point(0,axis),point(100,axis),Color("101a52"),2)
 	if world==null: return
 	var session=world.session
 	var home: Dictionary = session.stations[session.station_id]
 	var reach: float = world.stream_range()*minf(size.x,size.y)*0.0085*zoom
-	draw_arc(point(home.x,home.y),reach,0,TAU,96,Color("4b827d"),1.5,true)
+	draw_circle(point(home.x,home.y),reach,Color("6e86ff4d"),true)
+	draw_arc(point(home.x,home.y),reach,0,TAU,96,Color("9fb4ff"),1.5,true)
 	if world.stream_destination>=0:
 		var arrival: Dictionary = session.stations[world.stream_destination]
 		draw_dashed_line(point(home.x,home.y),point(arrival.x,arrival.y),Color("bdabf2"),2,6)
 	for station in session.stations:
 		var p := point(station.x,station.y)
-		var color := Color("f5b86e") if session.campaign.rebel_stations[station.id] else Color("69b7c8")
-		if not session.discovered[station.id]: color=color.darkened(0.45)
+		var color := Color("7d3346") if session.campaign.rebel_stations[station.id] else Color("1f2f96")
+		if not session.discovered[station.id]: color=color.darkened(0.3)
 		if not filtered.is_empty() and not str(station.name).to_lower().contains(filtered): continue
 		var objective: bool = station.id==session.campaign.primary.destination and session.campaign.primary.kind>=0
-		if objective: draw_arc(p,8,0,TAU,24,Color("e7ce89"),2,true)
+		if objective: draw_arc(p,9,0,TAU,24,Color("e7ce89"),2,true)
 		if station.id==selected_id: draw_arc(p,12,0,TAU,24,Color.WHITE,2,true)
-		draw_circle(p,4 if session.discovered[station.id] else 2.5,color)
+		# Stations are squares on the original chart, and the home one is the
+		# single orange marker among them.
+		var extent := 4.0 if session.discovered[station.id] else 3.0
+		if station.id==session.station_id: color=Color("ffb23c")
+		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),color,true)
+		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),Color("b9c8ff"),false,1.0)
 		if zoom>1.7 or station.id==selected_id or objective:
 			draw_string(ThemeDB.fallback_font,p+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
 	var encounter = world.encounter_navigation_point()

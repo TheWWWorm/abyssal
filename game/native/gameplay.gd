@@ -51,6 +51,11 @@ var stream_aligning := false
 var stream_previous_local := Vector3.ZERO
 var stream_previous_z := 0.0
 var stream_exit_active := false
+## Set while the map is open so the arrows either side of the name can reuse
+## the same selection path the chart itself uses.
+var stream_select
+## The original map has two modes, Navigate and Species. This is the second.
+var stream_species := false
 ## Length of the framed passage along the gate axis: the 110 units from the
 ## alignment point to the aperture, and the 260 beyond it.
 const TRANSIT_REACH := 410.0
@@ -1667,30 +1672,81 @@ func show_stream_menu() -> void:
 	stream_prompted=true
 	if world.stream_destination>=0: stream_selection=world.stream_destination
 	world.cancel_autopilot(); world.region.player.set_throttle(0)
-	open_page("STREAM / TRANSIT CONTROL","stream")
+	var found: int=session.discovered.count(true)
+	open_page("MAP  ·  DISCOVERED %d / %d"%[found,session.discovered.size()],"stream")
 	view.gate_preview=true
-	label("LINK ESTABLISHED  ·  Select an exit station",14).modulate=Color("b4a0e7")
 	var row := HBoxContainer.new();row.add_theme_constant_override("separation",20);column.add_child(row)
-	var chart := Map.new();chart.world=world;chart.selected_id=stream_selection;chart.custom_minimum_size=Vector2(350,300);row.add_child(chart);chart.custom_minimum_size=Vector2(330,290);chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
-	var detail := VBoxContainer.new();detail.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(detail)
-	var options := OptionButton.new();options.custom_minimum_size.y=40;detail.add_child(options)
+	var chart := Map.new();chart.world=world;chart.selected_id=stream_selection;row.add_child(chart)
+	chart.custom_minimum_size=Vector2(330,290);chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
+	var detail := VBoxContainer.new();detail.size_flags_horizontal=Control.SIZE_EXPAND_FILL;detail.add_theme_constant_override("separation",6);row.add_child(detail)
 	var eligible: Array=[]
 	for station in session.stations:
-		if world.stream_denial(station.id).is_empty(): eligible.append(station.id);options.add_item(station.name,station.id)
+		if world.stream_denial(station.id).is_empty(): eligible.append(station.id)
 	if not stream_selection in eligible: stream_selection=eligible[0] if not eligible.is_empty() else -1
+	# The original steps through exits with arrows either side of the name rather
+	# than dropping a list over the chart, which hid the very thing being chosen.
+	var picker := HBoxContainer.new();picker.add_theme_constant_override("separation",8);detail.add_child(picker)
+	var back_button := button("<",func(): step_stream_selection(eligible,-1),picker)
+	back_button.custom_minimum_size.x=54;back_button.alignment=HORIZONTAL_ALIGNMENT_CENTER;back_button.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+	var title := label("",22,picker);title.size_flags_horizontal=Control.SIZE_EXPAND_FILL;title.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;title.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;title.modulate=Color("8bd6ee")
+	var next_button := button(">",func(): step_stream_selection(eligible,1),picker)
+	next_button.custom_minimum_size.x=54;next_button.alignment=HORIZONTAL_ALIGNMENT_CENTER;next_button.size_flags_horizontal=Control.SIZE_SHRINK_END
+	back_button.disabled=eligible.size()<2;next_button.disabled=eligible.size()<2
+	var modes := HBoxContainer.new();modes.add_theme_constant_override("separation",8);detail.add_child(modes)
+	var navigate_mode := button("NAVIGATE",func(): stream_species=false; show_stream_menu(),modes)
+	var species_mode := button("SPECIES",func(): stream_species=true; show_stream_menu(),modes)
+	navigate_mode.disabled=not stream_species;species_mode.disabled=stream_species
 	var info := label("",16,detail)
+	var habitat_rows := VBoxContainer.new();habitat_rows.add_theme_constant_override("separation",2);detail.add_child(habitat_rows)
 	var confirm := button("INITIATE TRANSIT  >",begin_stream_transit,detail)
 	var select := func(id):
 		stream_selection=id;chart.selected_id=id;chart.queue_redraw()
-		if id<0: info.text="No safe exits in range. Upgrade the engine or pressure protection.";confirm.disabled=true;return
+		if id<0:
+			title.text="NO EXIT IN RANGE"
+			info.text="No safe exits in range. Upgrade the engine or pressure protection."
+			confirm.disabled=true;return
 		var station: Dictionary=session.stations[id]
-		info.text="%s\n\nDEPTH  %d\nDISTANCE  %.1f km\nREACH  %.1f km\n\n%s"%[station.name,station.depth,world.stream_distance(id)*.4,world.stream_range()*.4,"Exit ready" if world.stream_denial(id).is_empty() else world.stream_denial(id)]
-		confirm.disabled=not world.stream_denial(id).is_empty()
-		var index := options.get_item_index(id)
-		if index>=0: options.select(index)
-	chart.selected.connect(select);options.item_selected.connect(func(index):select.call(options.get_item_id(index)))
+		title.text=str(station.name)
+		var denial: String=world.stream_denial(id)
+		# The original reads out who holds the station, its tech level and its
+		# depth. The reach and distance are this engine's own, and matter here.
+		for child in habitat_rows.get_children(): habitat_rows.remove_child(child); child.queue_free()
+		info.text="%s\nTec Level: %d\nDepth: %d\n\nDISTANCE  %.1f km\nREACH  %.1f km\n\n%s"%[
+			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",station.tech,station.depth,
+			world.stream_distance(id)*.4,world.stream_range()*.4,"Exit ready" if denial.is_empty() else denial]
+		confirm.disabled=not denial.is_empty()
+		if stream_species: info.text="";show_habitat(id,habitat_rows)
+	stream_select=select
+	chart.selected.connect(select)
 	select.call(stream_selection)
-	button("Remain in this area",close_page)
+
+func show_habitat(id: int, parent: Node) -> void:
+	"""Which species live at a station, and which of them this expedition has
+	already caught. Every station carries six, stored as pairs of species and a
+	constant weight; only the species half is meaningful to a reader."""
+	var habitat: Array = content.data.habitats[id] if id>=0 and id<content.data.habitats.size() else []
+	label("SPECIES FOUND HERE",13,parent).modulate=Color("93b5aa")
+	var seen := {}
+	for index in range(0,habitat.size(),2):
+		var species := int(habitat[index])
+		if seen.has(species): continue
+		seen[species]=true
+		var known: bool = species<session.fish_found.size() and session.fish_found[species]
+		var line := HBoxContainer.new();line.add_theme_constant_override("separation",10);parent.add_child(line)
+		var icon := TextureRect.new();icon.texture=imported_art.item(species);icon.custom_minimum_size=Vector2(34,28)
+		icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		if not known: icon.modulate=Color(1,1,1,.3)
+		line.add_child(icon)
+		var name_label := label(item_name(species) if known else "Unrecorded",15,line)
+		name_label.modulate=Color("d7edf1") if known else Color("6d8894")
+		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		if known: label("caught",12,line).modulate=Color("c9ae79")
+
+func step_stream_selection(eligible: Array, stride: int) -> void:
+	"""Walks the exits the way the original does, wrapping at either end."""
+	if eligible.is_empty() or not stream_select is Callable: return
+	var at := eligible.find(stream_selection)
+	stream_select.call(eligible[posmod(at+stride,eligible.size())] if at>=0 else eligible[0])
 
 func begin_stream_transit() -> void:
 	var denial: String=world.stream_denial(stream_selection)
