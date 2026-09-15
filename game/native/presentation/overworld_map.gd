@@ -51,19 +51,12 @@ func _draw() -> void:
 		# over whoever holds them, orange and red, as they do on the original.
 		if station.id==session.station_id: body=Color("ff8000"); core=Color("ffff00")
 		if objective: body=Color("ff0000"); core=Color("c00000")
-		# Both squares are whole pixels wide, odd, and centred on the same pixel.
-		# Drawn on the fractional position they landed on, the inner one rounded
-		# to whichever side the fraction fell, and the centres looked scattered.
-		var middle := p.round()
-		if station.id==selected_id: draw_arc(middle,12,0,TAU,24,Color.WHITE,2,true)
+		if station.id==selected_id: draw_arc(p,12,0,TAU,24,Color.WHITE,2,true)
 		# A visited station is drawn a little wider as well, which the original
 		# does not do, but which reads before the colours are compared.
-		var side := 9.0 if discovered else 7.0
-		var reach_out := floorf(side*0.5)
-		draw_rect(Rect2(middle-Vector2(reach_out,reach_out),Vector2(side,side)),body,true)
-		draw_rect(Rect2(middle-Vector2(1,1),Vector2(3,3)),core,true)
+		pixel_square(self,p,9.0 if discovered else 7.0,3.0,body,core)
 		if zoom>1.7 or station.id==selected_id or objective:
-			draw_string(ThemeDB.fallback_font,middle+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
+			draw_string(ThemeDB.fallback_font,p.round()+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
 	var encounter = world.encounter_navigation_point()
 	if encounter!=null:
 		var anchor: Array=world.station_origin(session.station_id)
@@ -83,6 +76,35 @@ func _draw() -> void:
 		# underneath says who holds the place you are sitting in.
 		var right:=Vector2(-direction.y,direction.x)
 		draw_colored_polygon(PackedVector2Array([p+direction*7,p-direction*4-right*3.5,p-direction*4+right*3.5]),Color("f4fafb"))
+static func pixel_square(item: CanvasItem, at: Vector2, outer_units: float, inner_units: float, body: Color, core: Color) -> void:
+	"""Lays a station marker out on the physical pixel grid rather than on the
+	chart's own units. The window scales this canvas, so whole units here are not
+	whole pixels there: each square rounded to whichever side of the grid its
+	fraction fell on, independently of the other, and the centres looked
+	scattered across the chart. Both are odd numbers of real pixels wide now,
+	around one shared centre pixel, which is also how the original's sprite is
+	cut."""
+	# The canvas transform alone stops at the viewport. A fixed aspect ratio in
+	# Display settings scales the viewport onto the window on top of that, and
+	# leaving that factor out put the markers back on fractions of a pixel.
+	var to_screen := item.get_viewport().get_final_transform()*item.get_global_transform_with_canvas()
+	var scale: float = maxf(to_screen.get_scale().x,0.0001)
+	var inverse := to_screen.affine_inverse()
+	var outer := odd_pixels(outer_units*scale)
+	var inner := odd_pixels(inner_units*scale)
+	var corner := (to_screen*at-Vector2(outer,outer)*0.5).round()
+	var inset := float((outer-inner)/2)
+	pixel_rect(item,inverse,corner,outer,scale,body)
+	pixel_rect(item,inverse,corner+Vector2(inset,inset),inner,scale,core)
+static func pixel_rect(item: CanvasItem, inverse: Transform2D, corner: Vector2, pixels: int, scale: float, tint: Color) -> void:
+	"""Whole pixels, edge to edge. Insetting the rectangle to keep it clear of
+	its own boundary sounds safer and is not: a three-pixel centre loses most of
+	a pixel that way and lands on two of them in one direction and three in the
+	other, which is what made the centres look like bars."""
+	item.draw_rect(Rect2(inverse*corner,Vector2(pixels,pixels)/scale),tint,true)
+static func odd_pixels(value: float) -> int:
+	"""Nearest odd number of pixels, so a square has a centre pixel to share."""
+	return maxi(1,int(roundf((value-1.0)*0.5))*2+1)
 func heading() -> Vector2:
 	if world==null or world.region==null:return Vector2.ZERO
 	var forward: Array=world.region.player.pose.forward

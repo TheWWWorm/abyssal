@@ -1456,8 +1456,7 @@ func map_marker(entry: Dictionary) -> Control:
 		elif kind=="arrow":
 			node.draw_colored_polygon(PackedVector2Array([middle+Vector2(0,-7),middle+Vector2(-3.5,4),middle+Vector2(3.5,4)]),Color("f4fafb"))
 		else:
-			node.draw_rect(Rect2(middle-Vector2(5,5),Vector2(11,11)),Color(entry.body),true)
-			node.draw_rect(Rect2(middle-Vector2(1,1),Vector2(3,3)),Color(entry.core),true))
+			Map.pixel_square(node,middle,11.0,3.0,Color(entry.body),Color(entry.core)))
 	return node
 func fit_map() -> void:
 	map_widget.custom_minimum_size=Vector2(340,clampf(ui.size.y-300,260,440))
