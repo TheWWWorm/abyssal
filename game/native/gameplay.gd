@@ -61,6 +61,7 @@ var transit_exit_elapsed := 0.0
 ## exit so the shot ends at their own speed rather than at full ahead.
 var transit_exit_throttle := 0.0
 var transit_exit_factor := 2.0
+var stream_resume_throttle := 100
 var stream_exit_frame := Transform3D.IDENTITY
 var atlas_autopilot_only := false
 var autopilot_pressed_at := -1
@@ -1667,6 +1668,11 @@ func show_stream_menu() -> void:
 	if not world.at_gate(world.departure_gate): return
 	stream_prompted=true
 	if world.stream_destination>=0: stream_selection=world.stream_destination
+	# The chart stops the submarine, so what it was doing has to be remembered
+	# here or the far side hands back a dead stop. The page rebuilds itself on
+	# every mode switch; only the first open sees the real throttle. A notch is
+	# the floor because a crossing cannot put anyone down stationary.
+	if page!="stream": stream_resume_throttle=maxi(world.region.player.throttle_target,25)
 	world.cancel_autopilot(); world.region.player.set_throttle(0)
 	var found: int=session.discovered.count(true)
 	open_page("MAP  ·  DISCOVERED %d / %d"%[found,session.discovered.size()],"stream")
@@ -1769,7 +1775,7 @@ func cross_stream(arrival_local: Transform3D) -> bool:
 	transit_exit_elapsed=0.0
 	# Out of the gate hard, then back down to the speed that was being flown, so
 	# control returns at the pace the player left off at.
-	transit_exit_throttle=world.region.player.throttle_target
+	transit_exit_throttle=stream_resume_throttle
 	transit_exit_factor=world.region.player.speed_factor
 	world.region.player.throttle=100;world.region.player.set_throttle(100)
 	world.region.player.speed_factor=STREAM_EXIT_FACTOR

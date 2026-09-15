@@ -193,6 +193,11 @@ func check_oblique_portals(game) -> void:
   for station in game.session.stations:
    if station.id!=0 and game.world.stream_denial(station.id).is_empty():game.stream_selection=station.id;break
   var before: int=game.session.station_id
+  # Reached the way a player reaches it: the chart opens at the gate and stops
+  # the submarine, and that stop must not be what the far side hands back.
+  game.world.region.player.set_throttle(75)
+  game.show_stream_menu()
+  expect(game.world.region.player.throttle_target==0,"The chart stops the submarine while it is open")
   game.begin_stream_transit()
   # Confirming a destination is the crossing. Nothing is flown into the
   # aperture, so the far side has to be there before another frame is drawn.
@@ -231,6 +236,7 @@ func check_oblique_portals(game) -> void:
   # The launch is a temporary multiplier. Leaving it on would make the rest of
   # the expedition fly at gate speed.
   expect(is_equal_approx(game.world.region.player.speed_factor,2.0),"Ordinary speed is handed back when the shot ends")
+  expect(game.world.region.player.throttle_target==75,"The speed being flown before the chart is what the far side hands back")
 
 func check_gate_effects(game) -> void:
  # The gate model carries the original's own additive effects: the flare in the
