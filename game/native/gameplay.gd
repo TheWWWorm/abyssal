@@ -1416,10 +1416,14 @@ func map_key(parent: Node) -> void:
 	waypoint are listed only while the chart is actually drawing them, which is
 	also the only time anyone needs to ask what they are."""
 	var flow := HFlowContainer.new(); flow.add_theme_constant_override("h_separation",16); flow.add_theme_constant_override("v_separation",4); parent.add_child(flow)
+	# Each holding has two markers, not one: the dark square with the bright
+	# centre is the same holding before you have been there, and listing only one
+	# of the pair left the other unaccounted for on the chart.
 	var entries := [
 			{"body":"05bbff","core":"0d2170","text":"Colonist"},
+			{"body":"0d2170","core":"05bbff","text":"Colonist, unvisited"},
 			{"body":"65e53e","core":"14501a","text":"Resistance"},
-			{"body":"0d2170","core":"05bbff","text":"Unvisited"},
+			{"body":"14501a","core":"65e53e","text":"Resistance, unvisited"},
 			{"body":"ff8000","core":"ffff00","text":"Your station"},
 			{"body":"ff0000","core":"c00000","text":"Mission destination"},
 			{"kind":"arrow","text":"You"},
