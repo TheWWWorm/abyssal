@@ -153,6 +153,7 @@ func run():
  await check_travel_fade(game)
  check_motion_steering()
  check_gate_effects(game)
+ await check_dock_notices(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
@@ -237,6 +238,35 @@ func check_oblique_portals(game) -> void:
   # the expedition fly at gate speed.
   expect(is_equal_approx(game.world.region.player.speed_factor,2.0),"Ordinary speed is handed back when the shot ends")
   expect(game.world.region.player.throttle_target==75,"The speed being flown before the chart is what the far side hands back")
+
+func check_dock_notices(game) -> void:
+ # Docking with a backlog of flight messages left the prompt that refused the
+ # docking on screen, telling the player to approach a station they are inside,
+ # and put anything the station had to say seven seconds a message behind it.
+ game.close_page();game.session.docked=false
+ game.world.enter_region(0);game.view.rebuild()
+ game.world.region.events=[];game.world.region.active_transmission=null
+ var berth: Array=[]
+ for candidate in [[0,15000,0],[0,-15000,0],[15000,0,0],[-15000,0,0],[0,0,15000],[0,0,-15000]]:
+  if game.world.region.station.can_dock(candidate): berth=candidate;break
+ expect(not berth.is_empty(),"There is a point off the hull the submarine can dock from")
+ game.world.region.player.pose.origin=berth.duplicate()
+ expect(not game.world.at_gate(0),"The berth is not a gate")
+ game.clear_notices()
+ game.notice("Approach the station to dock (within 160 m).")
+ game.notice("Route blocked by a station within safe depth")
+ expect(game.pending_notices.size()==1 and not game.message.text.is_empty(),"Flight messages queue behind one another")
+ game.perform("dock")
+ await process_frame
+ expect(game.session.docked,"Pressing dock at the berth docks")
+ expect(game.pending_notices.is_empty(),"Docking drops the messages that were queued in flight")
+ expect(not game.message.text.begins_with("Approach the station"),"A refused docking does not stay on screen while docked")
+ # Docked, each answer replaces the last rather than waiting its turn: saving
+ # must not report itself seven seconds after the key was pressed.
+ game.notice("Docked at somewhere")
+ game.notice("Saved")
+ expect(game.message.text=="Saved" and game.pending_notices.is_empty(),"A message while docked answers the press that caused it")
+ game.session.docked=false;game.clear_notices();game.close_page()
 
 func check_gate_effects(game) -> void:
  # The gate model carries the original's own additive effects: the flare in the

@@ -473,12 +473,21 @@ func notice(text: String) -> void:
 	if text.is_empty() or (text==message.text and notification_time>0) or text in pending_notices:return
 	if text.begins_with("Cannot collect") or text.begins_with("Catch lost"):
 		message.text=text;notification_time=7
-	elif notification_time>0 and not message.text.is_empty():
+	# Docked, a message is the answer to whatever was just pressed, and the next
+	# press deserves its own answer rather than a place in a seven-second queue.
+	# In flight they arrive on their own and a queue is the only way to read them.
+	elif notification_time>0 and not message.text.is_empty() and not session.docked:
 		if pending_notices.size()>=6:pending_notices.pop_front()
 		pending_notices.append(text)
 	else:message.text=text;notification_time=7
 	message.show()
 	place_message()
+func clear_notices() -> void:
+	"""Nothing queued in flight is worth reading once the hatch is shut. Left
+	alone, the prompt that refused a docking sits on screen while docked, saying
+	to approach a station the submarine is already inside."""
+	pending_notices.clear()
+	message.text="";notification_time=0
 func item_name(id: int, kind: String="goods") -> String:
 	var key := "c:[[S" if kind=="goods" else "b:[[S"
 	var table: Array = content.data.constants.e[key]
@@ -780,7 +789,7 @@ func perform(action: String) -> void:
 		"dock":
 			if world.at_gate(0):
 				show_stream_menu()
-			elif world.dock(): show_station(); save_game(false)
+			elif world.dock(): clear_notices(); show_station(); save_game(false)
 		"map": show_map()
 		"autopilot":
 			auto_fire=false
