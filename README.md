@@ -126,7 +126,7 @@ The dock keeps the original Hangar, Missions, Map, Trade, Status and System grou
 
 Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its − and + steps, or press **Max** for as much as the purse, the hold and the station's shelf allow, then Buy or Sell in one press. Each button offers only what it can actually move, and reports what it actually moved.
 
-A STREAM crossing is shown from outside. The view stands off as the gate splits open, watches the submarine run at the aperture, follows it through, and hands the camera back once it is clear of the far gate. You always come out on the side the region is on, heading in towards it, whichever side you entered from. Steering stays yours throughout.
+Going into a gate is flown from the cockpit. Coming out is shown from outside: the submarine leaves the far aperture at full ahead, easing back to the speed you were flying as the camera hands back. You always come out on the side the region is on, heading in towards it, whichever side you entered from. Steering stays yours throughout.
 
 At a gate, the chart opens as **MAP**, with the discovered count in its heading. Choose an exit in range from the list, or pick one off the chart. **NAVIGATE** reads out who holds the station, its tech level and depth alongside the distance and your reach; **SPECIES** lists the six species that live there and which of them you have already caught.
 

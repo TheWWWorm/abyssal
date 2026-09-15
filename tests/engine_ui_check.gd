@@ -196,18 +196,15 @@ func check_oblique_portals(game) -> void:
   # Drive the passage the way the game does. Advancing the world alone reaches
   # the far station without ever running the crossing itself, which left the
   # emergence untested until a cover was painted over it.
-  var framed:=false
   var framed_before_crossing:=false
   while ticks<1000 and game.session.station_id==0:
    game.world.advance(.04);game.update_stream_passage();game.advance_transit_view(.04);ticks+=1
-   if game.view.transit_progress>=0:
-    framed=true
-    if game.session.station_id==0:framed_before_crossing=true
-  # The passage is shown from outside, starting on the run at the aperture, so
-  # the submarine is seen going in and not only arriving.
-  expect(framed_before_crossing,"The crossing is framed from outside before the submarine reaches the aperture")
-  expect(framed,"The crossing is framed at all")
-  expect(game.view.transit_emerging,"The shot moves to the far aperture once the submarine is through")
+   if game.view.transit_progress>=0 and game.session.station_id==0:framed_before_crossing=true
+  # Only the way out is framed. Going in, the submarine is flying itself at the
+  # aperture and the cockpit is where that is watched from.
+  expect(not framed_before_crossing,"Approaching the aperture is flown from the cockpit, not framed from outside")
+  expect(game.view.transit_progress>=0,"Coming out of the far gate is framed from outside")
+  expect(game.view.transit_emerging,"The shot sits at the far aperture the submarine is leaving")
   expect(game.session.station_id!=0 and not game.stream_armed,"Oblique STREAM entry crosses the aperture from side %d"%side)
   var exit: Transform3D=game.view.gate_nodes[game.world.region.gate_index(1)].global_transform
   expect(exit.origin.distance_to(game.world.region.player.pose.godot_transform().origin)<60,"STREAM emerges at the visible exit aperture")

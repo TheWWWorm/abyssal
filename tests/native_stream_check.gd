@@ -102,7 +102,7 @@ func checks() -> void:
 	app.world.region.success=null; app.world.region.failure=null
 	app.key_bindings.dock=KEY_R; app.map_destination=target; app.show_map()
 	for _i in 3: await process_frame
-	expect(not app.stream_button.disabled and app.map_info.text.contains("STREAM"),"Atlas exposes the reachable transfer and engine range")
+	expect(not app.stream_button.disabled and app.map_info.text.contains("S.T.R.E.A.M."),"Atlas exposes the reachable transfer and engine range")
 	expect(root.get_visible_rect().encloses(app.map_widget.get_global_rect()),"Atlas fits the viewport with transfer controls")
 	root.content_scale_mode=Window.CONTENT_SCALE_MODE_DISABLED
 	for size in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080)]:
@@ -118,7 +118,7 @@ func checks() -> void:
 	app.world.region.player.pose.origin=app.world.region.gates[0].duplicate(); app.world.update_gates(640); app.view._process(0.04)
 	expect(app.view.gate_nodes[0].sampled_frame==app.world.gate_frame(0),"Gate model follows simulation opening state")
 	app.update_markers()
-	expect(app.markers.any(func(marker): return marker.visible and marker.text.contains("STREAM · Transit control")),"Ready gate advertises its transit control menu")
+	expect(app.markers.any(func(marker): return marker.visible and marker.text.contains("S.T.R.E.A.M. · Transit control")),"Ready gate advertises its transit control menu")
 	if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name()!="headless":
 		app.map_destination=target; app.show_map()
 		for _i in 4: await process_frame

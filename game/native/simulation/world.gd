@@ -312,8 +312,8 @@ func stream_denial(id: int) -> String:
 	if id==session.station_id: return "Already in this area."
 	if tutorial_travel_locked(): return session.text(291)
 	if session.docked and session.depart_denial()>=0: return session.text(session.depart_denial())
-	if not session.docked and region!=null and (region.success!=null or region.failure!=null): return "Complete the encounter before using STREAM."
-	if stream_distance(id)>=stream_range(): return "Beyond STREAM reach. Fit a longer-range engine or use continuous autopilot."
+	if not session.docked and region!=null and (region.success!=null or region.failure!=null): return "Complete the encounter before using S.T.R.E.A.M."
+	if stream_distance(id)>=stream_range(): return "Beyond S.T.R.E.A.M. reach. Fit a longer-range engine or use continuous autopilot."
 	var target: Dictionary = session.stations[id]
 	if target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth: return "Destination exceeds this ship’s safe depth. Upgrade pressure protection."
 	return ""
@@ -321,9 +321,9 @@ func plan_stream(id: int) -> bool:
 	message=stream_denial(id)
 	if not message.is_empty() or session.docked or region==null: return false
 	departure_gate=nearest_safe_gate()
-	if departure_gate<0: message="No STREAM gate within safe depth.";return false
+	if departure_gate<0: message="No S.T.R.E.A.M. gate within safe depth.";return false
 	fly_to_gate(departure_gate); stream_destination=id; update_approach()
-	message="Approach the STREAM gate for "+session.stations[id].name
+	message="Approach the S.T.R.E.A.M. gate for "+session.stations[id].name
 	return true
 func fly_to_gate(index: int) -> void:
 	departure_gate=region.gate_index(index)
@@ -365,8 +365,8 @@ func stream_transfer() -> bool:
 	if region.failed or region.pending_mission!=null or region.active_transmission!=null: return false
 	message=stream_denial(stream_destination)
 	if not message.is_empty(): return false
-	if not at_gate(departure_gate): message="Approach the STREAM gate (within 160 m)."; return false
-	if gate_time[departure_gate]<GATE_OPEN_MS: message="STREAM gate opening…"; return false
+	if not at_gate(departure_gate): message="Approach the S.T.R.E.A.M. gate (within 160 m)."; return false
+	if gate_time[departure_gate]<GATE_OPEN_MS: message="S.T.R.E.A.M. gate opening…"; return false
 	var target: int = stream_destination
 	# bp.c's in-flight branch preserves health and f's expedition counters.
 	# dj.d increments journeys; it does not call the departure/count-jump path.
@@ -379,7 +379,7 @@ func stream_transfer() -> bool:
 	region.player.depth=session.stations[target].depth
 	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0
 	region.audio_event("signal")
-	message="STREAM arrival · "+session.stations[target].name
+	message="S.T.R.E.A.M. arrival · "+session.stations[target].name
 	return true
 
 func render_pose(actor) -> Transform3D:

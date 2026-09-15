@@ -284,23 +284,16 @@ func build_gate_field(node: Node3D) -> void:
 	a dark hole: the energy in the middle and the glow along the frame both come
 	from here. UV carries two of the triangle's barycentric coordinates, which is
 	what the shader reads its edge distance from."""
-	# Sized from the frame that is actually modelled rather than from the crossing
-	# radius, which is a generous gameplay tolerance and several times the visible
-	# opening. The apex points down, the way the modelled triangle does.
+	# Sized and centred from the frame that is actually modelled. The crossing
+	# radius is a generous gameplay tolerance, several times the visible opening,
+	# and the model does not sit centred on its own origin.
 	var span: AABB=node.solid_bounds()
-	var radius: float=maxf(6.0,minf(span.size.x,span.size.y)*.31)
-	var points := PackedVector3Array()
-	for corner in 3:
-		var turn := -PI*.5+TAU*float(corner)/3.0
-		points.append(Vector3(cos(turn)*radius,sin(turn)*radius,0))
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX]=points
-	arrays[Mesh.ARRAY_TEX_UV]=PackedVector2Array([Vector2(1,0),Vector2(0,1),Vector2(0,0)])
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arrays)
+	var radius: float=maxf(6.0,minf(span.size.x,span.size.y)*.34)
+	var mesh := QuadMesh.new()
+	mesh.size=Vector2.ONE*radius*2.3
 	var surface := MeshInstance3D.new()
 	surface.mesh=mesh
+	surface.position=Vector3(span.position.x+span.size.x*.5,span.position.y+span.size.y*.5,0)
 	var material := ShaderMaterial.new()
 	material.shader=preload("res://native/presentation/gate_field.gdshader")
 	surface.material_override=material

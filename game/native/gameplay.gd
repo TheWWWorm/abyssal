@@ -55,14 +55,14 @@ var stream_exit_active := false
 var stream_species := false
 ## Length of the framed passage along the gate axis: the 110 units from the
 ## alignment point to the aperture, and the 260 beyond it.
-const TRANSIT_REACH := 410.0
-## Which way along the framed gate axis the submarine is travelling.
-var transit_axis := 1.0
 ## The far side runs on a clock rather than on distance: what it shows is the
 ## submarine leaving for the station, which is a beat of fixed length, not a
 ## stretch of water to be crossed.
 const TRANSIT_EXIT_SECONDS := 4.0
 var transit_exit_elapsed := 0.0
+## The throttle the player was flying before the crossing, restored across the
+## exit so the shot ends at their own speed rather than at full ahead.
+var transit_exit_throttle := 0.0
 var stream_exit_frame := Transform3D.IDENTITY
 var atlas_autopilot_only := false
 var autopilot_pressed_at := -1
@@ -1156,7 +1156,7 @@ func show_station() -> void:
 	var services := [
 		["HANGAR","Equipment shop, ship dealer and workshop",show_hangar],
 		["MISSIONS","Current objectives and available contracts",show_station_missions],
-		["MAP","Stations, routes and STREAM",show_map],
+		["MAP","Stations, routes and S.T.R.E.A.M.",show_map],
 		["TRADE","Buy and sell cargo",func():show_market("trade")],
 		["STATUS","Your ship, cargo and pilot record",show_station_status],
 		["SYSTEM","Save, controls and settings",show_system]]
@@ -1370,7 +1370,7 @@ func show_map(autopilot_only: bool=false) -> void:
 	var picker := OptionButton.new(); map_picker=picker
 	for station in session.stations: picker.add_item(station.name,station.id)
 	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); column.add_child(picker)
-	label("Gold · Story · Green · STREAM reach\nCyan · Colonist · Amber · Rebel\nDim · Undiscovered",14)
+	label("Gold · Story · Green · S.T.R.E.A.M. reach\nCyan · Colonist · Amber · Rebel\nDim · Undiscovered",14)
 	if world.encounter_navigation_point()!=null:
 		label("Local encounter active · follow its waypoint before travelling to the next story station.",14)
 		button("Navigate encounter waypoint",func():
@@ -1387,7 +1387,7 @@ func show_map(autopilot_only: bool=false) -> void:
 		if world.route_to(map_destination):
 			if page!="dialogue": close_page()
 		else: notice(world.message))
-	stream_button=button("Plan STREAM transfer",func():
+	stream_button=button("Plan S.T.R.E.A.M. transfer",func():
 		var denial: String = world.stream_denial(map_destination)
 		if not denial.is_empty(): notice(denial); return
 		if session.docked:
@@ -1410,7 +1410,7 @@ func select_station(id: int) -> void:
 	var station: Dictionary = session.stations[id]
 	map_info.text="%s\nDepth %d · Tech %d\n%s"%[station.name,station.depth,station.tech,"Discovered" if session.discovered[id] else "Unexplored"]
 	var denial: String = world.stream_denial(id)
-	map_info.text+="\nSTREAM %.1f / %.1f km"%[world.stream_distance(id)*0.4,world.stream_range()*0.4]
+	map_info.text+="\nS.T.R.E.A.M. %.1f / %.1f km"%[world.stream_distance(id)*0.4,world.stream_range()*0.4]
 	var status := "Ready · transfer at the gate"
 	if not denial.is_empty():
 		status="Current area" if id==session.station_id else "Needs longer-range engine" if world.stream_distance(id)>=world.stream_range() else "Needs pressure protection" if station.depth<session.ship.minimum_depth or station.depth>session.ship.maximum_depth else "Locked by the current mission"
@@ -1477,9 +1477,9 @@ func update_markers() -> void:
 	focused_contact=focus_creature()
 	var radar: int = session.ship.passive_radar
 	var targets: Array = station_contacts()
-	var gate_name: String = "STREAM > "+session.stations[world.stream_destination].name if world.stream_destination>=0 else "STREAM gate"
+	var gate_name: String = "S.T.R.E.A.M. > "+session.stations[world.stream_destination].name if world.stream_destination>=0 else "S.T.R.E.A.M. gate"
 	if world.at_gate(world.departure_gate):
-		gate_name="STREAM · "+("Transit control" if world.stream_destination>=0 else "Choose destination") if world.gate_time[world.departure_gate]>=world.GATE_OPEN_MS else "STREAM · Opening" if world.region.success==null and world.region.failure==null and not world.tutorial_travel_locked() else "STREAM · Locked"
+		gate_name="S.T.R.E.A.M. · "+("Transit control" if world.stream_destination>=0 else "Choose destination") if world.gate_time[world.departure_gate]>=world.GATE_OPEN_MS else "S.T.R.E.A.M. · Opening" if world.region.success==null and world.region.failure==null and not world.tutorial_travel_locked() else "S.T.R.E.A.M. · Locked"
 	targets.append({"key":"stream","p":region.gates[world.departure_gate],"name":gate_name,"color":Color("bdabf2"),"edge":world.stream_destination>=0,"hull":-1.0})
 	if world.autopilot and world.local_target!=null and world.stream_destination<0:
 		targets.append({"key":"waypoint","p":world.local_target,"name":session.stations[world.destination].name if world.destination>=0 else "Autopilot","color":Color("e5ce86"),"edge":true,"hull":-1.0})
@@ -1635,9 +1635,9 @@ func show_destinations() -> void:
 	var dock_locked: bool=world.region.success!=null or world.region.failure!=null
 	var dock_action := button("Docking locked · encounter active" if dock_locked else "Dock at "+session.stations[session.station_id].name,func(): world.route_to(session.station_id); close_page(),actions)
 	dock_action.disabled=dock_locked
-	button("Approach STREAM gate",func():
+	button("Approach S.T.R.E.A.M. gate",func():
 		var gate: int=world.nearest_safe_gate()
-		if gate<0:notice("No STREAM gate within safe depth.");return
+		if gate<0:notice("No S.T.R.E.A.M. gate within safe depth.");return
 		world.fly_to_gate(gate);close_page(),actions)
 	button("Choose station on chart",func():show_map(true),actions)
 	if world.autopilot:button("Disengage autopilot",func():world.cancel_autopilot("Manual control");close_page(),actions)
@@ -1674,13 +1674,13 @@ func show_stream_menu() -> void:
 	view.gate_preview=true
 	var row := HBoxContainer.new();row.add_theme_constant_override("separation",20);column.add_child(row)
 	var chart := Map.new();chart.world=world;chart.selected_id=stream_selection;row.add_child(chart)
-	chart.custom_minimum_size=Vector2(330,290);chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
-	var detail := VBoxContainer.new();detail.size_flags_horizontal=Control.SIZE_EXPAND_FILL;detail.add_theme_constant_override("separation",6);row.add_child(detail)
+	chart.custom_minimum_size=Vector2(560,380);chart.size_flags_horizontal=Control.SIZE_EXPAND_FILL;chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
+	var detail := VBoxContainer.new();detail.custom_minimum_size.x=270;detail.size_flags_horizontal=Control.SIZE_SHRINK_END;detail.add_theme_constant_override("separation",6);row.add_child(detail)
 	var eligible: Array=[]
 	for station in session.stations:
 		if world.stream_denial(station.id).is_empty(): eligible.append(station.id)
 	if not stream_selection in eligible: stream_selection=eligible[0] if not eligible.is_empty() else -1
-	var options := OptionButton.new();options.custom_minimum_size.y=40;detail.add_child(options)
+	var options := OptionButton.new();options.custom_minimum_size.y=40;options.size_flags_horizontal=Control.SIZE_EXPAND_FILL;detail.add_child(options)
 	for id in eligible: options.add_item(str(session.stations[id].name),id)
 	options.disabled=eligible.size()<2
 	var modes := HBoxContainer.new();modes.add_theme_constant_override("separation",8);detail.add_child(modes)
@@ -1749,12 +1749,11 @@ func begin_stream_transit() -> void:
 	var target: Vector3=frame*Vector3(0,0,stream_entry_side*110) if stream_aligning else frame*Vector3(0,0,-stream_entry_side*260)
 	world.fly_to([roundi(target.x*100),roundi(-target.y*100),roundi(-target.z*100)])
 	world.approach_planned=true;world.approach_path.clear();world.stream_destination=stream_selection;world.gate_navigation=true
-	stream_armed=true;close_page();notice("STREAM armed · fly through the aperture. Steering remains available.")
+	stream_armed=true;close_page();notice("S.T.R.E.A.M. armed · fly through the aperture. Steering remains available.")
 func advance_transit_view(seconds: float) -> void:
-	"""Two halves with different clocks. The run at the aperture follows travelled
-	distance, so a slow approach holds the shot instead of cutting away early. The
-	far side follows time: the submarine has already arrived, and what is being
-	shown is it leaving for the station."""
+	"""The far side of a crossing, on a clock. The submarine has already arrived;
+	what is being shown is it leaving the aperture for the station. Going in is
+	flown from the cockpit and is not framed at all."""
 	if view.transit_progress<0: return
 	if world.region==null or session.docked or view.player_model==null: view.end_transit(); return
 	# A menu, a briefing or an arrival dialogue ends the moment the shot was for.
@@ -1763,18 +1762,11 @@ func advance_transit_view(seconds: float) -> void:
 	if view.transit_emerging:
 		transit_exit_elapsed+=minf(maxf(seconds,0.0),.1)
 		view.transit_progress=clampf(transit_exit_elapsed/TRANSIT_EXIT_SECONDS,0,1)
+		# Full ahead out of the aperture, easing back to what was being flown.
+		world.region.player.set_throttle(roundi(lerpf(100.0,transit_exit_throttle,smoothstep(.25,1.0,view.transit_progress))))
 		if view.transit_progress>=1.0: view.end_transit()
 		return
-	# A run that was armed and is no longer, without a crossing behind it, was
-	# refused or called off. The shot has nothing left to follow.
-	if not stream_armed and not stream_exit_active: view.end_transit(); return
-	var local: Vector3=view.transit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
-	var travelled := 150.0-local.z*transit_axis
-	# Turning back is a change of mind, not a passage. Hand the camera over rather
-	# than holding a cinematic shot of a submarine flying away from the gate.
-	if travelled<-40.0: view.end_transit(); return
-	view.transit_progress=clampf(travelled/TRANSIT_REACH,0,1)
-	if view.transit_progress>=1.0: view.end_transit()
+	view.end_transit()
 func advance_stream_transit(_delta: float) -> void:
 	# Compatibility entry point: transit follows position, never a timer.
 	update_stream_passage()
@@ -1783,11 +1775,6 @@ func update_stream_passage() -> void:
 	var frame: Transform3D=view.gate_nodes[world.departure_gate].global_transform
 	var pose: Transform3D=world.region.player.pose.godot_transform()
 	var local: Vector3=frame.affine_inverse()*pose.origin
-	# Open the shot as the gate starts to split rather than after: the split is
-	# the part worth watching, and it is finished before the run at the aperture
-	# would otherwise have begun.
-	if view.transit_progress<0 and world.gate_time[world.departure_gate]>0:
-		transit_axis=stream_entry_side;view.begin_transit(frame,stream_entry_side)
 	if stream_aligning:
 		if local.distance_to(Vector3(0,0,stream_entry_side*110))<24:
 			stream_aligning=false
@@ -1817,8 +1804,14 @@ func update_stream_passage() -> void:
 			view.clip_player_at_gate(exit,-1.0);dive_audio.cue("gate")
 			# The passage continues on the far side, so the shot moves to that
 			# aperture rather than restarting: the submarine has not stopped.
-			view.transit_frame=exit;view.transit_side=-1.0;view.transit_emerging=true;transit_axis=1.0
-			transit_exit_elapsed=0.0;view.transit_progress=0.0
+			# Only the way out is framed. Going in, the submarine is flying itself
+			# at the aperture and the cockpit is the place to watch that from.
+			view.begin_transit(exit,-1.0);view.transit_emerging=true
+			transit_exit_elapsed=0.0
+			# Out of the gate quickly, then back down to the speed that was being
+			# flown, so control returns at the pace the player left off at.
+			transit_exit_throttle=world.region.player.throttle_target
+			world.region.player.throttle=100;world.region.player.set_throttle(100)
 		else:notice(world.message);stream_armed=false;view.clear_player_clip();view.end_transit()
 	stream_previous_z=local.z;stream_previous_local=local
 
