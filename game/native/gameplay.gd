@@ -56,6 +56,11 @@ var stream_exit_active := false
 const TRANSIT_REACH := 410.0
 ## Which way along the framed gate axis the submarine is travelling.
 var transit_axis := 1.0
+## The far side runs on a clock rather than on distance: what it shows is the
+## submarine leaving for the station, which is a beat of fixed length, not a
+## stretch of water to be crossed.
+const TRANSIT_EXIT_SECONDS := 4.0
+var transit_exit_elapsed := 0.0
 var stream_exit_frame := Transform3D.IDENTITY
 var atlas_autopilot_only := false
 var autopilot_pressed_at := -1
@@ -504,7 +509,7 @@ func _process(delta: float) -> void:
 	touch.set_active(page.is_empty() and not session.docked and not world.region.cinematic())
 	if page=="layout": touch.refresh_visibility()
 	dive_audio.set_context(page,session.docked)
-	advance_transit_view()
+	advance_transit_view(delta)
 	if page=="departure":
 		departure_elapsed+=minf(delta,.1)
 		view.place_departure(clampf(departure_elapsed/3.2,0,1))
@@ -1704,18 +1709,24 @@ func begin_stream_transit() -> void:
 	world.fly_to([roundi(target.x*100),roundi(-target.y*100),roundi(-target.z*100)])
 	world.approach_planned=true;world.approach_path.clear();world.stream_destination=stream_selection;world.gate_navigation=true
 	stream_armed=true;close_page();notice("STREAM armed · fly through the aperture. Steering remains available.")
-func advance_transit_view() -> void:
-	"""Holds the passage framed from the run at the aperture until the submarine
-	is clear of the far one. It follows travelled distance rather than a clock, so
-	a slow approach simply holds the shot longer instead of cutting away early."""
+func advance_transit_view(seconds: float) -> void:
+	"""Two halves with different clocks. The run at the aperture follows travelled
+	distance, so a slow approach holds the shot instead of cutting away early. The
+	far side follows time: the submarine has already arrived, and what is being
+	shown is it leaving for the station."""
 	if view.transit_progress<0: return
 	if world.region==null or session.docked or view.player_model==null: view.end_transit(); return
 	# A menu, a briefing or an arrival dialogue ends the moment the shot was for.
 	# Leaving it running would park the camera at the aperture behind them.
 	if not page.is_empty(): view.end_transit(); return
+	if view.transit_emerging:
+		transit_exit_elapsed+=minf(maxf(seconds,0.0),.1)
+		view.transit_progress=clampf(transit_exit_elapsed/TRANSIT_EXIT_SECONDS,0,1)
+		if view.transit_progress>=1.0: view.end_transit()
+		return
 	# A run that was armed and is no longer, without a crossing behind it, was
 	# refused or called off. The shot has nothing left to follow.
-	if not stream_armed and not stream_exit_active and not view.transit_emerging: view.end_transit(); return
+	if not stream_armed and not stream_exit_active: view.end_transit(); return
 	var local: Vector3=view.transit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
 	var travelled := 150.0-local.z*transit_axis
 	# Turning back is a change of mind, not a passage. Hand the camera over rather
@@ -1766,6 +1777,7 @@ func update_stream_passage() -> void:
 			# The passage continues on the far side, so the shot moves to that
 			# aperture rather than restarting: the submarine has not stopped.
 			view.transit_frame=exit;view.transit_side=-1.0;view.transit_emerging=true;transit_axis=1.0
+			transit_exit_elapsed=0.0;view.transit_progress=0.0
 		else:notice(world.message);stream_armed=false;view.clear_player_clip();view.end_transit()
 	stream_previous_z=local.z;stream_previous_local=local
 

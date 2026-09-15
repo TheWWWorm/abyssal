@@ -134,6 +134,7 @@ func rebuild() -> void:
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine
 		pose.origin=world.region.gates[i]; pose.set_euler(0,(300 if world.session.stations[world.session.station_id].tech>4 else -300)*(i+1)+2048,0)
 		visual.transform=pose.godot_transform(); gate_nodes.append(visual)
+		build_gate_field(visual)
 		visual.visible=world.region.gate_index(i)==i
 	previous_time=world.region.elapsed_ms
 	rendered_station=world.session.station_id;rendered_anchor=world.geography.anchor
@@ -183,15 +184,12 @@ func _process(delta: float) -> void:
 	for i in gate_nodes.size():
 		if not gate_nodes[i].visible:continue
 		gate_nodes[i].clock.frame=world.gate_frame(i); gate_nodes[i].refresh()
-		var gate=gate_nodes[i].replacement
-		if gate!=null and gate.has_meta("gate_surface"):
+		if gate_nodes[i].has_meta("gate_surface"):
 			var distance: float=player_pose.origin.distance_to(gate_nodes[i].position)
 			var opening := maxf(clampf(float(world.gate_frame(i))/20.0,0,1),clampf(1.0-distance/550.0,0,1)*.65)
-			gate.get_meta("gate_surface").set_shader_parameter("opening",opening)
-			gate.get_meta("gate_light").light_energy=opening*14.0
-			if gate.has_meta("gate_field_mesh"):gate.get_meta("gate_field_mesh").scale=Vector3.ONE*(1.0+opening*.45)
-			animate_model(gate_nodes[i],delta,1.0,opening)
-			gate.rotation.z+=delta*(.10+opening*.55)
+			gate_nodes[i].get_meta("gate_surface").set_shader_parameter("opening",opening)
+			gate_nodes[i].get_meta("gate_light").light_energy=opening*14.0
+			gate_nodes[i].get_meta("gate_field_mesh").scale=Vector3.ONE*(1.0+opening*.45)
 	for neighbor in neighbors.values():
 		neighbor.age=minf(STREAM_FADE_SECONDS,neighbor.age+delta)
 		for part in neighbor.root.get_children():
@@ -219,7 +217,12 @@ func _process(delta: float) -> void:
 		# Going in, stand back beyond the submarine and aim between it and the
 		# aperture, so the gate splitting and the run at it share the frame.
 		# Coming out, sit close to the far aperture and follow the hull itself.
-		var stand: Vector3=Vector3(58,17,transit_side*56) if transit_emerging else Vector3(96,28,transit_side*205)
+		# Coming out, start in front of the aperture so the submarine emerges
+		# towards the viewer, then drift back beside the gate so it is seen
+		# leaving for the station, which is where the chase camera takes over.
+		var stand: Vector3=Vector3(96,28,transit_side*205)
+		if transit_emerging:
+			stand=Vector3(26,10,transit_side*105).lerp(Vector3(78,24,transit_side*40),smoothstep(0,.62,transit_progress))
 		camera.global_position=transit_frame.origin+transit_frame.basis*stand
 		var subject: Vector3=player_pose.origin if transit_emerging else transit_frame.origin.lerp(player_pose.origin,.5)
 		camera.look_at(subject,Vector3.UP)
@@ -275,6 +278,42 @@ func _process(delta: float) -> void:
 	previous_particle_fraction=world.accumulator
 	combat.update(region,ms,delta*1000 if departure_progress>=0 else particle_ms)
 
+func build_gate_field(node: Node3D) -> void:
+	"""The lit aperture inside the gate frame. gate_field.gdshader has been in the
+	tree since preview.2 with nothing to draw it on, which is why a gate has been
+	a dark hole: the energy in the middle and the glow along the frame both come
+	from here. UV carries two of the triangle's barycentric coordinates, which is
+	what the shader reads its edge distance from."""
+	# Sized from the frame that is actually modelled rather than from the crossing
+	# radius, which is a generous gameplay tolerance and several times the visible
+	# opening. The apex points down, the way the modelled triangle does.
+	var span: AABB=node.solid_bounds()
+	var radius: float=maxf(6.0,minf(span.size.x,span.size.y)*.31)
+	var points := PackedVector3Array()
+	for corner in 3:
+		var turn := -PI*.5+TAU*float(corner)/3.0
+		points.append(Vector3(cos(turn)*radius,sin(turn)*radius,0))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX]=points
+	arrays[Mesh.ARRAY_TEX_UV]=PackedVector2Array([Vector2(1,0),Vector2(0,1),Vector2(0,0)])
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arrays)
+	var surface := MeshInstance3D.new()
+	surface.mesh=mesh
+	var material := ShaderMaterial.new()
+	material.shader=preload("res://native/presentation/gate_field.gdshader")
+	surface.material_override=material
+	surface.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(surface)
+	var light := OmniLight3D.new()
+	light.light_color=Color("a9ecff")
+	light.omni_range=460.0
+	light.light_energy=0.0
+	node.add_child(light)
+	node.set_meta("gate_surface",material)
+	node.set_meta("gate_light",light)
+	node.set_meta("gate_field_mesh",surface)
 func animate_model(node,delta: float,power: float,opening: float=0.0) -> void:
 	if node.replacement!=null and node.replacement.has_meta("motion"):
 		node.replacement.get_meta("motion").animate(delta,power,opening)

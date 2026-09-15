@@ -18,7 +18,7 @@ var gate_time := [0,0]
 var gate_closing := [0,0]
 ## One frame of the gate's split. The whole opening is twenty of them, so this
 ## sets how sharply the gate snaps apart as a submarine runs at it.
-const GATE_FRAME_MS := 16
+const GATE_FRAME_MS := 32
 const GATE_OPEN_MS := GATE_FRAME_MS*20
 var local_target = null
 var autopilot := false

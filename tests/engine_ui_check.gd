@@ -199,7 +199,7 @@ func check_oblique_portals(game) -> void:
   var framed:=false
   var framed_before_crossing:=false
   while ticks<1000 and game.session.station_id==0:
-   game.world.advance(.04);game.update_stream_passage();game.advance_transit_view();ticks+=1
+   game.world.advance(.04);game.update_stream_passage();game.advance_transit_view(.04);ticks+=1
    if game.view.transit_progress>=0:
     framed=true
     if game.session.station_id==0:framed_before_crossing=true
@@ -228,10 +228,13 @@ func check_oblique_portals(game) -> void:
   var covering: Array=game.ui.get_children().filter(func(node):return node.get_script()==preload("res://native/presentation/travel_fade.gd"))
   expect(covering.is_empty(),"Nothing is painted over the gate transition")
   # Flying clear of the far gate hands the camera back; it must not hold.
+  var exit_ticks:=0
   for i in 400:
-   game.world.advance(.04);game.advance_transit_view()
+   game.world.advance(.04);game.advance_transit_view(.04);exit_ticks+=1
    if game.view.transit_progress<0:break
   expect(game.view.transit_progress<0,"The shot hands the camera back once the submarine is clear")
+  var exit_seconds := exit_ticks*.04
+  expect(absf(exit_seconds-game.TRANSIT_EXIT_SECONDS)<.5,"The far side runs for its stated length, not a distance the submarine happens to cover")
 
 func check_dock_navigation(game) -> void:
  game.session.docked=true;game.show_station()
