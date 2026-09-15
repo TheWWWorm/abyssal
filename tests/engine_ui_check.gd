@@ -191,21 +191,16 @@ func check_oblique_portals(game) -> void:
   game.world.departure_gate=0;game.world.update_gates(1000)
   for station in game.session.stations:
    if station.id!=0 and game.world.stream_denial(station.id).is_empty():game.stream_selection=station.id;break
+  var before: int=game.session.station_id
   game.begin_stream_transit()
-  var ticks:=0
-  # Drive the passage the way the game does. Advancing the world alone reaches
-  # the far station without ever running the crossing itself, which left the
-  # emergence untested until a cover was painted over it.
-  var framed_before_crossing:=false
-  while ticks<1000 and game.session.station_id==0:
-   game.world.advance(.04);game.update_stream_passage();game.advance_transit_view(.04);ticks+=1
-   if game.view.transit_progress>=0 and game.session.station_id==0:framed_before_crossing=true
-  # Only the way out is framed. Going in, the submarine is flying itself at the
-  # aperture and the cockpit is where that is watched from.
-  expect(not framed_before_crossing,"Approaching the aperture is flown from the cockpit, not framed from outside")
+  # Confirming a destination is the crossing. Nothing is flown into the
+  # aperture, so the far side has to be there before another frame is drawn.
+  expect(game.session.station_id!=before,"Confirming a destination crosses at once, from side %d"%side)
+  expect(game.page.is_empty(),"The chart closes onto the far side rather than waiting for a run-up")
   expect(game.view.transit_progress>=0,"Coming out of the far gate is framed from outside")
   expect(game.view.transit_emerging,"The shot sits at the far aperture the submarine is leaving")
-  expect(game.session.station_id!=0 and not game.stream_armed,"Oblique STREAM entry crosses the aperture from side %d"%side)
+  # Thrown clear of the aperture, not drifting out of it.
+  expect(game.world.region.player.speed_factor>4.0,"The submarine leaves the aperture faster than it flies")
   var exit: Transform3D=game.view.gate_nodes[game.world.region.gate_index(1)].global_transform
   expect(exit.origin.distance_to(game.world.region.player.pose.godot_transform().origin)<60,"STREAM emerges at the visible exit aperture")
   # Every region lies on one side of its gate. Entering from either side has to
@@ -232,6 +227,9 @@ func check_oblique_portals(game) -> void:
   expect(game.view.transit_progress<0,"The shot hands the camera back once the submarine is clear")
   var exit_seconds := exit_ticks*.04
   expect(absf(exit_seconds-game.TRANSIT_EXIT_SECONDS)<.5,"The far side runs for its stated length, not a distance the submarine happens to cover")
+  # The launch is a temporary multiplier. Leaving it on would make the rest of
+  # the expedition fly at gate speed.
+  expect(is_equal_approx(game.world.region.player.speed_factor,2.0),"Ordinary speed is handed back when the shot ends")
 
 func check_dock_navigation(game) -> void:
  game.session.docked=true;game.show_station()

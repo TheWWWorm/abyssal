@@ -4,11 +4,6 @@ uniform float opening=0.0;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1)),f.x),f.y);}
 float flow_noise(vec2 p){float v=0.0,a=.5;for(int i=0;i<4;i++){v+=a*noise(p);p=mat2(vec2(1.6,1.2),vec2(-1.2,1.6))*p+3.1;a*=.5;}return v;}
-void vertex(){
- // Face the camera. The gate frame turns as it opens, so a sheet fixed to the
- // aperture drifted out of it; a billboard cannot be out of alignment at all.
- MODELVIEW_MATRIX=VIEW_MATRIX*mat4(INV_VIEW_MATRIX[0],INV_VIEW_MATRIX[1],INV_VIEW_MATRIX[2],MODEL_MATRIX[3]);
-}
 void fragment(){
  vec2 centered=(UV-vec2(0.5))*2.0;
  float radius=length(centered);

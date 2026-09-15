@@ -214,15 +214,17 @@ func _process(delta: float) -> void:
 		# Stand off to the side of the aperture so the submarine is seen entering
 		# it, then hand the frame back to the ordinary chase once it is through.
 		var following:=camera.global_transform
-		# Going in, stand back beyond the submarine and aim between it and the
-		# aperture, so the gate splitting and the run at it share the frame.
-		# Coming out, sit close to the far aperture and follow the hull itself.
 		# Coming out, start in front of the aperture so the submarine emerges
 		# towards the viewer, then drift back beside the gate so it is seen
 		# leaving for the station, which is where the chase camera takes over.
 		var stand: Vector3=Vector3(96,28,transit_side*205)
 		if transit_emerging:
 			stand=Vector3(26,10,transit_side*105).lerp(Vector3(78,24,transit_side*40),smoothstep(0,.62,transit_progress))
+			# A submarine thrown out of the aperture outruns a camera pinned to it
+			# within a second, and the gate leaves frame while the shot is still
+			# meant to be about it. Give up ground more slowly than the hull does,
+			# so both stay in view for as long as the shot lasts.
+			stand.z+=transit_side*absf((transit_frame.affine_inverse()*player_pose.origin).z)*.55
 		camera.global_position=transit_frame.origin+transit_frame.basis*stand
 		var subject: Vector3=player_pose.origin if transit_emerging else transit_frame.origin.lerp(player_pose.origin,.5)
 		camera.look_at(subject,Vector3.UP)
@@ -281,19 +283,22 @@ func _process(delta: float) -> void:
 func build_gate_field(node: Node3D) -> void:
 	"""The lit aperture inside the gate frame. gate_field.gdshader has been in the
 	tree since preview.2 with nothing to draw it on, which is why a gate has been
-	a dark hole: the energy in the middle and the glow along the frame both come
-	from here. UV carries two of the triangle's barycentric coordinates, which is
-	what the shader reads its edge distance from."""
-	# Sized and centred from the frame that is actually modelled. The crossing
-	# radius is a generous gameplay tolerance, several times the visible opening,
-	# and the model does not sit centred on its own origin.
+	a dark hole: the energy in the middle and the glow around it both come from
+	here. The sheet lies in the gate's own plane, so it foreshortens with the
+	frame; a camera-facing one keeps its full width when the gate is edge-on and
+	stands out beside the aperture instead of inside it."""
+	# Sized from the frame that is actually modelled; the crossing radius is a
+	# generous gameplay tolerance, several times the visible opening. The opening
+	# is centred on the model origin, which is what the arms turn about. Its
+	# bounding box is not: housing hangs below the triangle and pulls the box
+	# centre a half-radius low, which is where the glow was sitting.
 	var span: AABB=node.solid_bounds()
-	var radius: float=maxf(6.0,minf(span.size.x,span.size.y)*.34)
+	var reach: float=maxf(maxf(absf(span.position.x),absf(span.end.x)),maxf(absf(span.position.y),absf(span.end.y)))
+	var radius: float=maxf(6.0,reach*.5)
 	var mesh := QuadMesh.new()
-	mesh.size=Vector2.ONE*radius*2.3
+	mesh.size=Vector2.ONE*radius*2.4
 	var surface := MeshInstance3D.new()
 	surface.mesh=mesh
-	surface.position=Vector3(span.position.x+span.size.x*.5,span.position.y+span.size.y*.5,0)
 	var material := ShaderMaterial.new()
 	material.shader=preload("res://native/presentation/gate_field.gdshader")
 	surface.material_override=material
