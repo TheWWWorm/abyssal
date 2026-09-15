@@ -1369,7 +1369,9 @@ func show_map(autopilot_only: bool=false) -> void:
 	open_page("Ocean atlas","map")
 	var root_column := column
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",20); column.add_child(row)
-	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=map_destination; map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.custom_minimum_size=Vector2(340,360); row.add_child(map_widget); map_widget.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; fit_map(); touch_scroll.gesture_control=map_widget
+	var chart := VBoxContainer.new(); chart.add_theme_constant_override("separation",8); chart.size_flags_horizontal=Control.SIZE_EXPAND_FILL; chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; row.add_child(chart)
+	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=map_destination; map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.custom_minimum_size=Vector2(340,360); chart.add_child(map_widget); map_widget.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; fit_map(); touch_scroll.gesture_control=map_widget
+	map_key(chart)
 	var side := VBoxContainer.new(); side.custom_minimum_size.x=240; side.add_theme_constant_override("separation",6); row.add_child(side); column=side
 	var search := LineEdit.new(); search.placeholder_text="Find a station…"; column.add_child(search)
 	map_info=label("",16); map_widget.selected.connect(select_station)
@@ -1377,7 +1379,6 @@ func show_map(autopilot_only: bool=false) -> void:
 	var picker := OptionButton.new(); map_picker=picker
 	for station in session.stations: picker.add_item(station.name,station.id)
 	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); column.add_child(picker)
-	label("Cyan · Colonist · Rose · Rebel · Amber · Your station\nGold ring · Story · Pale disc · S.T.R.E.A.M. reach\nDim · Undiscovered",14)
 	if world.encounter_navigation_point()!=null:
 		label("Local encounter active · follow its waypoint before travelling to the next story station.",14)
 		button("Navigate encounter waypoint",func():
@@ -1409,8 +1410,36 @@ func show_map(autopilot_only: bool=false) -> void:
 	button("Back",show_station if session.docked else close_page)
 	label("Pinch / wheel to zoom\nTouch drag / right mouse to pan",14)
 	column=root_column
+func map_key(parent: Node) -> void:
+	"""Shows the markers rather than naming their colours, so the key is read by
+	comparing it with the chart instead of by translating it."""
+	var flow := HFlowContainer.new(); flow.add_theme_constant_override("h_separation",16); flow.add_theme_constant_override("v_separation",4); parent.add_child(flow)
+	for entry in [
+			{"body":"05bbff","core":"0d2170","text":"Colonist"},
+			{"body":"65e53e","core":"14501a","text":"Resistance"},
+			{"body":"0d2170","core":"05bbff","text":"Unvisited"},
+			{"body":"ff8000","core":"ffff00","text":"Your station"},
+			{"body":"ff0000","core":"c00000","text":"Mission destination"},
+			{"disc":true,"text":"S.T.R.E.A.M. reach"}]:
+		var item := HBoxContainer.new(); item.add_theme_constant_override("separation",6); flow.add_child(item)
+		item.add_child(map_marker(entry))
+		var text := label(entry.text,14,item); text.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN; text.autowrap_mode=TextServer.AUTOWRAP_OFF
+func map_marker(entry: Dictionary) -> Control:
+	var node := Control.new(); node.custom_minimum_size=Vector2(18,18); node.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+	node.draw.connect(func():
+		var middle := node.size*0.5
+		# Each marker sits on a chip of the chart's own field, so the key is read
+		# against the blue the chart is read against rather than the page's dark.
+		node.draw_rect(Rect2(Vector2.ZERO,node.size),Color("2f43b4"),true)
+		if entry.get("disc",false):
+			node.draw_circle(middle,8,Color("6e86ff4d"),true)
+			node.draw_arc(middle,8,0,TAU,24,Color("9fb4ff"),1.5,true)
+		else:
+			node.draw_rect(Rect2(middle-Vector2(6,6),Vector2(12,12)),Color(entry.body),true)
+			node.draw_rect(Rect2(middle-Vector2(2.4,2.4),Vector2(4.8,4.8)),Color(entry.core),true))
+	return node
 func fit_map() -> void:
-	map_widget.custom_minimum_size=Vector2(340,clampf(ui.size.y-260,280,460))
+	map_widget.custom_minimum_size=Vector2(340,clampf(ui.size.y-300,260,440))
 func select_station(id: int) -> void:
 	map_destination=id; map_widget.selected_id=id; map_widget.queue_redraw()
 	map_picker.select(id)

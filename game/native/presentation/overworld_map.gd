@@ -31,26 +31,33 @@ func _draw() -> void:
 	if world.stream_destination>=0:
 		var arrival: Dictionary = session.stations[world.stream_destination]
 		draw_dashed_line(point(home.x,home.y),point(arrival.x,arrival.y),Color("bdabf2"),2,6)
+	# The original chart blits a three-by-three sprite for each station: a ring of
+	# the holder's colour around a single pixel of its opposite. Arriving swaps
+	# the two, so an unvisited station is a dark square with a bright centre and a
+	# visited one is the reverse. These are those sprites' own colours, the dark
+	# states lifted off near-black so they still read on a lit screen. The
+	# resistance is green because the dialogue that reveals it says so.
 	for station in session.stations:
-		var p := point(station.x,station.y)
-		# Both holdings were painted in blues a shade off the field itself, which
-		# left them to be read by their outlines alone. Cyan and rose carry far
-		# enough off the blue to be told apart at a glance, and a discovered
-		# station holds the bright end of its hue while the rest sit back.
-		var discovered: bool = session.discovered[station.id]
-		var color := Color("ff7d92") if session.campaign.rebel_stations[station.id] else Color("5cdcf2")
-		if not discovered: color=color.darkened(0.4)
 		if not filtered.is_empty() and not str(station.name).to_lower().contains(filtered): continue
+		var p := point(station.x,station.y)
+		var discovered: bool = session.discovered[station.id]
+		var rebel: bool = session.campaign.rebel_stations[station.id]
+		var bright := Color("65e53e") if rebel else Color("05bbff")
+		var dark := Color("14501a") if rebel else Color("0d2170")
+		var body := bright if discovered else dark
+		var core := dark if discovered else bright
 		var objective: bool = station.id==session.campaign.primary.destination and session.campaign.primary.kind>=0
-		if objective: draw_arc(p,9,0,TAU,24,Color("e7ce89"),2,true)
+		# The station you are at and the one you are sent to wear their own marker
+		# over whoever holds them, orange and red, as they do on the original.
+		if station.id==session.station_id: body=Color("ff8000"); core=Color("ffff00")
+		if objective: body=Color("ff0000"); core=Color("c00000")
 		if station.id==selected_id: draw_arc(p,12,0,TAU,24,Color.WHITE,2,true)
-		# Stations are squares on the original chart, and the home one is the
-		# single orange marker among them. A visited one is both larger and more
-		# sharply outlined, so the two states read without comparing sizes.
+		# A visited station is drawn a pixel wider as well, which the original
+		# does not do, but which reads before the colours are compared.
 		var extent := 4.0 if discovered else 3.0
-		if station.id==session.station_id: color=Color("ffb23c")
-		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),color,true)
-		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),Color("f4f9ff") if discovered else Color("93a4d6"),false,1.5 if discovered else 1.0)
+		draw_rect(Rect2(p-Vector2(extent,extent),Vector2(extent,extent)*2),body,true)
+		var core_extent := extent*0.4
+		draw_rect(Rect2(p-Vector2(core_extent,core_extent),Vector2(core_extent,core_extent)*2),core,true)
 		if zoom>1.7 or station.id==selected_id or objective:
 			draw_string(ThemeDB.fallback_font,p+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
 	var encounter = world.encounter_navigation_point()
