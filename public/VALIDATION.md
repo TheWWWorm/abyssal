@@ -1,14 +1,39 @@
-# Platform support — 0.1.0-preview.5
+# Platform support
 
-Packages contain the engine and offline importer only. A supplied compatible DEEP JAR is required; original game assets and converted content are not included.
+## What was actually run
 
-This release fixes station texture smoothing in classic lighting, preserves station streaming state when filtering changes, and adds an optional whole-screen touch look area.
+Checks were run on Linux x86-64 with Godot 4.7.stable, headless on the OpenGL
+compatibility renderer and on a real GPU (RTX 3090) on the Vulkan Forward+ renderer,
+using a locally imported DEEP content cache.
 
-- Linux: automated platform input (118 checks), gamepad UI (53 checks), engine UI, and readability checks pass in desktop Godot. NVIDIA OpenGL Compatibility rendering checks pass, including image-based station filtering checks in classic and enhanced lighting. Repeated toggles retain current and distant station models, cached geometry and fade state. Touch checks cover equal drag movement in both screen areas, simultaneous weapons/throttle, cancellation and returning to the floating stick. Controller and touch events were injected; no physical controller was used.
-- Android: rebuilt signed release APK for ARM64 and x86-64, Android 8 or newer, OpenGL ES 3. It retains the application ID and signing key, with version code 5. This update has not been exercised on physical Android hardware or in an Android emulator; input behavior was tested in desktop Godot.
-- Previous Android validation (preview.3): prepared `.abyss` pack installation, native gameplay, touch steering, Android Back, and installed-content/save persistence passed in an Android 15 x86-64 emulator. A player reported successful gameplay and direct JAR import on physical Retroid Pocket 5 hardware with preview.3. Audio output was not separately assessed.
-- Android direct JAR import: the previous emulator's Android System WebView 128 stopped before decoder startup. Prepared-pack import remains the fallback on affected devices. The importer is unchanged in this update. Keep Android System WebView enabled and current for direct JAR import.
-- Windows x86-64 and macOS Apple Silicon: rebuilt packages; no execution on native hardware. Windows/macOS binaries are unsigned; macOS is not notarized.
-- Browser: rebuilt Web export includes the pinned importer and a content-hashed game pack. Host the complete archive over HTTPS or localhost. This update has not been exercised in a browser.
+- Engine regression suite: **14 of 14 checks passed** headless on OpenGL
+  (`tools/check.py --compatibility`) and **14 of 14 on the GPU** on Vulkan
+  (`tools/check.py --gpu`). The gamepad/touch check is sensitive to a real mouse
+  pointer resting over the test window on this desktop and was passed standalone.
+- Python packaging, importer and distribution tests: **36 of 36 passed**.
+- The station generator was compared against the layouts recorded from the original
+  for all **200 stations: 1490 parts, no differences** in model ids or transforms.
+- The Linux x86-64 package was extracted and launched from its own data directory: it
+  starts on Vulkan Forward+ and logs no errors. This is the first release whose Linux
+  and Windows packages run Forward+; every earlier preview ran OpenGL, where volumetric
+  light, shading detail and temporal antialiasing never applied.
+- Frame cost was measured near a fully lit station at native 5120x2880: 9 ms on Vulkan
+  at 150 m from Gosu, 4 ms in open water.
+- Headlights, beams, station orientation, the departure shot, the reticle and the
+  harpoon, the free-look camera and the mods folder were each checked by rendered
+  captures read back from the GPU, and by assertions in the suite.
+- Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
+- The Android APK is signed with the same release key as every preview since preview.2
+  and carries version code 21, so it updates earlier previews in place.
 
-SHA256SUMS and release.json identify the downloadable files. Third-party license inventories are included in each distribution; Android keeps them inside APK assets/abyssal-importer/. These checks do not establish full-game fidelity or physical-device performance.
+## What was not validated
+
+- **The Android package was not installed or run.** It builds and is correctly signed,
+  but nothing in this release has been executed on Android. The build host exposes no
+  `/dev/kvm`, so the x86-64 emulator cannot start.
+- Windows, macOS, Linux ARM64 and browser packages were exported but not launched. No
+  gameplay, fresh JAR import or save transfer was exercised on those platforms. A
+  Windows machine without a Vulkan driver falls back to OpenGL by the project's own
+  setting; that fallback was not exercised.
+- **Steer by tilting** (Controls · Steering) has never been run on a device.
+- The frame-rate numbers are from one machine at one resolution.
