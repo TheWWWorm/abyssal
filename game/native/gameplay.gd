@@ -77,7 +77,16 @@ var hud := Label.new()
 var previous_hud_text := ""
 var objective_label := RichTextLabel.new()
 var message := Label.new()
-var crosshair := Label.new()
+## The reticle is drawn on the exact pixel the chase camera's shots converge
+## on. A "+" glyph in a label sat five pixels off it, which reads as the
+## harpoon missing what it was pointed at.
+class Reticle extends Control:
+	func _draw() -> void:
+		var c := size*.5;var tint := Color("b3d1cf99")
+		for gap in [Vector2(3,0),Vector2(0,3)]:
+			draw_line(c-gap*3,c-gap,tint,2.0)
+			draw_line(c+gap,c+gap*3,tint,2.0)
+var crosshair := Reticle.new()
 var struggle := ProgressBar.new()
 var instruments := preload("res://native/presentation/flight_instruments.gd").new()
 var condition := preload("res://native/presentation/ship_condition.gd").new()
@@ -100,7 +109,7 @@ var modern_graphics := true
 var catch_status := Label.new()
 var travel_status := Label.new()
 var pending_notices: Array[String] = []
-var graphics := {"audio":true,"materials":true,"headlights":true,"volumetric":true,"detail":true,"station_smoothing":false}
+var graphics := {"audio":true,"materials":true,"headlights":true,"beams":true,"volumetric":true,"detail":true,"station_smoothing":false}
 var binding_action := ""
 var map_widget
 var map_info: Label
@@ -184,7 +193,7 @@ func _ready() -> void:
 	toast.content_margin_left=16;toast.content_margin_right=16;toast.content_margin_top=7;toast.content_margin_bottom=8
 	message.add_theme_stylebox_override("normal",toast)
 	ui.add_child(message); message.add_theme_font_size_override("font_size",16); message.add_theme_color_override("font_color",Color("9ce5d1")); message.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
-	ui.add_child(crosshair); crosshair.text="+"; crosshair.add_theme_font_size_override("font_size",24); crosshair.add_theme_color_override("font_color",Color("b3d1cf99"))
+	ui.add_child(crosshair); crosshair.size=Vector2(24,24); crosshair.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(dock_prompt); dock_prompt.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; dock_prompt.add_theme_font_size_override("font_size",17); dock_prompt.modulate=Color("b6ecd7"); dock_prompt.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(dock_caption); dock_caption.add_theme_font_size_override("font_size",22); dock_caption.modulate=Color("8bd6ee"); dock_caption.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(marker_layer); marker_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); marker_layer.mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -222,6 +231,7 @@ func _ready() -> void:
 	controller.deadzone=setting_number(config,"input","deadzone",.18,.05,.45)
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
 	strafe_mode=setting_index(config,"input","strafe",0,2)
+	world.smooth_steering=bool(config.get_value("input","smooth_steering",false))
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input","touch_layout",""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
 	motion_steering=bool(config.get_value("input","motion",false))
@@ -287,7 +297,7 @@ func layout() -> void:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
 			condition.position.x=clampf((touch.free_left+touch.free_right-condition.size.x)*.5,touch.free_left,maxf(touch.free_left,touch.free_right-condition.size.x))
 	update_render_resolution()
-	crosshair.position=ui.size*0.5-Vector2(12,12)
+	crosshair.position=(ui.size*0.5-Vector2(12,12)).floor()
 	dock_prompt.position=Vector2(ui.size.x*.5-250,ui.size.y*.5+48);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
 	if page=="map" and is_instance_valid(map_widget): fit_map()
@@ -450,6 +460,10 @@ func mouse_is_captured() -> bool:
 	# engine's own mouse mode saying Captured with no pointer lock in place.
 	if OS.has_feature("web"): return browser_flag("document.pointerLockElement !== null")
 	return Input.mouse_mode==Input.MOUSE_MODE_CAPTURED
+func free_look_held() -> bool:
+	# Either modifier: Alt is the one a browser leaves alone, Ctrl the one a
+	# desktop pilot reaches for. Neither steers while held.
+	return page.is_empty() and not touch.enabled() and (Input.is_key_pressed(KEY_ALT) or Input.is_key_pressed(KEY_CTRL))
 func mouse_steering_enabled() -> bool:
 	if touch.enabled(): return false
 	# Some browsers refuse to re-lock after Escape even from a fresh click, so
@@ -511,6 +525,7 @@ func flight_hint() -> String:
 func _process(delta: float) -> void:
 	if session==null: return
 	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:release_flight_mouse()
+	view.look_held=free_look_held() and mouse_steering_enabled()
 	watch_browser_capture()
 	if autopilot_pressed_at>=0 and not autopilot_hold_used and Time.get_ticks_msec()-autopilot_pressed_at>=450:
 		autopilot_hold_used=true;autonavigate_objective()
@@ -570,7 +585,7 @@ func _process(delta: float) -> void:
 		objective_label.text=objective_hud(objective)
 		if r.cinematic(): objective_label.text=session.title(objective)+"\nFinal sequence · Esc pauses"
 		if auto_fire: objective_label.text+="\nAUTO FIRE · "+OS.get_keycode_string(key_bindings.auto_fire)+" to stop"
-		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked
+		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around()
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text="AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED"%[world.speed,OS.get_keycode_string(key_bindings.time)]
 		travel_status.visible=flight_visible and world.autopilot
@@ -659,7 +674,8 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 func _unhandled_input(event: InputEvent) -> void:
 	if page=="transit": return
 	if page.is_empty() and event is InputEventMouseMotion and mouse_steering_enabled():
-		mouse_steer+=event.relative*mouse_sensitivity*Vector2(1,1 if invert_mouse else -1)
+		if free_look_held(): view.turn_look(event.relative*.004)
+		else: mouse_steer+=event.relative*mouse_sensitivity*Vector2(1,1 if invert_mouse else -1)
 	if event is InputEventKey and event.physical_keycode==key_bindings.autopilot and binding_action.is_empty() and page.is_empty():
 		if event.echo:return
 		if event.pressed:
@@ -943,6 +959,8 @@ func slider_setting(caption: String, low: float, high: float, value: float, act:
 	node.value_changed.connect(act)
 	return node
 func controls_steering() -> void:
+	option("Helm response · "+("Smooth" if world.smooth_steering else "Direct"),"smooth_steering",func():world.set_smooth_steering(not world.smooth_steering);save_settings();show_controls("steering"))
+	label("Smooth eases the submarine into and out of every turn and holds the mouse to three times the hull's own steering rate, so steering upgrades count. Direct is the original's instant response, with the mouse turning one step per pixel.",16)
 	option("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],"strafe",func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls("steering"))
 	slider_setting("Mouse sensitivity",0.2,2.0,mouse_sensitivity,func(value): mouse_sensitivity=value; save_settings())
 	option("Invert vertical mouse · "+("On" if invert_mouse else "Off"),"invert_mouse",func(): invert_mouse=not invert_mouse; save_settings(); show_controls("steering"))
@@ -1100,6 +1118,7 @@ func save_settings() -> void:
 	config.set_value("input","touch_look",touch_look_sensitivity)
 	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
 	config.set_value("input","strafe",strafe_mode)
+	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
 	config.set_value("input","motion_invert",invert_motion_pitch)
 	config.set_value("input","touch_layout",preload("res://native/input/touch_layout.gd").encode(touch.layout))
@@ -1119,6 +1138,8 @@ func apply_graphics() -> void:
 	if rebuild:view.revision=-1
 	terrain.apply_pack(view.pack)
 	abyss.set_headlights(modern_graphics and graphics.headlights)
+	abyss.set_headlight_beams(modern_graphics and graphics.beams)
+	view.set_actor_beams(modern_graphics and graphics.beams)
 	var env := abyss.environment.environment
 	env.volumetric_fog_enabled=modern_graphics and graphics.volumetric and RenderingServer.get_current_rendering_method()=="forward_plus"
 	env.ssao_enabled=modern_graphics and graphics.detail
@@ -1130,14 +1151,18 @@ func show_graphics() -> void:
 	var mode := option("GRAPHICS  ·  "+("ENHANCED LIGHTING" if modern_graphics else "CLASSIC LIGHTING")+"  ⇄","lighting",func():set_graphics_mode(not modern_graphics);show_graphics())
 	mode.name="GraphicsMode"
 	label("Original JAR models and textures. Classic instruments in both lighting modes.",14)
-	var names := {"headlights":"Headlights","volumetric":"Volumetric light","detail":"Surface shading detail"}
+	var names := {"headlights":"Headlights","beams":"Headlight beams","volumetric":"Volumetric light","detail":"Surface shading detail"}
+	# Fog scattering, ambient occlusion and TAA exist only on the Forward+
+	# renderer; on OpenGL the rows say so instead of toggling nothing.
+	var forward: bool=RenderingServer.get_current_rendering_method()=="forward_plus"
 	var settings_grid:=GridContainer.new();settings_grid.columns=2;settings_grid.add_theme_constant_override("h_separation",20);column.add_child(settings_grid)
 	for key in names:
-		var toggle := option(names[key]+(" · On" if modern_graphics and graphics[key] else " · Off"),key,func():graphics[key]=not graphics[key];apply_graphics();save_settings();show_graphics(),settings_grid)
-		toggle.disabled=not modern_graphics;toggle.set_meta("modern_option",true)
+		var needs_forward: bool=key in ["volumetric","detail"] and not forward
+		var toggle := option(names[key]+(" · Needs Vulkan" if needs_forward else (" · On" if modern_graphics and graphics[key] else " · Off")),key,func():graphics[key]=not graphics[key];apply_graphics();save_settings();show_graphics(),settings_grid)
+		toggle.disabled=not modern_graphics or needs_forward;toggle.set_meta("modern_option",true)
 	option("Station texture smoothing · "+("On" if graphics.station_smoothing else "Off · pixelated"),"smoothing",func():graphics.station_smoothing=not graphics.station_smoothing;apply_graphics();save_settings();show_graphics())
-	var taa := option("Temporal antialiasing · "+("On" if modern_graphics and temporal_aa else "Off"),"taa",func():temporal_aa=not temporal_aa;update_render_resolution();save_settings();show_graphics())
-	taa.disabled=not modern_graphics;taa.set_meta("modern_option",true)
+	var taa := option("Temporal antialiasing · "+("Needs Vulkan" if not forward else ("On" if modern_graphics and temporal_aa else "Off")),"taa",func():temporal_aa=not temporal_aa;update_render_resolution();save_settings();show_graphics())
+	taa.disabled=not modern_graphics or not forward;taa.set_meta("modern_option",true)
 	var resolution := option("3D resolution · "+(["Performance · 1080p","Quality · 1440p","Native · full display resolution"][clampi(render_quality,0,2)] if modern_graphics else "Native"),"resolution",func():render_quality=(render_quality+1)%3;update_render_resolution();save_settings();show_graphics())
 	resolution.disabled=not modern_graphics;resolution.set_meta("modern_option",true)
 	option("Aspect ratio · "+aspect_ratio.capitalize(),"aspect",cycle_aspect_ratio)
@@ -1908,7 +1933,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 	if ships:
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
 		(row if ui.size.x>=1050 else list).add_child(preview)
-		preview.configure(content,entries[market_selection].item.id,modern_graphics)
+		preview.configure(content,entries[market_selection].item.id,modern_graphics,view.library)
 		if ui.size.x<1050:preview.custom_minimum_size.y=180;list.move_child(preview,1)
 	var detail := VBoxContainer.new();detail.name="SelectedItem";detail.custom_minimum_size.x=240;detail.size_flags_horizontal=Control.SIZE_FILL;detail.add_theme_constant_override("separation",12);row.add_child(detail)
 	var selected: Dictionary=entries[market_selection];var item=selected.item

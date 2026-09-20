@@ -11,7 +11,7 @@ var radius := 20.0
 var bounds := AABB()
 var wake := MultiMesh.new()
 
-func configure(content, id: int, modern: bool) -> void:
+func configure(content, id: int, modern: bool, library=null) -> void:
  selected_id=id;name="ShipPreview";stretch=true
  custom_minimum_size=Vector2(280,280);size_flags_horizontal=Control.SIZE_EXPAND_FILL
  size_flags_vertical=Control.SIZE_EXPAND_FILL;mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -25,7 +25,12 @@ func configure(content, id: int, modern: bool) -> void:
  viewport.add_child(camera);camera.current=true;camera.fov=42
  for entry in content.registry:
   if int(entry.id)!=id:continue
-  vessel=load("res://native/presentation/model.gd").new();vessel.modern_graphics=modern;viewport.add_child(vessel)
+  vessel=load("res://native/presentation/model.gd").new();vessel.modern_graphics=modern
+  # The showroom is rebuilt on every selection. Sharing the dive's library
+  # means the hull, its textures and its shaders are already decoded and
+  # compiled, so a change of selection costs a frame rather than a stall.
+  if library!=null:vessel.library=library
+  viewport.add_child(vessel)
   vessel.configure(content.root,entry);vessel.apply_range(vessel.ship_animation_range(id,0))
   bounds=vessel.solid_bounds();center=bounds.get_center();radius=maxf(8,bounds.size.length()*.45)
   break

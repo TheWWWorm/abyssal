@@ -78,7 +78,8 @@ func check_headlight_surfaces() -> void:
     var pixel:=rendered.get_pixel(x,128);low=minf(low,pixel.r);high=maxf(high,pixel.r)
     if x>116:expect(absf(pixel.r-rendered.get_pixel(x-1,128).r)<.05,"Headlight has no pixel-width shadow stripes")
    expect(low>.27,"Headlight reaches an unobstructed wall at %d m / %d degrees without false shadow bands"%[distance,angle])
-   expect(high<.94 and high-low<.24,"Headlight preserves a smooth, unsaturated surface at %d m / %d degrees"%[distance,angle])
+   # A lamp strong enough to read as one may burn out a white wall at 40 m; from 80 m on the surface keeps its texture.
+   expect(distance<80 or (high<.94 and high-low<.24),"Headlight preserves a smooth, unsaturated surface at %d m / %d degrees"%[distance,angle])
  wall.position.z=-80
  for lamp in lamps:lamp.rotation=Vector3.ZERO
  var lit:=await light_frame(viewport)
@@ -310,6 +311,8 @@ func check_scene_particle_pitch(app) -> void:
  app.session.docked=false;app.view.modern_graphics=true;app.view.rebuild()
  app.ui.hide();app.touch.hide()
  app.abyss.environment.environment.volumetric_fog_enabled=false
+ # The beam cones are drawn, not lit: they would differ between the exposures.
+ app.abyss.set_headlight_beams(false)
  var player=app.world.region.player;player.throttle=100;player.set_throttle(100)
  for pitch in [-850,0,850]:
   player.pose.origin=[0,0,-100000];player.pose.set_euler(pitch,0,0)
@@ -396,9 +399,43 @@ func run():
  expect(not view.objects[salvage.get_instance_id()].visual.visible,"Collected salvage disappears on the collection frame without waiting for the explosion timer")
  app.world.region.enemies.erase(salvage);view._process(0)
  app.abyss._process(0)
- expect(app.abyss.beam_lamps.all(func(lamp):return lamp.light_cull_mask==0),"Scattering lights never add duplicate surface lighting")
- if RenderingServer.get_current_rendering_method()!="forward_plus":
-  expect(app.abyss.beam_lamps.all(func(lamp):return not lamp.visible),"Non-volumetric renderers disable scattering lights")
+ expect(app.abyss.beams.size()==2 and app.abyss.beams[0].get_parent()==app.abyss.lamps[0] and app.abyss.beams[1].get_parent()==app.abyss.lamps[1],"Each headlight carries its own visible beam cone: two beams, not one blob")
+ expect(app.abyss.beams.all(func(beam):return beam.visible and beam.material_override.shader.resource_path.ends_with("headlight_beam.gdshader") and beam.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF),"Beam cones are on by default, drawn by the beam shader and cast no shadow")
+ var beam_box: AABB=app.abyss.beams[0].mesh.get_aabb()
+ expect(beam_box.position.z<-60 and beam_box.end.z>=-0.01 and absf(beam_box.size.x-2*app.abyss.BEAM_LENGTH*app.abyss.BEAM_HALF_TANGENT)<.5,"The beam cone opens from the lamp along its -Z for the beam length")
+ # The beam is shadowed: a wall across the cone stops the drawn light as it stops the real light.
+ var probe: MeshInstance3D=app.abyss.beams[0]
+ var reach: Image=probe.get_meta("occlusion_image")
+ expect(reach.get_width()==app.abyss.OCCLUSION_SIZE and probe.material_override.get_shader_parameter("occlusion")==probe.get_meta("occlusion_map"),"Each beam carries its occlusion map")
+ var slab:=StaticBody3D.new();slab.collision_layer=2;var slab_shape:=CollisionShape3D.new();var slab_box:=BoxShape3D.new();slab_box.size=Vector3(200,200,1);slab_shape.shape=slab_box;slab.add_child(slab_shape)
+ app.abyss.lamps[0].add_child(slab);slab.position=Vector3(0,0,-30)
+ await process_frame;await process_frame
+ for i in 3:app.abyss.shade_beam(app.abyss.lamps[0],probe,0);app.abyss.shade_beam(app.abyss.lamps[0],probe,1)
+ var centre:=reach.get_pixel(app.abyss.OCCLUSION_SIZE/2,app.abyss.OCCLUSION_SIZE/2).r
+ expect(centre>28.0 and centre<32.0,"A wall thirty metres down the beam is recorded at thirty metres in its occlusion map (%.1f)"%centre)
+ slab.queue_free();await process_frame
+ for i in 3:app.abyss.shade_beam(app.abyss.lamps[0],probe,0);app.abyss.shade_beam(app.abyss.lamps[0],probe,1)
+ expect(reach.get_pixel(app.abyss.OCCLUSION_SIZE/2,app.abyss.OCCLUSION_SIZE/2).r>app.abyss.BEAM_LENGTH,"Open water leaves the beam its whole length")
+ # The lamps sit at the hull's front corners beside the cockpit, as the original draws them, not on the pods.
+ var hull_box: AABB=view.player_model.solid_bounds();var mounts: Array=view.player_model.headlight_mounts()
+ expect(mounts.size()==2 and absf(absf(mounts[0].x-hull_box.get_center().x)-hull_box.size.x*.22)<.01 and mounts[0].x<mounts[1].x and mounts[0].z<hull_box.position.z+hull_box.size.z*.3,"Headlights mount at the hull's front corners, a fifth of the width out, at the foremost surface there")
+ var vessel=null
+ for entry in view.objects.values():
+  if entry.visual.find_children("*","SpotLight3D",true,false).size()>0: vessel=entry.visual;break
+ expect(vessel!=null and vessel.find_children("*","SpotLight3D",true,false).size()==2 and vessel.find_children("*","SpotLight3D",true,false).all(func(lamp):return lamp.get_child_count()==1 and lamp.get_child(0) is MeshInstance3D and lamp.light_energy==app.abyss.lamps[0].light_energy),"Other vessels carry the same two lamps, each with its beam")
+ view.set_actor_beams(false)
+ expect(view.actor_beams.all(func(entry):return not entry.beam.visible),"The beams option covers other vessels too")
+ view.set_actor_beams(true)
+ app.abyss.set_headlight_beams(false)
+ expect(app.abyss.beams.all(func(beam):return not beam.visible),"Headlight beams are an option: off hides both cones")
+ app.abyss.set_headlight_beams(true)
+ app.abyss.set_headlights(false)
+ expect(app.abyss.beams.all(func(beam):return not beam.is_visible_in_tree()),"Beams go with the lamps when the headlights are off")
+ app.abyss.set_headlights(true)
+ expect(not app.abyss.environment.environment.volumetric_fog_temporal_reprojection_enabled,"Headlight scattering is not reprojected from the last frame: a sharp turn left its stale glow on station parts as blue boxes")
+ var station_lamps:Array=view.find_children("*","OmniLight3D",true,false).filter(func(lamp):return lamp.get_parent().has_method("configure_station"))
+ expect(not station_lamps.is_empty() and station_lamps.all(func(lamp):return lamp.light_size==0.0),"Station lamps use the plain soft shadow filter, not contact-hardening: a dozen habitats in range cost a fifth of the frame at native 5K")
+ expect(int(ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_size"))<=192 and int(ProjectSettings.get_setting("rendering/environment/volumetric_fog/volume_depth"))<=96,"Fog froxel grid stays at 192x96: the 256x128 grid cost a millisecond a frame near a lit station without a visible difference")
  var player_mesh: MeshInstance3D=view.player_model.figure.get_node("Mesh")
  expect(player_mesh.get_surface_override_material(0).get_shader_parameter("source_glow_visible")==false,"Modern ships suppress legacy glow geometry")
  # Imported ships must clip too; clipping previously only supported replacement meshes.
@@ -419,50 +456,60 @@ func run():
   for triangle in station_triangles[id]:
    if Geometry3D.segment_intersects_triangle(Vector3(0,-272,4200),Vector3(0,-272,3800),triangle[0],triangle[1],triangle[2])!=null:hit=true
   if id==3304:expect(hit,"Fan mounting end blocks a ray through its previously open socket")
- var large_layout=load("res://native/simulation/station_layout.gd").new()
- var large_parts:Array=large_layout.generate(5,22500,10,[],content.data.station_geometry)
- var large_bounds:AABB=large_layout.measured(large_parts[0])
- for part in large_parts:large_bounds=large_bounds.merge(large_layout.measured(part))
- expect(large_parts.size()>25 and large_bounds.size.y>25000,"Large high-tech stations include many vertically stacked modules")
- # Every imported station is a connected assembly, with an unobstructed berth.
+ # Stations grow as the original grows them: a hangar of either kind at the
+ # root, every other module one socket step from its parent, faction frames
+ # per part, twenty parts at most, and the same station from the same seed.
  var Layout=load("res://native/simulation/station_layout.gd")
- var vertical_count:=0
+ var Body=load("res://native/simulation/station_body.gd")
+ var roots: Dictionary={};var vertical_count:=0;var largest:=0;var caps:=0
  for station in app.session.stations:
-  var layout=Layout.new();var parts=layout.generate(station.id,station.depth,station.tech,app.world.region.sine,content.data.station_geometry)
-  if parts.any(func(part):return absf(part.origin[1])>3000):vertical_count+=1
-  for part in parts:
-   if int(part.model_id) not in [3304,3309]:continue
-   var rotation:=Basis(Vector3.UP,part.yaw*TAU/4096.0)
-   # Sample the imported open mounting end, not only overlapping AABBs.
-   var socket:=Vector3(part.origin[0],part.origin[1],part.origin[2])+rotation*Vector3(0,-272,3980)
-   var seated:=false
-   for parent in parts:
-    if parent==part or int(parent.model_id) not in [3305,3306] or not layout.measured(parent).has_point(socket):continue
-    var parent_rotation:=Basis(Vector3.UP,parent.yaw*TAU/4096.0)
-    var parent_origin:=Vector3(parent.origin[0],parent.origin[1],parent.origin[2])
-    var local_socket:=parent_rotation.inverse()*(socket-parent_origin)
-    var ray_from:=parent_rotation.inverse()*(Vector3(part.origin[0],part.origin[1],part.origin[2])-parent_origin)
-    var ray_to:=Vector3(0,-272,1154)
-    var entry_distance:=INF
-    for triangle in station_triangles[int(parent.model_id)]:
-     var hit=Geometry3D.segment_intersects_triangle(ray_from,ray_to,triangle[0],triangle[1],triangle[2])
-     if hit!=null:entry_distance=minf(entry_distance,ray_from.distance_to(hit))
-    if entry_distance<ray_from.distance_to(local_socket):seated=true
-   expect(seated,"Station %d mounting socket penetrates the actual habitat surface"%station.id)
-  var reached: Array=[0]
-  for pass_index in parts.size():
-   for index in parts.size():
-    if index in reached:continue
-    for parent in reached.duplicate():
-     if layout.measured(parts[index]).grow(1).intersects(layout.measured(parts[parent])):reached.append(index);break
-  expect(parts.all(func(part):return not layout.measured(part).has_point(Vector3(0,0,-16000))),"Departure berth stays clear")
-  expect(reached.size()==parts.size(),"Station %d has no disconnected modules"%station.id)
-  expect(parts.all(func(part):return part.model_id not in [3300,3311]),"Self-roofed habitats have no detached caps")
- expect(vertical_count>=100,"The world includes substantial stacked-station variety")
+  var layout=Layout.new();var parts: Array=layout.generate(station.id,Layout.seed_depth(station.percent),station.tech,app.world.region.sine)
+  var again: Array=Layout.new().generate(station.id,Layout.seed_depth(station.percent),station.tech,app.world.region.sine)
+  expect(str(parts)==str(again),"Station %d grows the same way from the same seed"%station.id)
+  roots[int(parts[0].model_id)]=true
+  expect(int(parts[0].model_id) in [3307,3308] and int(parts[0].yaw)==2048 and parts[0].origin==[0,0,0],"Station %d has a turned hangar at its root"%station.id)
+  expect(parts.size()<=20 and parts.size()>=1,"Station %d keeps to the original's twenty parts"%station.id)
+  largest=maxi(largest,parts.size())
+  for index in range(1,parts.size()):
+   var part: Dictionary=parts[index]
+   expect(int(part.model_id) in [3300,3301,3302,3303,3304,3305,3306,3309,3310,3311],"Station %d uses only the original's module set"%station.id)
+   if int(part.model_id) in [3300,3303,3311]:caps+=1
+   var origin:=Vector3(part.origin[0],part.origin[1],part.origin[2])
+   var spaced:=false
+   for other in parts:
+    if other==part:continue
+    var delta:=origin-Vector3(other.origin[0],other.origin[1],other.origin[2])
+    if delta.y==0 and absi(roundi(delta.length())-6309)<=2:spaced=true
+    if delta.x==0 and delta.z==0 and absi(int(delta.y))==4500:spaced=true
+   expect(spaced,"Station %d part %d stands one socket step from another module"%[station.id,index])
+   if absi(int(part.origin[1]))>3000:vertical_count+=1
+  var body=Body.new();body.configure(station,app.session.is_colonist_station(station.id),app.world.region.sine,content.data.station_geometry)
+  for index in body.parts.size():
+   var part: Dictionary=body.parts[index]
+   expect(part.animation_range==Layout.animation_range(int(part.model_id),app.session.is_colonist_station(station.id)),"Station %d parts carry their faction's frames"%station.id)
+   # The generator's +y is the original's up; the simulation's +y is deeper.
+   # A station stands the right way up only if the body turns it over: the
+   # top cap above the hangar (sim -y), the bottom cap and the habitats below.
+   expect(part.origin[0]==-int(parts[index].origin[0]) and part.origin[1]==-int(parts[index].origin[1]) and part.origin[2]==parts[index].origin[2] and int(part.yaw)==(4096-int(parts[index].yaw))%4096,"Station %d part %d is turned over and mirrored into the simulation's frame"%[station.id,index])
+   if int(part.model_id)==3311:expect(int(part.origin[1])<0,"Station %d wears its top cap above the hangar"%station.id)
+   if int(part.model_id)==3300:expect(int(part.origin[1])>0,"Station %d wears its bottom cap below the hangar"%station.id)
+ expect(roots.has(3307) and roots.has(3308),"Both hangar kinds root stations")
+ expect(largest==20 and vertical_count>=100 and caps>=50,"The world has the original's largest stations, stacked modules and capped modules")
+ expect(Layout.seed_depth(26)==18899 and Layout.seed_depth(50)==22500,"Seed depth is the original's single-precision figure")
+ var rebel_frames: Array=Layout.animation_range(3308,false);var colonist_frames: Array=Layout.animation_range(3308,true)
+ expect(colonist_frames==[0,2] and rebel_frames==[3,5] and Layout.animation_range(3305,false)==[2,2] and Layout.animation_range(3301,true).is_empty(),"Hangars loop their faction's frames, habitats hold one, bridges none")
  for visual in view.station_nodes:
-  var frame: int=visual.sampled_frame;var pattern: int=visual.last_pattern
+  var pattern: int=visual.last_pattern
   visual.advance(12000)
-  expect(visual.sampled_frame==frame and visual.last_pattern==pattern,"Station emblem/configuration does not cycle")
+  expect(visual.last_pattern==pattern,"Station emblem/configuration does not cycle")
+  # Every module is drawn turned half a turn about its socket axis: the
+  # phone game's berth deck lies under the opening, ours read as a roof.
+  expect(is_equal_approx(visual.transform.basis.y.dot(Vector3.DOWN),1.0) and is_equal_approx(visual.transform.basis.z.y,0.0),"Station module %d is turned half a turn about its socket axis"%int(visual.record.id))
+ var rolled=Body.new();rolled.configure({"id":0,"percent":50,"tech":10},true,app.world.region.sine,content.data.station_geometry)
+ var hangar_box=content.data.station_geometry.get("3308",{"center":[0,0,0]})
+ # The root hangar is yawed half a turn as well: its box centre ends up at
+ # (x, -y, -z) of the measured centre once both turns are applied.
+ expect(rolled.shapes[0].offset[0]==int(hangar_box.center[0]) and rolled.shapes[0].offset[1]==-int(hangar_box.center[1]) and rolled.shapes[0].offset[2]==-int(hangar_box.center[2]),"The hangar's collision box turns with the drawn module")
  var prior_mission=app.session.campaign.secondary
  var quest=load("res://native/simulation/mission.gd").new();quest.kind=8;quest.destination=1;quest.destination_name=app.session.stations[1].name
  app.session.campaign.secondary=quest
@@ -502,6 +549,31 @@ func run():
   var frame: int=model.sampled_frame;var pattern: int=model.last_pattern
   model.advance(12000)
   expect(model.sampled_frame==frame and model.last_pattern==pattern,"Streamed station configuration does not cycle")
+ # A pose first built while its station was fading in must not keep the
+ # fade in the shared pose cache: the part came back as a see-through box on
+ # every station whenever its emblem animation reached that frame.
+ var fading=view.model(3307,170,view,true);fading.configure_station({"animation_range":[0,2],"frame_ms":170})
+ fading.set_stream_visibility(.3)
+ for step in 3:fading.advance(170)
+ fading.set_stream_visibility(1.0)
+ var stale := 0
+ for step in 40:
+  fading.advance(170)
+  var mesh: MeshInstance3D=fading.figure.get_node("Mesh")
+  for index in mesh.mesh.get_surface_count():
+   var material: ShaderMaterial=mesh.get_surface_override_material(index)
+   var amount=material.get_shader_parameter("stream_visibility")
+   if (amount!=null and amount<1.0) or material.has_meta("stream_original"):stale+=1
+ expect(stale==0,"A finished fade leaves no dithered pose in the shared cache (%d stale surfaces)"%stale)
+ # The plain dark panel behind the berth door takes no fog or distance
+ # dither, so a shut hangar must not show it: it was the black rectangle
+ # every far station wore.
+ expect(fading.hangar_interior==null or not fading.hangar_interior.visible,"A shut hangar shows no interior panel")
+ fading.set_hangar_open(.5)
+ expect(fading.hangar_interior!=null and fading.hangar_interior.visible,"An opening hangar shows its interior")
+ fading.set_hangar_open(0.0)
+ expect(not fading.hangar_interior.visible,"A closing hangar hides it again")
+ fading.queue_free()
  var target: Vector3=node.global_position
  app.camera.position=target+Vector3(0,0,2100)
  for i in 40:view.stream_neighbors();await process_frame

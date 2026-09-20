@@ -53,6 +53,53 @@ def bitmap(data, alpha=False):
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR', struct.pack('>IIBBBBB', width, abs(height), 8, 6, 0, 0, 0))+chunk(b'IDAT', zlib.compress(rows))+chunk(b'IEND', b'')
 
 
+MODEL_FORMAT = ('Unsupported JAR: this DEEP build renders with JSR-184 (M3G) models under data/3d. '
+                'Only the Mascot Capsule builds with MBAC models under data/v3d are supported, '
+                'such as the Sony Ericsson release.')
+
+
+def model_format_problem(names):
+    """The same game shipped in two 3D flavours, and the JSR-184 one carries no
+    MBAC data to decode. Only that build is named up front; any other layout
+    is left to conversion, which reports precisely what does not match."""
+    if any(name.startswith('data/v3d/') and name.endswith('.mbac') for name in names): return None
+    if any(name.startswith('data/3d/') and name.endswith('.m3g') for name in names): return MODEL_FORMAT
+    return None
+
+
+def salvage(archive, entry):
+    """Read a damaged entry by inflating the bytes it actually has.
+
+    One circulating copy of the 1.0.8 JAR was repacked with its last entry a byte
+    short: the deflate stream stops one byte before its end-of-block marker, on
+    top of the next local header. Every byte of the file itself is still there,
+    so the entry is accepted when what inflates is exactly the declared size
+    with the declared CRC, and refused otherwise.
+    """
+    fp = archive.fp
+    fp.seek(entry.header_offset)
+    header = fp.read(30)
+    if len(header) < 30 or header[:4] != b'PK\x03\x04': raise ValueError('Damaged JAR entry: ' + entry.filename)
+    name_length, extra_length = struct.unpack_from('<HH', header, 26)
+    start = entry.header_offset+30+name_length+extra_length
+    following = [info.header_offset for info in archive.infolist() if info.header_offset > entry.header_offset]
+    limit = min(following+[archive.start_dir])
+    fp.seek(start)
+    raw = fp.read(max(0, limit-start))
+    if entry.compress_type == zipfile.ZIP_STORED: data = raw[:entry.file_size]
+    elif entry.compress_type == zipfile.ZIP_DEFLATED:
+        try: data = zlib.decompressobj(-15).decompress(raw)[:entry.file_size]
+        except zlib.error as error: raise ValueError('Damaged JAR entry: ' + entry.filename) from error
+    else: raise ValueError('Damaged JAR entry: ' + entry.filename)
+    if len(data) != entry.file_size or zlib.crc32(data) != entry.CRC: raise ValueError('Damaged JAR entry: ' + entry.filename)
+    return data
+
+
+def read_entry(archive, entry):
+    try: return archive.read(entry)
+    except (zipfile.BadZipFile, zlib.error, EOFError): return salvage(archive, entry)
+
+
 def decode(jar, root, progress=lambda message: None):
     jar, root = pathlib.Path(jar), pathlib.Path(root)
     if jar.stat().st_size > 16*1024*1024: raise ValueError('JAR exceeds 16 MiB.')
@@ -60,11 +107,14 @@ def decode(jar, root, progress=lambda message: None):
     try:
         with zipfile.ZipFile(jar) as archive:
             manifest = archive.read('META-INF/MANIFEST.MF').decode('utf-8').replace('\r\n', '\n').replace('\n ', '')
+            names = archive.namelist()
     except (OSError, KeyError, ValueError, UnicodeDecodeError, zipfile.BadZipFile) as error:
         raise ValueError('Unsupported JAR: not a readable MIDlet archive.') from error
     fields = dict(line.split(': ', 1) for line in manifest.splitlines() if ': ' in line)
     midlet = [part.strip() for part in fields.get('MIDlet-1', '').split(',')]
     if len(midlet) != 3 or midlet[2] != 'DeepMIDlet': raise ValueError('Unsupported JAR: this is not a DEEP MIDlet.')
+    problem = model_format_problem(names)
+    if problem: raise ValueError(problem)
     launcher_icon = midlet[1].lstrip('/')
     root.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(jar) as archive:
@@ -81,7 +131,7 @@ def decode(jar, root, progress=lambda message: None):
             if not name.startswith('data/'): continue
             if i % 30 == 0: progress('Decoding resources: %d%%' % (i*100//len(entries)))
             path = root/name; path.parent.mkdir(parents=True, exist_ok=True)
-            data = archive.read(entry)
+            data = read_entry(archive, entry)
             # The phone launcher reads its icon directly, outside the resource envelope.
             if name != launcher_icon and path.suffix in {'.mbac', '.mtra', '.bmp', '.png'}: data = unwrap(data)
             path.write_bytes(data)

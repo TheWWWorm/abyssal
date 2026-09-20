@@ -56,6 +56,7 @@ func run():
   expect(app.camera.global_position.distance_to(first_camera.origin)<.05,"Two loops return the chase camera to its original position")
  player.pose=loop_pose;app.world.previous_render_poses.clear();app.view._process(0)
  var mouse_player=TestPlayer.new();mouse_player.configure(player.stats,22500,app.world.region.sine);mouse_player.set_throttle(0)
+ mouse_player.smooth_steering=false
  mouse_player.pose.set_euler(1850,300,100)
  var expected_pose=mouse_player.pose.copy_pose()
  for i in 100:
@@ -64,6 +65,7 @@ func run():
  mouse_player.pose.set_euler(2048,0,0)
  for i in 100:mouse_player.advance(40)
  expect(mouse_player.pose.basis().y.y<-.999,"Releasing controls after a half-loop preserves inverted flight")
+ check_helm_response(TestPlayer,player.stats,app.world.region.sine)
  var effects=app.view.combat;effects.reset()
  for i in 20:effects.update(app.world.region,40)
  expect(effects.player_wake.size()>8 and effects.bubble_count>0,"Player has a rendered stern wake")
@@ -149,3 +151,45 @@ func run():
  app.queue_free();await process_frame
  for name in ["readability-test.cfg","readability-test.json","readability-test.json.bak"]:DirAccess.remove_absolute("user://"+name)
  print("READABILITY ",failures," failures");quit(1 if failures else 0)
+
+func check_helm_response(TestPlayer,stats,sine: Array) -> void:
+ # Direct is the original: the full key rate on the first tick, none on the
+ # tick after release. Smooth leans in over a few ticks, eases out after
+ # release, and still arrives at the same heading for the same held key.
+ var direct=TestPlayer.new();direct.configure(stats,22500,sine);direct.set_throttle(0);direct.smooth_steering=false
+ var smooth=TestPlayer.new();smooth.configure(stats,22500,sine);smooth.set_throttle(0);smooth.smooth_steering=true
+ var full_step: int=roundi(stats.steering()*40/3.0)
+ direct.steer(1,0,40);direct.advance(40)
+ expect(direct.yaw_step==full_step,"Direct helm turns at the original's full rate on the first tick")
+ smooth.steer(1,0,40);smooth.advance(40)
+ expect(smooth.yaw_step>0 and smooth.yaw_step<full_step,"Smooth helm leans into a turn rather than snapping to full rate")
+ for i in 30:smooth.steer(1,0,40);smooth.advance(40)
+ expect(smooth.yaw_step==full_step,"Smooth helm reaches the original's full rate once held")
+ smooth.advance(40)
+ expect(smooth.yaw_step>0 and smooth.yaw_step<full_step,"Smooth helm eases out after the key is released")
+ for i in 40:smooth.advance(40)
+ expect(smooth.yaw_step==0 and smooth.yaw_level==0,"Smooth helm comes fully to rest")
+ # The mouse is held to a ceiling in smooth mode, and a wide flick is not
+ # carried on for seconds afterwards.
+ var flick=TestPlayer.new();flick.configure(stats,22500,sine);flick.set_throttle(0);flick.smooth_steering=true
+ var before: Vector3=Vector3(flick.pose.forward[0],flick.pose.forward[1],flick.pose.forward[2]).normalized()
+ flick.mouse_steer(4000,0);flick.advance(40)
+ var after: Vector3=Vector3(flick.pose.forward[0],flick.pose.forward[1],flick.pose.forward[2]).normalized()
+ var ceiling: float=stats.steering()*flick.MOUSE_RATE_FACTOR*40/3.0
+ expect(before.angle_to(after)<=(ceiling+1)*TAU/4096.0,"Smooth helm holds mouse turning to the ceiling rate")
+ for i in 50:flick.advance(40)
+ after=Vector3(flick.pose.forward[0],flick.pose.forward[1],flick.pose.forward[2]).normalized()
+ expect(before.angle_to(after)<=(flick.MOUSE_BACKLOG+ceiling+1)*TAU/4096.0 and flick.mouse_remainder.is_zero_approx(),"A wide mouse flick is bounded and does not keep the hull turning")
+ var direct_flick=TestPlayer.new();direct_flick.configure(stats,22500,sine);direct_flick.set_throttle(0);direct_flick.smooth_steering=false
+ direct_flick.mouse_steer(300,0);direct_flick.advance(40)
+ after=Vector3(direct_flick.pose.forward[0],direct_flick.pose.forward[1],direct_flick.pose.forward[2]).normalized()
+ expect(absf(before.angle_to(after)-300*TAU/4096.0)<.002,"Direct helm turns one step per mouse unit at once")
+ # Lateral thrust leans the rendered hull a few degrees and settles after
+ # release; the flight pose itself keeps level, so aim and collision do not.
+ var sidestep=TestPlayer.new();sidestep.configure(stats,22500,sine);sidestep.set_throttle(0);sidestep.smooth_steering=false
+ var level: Array=sidestep.pose.copy_pose().forward
+ for i in 40:sidestep.set_strafe(1);sidestep.advance(40)
+ expect(sidestep.visual_bank>=60 and sidestep.visual_bank<=80,"Strafing leans the hull about seven degrees (%d)"%sidestep.visual_bank)
+ expect(sidestep.pose.forward==level and sidestep.bank==0,"The lean is only on the rendered hull")
+ for i in 40:sidestep.advance(40)
+ expect(absi(sidestep.visual_bank)<=2,"The lean settles after the key is released (%d)"%sidestep.visual_bank)

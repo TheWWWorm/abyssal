@@ -60,7 +60,7 @@ def main():
             if platform=="android":shutil.copyfile(folder/"abyssal.apk",target)
             else:archive_build(folder,target,platform)
             records.append({'platform':platform,'file':name,'bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'template':'release','signing':'unsigned' if platform in ['windows','macos'] else 'release key' if platform=='android' else 'not applicable','direct_jar_import':True})
-    metadata={'version':args.version,'channel':'preview','source_manifest_sha256':hashlib.sha256((ROOT/'source-manifest.json').read_bytes()).hexdigest(),'artifacts':records,'testing':'See VALIDATION.md for actual execution results; export success is not device validation.'}
+    metadata={'version':args.version,'channel':'preview' if '-' in args.version else 'release','source_manifest_sha256':hashlib.sha256((ROOT/'source-manifest.json').read_bytes()).hexdigest(),'artifacts':records,'testing':'See VALIDATION.md for actual execution results; export success is not device validation.'}
     (output/'VALIDATION.md').write_text(args.validation.read_text() if args.validation else VALIDATION_PENDING)
     (output/'release.json').write_text(json.dumps(metadata,indent=2)+'\n')
     (output/'SHA256SUMS').write_text(''.join(f"{r['sha256']}  {r['file']}\n" for r in records))

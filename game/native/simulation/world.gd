@@ -39,8 +39,13 @@ var mouse_pending := Vector2.ZERO
 var weapon_pending: Dictionary={}
 var previous_render_poses := {}
 var previous_render_bank := 0
+## The helm setting outlives any one region's player; see player.gd.
+var smooth_steering := false
 func configure(owner_session) -> void:
 	session=owner_session
+func set_smooth_steering(value: bool) -> void:
+	smooth_steering=value
+	if region!=null:region.player.smooth_steering=value
 func station_origin(id: int) -> Array:
 	var station: Dictionary = session.stations[id]
 	return [station.x*MAP_SCALE,station.depth*8,station.y*MAP_SCALE]
@@ -274,7 +279,8 @@ func dock() -> bool:
 	if region.success!=null or region.failure!=null: message="Docking locked · finish the encounter. Open autopilot and choose the quest objective."; return false
 	var hull_percent := int(Math.f32(Math.f32(float(region.player.health.hull)/float(region.player.health.max_hull))*100.0)) if region.player.health.max_hull>0 else 0
 	session.medals.evaluate(session,hull_percent)
-	cancel_autopilot(); reset_gates(); session.arrive(); message="Docked at "+session.stations[session.station_id].name
+	# The station panel says where you are; no notice repeats it over it.
+	cancel_autopilot(); reset_gates(); session.arrive()
 	return true
 func remaining_distance() -> float:
 	if local_target==null or region==null: return 0
@@ -286,6 +292,7 @@ func dispose() -> void:
 func attach_geography() -> void:
 	geography=preload("res://native/simulation/geography.gd").new(); geography.configure(self)
 	region.player.depth_direction=1
+	region.player.smooth_steering=smooth_steering
 	keep_wildlife_outside_station()
 	for hook in region.fishing:
 		hook.capture_distance=1400; hook.tow_speed=24

@@ -154,7 +154,9 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 				var color: Color = [Color("83e2c2"),Color("b9beff"),Color("ffc77b")][clampi(weapon.equipment_id-3,0,2)]
 				segment(at-velocity*2,at,0.10,color)
 			elif weapon.fishing:
-				segment(Library.point(region.player.pose.origin),at,0.035,Color("649a9b"))
+				# From the drawn hull, not the stepped one: the model is rendered
+				# between ticks, and a line anchored a tick ahead of it judders.
+				segment(owner_view.world.render_pose(region.player).origin,at,0.035,Color("649a9b"))
 			elif weapon.model_id>=0:
 				var key := str(weapon.get_instance_id())+":"+str(i)
 				if not projectile_nodes.has(key):

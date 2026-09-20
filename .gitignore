@@ -25,6 +25,8 @@
 *.mtra
 # Only reviewed, independently authored UI assets may be committed.
 !game/ui/**
+# Screenshots for the README, rendered by the engine.
+!docs/screenshots/*.jpg
 **/.godot/
 **/__pycache__/
 content/

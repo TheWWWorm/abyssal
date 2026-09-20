@@ -18,6 +18,12 @@ def importer_hash():
     for path in sorted([*(ROOT/'runtime/java').rglob('*.java'),*(ROOT/'tools').glob('*.py')]):
         digest.update(path.relative_to(ROOT).as_posix().encode());digest.update(path.read_bytes())
     return digest.hexdigest()
+def portable_importer():
+    """The archive salvage and format checks live with the portable converter."""
+    browser=str(ROOT/'browser')
+    if browser not in sys.path:sys.path.insert(0,browser)
+    import import_jar
+    return import_jar
 def deep_midlet(jar):
     """Accept any DEEP MIDlet archive; reject anything that is not one."""
     try:
@@ -27,6 +33,30 @@ def deep_midlet(jar):
     fields=dict(line.split(': ',1) for line in manifest.splitlines() if ': ' in line)
     midlet=[part.strip() for part in fields.get('MIDlet-1','').split(',')]
     return len(midlet)==3 and midlet[2]=='DeepMIDlet'
+def model_format_problem(jar):
+    with zipfile.ZipFile(jar) as archive:return portable_importer().model_format_problem(archive.namelist())
+def readable_copy(jar,directory):
+    """The Java converter reads the archive with java.util.zip, which refuses an
+    entry whose compressed bytes run a byte short, as one circulating copy of
+    the 1.0.8 JAR does. Where the portable importer can salvage every entry
+    (declared size and CRC intact), a repacked copy is converted instead; the
+    cache stays keyed by the digest of the archive the player actually chose."""
+    salvage=portable_importer()
+    with zipfile.ZipFile(jar) as archive:
+        entries=archive.infolist()
+        contents={}
+        damaged=False
+        for entry in entries:
+            if entry.is_dir():continue
+            try:contents[entry.filename]=archive.read(entry)
+            except (zipfile.BadZipFile,__import__('zlib').error,EOFError):
+                contents[entry.filename]=salvage.salvage(archive,entry);damaged=True
+    if not damaged:return jar
+    copy=pathlib.Path(directory)/'readable.jar'
+    with zipfile.ZipFile(copy,'w',zipfile.ZIP_DEFLATED) as out:
+        for entry in entries:
+            if not entry.is_dir():out.writestr(entry.filename,contents[entry.filename])
+    return copy
 def valid_cache(directory,digest):
     try:
         stamp=json.loads((directory/'engine-import.json').read_text())
@@ -44,6 +74,8 @@ def prepare(jar):
     jar=pathlib.Path(jar).expanduser().resolve()
     if jar.stat().st_size>16*1024*1024:raise ValueError('JAR exceeds 16 MiB.')
     if not deep_midlet(jar):raise ValueError('Unsupported JAR: this is not a DEEP MIDlet.')
+    problem=model_format_problem(jar)
+    if problem:raise ValueError(problem)
     digest=file_hash(jar)
     home=cache_home()/'content';home.mkdir(parents=True,exist_ok=True)
     # Each JAR keys its own cache, so several builds can be imported side by side.
@@ -61,8 +93,9 @@ def prepare(jar):
         if valid_cache(output,digest):return output
         runtime=build()
         with tempfile.TemporaryDirectory(prefix='import-',dir=home) as temporary:
-            stage=import_content(jar,pathlib.Path(temporary),runtime)
-            extract(jar,stage)
+            source=readable_copy(jar,temporary)
+            stage=import_content(source,pathlib.Path(temporary),runtime)
+            extract(source,stage,digest)
             files={p.relative_to(stage).as_posix():file_hash(p) for p in sorted(stage.rglob('*')) if p.is_file()}
             (stage/'engine-import.json').write_text(json.dumps({'version':VERSION,'converter':importer_hash(),'jar_sha256':digest,'files':files},indent=2))
             # Publish a complete new cache, retaining old data until conversion succeeds.

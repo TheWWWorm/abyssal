@@ -11,6 +11,7 @@ static func far_visibility(distance: float) -> float:
 	return 1.0-smoothstep(7000.0,9600.0,distance)
 
 const Model = preload("res://native/presentation/model.gd")
+const Abyss = preload("res://native/presentation/abyss.gd")
 const Library = preload("res://scripts/model_library.gd")
 var world
 var content
@@ -18,6 +19,10 @@ var camera: Camera3D
 const CAMERA_NAMES := ["Chase","Front","Starboard","Port"]
 var camera_mode := 0
 var previous_camera_mode := -1
+# Free look: the chase camera swung around the hull by the mouse while a
+# modifier is held (yaw, pitch in radians), easing back when it is released.
+var look_offset := Vector2.ZERO
+var look_held := false
 var library := Library.new()
 var pack := preload("res://native/presentation/material_pack.gd").new()
 var objects: Dictionary = {}
@@ -54,6 +59,11 @@ var dock_orbit := .65
 var previous_time := 0
 var previous_particle_fraction := 0.0
 var combat := preload("res://native/presentation/combat_effects.gd").new()
+## An offscreen viewport that draws every model and effect surface once, so
+## their shaders are compiled while the scene is being built rather than the
+## first time each one swims into view. See bake_shaders().
+var oven: SubViewport
+var oven_frames := 0
 func _ready() -> void:
 	combat.owner_view=self; add_child(combat)
 func configure(owner_world, owner_content, eye: Camera3D) -> void:
@@ -104,6 +114,7 @@ func rebuild() -> void:
 				for node in incoming.root.get_children():
 					if not node is Model:continue
 					node.reparent(self,false);node.set_stream_visibility(1.0);station_nodes.append(node)
+					node.set_full_detail(true)
 					if not incoming.detail:
 						add_station_collision(node);add_station_lights(node)
 				incoming.root.queue_free();neighbors.erase(world.session.station_id)
@@ -124,7 +135,7 @@ func rebuild() -> void:
 		var visual=model(int(part.model_id),part.frame_ms)
 		if visual==null: continue
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine; pose.origin=part.origin; pose.set_euler(0,part.yaw,0)
-		visual.transform=pose.godot_transform()
+		visual.transform=Model.station_transform(pose.godot_transform())
 		visual.configure_station(part)
 		station_nodes.append(visual)
 		add_station_collision(visual)
@@ -141,7 +152,45 @@ func rebuild() -> void:
 	rendered_station=world.session.station_id;rendered_anchor=world.geography.anchor
 	rendered_modern=modern_graphics;rendered_pack=pack.enabled
 	revision=world.revision
+	if not keep_scene: bake_shaders()
+
+func bake_shaders() -> void:
+	"""Every material variant the imported content can produce is compiled the
+	first time something wearing it is drawn, and on a fresh install that is a
+	stall of a tenth of a second to a second, paid mid-flight whenever a new
+	kind of creature, shot or station module first turns up in view: it is the
+	lag reported while looking around. Drawing the whole catalogue once, into a
+	viewport nobody sees, moves all of that to the moment the scene is built.
+	The lighting mode chooses the variants, so a mode change bakes again."""
+	if oven!=null: oven.queue_free()
+	oven=SubViewport.new();oven.size=Vector2i(32,32);oven.own_world_3d=true
+	oven.render_target_update_mode=SubViewport.UPDATE_ALWAYS;oven.positional_shadow_atlas_size=256
+	add_child(oven)
+	var eye := Camera3D.new();oven.add_child(eye);eye.current=true;eye.fov=90;eye.far=4000;eye.position=Vector3(0,0,300)
+	var surroundings := WorldEnvironment.new();surroundings.environment=get_viewport().find_world_3d().environment;oven.add_child(surroundings)
+	# Shadowed lights of both kinds, so their shadow passes are baked too.
+	var sun := DirectionalLight3D.new();sun.shadow_enabled=true;oven.add_child(sun)
+	var lamp := OmniLight3D.new();lamp.shadow_enabled=true;lamp.omni_range=600;lamp.position=Vector3(0,80,120);oven.add_child(lamp)
+	var spot := SpotLight3D.new();spot.shadow_enabled=true;spot.spot_range=600;spot.position=Vector3(0,0,200);oven.add_child(spot)
+	for record in content.registry: model(int(record.id),32,oven,false)
+	# The effect surfaces: shot trails and bursts, bubbles, the gate aperture,
+	# lamp halos and the hull wake are drawn from pools that stay empty until
+	# the first shot or the first station, and would compile then.
+	var tube := CylinderMesh.new();tube.radial_segments=6;tube.rings=1
+	var cone := CylinderMesh.new();cone.top_radius=0;cone.radial_segments=6;cone.rings=1
+	for entry in [[tube,"combat_line"],[QuadMesh.new(),"combat_sprite"],[QuadMesh.new(),"bubble"],[QuadMesh.new(),"gate_field"],[QuadMesh.new(),"beacon"],[QuadMesh.new(),"vessel_wake"],[QuadMesh.new(),"particulate"],[cone,"headlight_beam"]]:
+		var surface := MeshInstance3D.new();surface.mesh=entry[0]
+		var material := ShaderMaterial.new();material.shader=load("res://native/presentation/%s.gdshader"%entry[1]);surface.material_override=material
+		surface.custom_aabb=AABB(Vector3.ONE*-50,Vector3.ONE*100);oven.add_child(surface)
+	var instanced := MultiMeshInstance3D.new();var pool := MultiMesh.new();pool.transform_format=MultiMesh.TRANSFORM_3D;pool.use_colors=true;pool.use_custom_data=true
+	var quad := QuadMesh.new();var sprite := ShaderMaterial.new();sprite.shader=preload("res://native/presentation/combat_sprite.gdshader");quad.material=sprite;pool.mesh=quad
+	pool.instance_count=1;instanced.multimesh=pool;instanced.custom_aabb=AABB(Vector3.ONE*-50,Vector3.ONE*100);oven.add_child(instanced)
+	oven_frames=3
+
 func _process(delta: float) -> void:
+	if oven!=null:
+		oven_frames-=1
+		if oven_frames<=0: oven.queue_free();oven=null
 	if world==null or world.region==null: return
 	preload("res://native/presentation/replacement_geometry.gd").collect_ready()
 	if revision!=world.revision: rebuild()
@@ -149,6 +198,7 @@ func _process(delta: float) -> void:
 	camera.fov=lerpf(camera.fov,70.0 if region.player.boost_active and not region.cinematic() else 65.0,1-exp(-delta*5))
 	neighbor_clock+=delta
 	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
+	shade_actor_beams()
 	var ms: int = maxi(0,region.elapsed_ms-previous_time)
 	previous_time=region.elapsed_ms
 	camera.h_offset=0
@@ -167,6 +217,9 @@ func _process(delta: float) -> void:
 		# Cosmetic steering bank remains confined to the model, not the camera.
 		camera_frame.basis=player_pose.basis.orthonormalized()
 		if player_model!=null:camera_frame.origin=player_model.global_transform*player_model.solid_bounds().get_center()
+	if not look_held: look_offset=look_offset.lerp(Vector2.ZERO,1-exp(-delta*7))
+	if look_offset.length_squared()>1e-6:
+		camera_frame.basis=camera_frame.basis*Basis(Vector3.UP,look_offset.x)*Basis(Vector3.RIGHT,look_offset.y)
 	var desired: Vector3 = camera_frame*([Vector3(0,18,45),Vector3(0,3,-56),Vector3(60,5,0),Vector3(-60,5,0)][camera_mode]*camera_scale)
 	camera.global_position=desired
 	camera.look_at(camera_frame*((Vector3(0,-24,-140) if camera_mode==0 else Vector3(0,3 if camera_mode==1 else 5,0))*camera_scale),camera_frame.basis.y.normalized())
@@ -346,6 +399,7 @@ func stream_neighbors() -> void:
 			# Only lighting/collision changes; no silhouette or material swap.
 			for visual in neighbors[id].root.get_children():
 				if detailed:
+					visual.set_full_detail(true)
 					add_station_collision(visual)
 					if int(visual.record.id)>=3300:add_station_lights(visual)
 				else:
@@ -362,7 +416,7 @@ func stream_neighbors() -> void:
 			var visual=model(int(part.model_id),part.frame_ms,root,detailed)
 			if visual==null:continue
 			var pose=preload("res://native/simulation/ship_transform.gd").new();pose.math.sine_table=world.region.sine;pose.set_euler(0,part.yaw,0);pose.origin=part.origin
-			visual.transform=pose.godot_transform()
+			visual.transform=Model.station_transform(pose.godot_transform())
 			visual.set_stream_visibility(0.0)
 			if detailed:
 				add_station_collision(visual)
@@ -385,10 +439,15 @@ func add_station_lights(visual) -> void:
 		var lamp := OmniLight3D.new();visual.add_child(lamp)
 		# One overhead work lamp, one lower service lamp: light the walls and
 		# adjoining bridges instead of pooling both highlights on the roof.
-		lamp.position=center+Vector3(side*box.size.x*.32,box.size.y*(.62 if side==-1 else -.12),side*box.size.z*.64)
+		# Local space is the rolled module's: overhead in the world is local -y.
+		lamp.position=center+Model.STATION_ROLL.basis*Vector3(side*box.size.x*.32,box.size.y*(.62 if side==-1 else -.12),side*box.size.z*.64)
 		lamp.light_color=Color("ffd39a") if side==-1 else Color("ffbc76")
 		lamp.light_energy=8.0 if side==-1 else 6.0
-		lamp.light_size=1.5
+		# No light size: a size turns on contact-hardening (PCSS) shadows, which
+		# add a blocker search per pixel for every lamp covering it. With a
+		# dozen habitats in range that was a fifth of the frame at 5K, and the
+		# plain soft filter is indistinguishable on these walls.
+		lamp.light_size=0.0
 		lamp.omni_range=reach;lamp.omni_attenuation=.85
 		lamp.shadow_enabled=true;lamp.shadow_bias=.08;lamp.shadow_normal_bias=.6
 		lamp.light_volumetric_fog_energy=.3
@@ -398,17 +457,39 @@ func add_station_lights(visual) -> void:
 		material.set_shader_parameter("tint",lamp.light_color);quad.material=material;halo.mesh=quad
 		halo.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;lamp.add_child(halo)
 
+# Other vessels carry the same lamps and beams as the player's hull. Their
+# beams are shadowed one per frame in turn, which keeps the raycasts cheap.
+var actor_beams: Array = []
+var actor_beams_enabled := true
+var actor_beam_phase := 0
 func add_actor_lights(visual) -> void:
 	if not modern_graphics:return
-	var mounts: Array=visual.replacement.get_meta("headlight_mounts",[]) if visual.replacement!=null else []
-	if mounts.is_empty():
-		var box: AABB=visual.solid_bounds()
-		for side in [-1,1]:mounts.append(Vector3(box.get_center().x+side*box.size.x*.34,box.get_center().y,box.position.z-.5))
-	for point in mounts.slice(0,2):
-		var lamp := SpotLight3D.new();visual.add_child(lamp);lamp.position=point
-		lamp.light_color=Color("b4e9f2");lamp.light_energy=9.0;lamp.spot_range=200
-		lamp.spot_angle=8;lamp.spot_attenuation=1.4;lamp.light_volumetric_fog_energy=.5
-		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=220;lamp.distance_fade_length=100
+	var mounts: Array=visual.headlight_mounts()
+	for i in mini(2,mounts.size()):
+		var lamp: SpotLight3D=Abyss.create_headlight(0.0);visual.add_child(lamp)
+		# A positive turn about +Y swings -Z towards -X: the port lamp turns outward.
+		lamp.transform=Transform3D(Basis(Vector3.UP,deg_to_rad(12 if i==0 else -12)),mounts[i])
+		lamp.shadow_enabled=false
+		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=400;lamp.distance_fade_length=200
+		var beam: MeshInstance3D=Abyss.create_beam();lamp.add_child(beam)
+		beam.material_override.set_shader_parameter("fade_begin",400.0);beam.material_override.set_shader_parameter("fade_length",200.0)
+		beam.visible=actor_beams_enabled
+		actor_beams.append({"lamp":lamp,"beam":beam})
+
+func set_actor_beams(on: bool) -> void:
+	actor_beams_enabled=on
+	for entry in actor_beams:
+		if is_instance_valid(entry.beam): entry.beam.visible=on
+
+func shade_actor_beams() -> void:
+	# One vessel's beam per frame, nearest the camera first would be nicer;
+	# in turn is enough, a wall is current within a few frames.
+	actor_beams=actor_beams.filter(func(entry):return is_instance_valid(entry.lamp) and is_instance_valid(entry.beam))
+	if actor_beams.is_empty() or not actor_beams_enabled:return
+	actor_beam_phase+=1
+	var entry: Dictionary=actor_beams[actor_beam_phase%actor_beams.size()]
+	if not entry.lamp.is_visible_in_tree() or entry.lamp.global_position.distance_to(camera.global_position)>700: return
+	Abyss.shade_beam_in(get_world_3d().direct_space_state,entry.lamp,entry.beam,actor_beam_phase/actor_beams.size())
 
 func add_station_collision(visual: Node3D) -> void:
 	# Actual replacement triangles serve the reticle and light obstruction rays.
@@ -421,18 +502,37 @@ func add_station_collision(visual: Node3D) -> void:
 		var shape := CollisionShape3D.new(); shape.shape=mesh.mesh.create_trimesh_shape();shape.shape.backface_collision=true
 		mesh.add_child(body);body.add_child(shape)
 
-func aim_point() -> Array:
+func looking_around() -> bool:
+	return look_offset.length()>.02
+
+func turn_look(relative: Vector2) -> void:
+	# Mouse right swings the camera round to the hull's starboard side, mouse
+	# up lifts it; the pitch stops short of the poles.
+	look_offset.x=wrapf(look_offset.x+relative.x,-PI,PI)
+	look_offset.y=clampf(look_offset.y+relative.y,-1.25,1.25)
+
+func aim_point():
+	# Only the chase camera looks where the launchers point. The front and
+	# side views look back at, or across, the submarine: a shot converged on
+	# their screen centre leaves the hull backwards or sideways. With no aim
+	# the weapons fire straight ahead, which is what the original always did.
+	if camera_mode!=0 or departure_progress>=0 or transit_progress>=0 or not world.region.cinematic_camera.is_empty() or looking_around(): return null
 	var center := camera.get_viewport().get_visible_rect().size*.5
 	var origin := camera.project_ray_origin(center)
 	var direction := camera.project_ray_normal(center).normalized()
 	# The chase camera sits behind the ship. Ignore intersections before the
 	# launchers, including the near face of a nearby actor's collision bounds.
 	var minimum_distance := camera.near
+	# With nothing under the reticle, converge where the shots run out rather
+	# than a kilometre beyond it, so a burst into open water ends on the
+	# reticle instead of visibly short of it; the launchers sit under the eye.
+	var distance := 0.0
 	for weapon in world.region.loadout.all_weapons():
 		var pose=world.region.player.pose
 		var muzzle: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(pose.origin,pose.rotate_direction(weapon.mount)))
 		minimum_distance=maxf(minimum_distance,(muzzle-origin).dot(direction)+1.0)
-	var distance := 1800.0
+		distance=maxf(distance,weapon.speed*weapon.lifetime*.01)
+	distance=clampf(distance,200.0,1800.0)
 	var query := PhysicsRayQueryParameters3D.create(origin,origin+direction*distance,2)
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if not hit.is_empty() and origin.distance_to(hit.position)>=minimum_distance: distance=origin.distance_to(hit.position)
@@ -456,14 +556,30 @@ func end_transit() -> void:
 func begin_departure() -> void:
 	departure_hangar=null
 	for station in station_nodes:
-		if int(station.record.id)==3308:departure_hangar=station;break
+		if station.is_hangar():departure_hangar=station;break
 	if departure_hangar==null:return
 	var aperture:AABB=departure_hangar.hangar_aperture()
-	departure_frame=departure_hangar.global_transform*Transform3D(Basis.IDENTITY,aperture.get_center())
+	# The door's centre is read through the module's roll; the shot's frame
+	# keeps the station's own upright basis, so the camera sits above the berth.
+	departure_frame=Transform3D((departure_hangar.global_transform*Model.STATION_ROLL).basis,departure_hangar.global_transform*aperture.get_center())
 	var direction:=departure_frame.basis.z.normalized()
 	var hull:AABB=player_model.solid_bounds()
-	departure_start=departure_frame.origin-direction*hull.size.z*.5
-	departure_end=departure_frame.origin+direction*(105+hull.size.z)
+	# The whole hull starts inside the berth, its nose a little behind the
+	# door, so the lamps on the nose come on as it crosses the sill, not
+	# while the door is still opening.
+	departure_start=departure_frame.origin-direction*hull.size.z*1.1
+	# A few of the original's layouts hang a module across the berth's line
+	# of exit. Run the shot up to the last clear water before it instead of
+	# through it; the hull then starts its dive from there.
+	var reach: float=105+hull.size.z
+	var probe: float=hull.size.z
+	while probe<reach:
+		var point: Vector3=departure_frame.origin+direction*(probe+hull.size.z*.5)
+		# The hangar's own box reaches past its door; only another module counts.
+		if world.region.station.contains([roundi(point.x*100),roundi(-point.y*100),roundi(-point.z*100)]) and world.region.station.contact!=0:
+			reach=maxf(hull.size.z,probe-4.0);break
+		probe+=2.0
+	departure_end=departure_frame.origin+direction*reach
 	world.region.player.pose.face([roundi(direction.x*4096),roundi(-direction.y*4096),roundi(-direction.z*4096)])
 	place_departure(0)
 func place_departure(progress: float) -> void:
@@ -498,13 +614,20 @@ func assign_player_basis(basis: Basis) -> void:
 	pose.right=[roundi(basis.x.x*4096),roundi(-basis.x.y*4096),roundi(-basis.x.z*4096)]
 	pose.up=[roundi(-basis.y.x*4096),roundi(basis.y.y*4096),roundi(basis.y.z*4096)]
 	pose.forward=[roundi(-basis.z.x*4096),roundi(basis.z.y*4096),roundi(basis.z.z*4096)]
+# The gate or hangar plane the hull is clipped by while it passes through,
+# for the headlight beams to be clipped by as well: no light without a lamp.
+var player_clip_enabled := false
+var player_clip_plane := Vector4.ZERO
 func clear_player_clip() -> void:
+	player_clip_enabled=false
 	if player_model!=null:player_model.set_portal_clip(false)
 	for entry in portal_materials:
 		if is_instance_valid(entry.mesh):entry.mesh.set_surface_override_material(entry.index,entry.previous)
 	portal_materials.clear()
 func clip_player_at_gate(frame: Transform3D, side: float) -> void:
 	if player_model==null:return
+	var clip_normal:=frame.basis.z.normalized()*side
+	player_clip_enabled=true;player_clip_plane=Vector4(clip_normal.x,clip_normal.y,clip_normal.z,-clip_normal.dot(frame.origin))
 	if player_model.replacement==null:
 		var normal:=frame.basis.z.normalized()*side
 		player_model.set_portal_clip(true,Vector4(normal.x,normal.y,normal.z,-normal.dot(frame.origin)))

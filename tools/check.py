@@ -25,6 +25,7 @@ def main():
         'native_terrain_check.gd':cache,
         'engine_ui_check.gd':cache,
         'engine_stream_check.gd':cache,
+        'mods_check.gd':cache,
     }
     failures=[]
     for name,argument in cases.items():

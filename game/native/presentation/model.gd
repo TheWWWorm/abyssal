@@ -4,6 +4,16 @@ const Library = preload("res://scripts/model_library.gd")
 const Math = preload("res://native/simulation/fixed_math.gd")
 const Clock = preload("res://native/simulation/animation_clock.gd")
 const Special = preload("res://native/simulation/special_actor.gd")
+const Mods = preload("res://native/presentation/mods.gd")
+## Every station module is turned half a turn about its socket axis: the
+## imported station meshes stand the other way up and the other way round
+## from the phone game, so a hangar's berth door read as a roof and each
+## module hung mirrored on a layout whose positions were already right. The
+## roll is applied where a part is placed; the aperture and the collision
+## boxes are read through the same turn.
+const STATION_ROLL := Transform3D(Basis(Vector3(0,0,1),PI),Vector3.ZERO)
+static func station_transform(pose: Transform3D) -> Transform3D:
+	return pose*STATION_ROLL
 var library := Library.new()
 var clock := Clock.new()
 var source: Dictionary = {}
@@ -52,7 +62,11 @@ func apply_stream_visibility() -> void:
 	for index in mesh.mesh.get_surface_count():
 		var original := mesh.get_surface_override_material(index) as ShaderMaterial
 		if original==null:continue
-		if stream_visibility>=1.0 and fade_materials.is_empty():continue
+		if stream_visibility>=1.0:
+			# A hidden animation variant may still wear the fade it was given
+			# before the frame moved on; it is undone whenever it is worn again.
+			if original.has_meta("stream_original"):mesh.set_surface_override_material(index,original.get_meta("stream_original"))
+			continue
 		if not original.has_meta("stream_original"):
 			var key := original.get_instance_id()
 			if not fade_materials.has(key):
@@ -61,7 +75,6 @@ func apply_stream_visibility() -> void:
 				own.set_meta("stream_original",original);fade_materials[key]=own
 			original=fade_materials[key];mesh.set_surface_override_material(index,original)
 		original.set_shader_parameter("stream_visibility",stream_visibility)
-		if stream_visibility>=1.0:mesh.set_surface_override_material(index,original.get_meta("stream_original"))
 	if stream_visibility>=1.0:fade_materials.clear()
 
 
@@ -112,25 +125,34 @@ static func multiply(a: Array,b: Array) -> Array:
 	return out
 
 func configure_station(part: Dictionary) -> void:
-	# Imported station actions also select factions and alternate assemblies.
-	# Keep those static; only the identified rotor bone receives continuous motion.
-	apply_range(part.animation_range);clock.playing=false
+	# The range is the faction's: its emblem and configuration, and for the
+	# hangars and caps a short loop the original runs at the part's interval.
+	# The engine's rotor is turned continuously instead of stepping through
+	# its four coarse source poses, so its own frames stay still.
+	apply_range(part.animation_range)
 	machinery=int(record.id)==3304 and source.bones.size()>2
+	var interval: Array=part.animation_range
+	clock.playing=not machinery and interval.size()==2 and int(interval[0])!=int(interval[1])
 	sampled_frame=-1;refresh()
 
+func is_hangar() -> bool:
+	return int(record.id) in [3307,3308]
+
 func hangar_aperture() -> AABB:
-	# The rectangular gate is the imported six-vertex panel between the blue
-	# berth lamps. Read its actual pose instead of the whole station bounds.
+	# The berth door is the imported panel between the blue lamps, on either
+	# hangar. Read its actual pose instead of the whole station bounds.
 	var box:=AABB();var first:=true
-	for index in range(40,46):
-		var p:=Library.matrix(current_bones[0])*Library.point(source.vertices,index*3)
-		box=AABB(p,Vector3.ZERO) if first else box.expand(p);first=false
+	for polygon in source.polygons:
+		if not Library.is_hangar_door(str(record.model),polygon):continue
+		for index in polygon.indices:
+			var p:=Library.matrix(current_bones[0])*Library.point(source.vertices,int(index)*3)
+			box=AABB(p,Vector3.ZERO) if first else box.expand(p);first=false
 	return box
 
 func set_hangar_open(value: float) -> void:
 	hangar_open=clampf(value,0,1);apply_hangar_open()
 func apply_hangar_open() -> void:
-	if figure==null or int(record.id)!=3308:return
+	if figure==null or not is_hangar():return
 	var mesh:=figure.get_node("Mesh") as MeshInstance3D
 	for i in mesh.mesh.get_surface_count():
 		var material:=mesh.get_surface_override_material(i) as ShaderMaterial
@@ -147,6 +169,10 @@ func apply_hangar_open() -> void:
 		var panel:=QuadMesh.new();panel.size=Vector2(aperture.size.x,aperture.size.y)
 		var mat:=StandardMaterial3D.new();mat.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;mat.albedo_color=Color("010306");mat.cull_mode=BaseMaterial3D.CULL_DISABLED;panel.material=mat
 		hangar_interior.mesh=panel;hangar_interior.position=aperture.get_center()-Vector3(0,0,.15)
+	# The dark interior is only there to be seen through the open door. The
+	# door itself is fogged and dithered with distance; this plain panel is
+	# not, so left showing it was the black rectangle every far station wore.
+	hangar_interior.visible=hangar_open>0.0
 
 func sample_bones(sample: int) -> Array:
 	var matrices: Array = []
@@ -200,14 +226,13 @@ func refresh() -> void:
 		if library.native_bones_cache.size()>=1024: library.native_bones_cache.erase(library.native_bones_cache.keys()[0])
 		library.native_bones_cache[bone_key]=sample_bones(sample)
 	current_bones=library.native_bones_cache[bone_key]
-	if use_replacement_geometry and pack!=null and pack.enabled:
-		if replacement==null:
-			replacement=preload("res://native/presentation/replacement_geometry.gd").create(int(record.id),replacement_bounds())
-			if replacement!=null: add_child(replacement)
-		if replacement!=null:
-			last_pattern=pattern
-			if figure!=null: figure.hide()
-			return
+	if use_replacement_geometry and replacement==null and Mods.has_model(str(record.model)):
+		replacement=Mods.instance_model(str(record.model),replacement_bounds())
+		if replacement!=null: add_child(replacement)
+	if replacement!=null:
+		last_pattern=pattern
+		if figure!=null: figure.hide()
+		return
 	var call := {"biology":biological_look,"replacement":material_look,"replacement_texture":pack.texture_for(int(record.id)) if pack!=null else null,"resource":record.model,"textures":record.textures,"pattern":pattern,"bones":current_bones,"layout":{"transform":[4096,0,0,0,0,4096,0,0,0,0,4096,0]},"effect":{"lit":true,"ambient":300 if modern_graphics else 1800,"intensity":512 if modern_graphics else 2200,"direction":[1134,3929,0]}}
 	call.pixelated_station=int(record.id)>=3300 and int(record.id)<3400 and not library.station_smoothing
 	call.smoothed_station=int(record.id)>=3300 and int(record.id)<3400 and library.station_smoothing
@@ -236,7 +261,15 @@ func refresh() -> void:
 	library.pose(figure,call)
 	apply_stream_visibility()
 	apply_portal_clip()
-	if int(record.id)==3308:apply_hangar_open()
+	if is_hangar():apply_hangar_open()
+
+func set_full_detail(value: bool) -> void:
+	"""A streamed station is built compact and promoted when it is near: a
+	player's replacement model belongs to the near form, so it is fetched on
+	promotion rather than only on construction."""
+	if use_replacement_geometry==value: return
+	use_replacement_geometry=value
+	if value: sampled_frame=-1; refresh()
 
 func advance(milliseconds: int, render_pose: bool=true) -> void:
 	elapsed+=milliseconds
@@ -278,6 +311,40 @@ func solid_bounds() -> AABB:
 			else: result=result.expand(point)
 	solid_aabb=result; solid_aabb_ready=true
 	return result
+
+func headlight_mounts() -> Array:
+	"""Where the headlights sit: the two front corners of the hull, either
+	side of the cockpit, where the original draws them - not the pods. Each
+	is placed a fifth of the hull's width out from the centreline, a little
+	below the middle, on the foremost surface found there. Mods still name
+	their own mounts."""
+	if replacement!=null and not replacement.get_meta("headlight_mounts",[]).is_empty(): return replacement.get_meta("headlight_mounts")
+	if has_meta("lamp_mounts"): return get_meta("lamp_mounts")
+	var box := solid_bounds()
+	var bone_for_vertex: Array = []
+	for i in source.bones.size():
+		for _v in int(source.bones[i].vertices): bone_for_vertex.append(i)
+	var points := {}
+	for polygon in source.polygons:
+		if int(polygon.blend)!=0: continue
+		for raw_index in polygon.indices:
+			var index := int(raw_index)
+			if not points.has(index): points[index]=Library.matrix(current_bones[bone_for_vertex[index]])*Library.point(source.vertices,index*3)
+	var mounts: Array = []
+	for side in [-1,1]:
+		var target := Vector3(box.get_center().x+side*box.size.x*.22,box.get_center().y-box.size.y*.1,box.position.z)
+		# The foremost surface in a narrow column at the mount, widening the
+		# column only if nothing is there; a wide one caught the cockpit's
+		# nose and hung the lamp a metre ahead of the hull.
+		var front := INF
+		for width in [.04,.08,.16]:
+			for point in points.values():
+				if absf(point.x-target.x)<box.size.x*width and absf(point.y-target.y)<box.size.y*.25: front=minf(front,point.z)
+			if front!=INF: break
+		if front==INF: front=box.position.z
+		mounts.append(Vector3(target.x,target.y,front-.05))
+	set_meta("lamp_mounts",mounts)
+	return mounts
 
 func replacement_bounds() -> AABB:
 	var result := solid_bounds()

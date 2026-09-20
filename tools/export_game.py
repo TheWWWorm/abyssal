@@ -69,7 +69,12 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
         if source.is_symlink() or source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg'}:raise ValueError('Unexpected runtime source: '+name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
-    text=settings.read_text().replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
+    text=settings.read_text()
+    # Desktop x86-64 keeps the project's Forward+ renderer (Vulkan), which the
+    # enhanced lighting is written for; the project falls back to OpenGL by
+    # itself where no Vulkan device exists. Web and Android have
+    # no Forward+; macOS and ARM Linux exports are unverified and stay on OpenGL.
+    if platform not in {'linux','windows'}:text=text.replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
     if platform in {'web','android'}:
         text=text.replace('anti_aliasing/quality/msaa_3d=2','anti_aliasing/quality/msaa_3d=0').replace('atlas_size=8192','atlas_size=2048').replace('directional_shadow/size=4096','directional_shadow/size=1024')
     if platform in {'web','android','macos','linux-arm64'}:text=text.replace('[rendering]','[rendering]\n\ntextures/vram_compression/import_etc2_astc=true')

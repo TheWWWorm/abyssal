@@ -51,6 +51,9 @@ pointing/emulate_mouse_from_touch=true
 renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
 renderer/rendering_method.web="gl_compatibility"
+; A desktop without a usable Vulkan device starts on OpenGL
+; instead of failing; the enhanced options that need Forward+ then stay off.
+rendering_device/fallback_to_opengl3=true
 anti_aliasing/quality/msaa_3d=2
 anti_aliasing/quality/use_taa=false
 lights_and_shadows/positional_shadow/atlas_size=8192
@@ -59,8 +62,11 @@ lights_and_shadows/positional_shadow/atlas_16_bits=false
 lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/16_bits=false
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
-environment/volumetric_fog/volume_size=256
-environment/volumetric_fog/volume_depth=128
+; Three times the default froxel grid keeps the headlight shafts smooth at
+; native resolution; the next step up (256x128) costs another millisecond a
+; frame near a lit station and is not distinguishable from this one.
+environment/volumetric_fog/volume_size=192
+environment/volumetric_fog/volume_depth=96
 environment/defaults/default_clear_color=Color(0.012, 0.035, 0.055, 1)
 
 [shader_globals]

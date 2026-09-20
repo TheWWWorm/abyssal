@@ -2,7 +2,7 @@
 import hashlib, io, json, pathlib, struct, sys, tempfile, unittest, zipfile
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
-from import_jar import bitmap, decode, pack
+from import_jar import bitmap, decode, pack, read_entry, model_format_problem
 
 class BrowserImportTests(unittest.TestCase):
     def test_bits_cross_bytes_and_signed(self):
@@ -56,6 +56,56 @@ class BrowserImportTests(unittest.TestCase):
             with zipfile.ZipFile(other,'w') as archive:
                 archive.writestr('META-INF/MANIFEST.MF','MIDlet-1: Other,/icon.png,OtherMIDlet\r\n')
             with self.assertRaisesRegex(ValueError,'not a DEEP MIDlet'):decode(other,root/'output')
+            self.assertFalse((root/'output').exists())
+
+    def test_short_deflate_entry_is_salvaged_by_size_and_crc(self):
+        # A repacked copy of the game's JAR ends one byte early: its last entry's
+        # deflate stream stops before the end-of-block marker, on top of the next
+        # local header. Both java.util.zip and zipfile refuse it although every
+        # byte of the payload is present. Recover it, and refuse a real loss.
+        import zlib
+        payload=bytes(range(256))*20
+        # Stored blocks, closed by a separate final empty block, so that the last
+        # byte carries only the end-of-stream marker, as in the damaged copy.
+        packer=zlib.compressobj(0,zlib.DEFLATED,-15);stream=packer.compress(payload)+packer.flush(zlib.Z_SYNC_FLUSH)+packer.flush()
+        manifest=b'MIDlet-1: Deep,/data/interface/icon.png,DeepMIDlet\r\n'
+        def local(name,data,crc,csize,usize,method):
+            return struct.pack('<IHHHHHIIIHH',0x04034b50,20,0,method,0,0,crc,csize,usize,len(name),0)+name+data
+        def central(name,crc,csize,usize,method,offset):
+            return struct.pack('<IHHHHHHIIIHHHHHII',0x02014b50,20,20,0,method,0,0,crc,csize,usize,len(name),0,0,0,0,0,offset)+name
+        def assemble(short_by):
+            # The directory claims the whole stream; the file holds short_by bytes less of it.
+            first=local(b'data/v3d/last.mbac',stream[:len(stream)-short_by],zlib.crc32(payload),len(stream),len(payload),8)
+            second=local(b'META-INF/MANIFEST.MF',manifest,zlib.crc32(manifest),len(manifest),len(manifest),0)
+            directory=central(b'data/v3d/last.mbac',zlib.crc32(payload),len(stream),len(payload),8,0)+central(b'META-INF/MANIFEST.MF',zlib.crc32(manifest),len(manifest),len(manifest),0,len(first))
+            return first+second+directory+struct.pack('<IHHHHIIH',0x06054b50,0,0,2,2,len(directory),len(first)+len(second),0)
+        with tempfile.TemporaryDirectory() as folder:
+            jar=pathlib.Path(folder)/'short.jar'
+            jar.write_bytes(assemble(0))
+            with zipfile.ZipFile(jar) as archive:self.assertEqual(read_entry(archive,archive.getinfo('data/v3d/last.mbac')),payload)
+            jar.write_bytes(assemble(1))
+            with zipfile.ZipFile(jar) as archive:
+                self.assertEqual(read_entry(archive,archive.getinfo('data/v3d/last.mbac')),payload)
+                self.assertEqual(read_entry(archive,archive.getinfo('META-INF/MANIFEST.MF')),manifest)
+            # Cut into the payload itself and the entry is genuinely lost.
+            jar.write_bytes(assemble(40))
+            with zipfile.ZipFile(jar) as archive:
+                with self.assertRaisesRegex(ValueError,'Damaged JAR entry'):read_entry(archive,archive.getinfo('data/v3d/last.mbac'))
+            # The whole conversion accepts the one-byte-short archive.
+            jar.write_bytes(assemble(1))
+            with self.assertRaises(Exception) as outcome:decode(jar,pathlib.Path(folder)/'output')
+            self.assertNotIn('Damaged JAR entry',str(outcome.exception))
+
+    def test_m3g_build_is_named_and_other_layouts_reach_conversion(self):
+        self.assertIsNone(model_format_problem(['META-INF/MANIFEST.MF','data/v3d/u0.mbac']))
+        self.assertIsNone(model_format_problem(['META-INF/MANIFEST.MF']))
+        self.assertIn('JSR-184',model_format_problem(['META-INF/MANIFEST.MF','data/3d/u0.m3g']))
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);jar=root/'m3g.jar'
+            with zipfile.ZipFile(jar,'w') as archive:
+                archive.writestr('META-INF/MANIFEST.MF','MIDlet-1: Deep,/data/interface/icon.png,DeepMIDlet\r\n')
+                archive.writestr('data/3d/u0.m3g',b'JSR184')
+            with self.assertRaisesRegex(ValueError,'JSR-184'):decode(jar,root/'output')
             self.assertFalse((root/'output').exists())
 
     def test_pack_is_keyed_by_the_converted_jar(self):

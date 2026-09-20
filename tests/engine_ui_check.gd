@@ -152,6 +152,7 @@ func run():
  await check_trade_quantity(game)
  await check_travel_fade(game)
  check_motion_steering()
+ check_free_look(game)
  check_gate_effects(game)
  await check_dock_notices(game)
  game.queue_free();await process_frame
@@ -263,10 +264,28 @@ func check_dock_notices(game) -> void:
  expect(not game.message.text.begins_with("Approach the station"),"A refused docking does not stay on screen while docked")
  # Docked, each answer replaces the last rather than waiting its turn: saving
  # must not report itself seven seconds after the key was pressed.
- game.notice("Docked at somewhere")
+ game.notice("Berth secured")
  game.notice("Saved")
  expect(game.message.text=="Saved" and game.pending_notices.is_empty(),"A message while docked answers the press that caused it")
  game.session.docked=false;game.clear_notices();game.close_page()
+
+func check_free_look(game) -> void:
+ # Alt or Ctrl with the mouse swings the chase camera round the hull instead
+ # of steering, hides the reticle, and lets go when the key is released.
+ game.close_page();game.session.docked=false;game.view.camera_mode=0
+ game.view.look_offset=Vector2.ZERO;game.view.look_held=false;game.view._process(.04)
+ var hull:Transform3D=game.view.player_model.global_transform
+ var behind:Vector3=hull.affine_inverse()*game.view.camera.global_position
+ expect(behind.z>0 and absf(behind.x)<1,"The chase camera starts behind the hull")
+ game.view.look_held=true;game.view.turn_look(Vector2(PI/2,0));game.view._process(.04)
+ var beside:Vector3=hull.affine_inverse()*game.view.camera.global_position
+ expect(beside.x>10 and absf(beside.z)<10,"Mouse right swings the camera round to the hull's starboard side")
+ expect(game.view.aim_point()==null,"Weapons fire straight ahead while looking around")
+ game.view.turn_look(Vector2(0,-9));expect(game.view.look_offset.y>=-1.26,"The look pitch stops short of the pole")
+ game.view.look_offset=Vector2(PI/2,0);game.view.look_held=false
+ for i in 40:game.view._process(.05)
+ var back:Vector3=hull.affine_inverse()*game.view.camera.global_position
+ expect(not game.view.looking_around() and back.z>0 and absf(back.x)<1,"The camera eases back behind the hull once the key is released")
 
 func check_gate_effects(game) -> void:
  # The gate model carries the original's own additive effects: the flare in the
@@ -349,7 +368,13 @@ func check_departure(game) -> void:
  expect(game.column.find_child("CargoReceipt",true,false)!=null,"Sale receipt remains after returning from another dock service")
  game.session.docked=true;game.depart()
  expect(game.page=="departure" and not game.session.docked,"Depart starts an exterior sequence before the briefing")
- expect(game.view.departure_hangar!=null and int(game.view.departure_hangar.record.id)==3308,"Departure selects the blue-lit hangar")
+ expect(game.view.departure_hangar!=null and game.view.departure_hangar.is_hangar(),"Departure selects the station's hangar")
+ expect(game.view.departure_frame.basis.y.dot(Vector3.UP)>.99,"The departure shot keeps the station's upright frame, so its camera sits above the berth")
+ game.view.place_departure(.1);game.view._process(.016);game.abyss._process(.016)
+ expect(game.view.player_clip_enabled and game.abyss.lamps.all(func(lamp):return not lamp.visible),"While the hull waits behind the door its lamps are behind the sill and off: no light before the ship")
+ game.view.place_departure(.6);game.view._process(.016);game.abyss._process(.016)
+ expect(game.view.player_clip_enabled and game.abyss.lamps.all(func(lamp):return lamp.visible) and game.abyss.beams[0].material_override.get_shader_parameter("clip_enabled")==true,"Once the nose crosses the sill the lamps are on and the beams are clipped by the door plane")
+ game.view.place_departure(0)
  var elapsed: int=game.world.region.elapsed_ms
  var previous: Array=game.world.region.player.pose.origin.duplicate()
  for i in 12:

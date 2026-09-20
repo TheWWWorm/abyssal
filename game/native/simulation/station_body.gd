@@ -7,18 +7,30 @@ var parts: Array=[]
 var shapes: Array=[]
 var extent:=5000
 var contact:=0
-func configure(station: Dictionary,_colonist: bool,sine: Array,geometry: Dictionary={}) -> void:
- parts=Layout.new().generate(station.id,station.depth,station.tech,sine,geometry);shapes=[];extent=0
+func configure(station: Dictionary,colonist: bool,sine: Array,geometry: Dictionary={}) -> void:
+ parts=Layout.new().generate(station.id,Layout.seed_depth(station.percent),station.tech,sine);shapes=[];extent=0
  for part in parts:
+  # The generator keeps the original's numbers in the original's frame:
+  # +y up (the top cap at +4500 over the hangar, the habitats hanging below)
+  # and the other hand's x. This simulation's +y is deeper and its x runs
+  # the other way (the depth gauge, the models and the render all agree), so
+  # the layout is turned over and mirrored here, not in the generator, with
+  # each part's yaw reversed to match. Left as it was, every station stood
+  # on its head, caps swapped, and its branches grew out of the wrong side
+  # of the hangar compared with the phone game.
+  part.origin[0]=-int(part.origin[0]);part.origin[1]=-int(part.origin[1])
+  part.yaw=(4096-int(part.yaw))%4096
   var box: Dictionary=geometry.get(str(part.model_id),{"center":[0,0,0],"extent":[4000,4000,4000]})
   var rotation:=Basis(Vector3.UP,part.yaw*TAU/4096.0)
-  var shape:=Shape.new();shape.origin=part.origin.duplicate();shape.offset=Math.array(rotation*Math.vector(box.center))
+  # The module is drawn turned half a turn about its socket axis (see the
+  # presentation's STATION_ROLL); its measured box centre turns with it.
+  var center: Vector3=Math.vector(box.center);center=Vector3(-center.x,-center.y,center.z)
+  var shape:=Shape.new();shape.origin=part.origin.duplicate();shape.offset=Math.array(rotation*center)
   var size:=Math.vector(box.extent)
   shape.half_size=Math.array(rotation.x.abs()*size.x+rotation.y.abs()*size.y+rotation.z.abs()*size.z)
   shapes.append(shape)
   for axis in 3:extent=maxi(extent,absi(shape.origin[axis]+shape.offset[axis])+shape.half_size[axis])
-  # Station modules keep a stable pose; faction is conveyed by status/UI.
-  part.animation_range=[0,0];part.frame_ms=100
+  part.animation_range=Layout.animation_range(int(part.model_id),colonist);part.frame_ms=Layout.frame_interval(int(part.model_id))
  extent+=1000
 func contains(point: Array) -> bool:
  for index in shapes.size():

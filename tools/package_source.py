@@ -5,7 +5,8 @@ from paths import ROOT
 from audit_provenance import verify as verify_provenance
 MANIFEST=ROOT/'source-manifest.json'
 ALLOWED={'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.java','.py','.md','.txt','.json','.uid','.js','.toml','.svg'}
-IGNORED={'.godot','__pycache__','.git','public'}
+# docs/ holds screenshots for the README: pictures, not source, and not archived.
+IGNORED={'.godot','__pycache__','.git','public','docs'}
 
 def source_files():
     names=json.loads(MANIFEST.read_text())['files']

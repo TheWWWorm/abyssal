@@ -17,6 +17,7 @@ var pitch_input := 0.0
 var strafe_input := 0.0
 var bank := 0
 var visual_bank := 0
+var strafe_bank := 0.0
 var yaw_step := 0
 var pitch_total := 0
 var speed_factor := 2
@@ -27,6 +28,30 @@ var throttle_held_ms := 0
 var throttle_direction := 0
 var mouse_remainder := Vector2.ZERO
 var steering_quiet_ms := 0
+## The original turns at its full rate the instant a key goes down and stops
+## the instant it comes up, and the mouse here turned the hull one step per
+## pixel with no ceiling at all. Smooth steering runs the helm through a short
+## lag instead, so the hull leans into a turn and eases out of it, and holds
+## the mouse to a multiple of the ship's own steering rate, which also lets
+## the steering upgrades mean something to a mouse pilot. Direct restores the
+## original response.
+var smooth_steering := false
+## Time for the helm to close about two thirds of the gap to its input.
+const STEER_RESPONSE_MS := 150.0
+const MOUSE_RESPONSE_MS := 80.0
+## Mouse turn ceiling as a multiple of the key-steering rate: three times
+## the original's, so a full about-turn still takes the starter hull a
+## couple of seconds rather than a flick.
+const MOUSE_RATE_FACTOR := 3.0
+## Mouse motion still owed once the ceiling bites, in Q12 units. Anything
+## beyond it is dropped rather than carried, or a wide flick would leave the
+## hull turning for seconds after the hand stopped.
+const MOUSE_BACKLOG := 700.0
+var yaw_level := 0.0
+var pitch_level := 0.0
+var yaw_carry := 0.0
+var pitch_carry := 0.0
+var mouse_carry := Vector2.ZERO
 var boost_active := false
 var boost_timer := 0
 var shield_timer := 0
@@ -76,21 +101,38 @@ func advance(delta_ms: int) -> void:
  elif autopilot_target!=null:
   var target: Array=autopilot_target if autopilot_target is Array else autopilot_target.pose.origin
   desired=(Math.vector(target)-Math.vector(pose.origin)).normalized()
+ if smooth_steering:
+  var blend:=1.0-exp(-delta_ms/STEER_RESPONSE_MS)
+  yaw_level=lerpf(yaw_level,yaw_input,blend);pitch_level=lerpf(pitch_level,pitch_input,blend)
+  # A helm that has all but come to rest is at rest, or the tail of every
+  # turn would be a slow creep of single steps.
+  if absf(yaw_level)<.01 and yaw_input==0:yaw_level=0.0
+  if absf(pitch_level)<.01 and pitch_input==0:pitch_level=0.0
+ else:yaw_level=yaw_input;pitch_level=pitch_input
  if desired.length_squared()>.5:
   var facing:=Math.vector(pose.forward).normalized()
   pose.face(Math.array(facing.lerp(desired,1-exp(-delta_ms*.006)).normalized()*4096))
+  yaw_carry=0.0;pitch_carry=0.0;mouse_remainder=Vector2.ZERO;mouse_carry=Vector2.ZERO
  else:
-  yaw_step=roundi(stats.steering()*yaw_input*delta_ms/3.0)
-  var pitch_step:=roundi(stats.steering()*pitch_input*delta_ms/3.0)
+  var rate: float=stats.steering()*delta_ms/3.0
+  # Carry the fractions: the original rounds each tick, which at full input
+  # is exact, but a helm settling through small values must not lose them.
+  yaw_carry+=rate*yaw_level;pitch_carry+=rate*pitch_level
+  yaw_step=roundi(yaw_carry);var pitch_step:=roundi(pitch_carry)
+  yaw_carry-=yaw_step;pitch_carry-=pitch_step
+  if not smooth_steering:yaw_carry=0.0;pitch_carry=0.0
   pose.rotate_local("yaw",yaw_step);pose.rotate_local("pitch",pitch_step);pitch_total+=pitch_step
- # Mouse steering is applied before advance(), so axis inputs alone cannot
- # tell whether the pilot is maneuvering. Never level against an active loop.
- if yaw_input!=0 or pitch_input!=0:steering_quiet_ms=0
+  apply_mouse(delta_ms)
+ if yaw_level!=0 or pitch_level!=0:steering_quiet_ms=0
  else:steering_quiet_ms=mini(1000,steering_quiet_ms+delta_ms)
  if steering_quiet_ms>=600:pose.auto_level(delta_ms)
  pose.advance(roundi(delta_ms*speed_factor*throttle/100.0))
  if strafe_input!=0:pose.strafe(roundi(strafe_input*delta_ms*speed_factor*STRAFE_RATE))
- bank=roundi(move_toward(float(bank),yaw_input*320.0,delta_ms*1.2));visual_bank=-bank
+ bank=roundi(move_toward(float(bank),yaw_level*320.0,delta_ms*1.2))
+ # A gentle seven-degree lean follows lateral thrust and settles after release.
+ # Only the rendered hull banks; flight, aiming and collision keep the same pose.
+ strafe_bank=lerpf(strafe_bank,strafe_input*80.0,1-exp(-delta_ms*.007))
+ visual_bank=-bank+roundi(strafe_bank)
  yaw_input=0;pitch_input=0;strafe_input=0
  depth=maxi(500,station_depth+roundi(depth_direction*pose.origin[1]/8.0))
  if stats.shield>0 and stats.shield_interval>0 and depth>=stats.minimum_depth:
@@ -114,10 +156,27 @@ func adjust_throttle(direction: int, milliseconds: int) -> void:
   set_throttle(throttle_target+direction*25); throttle_held_ms=0
 
 func mouse_steer(x: float, y: float) -> void:
+ """Queues mouse motion, in Q12 units, for the next advance() to turn into
+ rotation; steering while the helm is held (contact, autopilot) is dropped
+ there, as key steering is."""
  if x!=0 or y!=0:steering_quiet_ms=0
  mouse_remainder+=Vector2(x,y)
- var yaw := int(mouse_remainder.x); var pitch := int(mouse_remainder.y)
- mouse_remainder-=Vector2(yaw,pitch)
- if yaw==0 and pitch==0: return
- pose.rotate_local("yaw",yaw); pose.rotate_local("pitch",pitch)
+ if smooth_steering:mouse_remainder=mouse_remainder.limit_length(MOUSE_BACKLOG)
+
+func apply_mouse(delta_ms: int) -> void:
+ var wanted:=mouse_remainder
+ if smooth_steering:
+  wanted*=1.0-exp(-delta_ms/MOUSE_RESPONSE_MS)
+  var ceiling: float=stats.steering()*MOUSE_RATE_FACTOR*delta_ms/3.0
+  wanted=Vector2(clampf(wanted.x,-ceiling,ceiling),clampf(wanted.y,-ceiling,ceiling))
+  # The tail of the lag is finished outright rather than creeping in
+  # fractions of a step for ever.
+  if mouse_remainder.length()<3.0:wanted=mouse_remainder
+ mouse_remainder-=wanted
+ mouse_carry+=wanted
+ var yaw:=roundi(mouse_carry.x);var pitch:=roundi(mouse_carry.y)
+ mouse_carry-=Vector2(yaw,pitch)
+ if yaw==0 and pitch==0:return
+ steering_quiet_ms=0
+ pose.rotate_local("yaw",yaw);pose.rotate_local("pitch",pitch)
  bank=clampi(bank+yaw*2,-384,384)

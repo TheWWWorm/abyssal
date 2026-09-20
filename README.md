@@ -6,6 +6,16 @@ Abyssal is a separate game engine, built in Godot, that reads a DEEP JAR you alr
 
 > **You need your own copy of DEEP.** No game data ships with this engine - no models, textures, music, sound or interface art. Nothing is downloaded for you. Without your own JAR there is nothing to play.
 
+## What it looks like
+
+[![The engine module of a station, its rotor turning under the work lamps, lit by the submarine's headlights](docs/screenshots/station-engine.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-station-engine.png)
+
+[![The submarine leaving a station's berth, its beams out ahead of it](docs/screenshots/leaving-the-berth.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-leaving-the-berth.png)
+
+[![A S.T.R.E.A.M. gate opening in front of the submarine](docs/screenshots/stream-gate.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-stream-gate.png)
+
+Each picture opens at its full 5120x2880. There is also a [one-minute trailer in 4K](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-trailer-4k.mp4) - stations from outside and in, a departure, a fight, the gate - rendered by the engine itself from a converted copy of the game.
+
 ## Play in your browser
 
 **[Play now at abyssal.wwworm.com](https://abyssal.wwworm.com/)** - nothing to install. Open the page, choose your own DEEP JAR, and it converts in your browser. Your JAR is never uploaded; the conversion runs entirely on your machine and the converted content stays in your browser's local storage.
@@ -69,6 +79,8 @@ Builds that have actually been run through the importer:
 | --- | --- |
 | Sony Ericsson 1.0.8 (English) | Developed and validated against this build |
 | Sony Ericsson 1.0.3 (Russian) | Converts; the engine check suite passes on it, and the game is in Russian |
+| "Deep 3D: Submarine Odyssey (Mascot3D)" 1.0.8, Fishlabs manifest | Converts. It is the same build as the Sony Ericsson release apart from its manifest, but the circulating copy is repacked with its last entry a byte short, which stock ZIP readers refuse. The importer recovers the entry, checks its size and CRC, and produces identical content |
+| "Deep 3D Submarine Odyssey" 1.0.8 with `data/3d/*.m3g` | Does not convert, and says so. This is the JSR-184 (M3G) edition of the game: its models are in a different format from the Mascot Capsule (MBAC) builds the engine decodes |
 | Nokia 1.0.3 | Does not convert; its code differs in ways the restricted data reader does not cover |
 
 If a build does not match, import stops with a message naming what did not fit, rather than producing a broken game.
@@ -78,9 +90,10 @@ If a build does not match, import stops with a message naming what did not fit, 
 - **Windows and macOS have never been run on their native systems.** They are built and packaged, but not tested on real hardware. Both are unsigned and macOS is not notarized, so those systems may warn about or block them.
 - **macOS is Apple Silicon only.** Intel Macs cannot run this build.
 - **Linux x86-64 and Android** have local rendering checks; see the release’s `VALIDATION.md` for the exact checks and hardware limits.
+- **Linux x86-64 and Windows** start on Vulkan and fall back to OpenGL 3.3 without one; the Graphics page's Forward+ options (volumetric light, shading detail, temporal antialiasing) only take effect on Vulkan.
 - **Linux ARM64** requires a 64-bit ARM Linux system and working OpenGL 3.3 or OpenGL ES 3.0 drivers. Native ARM Linux execution and gameplay are not yet verified. The archive is a desktop export; PortMaster handhelds require additional launcher and runtime integration, and compatibility depends on the device and firmware.
 - **The browser build needs a web host.** Opening `index.html` from your disk will not work.
-- **Android** is a sideloaded preview APK. Physical ARM64 hardware performance is not yet verified; Android validation uses an x86-64 emulator.
+- **Android** is a sideloaded APK. Physical ARM64 hardware performance is not yet verified; Android validation uses an x86-64 emulator.
 
 ## Controls
 
@@ -96,11 +109,16 @@ If a build does not match, import stops with a message naming what did not fit, 
 | World map / autopilot | M / R (hold R for objective) | View (Back) / LB | MAP / ROUTE |
 | Time: 1×/2×, autopilot to 16× | T | RB | TIME |
 | Camera / lights | C / L | D-pad left / right | VIEW / Graphics menu |
+| Look around the hull | Hold Alt or Ctrl, move the mouse | - | - |
 | Pause / back | Escape | Start / B | MENU / Back |
 | Menus | Arrows / Enter | D-pad or stick / A | Tap |
 | Auto fire / fullscreen | Q / F11 | - | Hold weapon / FULL |
 
 **Controls** in the options menu is grouped into **Steering**, **Gamepad**, **Touch controls**, **Key bindings** and a **Control reference**, so each page is short enough to walk with a D-pad; leaving a section puts the highlight back on the row that opened it. Between them they offer keyboard remapping, mouse sensitivity and inversion, tilt steering, controller deadzone and inversion, touch look sensitivity, Touch **Auto / On / Off**, touch control placement, and left/right handling as **Auto / Always strafe / Always turn**. Only the most recently used controller owns flight. The game pauses if a controller disconnects or the window loses focus. In the browser it also pauses if the page gives your pointer back, which is what pressing Escape there does.
+
+**Look around** by holding Alt (or Ctrl) and moving the mouse: the chase camera swings around the submarine instead of steering it, right and left, over and under, and eases back behind the hull when the key is released. The reticle goes with it - shots fire straight ahead while you are looking around.
+
+**Helm response**, under Controls · Steering, is **Direct** by default: the original's response, with the full rate the instant a key goes down, none the instant it comes up, and the mouse turning the hull one step per pixel. **Smooth** eases the submarine into a turn over a fraction of a second and out of it when the key or stick is released, and holds the mouse to three times the hull's own steering rate, so the steering upgrades in the shop count for a mouse pilot too. The reticle is the chase camera's: shots converge on whatever it rests on, and in open water on the point where they run out, so a burst ends on the crosshair. The front and side cameras have no reticle, and the weapons fire straight ahead in them, as the original always did.
 
 **Steer by tilting**, under Controls · Steering, flies the submarine by tilting a phone or tablet. It reads the device's own motion sensor, so a desktop machine has nothing to offer it, and a browser asks permission the moment you switch it on. Tilt turns; it never strafes, and the stick and touch controls keep working alongside it. **Centre tilt on how it is held now** makes your current grip the neutral position, and **Tilt sensitivity** sets how far you have to lean for a full turn.
 
@@ -134,7 +152,11 @@ Map search offers continuous autopilot or a STREAM transfer. Time acceleration r
 
 Encounters come from reusable mission types with generated formations and routes. Colonist stations buy all remaining cargo at fixed catalog prices once deliveries due there are complete, and the dock keeps an explicit sale receipt. Other stations keep your cargo for manual trading and crafting.
 
+Stations are assembled as the original assembles them: each grows from its own seed as a tree of the imported modules - a hangar of either kind at the root, bridges, engines, starters and side habitats one socket step apart, habitats stacked above and below with bottom, top or cannon caps, and the emblem frames of whichever faction holds it. Their silhouettes match the phone's station for station.
+
 Classic instruments work with either classic or enhanced lighting, and both use the original models and textures. Modern lighting derives hull relief, roughness and warm window masks from your own imported textures at runtime; the source textures and silhouettes are preserved. Station textures stay pixelated by default - turn on **Station texture smoothing** in Graphics if you prefer filtered surfaces in either lighting mode. The change applies immediately, including to distant stations.
+
+The enhanced options in **Graphics**: **Headlights** are the two work lights on the pod noses, lighting whatever the submarine faces (L in flight). **Headlight beams** draws their cones in the water, two separate beams as in the original, each ending where it meets a hull or a station wall; it is an option so a pilot who prefers a clean view can turn the cones off and keep the light. **Volumetric light** is the glow of station lamps in the water, **Surface shading detail** the ambient occlusion in the station's crevices; both need the Forward+ renderer. **Temporal antialiasing** needs it too: the Linux and Windows builds start on Vulkan and use it, and fall back to OpenGL on a machine without a Vulkan device, where those three rows say so and do nothing. The browser, Android, macOS and ARM Linux builds run on OpenGL.
 
 **Action freeze** in the pause menu holds the dive still and hands you the camera: orbit, pan and zoom around your submarine, hide the panel for a clean view, then resume exactly where you left off. An on-screen bar carries every action, including **Back to pause** and **Resume dive**, so it needs no keyboard; Escape and the pad's cancel button also leave. Nothing is simulated or saved while frozen.
 
@@ -145,6 +167,27 @@ Hits show the direction they came from as arcs around the centre of the view, so
 **Graphics** offers a picture **Aspect ratio**: **Auto** fills the window, and **4:3**, **16:9**, **16:10** or **21:9** pin the picture shape and letterbox the rest.
 
 Campaign and radio content comes from your local JAR. Exact choreography, timings and balance can differ from the original. Existing engine saves migrate to the native RNG, so future random outcomes may change.
+
+### Mods: how to replace textures and models
+
+Nothing is shipped as a mod; the game reads a `mods` folder you make yourself, and whatever it finds there stands in for the imported art. Collision, aim and the camera keep the imported models' extents, so a mod changes the look, not the game.
+
+**Where the folder goes.** Either next to the executable (`AbyssalEngine/mods/` beside `abyssal.x86_64` or `abyssal.exe`; beside the `.app` on macOS), or in the user data folder, which every build reads, including Android and the browser packages you host yourself:
+
+- Linux: `~/.local/share/abyssal-engine/mods/`
+- Windows: `%APPDATA%\abyssal-engine\mods\`
+- macOS: `~/Library/Application Support/abyssal-engine/mods/`
+
+**Textures.** Put a PNG at `mods/textures/deep.png`, `mods/textures/fx.png` or `mods/textures/skybox.png` to replace that atlas. `deep` carries the submarines, creatures and stations, `fx` the shots, explosions and effects, `skybox` the surface. Any size works: a 4x or 8x repaint is drawn at more pixels per texel, but keep the original's layout, because every model addresses the atlas by the original's texel positions. The PNG's own alpha channel is used where the original used cut-outs. To get the originals to paint over, open your content cache (the `user data folder/content/<hash>/data/textures/` directory) and copy `deep.bmp.png`, `fx.bmp.png` and `skybox.bmp.png` out of it.
+
+**Models.** Put a glTF at `mods/models/<name>.glb` (or `.gltf`) to replace the model of that name. The model is scaled uniformly to the imported model's longest extent and centred on it, so orient it the way the original faces in the content inspector on the title screen. If the file carries animations, the first one loops; the imported skeletal poses are not applied. The names:
+
+- Submarines: `u0` to `u10`, in dealer order.
+- Stations: `station_hangar_ve`, `station_hangar_de` (the two hangar roots), `station_habitat_ve`, `station_habitat_de`, `station_sidehabitat`, `station_starter`, `station_top`, `station_bottom`, `station_engine`, `station_bridge_01`, `station_bridge_02`, `station_cannon`.
+- Creatures: `shark_01`, `shark_02`, `whale_01`, `whale_02`, `marlin_01`, `marlin_02`, `devilfish_01`, `devilfish_02`, `anglerfish_01`, `anglerfish_02`, `squid_01`, `squid_02`, `shrimp_01`, `shrimp_02`, `turtle_01`, `turtle_02`, `gulper_eel`, `jellyfish`, `manta`, `nautilus`, `fish_swarm`, `alga_blue`, `alga_brown`, `alga_gold`, `alga_green`, `alga_red`.
+- Vessels and objects: `tanker1`, `aquar`, `kapsel`, `box`, `biowaste`, `trash`, `mine`, `torpedo`, `pfeil` (the harpoon), `laser_0` to `laser_11` and `laser_aqua` (the shots), `explosion`, `fischtod`, `eclipse`, `limiter_up`, `limiter_down`, `stream` (the gate), `skybox`.
+
+Replacements are read when the game starts, so restart after adding or changing a file. Distant streamed stations keep the imported models until you are close. A file the game cannot read is reported once in the log and the imported model is used instead.
 
 ## Browser version
 
@@ -174,7 +217,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is a **development preview**, and its public release provenance is unresolved.
+This is **release 1.0.0**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
@@ -192,11 +235,11 @@ Requires Godot **4.7 Standard** with matching export templates, and Python 3.10+
 
 ```sh
 # All player packages, including the offline desktop and Android importers:
-python3 tools/package_releases.py --version 0.1.0-preview.5 --output /outside/repo/releases/0.1.0-preview.5
+python3 tools/package_releases.py --version 1.0.0 --output /outside/repo/releases/1.0.0
 # A single unpackaged export (windows, linux, linux-arm64, macos, web, android):
 python3 tools/export_game.py --platform linux --release --output /outside/repo/builds/linux
 # A standalone ARM64 Linux package:
-python3 tools/package_releases.py --platform linux-arm64 --version 0.1.0-preview.5 --output /outside/repo/releases/arm64
+python3 tools/package_releases.py --platform linux-arm64 --version 1.0.0 --output /outside/repo/releases/arm64
 ```
 
 Builds fetch and verify pinned runtimes once into an external cache (`~/.cache/abyssal-engine` on Linux, `~/Library/Caches/abyssal-engine` on macOS, `%LOCALAPPDATA%/abyssal-engine` on Windows; override with `ABYSSAL_CACHE_HOME`). No JAR is needed to build. Pass `--godot /path/to/godot` or set `GODOT_PATH` if it is not on your PATH.
@@ -218,7 +261,7 @@ Install Godot 4.7 and its matching Android build template (`android_source.zip`)
 python3 tools/export_game.py --platform android --output /path/outside/source/android
 ```
 
-This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 0.1.0-preview.5 --version-code 5`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
+This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 1.0.0 --version-code 21`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
 
 The Android build stages a small Java plugin into Godot’s official Gradle template. A private Android import process shows conversion progress and returns to the game when finished. Android System WebView runs the same Python data reader and procedural audio converter used by the browser and desktop packages. All converter files are bundled in APK assets, all network requests are blocked, and gameplay remains native Godot. License inventories are bundled under `assets/abyssal-importer/` inside the APK.
 

@@ -39,13 +39,15 @@ def language_root(root):
     if not languages:raise DataError(UNMATCHED+'no localisation under data/lang')
     return next((path for path in languages if path.name=='en'),languages[0])
 
-def extract(jar,root):
-    try:return read_profile(jar,root)
+def extract(jar,root,digest=None):
+    """digest names the archive the player chose when a repacked readable copy
+    of it is what is being read; the content is keyed by the original."""
+    try:return read_profile(jar,root,digest)
     except DataError:raise
     except (OSError,ValueError,KeyError,IndexError,TypeError,AttributeError) as error:
         raise DataError(UNMATCHED+f'{type(error).__name__}: {error}') from error
 
-def read_profile(jar,root):
+def read_profile(jar,root,digest=None):
     root=pathlib.Path(root);tables=table_rows(root)
     with zipfile.ZipFile(jar) as archive:
         present=set(archive.namelist())
@@ -137,7 +139,7 @@ def read_profile(jar,root):
         species_count=len(tables['creatures']);habitat=[]
         for offset in range(min(6,species_count)):habitat.extend([(index*7+offset*5)%species_count,20])
         habitats.append(habitat)
-    out={'schema':1,'jar_sha256':hashlib.sha256(pathlib.Path(jar).read_bytes()).hexdigest(),'importer':'native-6','language':language.name,'constants':constants,'tables':tables,'campaign':campaign,'timelines':timelines,'strings':strings,'name_pools':names,'habitats':habitats,'data_reader':'restricted-class-data-1','station_geometry':geometry}
+    out={'schema':1,'jar_sha256':digest or hashlib.sha256(pathlib.Path(jar).read_bytes()).hexdigest(),'importer':'native-6','language':language.name,'constants':constants,'tables':tables,'campaign':campaign,'timelines':timelines,'strings':strings,'name_pools':names,'habitats':habitats,'data_reader':'restricted-class-data-1','station_geometry':geometry}
     (root/'native-data.json').write_text(json.dumps(out,separators=(',',':')))
     return out
 

@@ -64,7 +64,11 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertTrue((stage/'project.godot').is_file())
                 self.assertFalse((stage/'tools').exists())
                 self.assertFalse((stage/'data').exists())
-                self.assertNotIn('forward_plus',(stage/'project.godot').read_text())
+                # Desktop x86-64 keeps Forward+ with the OpenGL fallback; everything else exports on OpenGL.
+                settings=(stage/'project.godot').read_text()
+                if platform in {'linux','windows'}:
+                    self.assertIn('renderer/rendering_method="forward_plus"',settings);self.assertIn('fallback_to_opengl3=true',settings)
+                else:self.assertNotIn('forward_plus',settings)
                 self.assertFalse(any(p.suffix in {'.jar','.wav','.png','.abyss'} for p in stage.rglob('*')))
             self.assertIn('variant/thread_support=false',(pathlib.Path(folder)/'web/export_presets.cfg').read_text())
             for platform,architecture in [('linux','x86_64'),('linux-arm64','arm64')]:

@@ -6,6 +6,7 @@ var root := ""
 var models: Dictionary = {}
 var meshes: Dictionary = {}
 var textures: Dictionary = {}
+var texture_sizes: Dictionary = {}
 var surface_maps: Dictionary = {}
 var shaders: Dictionary = {}
 var native_pose_cache: Dictionary = {}
@@ -36,10 +37,27 @@ func texture(resource: String, alpha: bool = false) -> Texture2D:
 		if img == null:
 			push_error("Missing imported texture: " + path)
 			return null
+		texture_sizes[path]=Vector2(img.get_width(),img.get_height())
+		# A player's own atlas stands in for the imported one at any size; the
+		# art keeps addressing it by the original's texels (texture_size).
+		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
+		if not replacement.is_empty():
+			var own := Image.load_from_file(replacement)
+			if own!=null: img=own
+			else: push_warning("Could not read replacement texture: "+replacement)
 		img.convert(Image.FORMAT_RGBA8)
 		img.generate_mipmaps()
 		textures[path] = ImageTexture.create_from_image(img)
 	return textures[path]
+
+func texture_size(resource: String, alpha: bool = false) -> Vector2:
+	"""The imported atlas's size in texels, which is what the geometry's
+	texture coordinates count in, whatever size is actually drawn."""
+	var path := root.path_join(resource)
+	if resource.ends_with(".bmp"):
+		path += ".alpha.png" if alpha else ".png"
+	if not texture_sizes.has(path): texture(resource,alpha)
+	return texture_sizes.get(path,Vector2.ONE)
 
 func data(resource: String) -> Dictionary:
 	if not models.has(resource):
@@ -122,7 +140,7 @@ func mesh_for(resource: String, pattern: int) -> Array:
 		var is_textured := int(polygon.texture) >= 0
 		var lit := int(a[2 if is_textured else 3]) != 0
 		var alpha := is_textured and int(a[4]) != 0
-		var door:bool=resource.ends_with("station_hangar_ve.mbac") and polygon.indices.all(func(i):return i>=40 and i<=45)
+		var door:bool=is_hangar_door(resource,polygon)
 		var two_sided:bool=polygon.double_sided or (resource.get_file().begins_with("station_") and int(polygon.blend)==0)
 		var group_key := str([polygon.texture, polygon.blend, two_sided, lit, alpha,door])
 		if not groups.has(group_key):
@@ -158,6 +176,16 @@ func mesh_for(resource: String, pattern: int) -> Array:
 		surfaces.append(g)
 	meshes[key] = [mesh, surfaces]
 	return meshes[key]
+
+static func is_hangar_door(resource: String, polygon: Dictionary) -> bool:
+	"""The berth door of either hangar: the panel between the blue lamps is
+	the one face of each that is painted with the door's texels."""
+	if not resource.get_file().begins_with("station_hangar_"):return false
+	var a: Array=polygon.attributes
+	for j in polygon.indices.size():
+		var u := float(a[j*5]);var v := float(a[j*5+1])
+		if u<48 or u>61 or v<98 or v>109:return false
+	return true
 
 func figure(call: Dictionary) -> Node3D:
 	var node := Node3D.new()
@@ -224,7 +252,7 @@ func pose(node: Node3D, call: Dictionary) -> void:
 	for i in mesh.mesh.get_surface_count():
 		var mat := mesh.get_surface_override_material(i) as ShaderMaterial
 		if not pose_key.is_empty():
-			mat=mat.duplicate(); mesh.set_surface_override_material(i,mat)
+			mat=pose_copy(mat); mesh.set_surface_override_material(i,mat)
 			pose_materials.append(mat)
 		mat.set_shader_parameter("source_bones",transforms)
 		mat.set_shader_parameter("water_to_world",water_to_world)
@@ -243,6 +271,23 @@ func pose(node: Node3D, call: Dictionary) -> void:
 	if not pose_key.is_empty():
 		if native_pose_cache.size()>=512: native_pose_cache.erase(native_pose_cache.keys()[0])
 		native_pose_cache[pose_key]={"materials":pose_materials,"bounds":mesh.custom_aabb}
+
+static func pose_copy(material: ShaderMaterial) -> ShaderMaterial:
+	"""A pose material for the shared cache, taken from whatever the mesh is
+	wearing. That may be one model's own fade, portal-clip or hangar-door
+	instance, and a duplicate carries the instance's state and metadata:
+	a station part first posed while its station was fading in was cached
+	half dithered, and every part sharing the pose then flickered into a
+	see-through box whenever its animation reached that frame."""
+	while material.has_meta("stream_original") or material.has_meta("portal_original"):
+		material=material.get_meta("stream_original") if material.has_meta("stream_original") else material.get_meta("portal_original")
+	var copy := material.duplicate() as ShaderMaterial
+	for name in ["stream_original","portal_original","hangar_instance"]:
+		if copy.has_meta(name): copy.remove_meta(name)
+	copy.set_shader_parameter("stream_visibility",1.0)
+	copy.set_shader_parameter("portal_clip_enabled",false)
+	copy.set_shader_parameter("hangar_open",0.0)
+	return copy
 
 func pose_bounds(resource: String, transforms: Array[Transform3D]) -> AABB:
 	var bounds: Array = data(resource).segment_bounds
@@ -469,16 +514,36 @@ if(replacement_enabled && architecture_enabled){
 				code += "ALPHA=0.5;\n"
 			elif blend == 4 or blend == 6:
 				code += "ALPHA=1.0;\n"
-		# Godot requires every FOG-writing shader path to initialize its output.
-		# Classic rendering disables distance haze; an unwritten FOG becomes black.
 		if sky_pass==0 and blend in [4,6]:
 			# Add/subtract surfaces must attenuate toward zero. Their fog-disabled
 			# blend path ignores FOG; otherwise distant effects keep full brightness.
-			code += "FOG=vec4(0.0);float transmission=exp(-length(VERTEX)*max(distance_haze,0.0));ALBEDO*=transmission;EMISSION*=transmission;\n"
+			code += "float transmission=exp(-length(VERTEX)*max(distance_haze,0.0));ALBEDO*=transmission;EMISSION*=transmission;\n"
+		elif sky_pass==0:
+			# The water haze is folded into the surface itself rather than written
+			# to FOG. A shader that writes FOG is excluded from the volumetric fog
+			# the scene renders in front of it, so a hull or a station module two
+			# kilometres off stood as a black cut-out in the lit water ahead of the
+			# submarine: the water glowed, the thing in it did not. Attenuating the
+			# surface and adding the scattered radiance as emission is the same
+			# blend, and leaves the volumetric fog to fall on it like everything else.
+			# Near station haze still absorbs light without lifting shadows into
+			# blue, so the scattered radiance is held back over docking distances;
+			# it has to be the full water colour by a kilometre, well before the
+			# haze is opaque, or a station one to two kilometres off is a dark box
+			# against brighter water at the very range where the whole structure
+			# is in view.
+			# Compatibility has no volumetric fog, and its sky feeds the same water
+			# through the fog input, so there the haze stays on FOG, whose colour
+			# handling matches that sky's; an unwritten FOG there would be black.
+			code += "vec4 haze=vec4(0.0);if(distance_haze>0.0){vec3 ray=normalize((INV_VIEW_MATRIX*vec4(VERTEX,0.0)).xyz);haze=ocean_fog(ray,length(VERTEX),distance_haze);if(station_coating){haze.rgb*=smoothstep(250.0,900.0,length(VERTEX));}}\n"
+			code += "#if CURRENT_RENDERER == RENDERER_COMPATIBILITY\nFOG=haze;\n#else\n"
+			if lit and modern:
+				code += "ALBEDO*=1.0-haze.a;SPECULAR*=1.0-haze.a;EMISSION=EMISSION*(1.0-haze.a)+haze.rgb*haze.a;\n"
+			else:
+				code += "ALBEDO=mix(ALBEDO,haze.rgb,haze.a);\n"
+			code += "#endif\n"
 		else:
-			# Near station haze absorbs light without lifting shadows into blue.
-			# Scattered water radiance enters gradually across the distant silhouette.
-			code += "FOG=vec4(0.0);if(distance_haze>0.0){vec3 ray=normalize((INV_VIEW_MATRIX*vec4(VERTEX,0.0)).xyz);FOG=ocean_fog(ray,length(VERTEX),distance_haze);if(station_coating){FOG.rgb*=smoothstep(250.0,2400.0,length(VERTEX));}}\n"
+			code += "FOG=vec4(0.0);\n"
 		code += "}\n"
 		var shader := Shader.new()
 		shader.code = code
@@ -488,6 +553,6 @@ if(replacement_enabled && architecture_enabled){
 	if resource != "":
 		var tex := texture(resource,alpha)
 		mat.set_shader_parameter("albedo",tex)
-		mat.set_shader_parameter("texture_size",Vector2(tex.get_width(),tex.get_height()))
+		mat.set_shader_parameter("texture_size",texture_size(resource,alpha))
 		if modern and lit and blend==0:mat.set_shader_parameter("surface_map",surface_map(resource))
 	return mat
