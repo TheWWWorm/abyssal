@@ -359,11 +359,11 @@ func check_dock_navigation(game) -> void:
 func check_departure(game) -> void:
  game.session.campaign.rebel_stations[game.session.station_id]=false
  game.session.ship.set_cargo([game.session.make_goods(0,3)])
- var before:int=game.session.credits;var payment:int=game.session.make_goods(0,3).total_price()
+ var before:int=game.session.credits;var payment:int=3*game.session.make_goods(0,3).minimum_price
  game.session.arrive();game.show_station()
- expect(game.session.ship.cargo_used==0 and game.session.credits==before+payment,"Colonist docking sells fish immediately")
+ expect(game.session.ship.cargo_used==0 and game.session.credits==before+payment,"Colonist docking takes the fish at the floor price at once")
  var receipt=game.column.find_child("CargoReceipt",true,false)
- expect(receipt!=null and receipt.text.contains("Fish automatically sold") and receipt.text.contains(str(payment)),"Sale receipt is part of the dock UI, not a flight toast")
+ expect(receipt!=null and receipt.text.contains("Fish") and receipt.text.contains(str(payment)),"Sale receipt is part of the dock UI, not a flight toast")
  game.show_hangar();game.show_station()
  expect(game.column.find_child("CargoReceipt",true,false)!=null,"Sale receipt remains after returning from another dock service")
  game.session.docked=true;game.depart()
@@ -393,9 +393,12 @@ func check_departure(game) -> void:
  expect(game.page in ["dialogue",""] and game.view.departure_progress<0,"Skip completes the departure and opens its pending briefing")
  if game.page=="dialogue":expect(Input.mouse_mode==Input.MOUSE_MODE_VISIBLE,"Post-departure briefing keeps the cursor visible")
  game.close_page()
+ # The chart opens at the dock from the seventh chapter.
+ var chapter_before: int=game.session.campaign.chapter;game.session.campaign.chapter=maxi(chapter_before,7)
  game.session.docked=true;game.show_map();game.select_station(game.session.station_id)
  for action in game.column.find_children("*","Button",true,false):
   if action.text=="Set station autopilot":action.pressed.emit();break
+ game.session.campaign.chapter=chapter_before
  expect(game.page=="departure" and game.departure_destination==game.map_destination,"Map autopilot queues its destination through departure")
  game.finish_departure()
  expect(game.world.autopilot and game.view.departure_progress<0,"Queued map navigation begins after the departure camera releases control")
@@ -576,7 +579,7 @@ func check_save_feedback(game) -> void:
   game.message.text="";game.notification_time=0
   game.save_game(true)
   for i in 2:await process_frame
-  expect(game.message.text=="Expedition saved","Saving an expedition says so at %s"%dimensions)
+  expect(game.message.text==game.session.text(32),"Saving an expedition says so at %s"%dimensions)
   expect(game.message.visible,"The save confirmation is actually shown at %s"%dimensions)
   var notice_rect := Rect2(game.message.position,game.message.size)
   expect(Rect2(Vector2.ZERO,game.ui.size).encloses(notice_rect),"The confirmation stays on screen at %s"%dimensions)
@@ -615,7 +618,10 @@ func check_controls_sections(game) -> void:
 func check_trade_quantity(game) -> void:
  # Filling a hold one tonne per press was the longest chore in the game.
  game.session.docked=true
+ # Trade is a rebel service, and a shelf may be empty: stock one line.
+ game.session.campaign.rebel_stations[game.session.station_id]=true
  var station: Dictionary=game.session.stations[game.session.station_id]
+ if station.cargo.is_empty():station.cargo=[game.session.make_goods(33,10)]
  var stocked: Array=game.economy.market(station).filter(func(entry):return entry.stock>0 and entry.price>0)
  if stocked.is_empty():
   expect(false,"The station offers cargo to trade")

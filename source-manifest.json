@@ -59,6 +59,7 @@
     "game/native/presentation/model.gd",
     "game/native/presentation/mods.gd",
     "game/native/presentation/ocean_background.gdshaderinc",
+    "game/native/presentation/instructions.gd",
     "game/native/presentation/opening.gd",
     "game/native/presentation/overworld_map.gd",
     "game/native/presentation/particulate.gdshader",

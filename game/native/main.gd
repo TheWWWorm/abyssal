@@ -57,6 +57,10 @@ var launching := false
 var loading := PanelContainer.new()
 var loading_caption: Label
 var loading_spinner: Label
+var loading_tip: Label
+## The menu entry a modal was opened from, for a pad to come back to.
+var modal_origin: Control=null
+var load_path := ""
 
 func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
 	var node := Label.new()
@@ -112,11 +116,12 @@ func _ready() -> void:
 	ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(title_menu)
-	title_menu.continued.connect(func(): launch_game(true))
+	title_menu.continued.connect(show_load)
 	title_menu.started.connect(show_start)
 	title_menu.settings_requested.connect(show_settings)
 	title_menu.tools_requested.connect(choose_content)
 	title_menu.quit_requested.connect(func(): get_tree().quit())
+	title_menu.help_requested.connect(show_help)
 	ui.add_child(panel)
 	panel.add_theme_stylebox_override("panel",style(Color("091720f5"),Color("254451")))
 	var scroll := ScrollContainer.new()
@@ -163,6 +168,11 @@ func _ready() -> void:
 	var loading_row := HBoxContainer.new();loading_row.add_theme_constant_override("separation",18);loading.add_child(loading_row)
 	loading_spinner=label("◐",30,Color("8bd6ee"));loading_row.add_child(loading_spinner)
 	loading_caption=label("",19);loading_caption.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;loading_row.add_child(loading_caption)
+	# The phone game's loading screen carries a tip from its Tips & Tricks
+	# under the bubbles; this panel carries one under the caption.
+	var loading_column := VBoxContainer.new();loading_column.add_theme_constant_override("separation",12)
+	loading.remove_child(loading_row);loading.add_child(loading_column);loading_column.add_child(loading_row)
+	loading_tip=label("",14,Color("a2c3d3"));loading_tip.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;loading_tip.custom_minimum_size.x=420;loading_column.add_child(loading_tip)
 	add_child(portable)
 	portable.selected.connect(import_pack)
 	portable.failed.connect(func(message):status.text=message)
@@ -427,6 +437,7 @@ func close_modal() -> void:
 	modal.hide()
 	scrim.hide()
 	if inspector_open: catalog.grab_focus()
+	elif is_instance_valid(modal_origin) and modal_origin.is_visible_in_tree() and not modal_origin.disabled: modal_origin.grab_focus.call_deferred();modal_origin=null
 	else: focus_title()
 
 func _exit_tree() -> void:
@@ -459,9 +470,79 @@ func show_start() -> void:
 func refresh_face() -> void:
 	if is_instance_valid(face_preview): face_preview.texture=face_art.portrait(face_layers)
 
-func show_loading(text: String) -> void:
-	modal.hide();scrim.show();loading_caption.text=text;loading.show();layout_ui()
+func show_loading(text: String, chapter: int=1) -> void:
+	modal.hide();scrim.show();loading_caption.text=text;loading_tip.text=loading_hint(chapter);loading.show();layout_ui()
 	title_menu.focus_behavior_recursive=Control.FOCUS_BEHAVIOR_DISABLED
+
+func loading_hint(chapter: int) -> String:
+	"""One of the game's seventeen tips (cr.a): before the twelfth chapter
+	the first four, about production and trade, are held back."""
+	if not ready_for_preview or content.data.is_empty():return ""
+	var tips: Array=range(146,163)
+	var first: int=4 if chapter<12 else 0
+	var line: String=content.text(int(tips[first+randi()%(tips.size()-first)]))
+	return "" if line.is_empty() else content.text(305)+"\n"+line
+
+func show_load() -> void:
+	"""The four saves of the phone game's Load screen: three of the player's
+	own and the autosave, each with who and where it is."""
+	if not ready_for_preview:return
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
+	box.add_child(label(content.text(1).to_upper(),26,Color("8bd6ee")))
+	var store := preload("res://native/simulation/save_store.gd")
+	var first: Button=null
+	for index in 4:
+		var path: String=save_path if index==3 else store.slot_path(index)
+		var entry: Dictionary=store.summary(path,content.data) if FileAccess.file_exists(path) else {}
+		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():launch_game(true,"Diver",path),box)
+		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT;choice.disabled=entry.is_empty()
+		if first==null and not entry.is_empty():first=choice
+	var back := button("Back",close_modal,box)
+	scrim.show();modal.show();layout_ui()
+	(first if first!=null else back).grab_focus.call_deferred()
+
+func show_help(topic: int=-1) -> void:
+	"""The phone game's Help from the title: Instructions by topic, the
+	controls, and the credits. Without content there are only the keys."""
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
+	var guide=preload("res://native/presentation/instructions.gd")
+	var topics: Array=guide.topics(content) if ready_for_preview else []
+	if topic>=0 and topic<topics.size():
+		box.add_child(label(topics[topic].title.to_upper(),24,Color("8bd6ee")))
+		var scroller := ScrollContainer.new();scroller.custom_minimum_size=Vector2(560,320);scroller.size_flags_vertical=Control.SIZE_EXPAND_FILL;box.add_child(scroller)
+		var body := VBoxContainer.new();body.size_flags_horizontal=Control.SIZE_EXPAND_FILL;body.add_theme_constant_override("separation",12);scroller.add_child(body)
+		var text := label(topics[topic].text,15);text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=540;body.add_child(text)
+		if topic==0:
+			var keys := label(guide.key_note(),13,Color("a2c3d3"));keys.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;keys.custom_minimum_size.x=540;body.add_child(keys)
+		var back := button("Back",func():show_help(),box)
+		scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred();return
+	box.add_child(label(("HELP" if not ready_for_preview else content.text(4).to_upper()),24,Color("8bd6ee")))
+	var first: Button=null
+	if not topics.is_empty():box.add_child(label(content.text(18),16,Color("aedbec")))
+	var grid := GridContainer.new();grid.columns=2;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",6);box.add_child(grid)
+	for index in topics.size():
+		var row := button(topics[index].title,func():show_help(index),grid);row.custom_minimum_size.x=270
+		if first==null:first=row
+	var keys := label(title_menu.help.text,13,Color("b2d5e5"));keys.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;keys.custom_minimum_size.x=550;box.add_child(keys)
+	if ready_for_preview:
+		var credits := button(content.text(20),func():
+			for child in modal.get_children():modal.remove_child(child);child.queue_free()
+			var roll := VBoxContainer.new();roll.add_theme_constant_override("separation",10);modal.add_child(roll)
+			var scroller := ScrollContainer.new();scroller.custom_minimum_size=Vector2(560,340);roll.add_child(scroller)
+			var text := label(content.text(26)+"\n\n"+content.text(28)+"\n\n"+content.text(25),15);text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=540;scroller.add_child(text)
+			var back := button("Back",func():show_help(),roll);layout_ui();back.grab_focus.call_deferred(),box)
+		credits.alignment=HORIZONTAL_ALIGNMENT_LEFT
+	var back := button("Back",close_modal,box)
+	if ready_for_preview:
+		# Credits and Back share a row to keep the page inside a 720p window.
+		var last := HBoxContainer.new();last.add_theme_constant_override("separation",10);box.add_child(last)
+		for entry in [box.get_child(box.get_child_count()-3),back]:
+			box.remove_child(entry);last.add_child(entry);entry.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	scrim.show();modal.show();layout_ui()
+	(first if first!=null else back).grab_focus.call_deferred()
 
 func focus_title() -> void:
 	if not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus.call_deferred()
@@ -471,15 +552,16 @@ func focus_title() -> void:
 func refresh_title() -> void:
 	title_menu.new_button.disabled=not ready_for_preview or import_busy or portable.busy
 	title_menu.continue_button.disabled=true
+	status.text=""
 	if ready_for_preview and not import_busy and not portable.busy:
-		if FileAccess.file_exists(save_path):
-			var store := preload("res://native/simulation/save_store.gd").new()
-			var saved = store.read(save_path,content.data)
-			if saved!=null:
+		var store := preload("res://native/simulation/save_store.gd").new()
+		for index in 4:
+			var path: String=save_path if index==3 else store.slot_path(index)
+			if not FileAccess.file_exists(path):continue
+			if store.read(path,content.data)!=null:
 				title_menu.continue_button.disabled=false
-				status.text="Your latest save is damaged; this is the previous checkpoint." if store.recovered else ""
-			else: status.text=store.failure
-		else: status.text=""
+				if store.recovered and index==3:status.text="Your latest autosave is damaged; the previous checkpoint stands in for it."
+			elif index==3:status.text=store.failure
 	focus_title()
 
 func show_tools() -> void:
@@ -542,20 +624,23 @@ func show_settings() -> void:
 	var back := button("Back",close_modal,box)
 	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
 
-func launch_game(resume: bool=false, player_name: String="Diver") -> void:
+func launch_game(resume: bool=false, player_name: String="Diver", path: String="") -> void:
 	if not ready_for_preview or launching: return
+	if path.is_empty():path=save_path
+	var chapter := 1
 	if resume:
 		var store=preload("res://native/simulation/save_store.gd").new()
-		if store.read(save_path,content.data)==null: status.text=store.failure; return
+		if store.read(path,content.data)==null: status.text=store.failure; return
+		chapter=int(store.summary(path,content.data).get("chapter",1))
 	launching=true
 	# Building the dive is one long synchronous stretch: the region, every
 	# model in it and every shader variant. Say so on screen first, and let
 	# a frame draw it, so the last thing seen is not a menu that stopped.
-	show_loading("Returning to your checkpoint…" if resume else "Preparing the expedition…")
+	show_loading(content.text(229) if not content.text(229).is_empty() else "Loading…",chapter)
 	await get_tree().process_frame
 	if not is_inside_tree():return
 	get_viewport().disable_3d=false
 	var gameplay=load("res://native/gameplay.gd").new()
-	gameplay.save_path=save_path;gameplay.settings_path=settings_path
+	gameplay.save_path=save_path;gameplay.load_path=path;gameplay.settings_path=settings_path
 	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_name="Diver" if player_name.is_empty() else player_name
 	get_tree().root.add_child(gameplay); get_tree().current_scene=gameplay; queue_free()

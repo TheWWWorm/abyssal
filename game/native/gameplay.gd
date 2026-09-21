@@ -150,11 +150,17 @@ var motion_sensitivity := 0.5
 var invert_motion_pitch := false
 var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
 var save_path := "user://native/campaign.json"
+## The save an expedition was resumed from; the checkpoint above is the autosave.
+var load_path := ""
 var transfer := preload("res://native/simulation/save_transfer.gd").new()
 var save_files := preload("res://native/platform/save_file.gd").new()
 # A settings row that rebuilds its page hands its own key back here, so focus
 # returns to the row the player just changed instead of the top of the list.
 var focus_option := ""
+## The phone game's one-time hints (br/ch, the ap flags): each is said once
+## a run, by M.A.I., the first time its moment comes.
+var hints_said: Dictionary={}
+var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
 var controls_section := ""
 var freeze_view
@@ -234,6 +240,7 @@ func _ready() -> void:
 	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
 	controller.deadzone=setting_number(config,"input","deadzone",.18,.05,.45)
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
+	vibration=bool(config.get_value("input","vibration",true))
 	strafe_mode=setting_index(config,"input","strafe",0,2)
 	world.smooth_steering=bool(config.get_value("input","smooth_steering",false))
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input","touch_layout",""))
@@ -244,8 +251,9 @@ func _ready() -> void:
 	motion.notice.connect(notice)
 	if motion_steering: motion.enable()
 	touch.arrange()
+	if load_path.is_empty():load_path=save_path
 	if continue_save:
-		session=store.read(save_path,content.data)
+		session=store.read(load_path,content.data)
 		if session==null: session=Session.new(); session.new_game(content.data,player_name,Time.get_unix_time_from_system()); notice(store.failure)
 		elif store.recovered: notice("Your save could not be read. Restored the previous checkpoint.")
 	else:
@@ -336,10 +344,12 @@ func fit_hud() -> void:
 	while font_size>12 and font.get_string_size(hud.text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size).x>width: font_size-=1
 	if hud.get_theme_font_size("font_size")!=font_size: hud.add_theme_font_size_override("font_size",font_size)
 	hud.size=Vector2(width,26)
+func golden() -> bool:
+	return session!=null and session.medals.gold_set()
 func box_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new(); style.bg_color=Color("04131df5"); style.border_color=Color("409bbd"); style.set_border_width_all(1); style.set_corner_radius_all(2 if modern_graphics else 0)
 	if true:style.bg_color=Color("061923f5");style.border_color=Color("52b8d0")
-	if session!=null and session.medals.gold_set(): style.border_color=Color("b49b62")
+	if golden(): style.bg_color=Color("1a1408f5");style.border_color=Color("d9b45c")
 	style.content_margin_left=20; style.content_margin_right=20; style.content_margin_top=14; style.content_margin_bottom=14
 	return style
 func label(text: String, size: int=18, parent: Node=null) -> Label:
@@ -348,7 +358,7 @@ func label(text: String, size: int=18, parent: Node=null) -> Label:
 func information_card(title: String) -> VBoxContainer:
 	var panel := PanelContainer.new(); column.add_child(panel)
 	var style := StyleBoxFlat.new(); style.bg_color=Color("081c2188"); style.border_color=Color("566c60")
-	if session!=null and session.medals.gold_set(): style.border_color=Color("8a774d")
+	if golden(): style.bg_color=Color("2a220e88");style.border_color=Color("c9a44f")
 	style.border_width_left=2;style.border_width_bottom=1
 	style.content_margin_left=12; style.content_margin_right=12; style.content_margin_top=8; style.content_margin_bottom=8
 	panel.add_theme_stylebox_override("panel",style)
@@ -366,8 +376,10 @@ func button(text: String, action: Callable, parent: Node=null) -> Button:
 	for state in ["normal","hover","pressed","focus"]:
 		var style := StyleBoxFlat.new(); style.bg_color=Color("1c302a99" if state in ["hover","pressed"] else "06151b00"); style.border_color=Color("e5ae63" if state=="focus" else "7c8369"); style.border_width_bottom=1;style.border_width_left=2 if state=="focus" else 0; style.set_corner_radius_all(0);
 		style.set_border_width_all(1);style.bg_color=Color("174354" if state in ["focus","hover","pressed"] else "081e29");style.border_color=Color("9be9f5" if state in ["focus","hover","pressed"] else "326778")
+		# All the medals at gold turn the interface gold, as the phone game's does.
+		if golden():style.bg_color=Color("4a3a16" if state in ["focus","hover","pressed"] else "1f1a0a");style.border_color=Color("f1d27a" if state in ["focus","hover","pressed"] else "8a774d")
 		style.content_margin_left=14; style.content_margin_right=16; node.add_theme_stylebox_override(state,style)
-	node.add_theme_color_override("font_color",Color("c5e1e8")); node.alignment=HORIZONTAL_ALIGNMENT_LEFT; node.custom_minimum_size.y=64 if touch.enabled() else 44; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL; node.add_theme_font_size_override("font_size",20 if touch.enabled() else 16); node.pressed.connect(action)
+	node.add_theme_color_override("font_color",Color("f3e2b0" if golden() else "c5e1e8")); node.alignment=HORIZONTAL_ALIGNMENT_LEFT; node.custom_minimum_size.y=64 if touch.enabled() else 44; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL; node.add_theme_font_size_override("font_size",20 if touch.enabled() else 16); node.pressed.connect(action)
 	(parent if parent!=null else column).add_child(node)
 	return node
 func option(text: String, key: String, action: Callable, parent: Node=null) -> Button:
@@ -558,10 +570,12 @@ func _process(delta: float) -> void:
 	if page=="freeze": return
 	if page.is_empty() and not session.docked:
 		world.advance(delta,flight_input(delta))
-		collect_damage_bearings()
+		collect_damage_bearings();check_hull_buzz()
 		consume_events()
 		if page.is_empty():
+			flight_ms+=int(delta*1000)
 			check_stream_proximity()
+			if page.is_empty():check_flight_hints()
 			if stream_exit_active:
 				var exit_local: Vector3=stream_exit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
 				if absf(exit_local.z)>view.player_model.solid_bounds().size.length():
@@ -844,6 +858,7 @@ func show_pause() -> void:
 	freeze.tooltip_text="Hold the dive still and look around it." if not freeze.disabled else "Available while diving."
 	button("Controls",show_controls)
 	button("Graphics",show_graphics)
+	button("Help",show_help)
 	button("Transfer expedition",show_transfer)
 	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
 		"Return to your last saved station? Everything since that checkpoint is lost.",
@@ -969,6 +984,26 @@ func show_controls(section: String="") -> void:
 			section_row("Control reference","reference",func():show_controls("reference"))
 	if section.is_empty(): button("Back",show_system if session.docked else show_pause)
 	else: button("Back",func():focus_option=section;show_controls(""))
+func show_help(topic: int=-1) -> void:
+	"""The phone game's Help: Instructions, its ten topics of imported text,
+	Controls, and the Credits."""
+	var guide=preload("res://native/presentation/instructions.gd")
+	var topics: Array=guide.topics(content)
+	if topic>=0 and topic<topics.size():
+		open_page(topics[topic].title,"help")
+		var card := information_card(session.text(18))
+		label(topics[topic].text,15,card)
+		if topic==0:label(guide.key_note(),13,card)
+		button("Back",func():focus_option="topic%d"%topic;show_help())
+		return
+	open_page(session.text(4),"help")
+	label(session.text(18),17)
+	for index in topics.size():
+		option(topics[index].title,"topic%d"%index,func():show_help(index))
+	if topics.is_empty():label("The instructions come with the imported game text.",15)
+	button(session.text(19),show_controls)
+	button(session.text(20),func():show_dialogue([{"speaker":session.text(20),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(25)}],show_help))
+	button("Back",show_system if session.docked else show_pause)
 func slider_setting(caption: String, low: float, high: float, value: float, act: Callable) -> HSlider:
 	label(caption,16)
 	var node := HSlider.new()
@@ -998,6 +1033,10 @@ func controls_steering() -> void:
 			show_controls("steering"))
 func controls_gamepad() -> void:
 	option("Invert gamepad pitch · "+("On" if controller.invert else "Off"),"invert_pad",func():controller.invert=not controller.invert;save_settings();show_controls("gamepad"))
+	option("%s · %s"%[session.text(10),session.text(14 if vibration else 15)],"vibration",func():
+		vibration=not vibration;save_settings()
+		if vibration:buzz(150)
+		show_controls("gamepad"))
 	var deadzone:=slider_setting("Gamepad deadzone",.05,.45,controller.deadzone,func(value):controller.deadzone=value;save_settings())
 	deadzone.step=.01
 	label("Raise the deadzone if the submarine drifts with the sticks at rest.",16)
@@ -1127,6 +1166,7 @@ func save_settings() -> void:
 	for key in key_bindings: config.set_value("keys",key,key_bindings[key])
 	for key in graphics: config.set_value("graphics",key,graphics[key])
 	config.set_value("input","touch",touch.mode);config.set_value("input","deadzone",controller.deadzone);config.set_value("input","invert_gamepad",controller.invert)
+	config.set_value("input","vibration",vibration)
 	config.set_value("graphics","modern",modern_graphics)
 	config.set_value("view","camera",view.camera_mode)
 	config.set_value("view","render_quality",render_quality)
@@ -1192,7 +1232,8 @@ func show_graphics() -> void:
 func station_identity(parent: Node) -> void:
 	var station: Dictionary=session.stations[session.station_id]
 	var identity:=HBoxContainer.new();identity.name="StationIdentity";identity.add_theme_constant_override("separation",12);parent.add_child(identity)
-	art_image(imported_art.image("logo_0" if session.is_colonist_station() else "logo_1"),identity,52)
+	# The gold logo for the gold collection, the faction's otherwise (ch).
+	art_image(imported_art.image("logo_2" if golden() else "logo_0" if session.is_colonist_station() else "logo_1"),identity,52)
 	var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;identity.add_child(words)
 	label("Colonists" if session.is_colonist_station() else "Rebels",17,words).modulate=Color("a8dbcc")
 	label("Tech level %d  ·  %d cr"%[station.tech,session.credits],14,words)
@@ -1220,7 +1261,9 @@ func show_station() -> void:
 		var notices: Array=session.notices.duplicate();session.notices=[]
 		for entry in notices:
 			session.acknowledge_notice(entry)
+			if entry.kind=="pirate_bounty":show_dialogue([{"speaker":session.text(166),"text":entry.text}],show_station);return
 			if entry.kind!="cargo_settlement":notice(entry.text)
+	check_dock_hints()
 func show_hangar() -> void:
 	open_page("Hangar","hangar")
 	station_identity(column)
@@ -1238,9 +1281,10 @@ func show_station_status() -> void:
 	button("Pilot profile & medals",show_profile)
 func show_system() -> void:
 	open_page("System","system")
-	button("Save game",save_game)
+	button("Save game",show_save_slots)
 	button("Controls",show_controls)
 	button("Graphics & audio",show_graphics)
+	button("Help",show_help)
 	button("Transfer expedition",show_transfer)
 	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
 		"Return to your last saved station? Everything since that checkpoint is lost.",
@@ -1255,7 +1299,7 @@ func dock_back() -> void:
 	if page=="market":
 		if market_category in ["ships","equipment","manufacture"]:show_hangar();return
 		if market_category=="missions":show_station_missions();return
-	if page in ["graphics","controls"]:show_system();return
+	if page in ["graphics","controls","save_slots","help"]:show_system();return
 	if page=="journal":show_station_missions();return
 	if page in ["ship_status","profile"]:show_station_status();return
 	show_station()
@@ -1264,6 +1308,7 @@ func depart() -> void:
 	if world.depart(): begin_departure()
 	else: notice(world.message)
 func begin_departure() -> void:
+	flight_ms=0
 	departure_elapsed=0;departure_destination=-1;departure_route="station"
 	open_page("Departing","departure");overlay.hide()
 	world.region.player.throttle=100
@@ -1344,7 +1389,9 @@ func consume_events() -> void:
 					button("Continue expedition",func():
 						session.abandon_contract(); world.region.mission=session.campaign.active; world.region.success=null; world.region.failure=null; world.region.time_limit=0; world.region.failed=false; close_page())
 				button("Reload station checkpoint",reload_game); button("Main menu",return_to_menu)
-			_: notice(entry.text)
+			_:
+				if entry.kind=="notice" and entry.text.begins_with("Cannot collect catch"):hold_full_seen=true
+				notice(entry.text)
 		# Preserve later events until the current dialogue/failure is resolved.
 		if not page.is_empty(): break
 func save_game(feedback: bool=true) -> void:
@@ -1352,8 +1399,25 @@ func save_game(feedback: bool=true) -> void:
 		if feedback: notice("Dock at a station to save your expedition.")
 		return
 	if store.write(save_path,session):
-		if feedback: notice("Expedition saved")
+		if feedback: notice(session.text(32))
 	else: notice(store.failure)
+func show_save_slots() -> void:
+	"""The phone game's three saves, each named for who and where it holds;
+	writing over one asks first. The autosave keeps the dock checkpoint."""
+	open_page(session.text(2),"save_slots")
+	for index in store.SLOT_PATHS.size():
+		var path: String=store.slot_path(index)
+		var entry: Dictionary=store.summary(path,content.data) if FileAccess.file_exists(path) else {}
+		var choice := button("%d.  %s"%[index+1,store.describe(entry)],func():
+			if entry.is_empty():write_slot(path)
+			else:confirm(store.slot_title(index),session.text(31),session.text(45),func():write_slot(path),show_save_slots))
+		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT
+	button("Back",dock_back if session.docked else show_pause)
+func write_slot(path: String) -> void:
+	if store.write(path,session):notice(session.text(32))
+	else:notice(store.failure)
+	if session.docked:show_system()
+	else:close_page()
 func reload_game() -> void:
 	var restored=store.read(save_path,content.data)
 	if restored==null: notice(store.failure); return
@@ -1405,8 +1469,19 @@ func show_market(kind: String) -> void:
 				var info=preload("res://native/presentation/mission_info.gd")
 				for mission in station.missions:
 					var card := information_card(session.title(mission))
-					label(session.description(mission),16,card)
-					label("Destination: %s · Depth %d"%[mission.destination_name,session.stations[mission.destination].depth],16,card)
+					# The board's card (k): the client's face, the destination,
+					# its depth and distance, the difficulty (or the stopovers
+					# of a passage) and the fee.
+					var row := HBoxContainer.new();row.add_theme_constant_override("separation",12);card.add_child(row)
+					art_image(imported_art.portrait(mission.portrait),row,72)
+					var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(words)
+					label("%s: %s"%[session.text(142),mission.sponsor],15,words)
+					label(session.description(mission),16,words)
+					var journey: int=int(economy.distance(station,session.stations[mission.destination]))
+					var rating: int=mission.normalized_difficulty(int(session.counters.k))
+					var grade: String=session.text(273 if rating<4 else 274 if rating<8 else 275)
+					label("%s: %s · %s: %d m · %s: %s"%[session.text(334),mission.destination_name,session.text(245),session.stations[mission.destination].depth,session.text(333),session.text(310) if journey==0 else "%d km"%journey],15,card)
+					label(("%s: %d"%[session.text(331),mission.jump_limit+1] if mission.jump_limit>=0 else "%s: %s"%[session.text(331),session.text(335)]) if mission.kind==8 else "%s: %s"%[session.text(39),grade],15,card)
 					for detail in [info.progress(session,mission),info.requirements(mission),info.deadline(mission)]:
 						if not detail.is_empty(): label(detail,16,card)
 					button("Accept · %d cr reward · %d cr deposit"%[mission.reward,mission.deposit],func():
@@ -1421,6 +1496,10 @@ func show_map(autopilot_only: bool=false) -> void:
 		var denial: int = session.service_denial("map")
 		if denial>=0: notice(session.text(denial)); return
 	open_page("Ocean atlas","map")
+	# The chart's own hint (ch: 359), once, the first time it is opened with
+	# a task on the board.
+	if not hints_said.has("map") and (session.campaign.primary.kind>=0 or session.campaign.secondary.kind>=0):
+		hints_said["map"]=true;notice(session.text(359))
 	var root_column := column
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",20); column.add_child(row)
 	var chart := VBoxContainer.new(); chart.add_theme_constant_override("separation",8); chart.size_flags_horizontal=Control.SIZE_EXPAND_FILL; chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; row.add_child(chart)
@@ -1752,6 +1831,53 @@ func show_destinations() -> void:
 	button("Choose station on chart",func():show_map(true),actions)
 	if world.autopilot:button("Disengage autopilot",func():world.cancel_autopilot("Manual control");close_page(),actions)
 	label("%s: 1× / 2× in flight · up to 16× on autopilot"%OS.get_keycode_string(key_bindings.time),12)
+func say_hint(key: String,text: String) -> bool:
+	if hints_said.has(key) or text.is_empty():return false
+	hints_said[key]=true
+	show_dialogue([{"speaker":"M.A.I.","portrait":[-1],"text":text}],close_page)
+	return true
+func check_flight_hints() -> void:
+	"""What M.A.I. says once, the first time it comes up in the water: the
+	gate, the dock, the radiation and the pressure, the booster she wants,
+	the catch that got away and the hold that is full."""
+	var r=world.region
+	if r==null or session.docked or r.cinematic() or r.failed:return
+	var chapter: int=session.campaign.chapter
+	if world.at_gate(world.departure_gate) and chapter>2 and not (chapter==6 and r.mission.kind==0):
+		if say_hint("gate",session.text(342)):return
+	if flight_ms>20000 and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000):
+		if say_hint("dock",session.text(343)):return
+	if r.player.depth<session.ship.minimum_depth and say_hint("radiation",session.text(344)):return
+	if r.player.depth>session.ship.maximum_depth and say_hint("pressure",session.text(345)):return
+	if chapter>14 and flight_ms>20000 and session.ship.boost_cooldown<=0 and r.enemies.is_empty():
+		if say_hint("booster",session.text(347)):return
+	if int(session.counters.i)==1 and say_hint("escaped",session.text(348)):return
+	if hold_full_seen and chapter!=7 and r.mission.kind!=1 and say_hint("hold",session.text(349)):return
+func check_dock_hints() -> void:
+	"""What the station has to say on arrival (ch.d): the booster's card the
+	first time one is aboard, the two story asides of chapters 16 and 18,
+	and the medal collection's rewards."""
+	var chapter: int=session.campaign.chapter
+	if session.ship.boost_cooldown>0 and say_hint("booster_card",session.text(346)):return
+	if chapter==16 and session.station_id!=5 and say_hint("intranet%d"%session.station_id,session.text(280,session.name)):return
+	if chapter==18 and not session.is_colonist_station() and session.station_id!=6 and say_hint("nothing%d"%session.station_id,session.text(281)):return
+	if session.medals.complete_set() and say_hint("all_medals",session.text(350)):return
+	if session.medals.gold_set() and say_hint("all_gold",session.text(351)):return
+	if session.campaign.finished() and not session.medals.complete_set() and say_hint("hero",session.text(352)):return
+var hold_full_seen := false
+## The phone game's Vibration option: a buzz of 110 ms when the hull takes
+## a hit (bb), on a pad's rumble or a handheld's motor.
+var vibration := true
+var hull_seen := -1
+func buzz(duration_ms: int) -> void:
+	if not vibration:return
+	if controller.device>=0:Input.start_joy_vibration(controller.device,0.6,0.9,duration_ms/1000.0)
+	if OS.has_feature("mobile") or OS.has_feature("android"):Input.vibrate_handheld(duration_ms)
+func check_hull_buzz() -> void:
+	var r=world.region
+	if r==null:hull_seen=-1;return
+	if hull_seen>=0 and r.player.health.hull<hull_seen:buzz(110)
+	hull_seen=r.player.health.hull
 func check_stream_proximity() -> void:
 	# The chart must not reopen over the shot of the submarine leaving the far
 	# aperture: it arrives at a gate that is already open, and inside range of it.

@@ -28,7 +28,8 @@ func run():
  expect(session.rng.state==before,"Visual bubbles never consume simulation randomness")
  var economy:=Economy.new();economy.configure(session)
  var station: Dictionary=session.stations[0];economy.generate(station)
- expect(station.ships.size()==3 and station.equipment.size()<=10,"Market generation is bounded")
+ expect(station.ships.size()<=3 and station.equipment.size()>=2 and station.equipment.size()<=5 and station.cargo.size()<=4,"Market stock is drawn within the original's bounds")
+ session.campaign.rebel_stations[0]=true # The factory is a rebel service.
  # Synthetic recipe isolates numeric behavior from original content balance.
  var synthetic: Dictionary=data.duplicate(true)
  synthetic.tables.goods[0]=[0,0,0,0,100,2,4]

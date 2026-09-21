@@ -13,7 +13,7 @@ func run():
  var app=load("res://native/gameplay.gd").new();app.content=content;app.settings_path="user://readability-test.cfg";app.save_path="user://readability-test.json"
  DirAccess.remove_absolute(app.settings_path);root.add_child(app);await settle()
  app.set_process(false);app.view.set_process(false);app.abyss.set_process(false)
- expect(app.world.region.creatures.size()==6,"Initial ambient population is six animals")
+ expect(app.world.region.creatures.size()==20,"The water is stocked with the original's twenty creatures")
  for modern in [false,true]:
   for detail in [false,true]:
    app.modern_graphics=modern;app.graphics.detail=detail;app.apply_graphics()
@@ -22,8 +22,15 @@ func run():
  app.show_graphics();await settle()
  expect(not app.column.find_children("*","Button",true,false).any(func(button):return button.text.contains("Modern weapon effects")),"Removed weapon effect switch is absent")
  app.close_page()
- var first=app.world.region.creatures[0];var second=app.world.region.creatures[3]
- expect(Vector3(first.habitat_center[0],0,first.habitat_center[2]).distance_to(Vector3(second.habitat_center[0],0,second.habitat_center[2]))>40000,"Schools have open water between them")
+ # Wildlife follows the camera: anything left four hundred metres behind is
+ # set down three hundred metres out again, so open water is never empty.
+ var region=app.world.region;var far_player=region.player.pose.origin.duplicate();far_player[0]+=250000
+ for creature in region.creatures:creature.advance(40,app.session.rng,far_player)
+ var near:=0
+ for creature in region.creatures:
+  if creature.constrained or not creature.health.enabled:continue
+  if Vector3(creature.pose.origin[0]-far_player[0],creature.pose.origin[1]-far_player[1],creature.pose.origin[2]-far_player[2]).length()<=30500:near+=1
+ expect(near==region.creatures.size(),"Creatures left behind reappear three hundred metres from the camera")
  var trail=load("res://native/simulation/bubble_trail.gd").new();trail.advance([0,0,0],120,null);trail.advance([0,0,0],120,null)
  expect(trail.position[0][1]<0,"Bubbles rise in the simulation coordinate system")
  var player=app.world.region.player
@@ -98,6 +105,8 @@ func run():
  expect(app.abyss.particles.global_position.is_equal_approx(app.camera.global_position),"Particle bounds follow the rebased camera")
  app.world.geography.anchor-=shift;app.camera.position+=shift
  app.session.docked=true
+ # Trade and the workshop are rebel services; Gosu is a colonist holding.
+ app.session.campaign.rebel_stations[app.session.station_id]=true
  for mode in [2,1]:
   app.touch.mode=mode
   app.show_station();await settle()

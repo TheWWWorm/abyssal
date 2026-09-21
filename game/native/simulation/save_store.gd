@@ -44,7 +44,7 @@ static func mission_state(mission) -> Dictionary:
 static func capture(session) -> Dictionary:
 	var result := fields(session,SESSION_FIELDS)
 	result.face_layers=session.face_layers.duplicate()
-	result.schema=2; result.random_engine="godot-pcg"; result.jar_sha256=session.data.jar_sha256
+	result.schema=2; result.random_engine="java-lcg"; result.jar_sha256=session.data.jar_sha256
 	result.medals=session.medals.state(); result.pending_bounty=session.pending_bounty
 	# Store the native 64-bit PRNG as decimal text, avoiding JSON number round trips.
 	result.random_state=str(session.rng.state)
@@ -87,7 +87,9 @@ func restore(data: Dictionary, value: Dictionary):
 	var session := Session.new(); session.new_game(data,str(value.name),0)
 	restore_fields(session,value,SESSION_FIELDS)
 	if value.has("face_layers"): session.face_layers=integral(value.face_layers)
-	if value.get("schema",1)==1:session.rng.seed_from(str(value.random_state).to_int())
+	# Saves from the engine's own generator carry a state this one cannot
+	# continue; their value seeds the game's generator instead.
+	if value.get("schema",1)==1 or value.get("random_engine","")!="java-lcg":session.rng.seed_from(str(value.random_state).to_int())
 	else:session.rng.state=str(value.random_state).to_int()
 	session.ship=load_ship(session,value.ship)
 	if value.has("medals"): session.medals.restore(value.medals)
@@ -191,3 +193,32 @@ func read(path: String, data: Dictionary):
 	recovered=true
 	failure=""
 	return session
+
+## The phone game keeps three saves and an autosave. The autosave is the
+## station checkpoint written on every dock; the three are the player's own.
+const AUTOSAVE_PATH := "user://native/campaign.json"
+const SLOT_PATHS := ["user://native/slot-1.json","user://native/slot-2.json","user://native/slot-3.json"]
+
+static func slot_title(index: int) -> String:
+	return "Autosave" if index>=SLOT_PATHS.size() else "Slot %d"%(index+1)
+
+static func slot_path(index: int) -> String:
+	return AUTOSAVE_PATH if index>=SLOT_PATHS.size() else SLOT_PATHS[index]
+
+static func summary(path: String,data: Dictionary) -> Dictionary:
+	"""What a save is, without restoring it: the diver, the chapter, the
+	station and the time underway. Empty when there is nothing readable."""
+	var file := FileAccess.open(path,FileAccess.READ)
+	if file==null:return {}
+	var value=quiet_parse(file.get_as_text())
+	if value is not Dictionary or not value.has_all(["name","chapter","station_id","elapsed_ms"]):return {}
+	var stations: Array=data.get("tables",{}).get("stations",[])
+	var station: int=int(value.station_id)
+	return {"name":str(value.name),"chapter":int(value.chapter),"elapsed_ms":int(value.elapsed_ms),"credits":int(value.get("credits",0)),
+		"station":str(stations[station][0]) if station>=0 and station<stations.size() else "",
+		"modified":FileAccess.get_modified_time(path)}
+
+static func describe(entry: Dictionary) -> String:
+	if entry.is_empty():return "- BLANK -"
+	var minutes: int=int(entry.elapsed_ms)/60000
+	return "%s · Chapter %d · %s · %d h %02d min"%[entry.name,entry.chapter,entry.station,minutes/60,minutes%60]

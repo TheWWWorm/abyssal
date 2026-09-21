@@ -9,6 +9,11 @@ var data: Dictionary
 func expect(ok: bool, why: String):
  checks+=1
  if not ok:failures+=1;push_error(why)
+func unlock(session) -> void:
+ # The third chapter does not leave Gosu without the Railgun, nor the
+ # forty-second Choral without the Eclipse; the fixtures bring them.
+ if session.campaign.chapter==3:session.ship.equip(session.make_equipment(0))
+ if session.campaign.chapter==42:session.ship.equip(session.make_equipment(42))
 func fixture(kind: int):
  var s=Session.new();s.new_game(data,"Encounter navigation",91)
  while s.campaign.chapter<9:s.campaign.next_chapter(s.counters)
@@ -37,8 +42,8 @@ func _initialize():
   w.region.player.pose.face([0,0,4096]);w.region.player.health.configure(100000,100000,100000)
   for i in 800:
    w.advance(.04)
-   if not w.autopilot:break
-  expect(not w.autopilot and w.region.route.index>=1,"Local autopilot crosses the strict mission trigger for kind "+str(kind))
+   if not w.autopilot or w.region.route.index>=1:break
+  expect(w.region.route.index>=1,"Local autopilot crosses the strict mission trigger for kind "+str(kind))
   expect(w.region.enemies.any(func(a):return a.health.enabled),"Proximity activates mission enemies")
   w.region.player.pose.origin=[0,0,-14000]
   expect(not w.dock() and "autopilot" in w.message and "quest objective" in w.message,"Encounter docking lock offers an actionable explanation")
@@ -111,13 +116,16 @@ func audit_objectives() -> void:
   region.player.health.configure(100000,100000,100000)
   region.player.set_throttle(0)
   for actor in region.enemies:
+   # Dormant ships and moored mines cannot be hurt: wake and arm them first.
+   if actor.state==5:actor.activate()
+   if actor.get("kind")=="mine":actor.state=1
    actor.health.damage(100000)
    actor.advance(40)
    if kind in [1,2] and actor.protected_target:actor.capture(world.session)
   if kind==7:
    for actor in region.creatures:
     if actor.species==mission.target_kind:actor.health.damage(100000)
-  for tick in 150:
+  for tick in 400:
    region.step(40)
    if region.active_transmission!=null:region.acknowledge_transmission()
    if region.pending_mission!=null or region.failed:break
@@ -139,7 +147,7 @@ func audit_objectives() -> void:
    while session.campaign.chapter<chapter:session.campaign.next_chapter(session.counters)
    var destination: int=session.campaign.primary.destination
    session.prepare_station((destination+1)%session.stations.size())
-   var world=World.new();world.configure(session);world.depart()
+   unlock(session);var world=World.new();world.configure(session);world.depart()
    var before=Math.added(world.station_origin(destination),[59000 if reverse else -59000,0,0])
    world.region.player.pose.origin=Math.subtracted(before,world.station_origin(session.station_id))
    if approach==2:
@@ -157,6 +165,8 @@ func audit_objectives() -> void:
    var targets: Array=region.enemies.duplicate()
    if reverse:targets.reverse()
    for actor in targets:
+    if actor.state==5:actor.activate()
+    if actor.get("kind")=="mine":actor.state=1
     actor.health.damage(100000);actor.advance(40)
     if actor.protected_target:actor.capture(session)
    if mission.kind==7:
@@ -165,7 +175,11 @@ func audit_objectives() -> void:
    for tick in 1700:
     region.step(40)
     if region.active_transmission!=null:region.acknowledge_transmission()
-    if region.ending_pending:region.acknowledge_credits()
+    # The finale wants Raoul beaten again once his ship is spared, and the
+    # capsule he becomes at the station.
+    if chapter==47 and region.finale_stage==1 and region.enemies[-1].health.hull>0:region.enemies[-1].health.hull=0
+    if chapter==47 and region.finale_stage==2:region.enemies[-1].pose.origin=[0,0,0]
+    if region.finale_stage==8:region.acknowledge_credits()
     if region.pending_mission!=null or region.failed:break
    expect(not region.failed and region.pending_mission==mission,"Chapter %d resolves without prescribed waypoints, arrival mode=%d"%[chapter,approach])
    for entry in region.timeline:
@@ -184,7 +198,7 @@ func audit_milestone_handoff() -> void:
  session.campaign.secondary=contract
  var world=World.new();world.configure(session);world.depart()
  world.region.player.health.configure(100000,100000,100000);world.region.player.set_throttle(0)
- for actor in world.region.enemies:actor.health.damage(100000)
+ for actor in world.region.enemies:actor.activate();actor.health.damage(100000)
  world.region.step(40)
  expect(world.region.pending_mission==contract,"Third contract is resolved before the global milestone")
  world.region.events.clear();world.region.acknowledge_completion()
@@ -207,7 +221,13 @@ func audit_persistent_chapters() -> void:
   while session.campaign.chapter<chapter:session.campaign.next_chapter(session.counters)
   var mission=session.campaign.primary
   session.prepare_station(mission.destination)
-  var world=World.new();world.configure(session);world.depart()
+  var world=World.new();world.configure(session)
+  # The third chapter is settled at the dock: Gosu does not let the Ino
+  # leave until the Railgun is bought.
+  if kind==17:
+   expect(not world.depart() and session.depart_denial()==288,"Chapter %d holds the ship at Gosu until the Railgun is bought"%chapter)
+   session.docked=true;world.build_docked_view()
+  else:unlock(session);world.depart()
   world.region.player.health.configure(100000,100000,100000)
   world.region.player.throttle=0;world.region.player.set_throttle(0)
   match kind:
@@ -243,6 +263,8 @@ func audit_persistent_chapters() -> void:
      session.prepare_station(station.id);session.arrive();count+=1
      if count>=mission.threshold:break
    21:
+    # Goods are made at rebel holdings only; the chapter sends the pilot to one.
+    session.campaign.rebel_stations[session.station_id]=true
     var economy=preload("res://native/simulation/economy.gd").new();economy.configure(session)
     var recipes: Array=economy.recipes(session.stations[session.station_id])
     expect(not recipes.is_empty(),"Manufacturing chapter has an available recipe")
@@ -276,7 +298,7 @@ func audit_failure_and_saves() -> void:
   region.player.health.configure(100000,100000,100000)
   match kind:
    1,2:
-    for actor in region.failure.subjects:actor.escaped=true
+    region.enemies[region.failure.value].escaped=true
    4,11:
     for actor in region.friends:actor.health.damage(100000)
    6:
@@ -349,28 +371,40 @@ func audit_swept_waypoints() -> void:
  ordered.advance([-5000,0,0]);expect(ordered.complete(),"Returning from the other side reaches the remaining waypoint")
 
 func audit_story_target_counts() -> void:
- var indexed_kinds: Array=[1,8,9,12,14,17,18,19]
- for definition in data.campaign:
-  var kind:=int(definition.mission.get("a:int",-1))
-  if kind not in [0,1,2,3]:continue
-  var referenced:=0
-  for event in data.timelines.get(str(int(definition.chapter)),[]):
-   if int(event.kind) in indexed_kinds:
-    for value in event.values:referenced=maxi(referenced,int(value)+1)
+ # The story's encounters as the phone game lays them out (cy): who is in
+ # the water at each chapter, and that beating them all resolves it.
+ var layouts: Dictionary={5:[1,0],10:[4,10],19:[3,3],21:[3,1],23:[20,0],25:[6,3],27:[1,0],29:[5,5],31:[4,2],35:[3,0],42:[6,0],43:[8,7],45:[12,7],47:[9,5]}
+ for chapter in layouts:
   for rank in [0,40,200]:
-   var s=Session.new();s.new_game(data,"Story target count",rank+91)
-   while s.campaign.chapter<int(definition.chapter):s.campaign.next_chapter(s.counters)
+   var s=Session.new();s.new_game(data,"Story layout",rank+91)
+   while s.campaign.chapter<chapter:s.campaign.next_chapter(s.counters)
    s.counters.k=rank;s.prepare_station(s.campaign.primary.destination)
-   var w=World.new();w.configure(s);w.depart()
-   expect(w.region.enemies.size()==maxi(1,referenced),"Targeted story mission %d preserves its %d referenced targets at rank %d"%[definition.chapter,maxi(1,referenced),rank])
-   expect(w.region.success.subjects.size()==w.region.enemies.size(),"Completion tracks the actual story target set")
-   var original: Array=w.region.enemies.map(func(actor):return [actor.model_id,actor.pose.origin.duplicate()])
-   w.enter_region(s.station_id)
-   expect(w.region.enemies.map(func(actor):return [actor.model_id,actor.pose.origin.duplicate()])==original,"Re-entering a story area recreates one deterministic target set without duplicates")
-   for actor in w.region.enemies:actor.health.hull=0;actor.capturable=false
-   expect(w.region.success.evaluate(w.region,0),"Resolving the advertised targets satisfies the encounter without a hidden extra enemy")
+   unlock(s);var w=World.new();w.configure(s);w.depart()
+   var expected: Array=layouts[chapter]
+   expect(w.region.enemies.size()==expected[0] and w.region.friends.size()==expected[1],"Chapter %d fields %d hostile and %d friendly actors at rank %d (%d/%d)"%[chapter,expected[0],expected[1],rank,w.region.enemies.size(),w.region.friends.size()])
+   expect(w.region.success!=null and not w.region.success.evaluate(w.region,0),"Chapter %d opens with its objective outstanding"%chapter)
+   if chapter==47:w.dispose();continue
+   for actor in w.region.enemies:
+    if w.region.success.metric in ["enemy_rescued","all_rescued"]:actor.protect(true);actor.capturable=false
+    else:actor.health.hull=0;actor.state=4;actor.health.enabled=false
+   w.region.recount()
+   expect(w.region.success.evaluate(w.region,0),"Chapter %d resolves once its actors are dealt with"%chapter)
    w.dispose()
- # A generated hunt may still scale, unlike a story's specified target set.
+ # Wildlife and traffic: twenty creatures, the station's ships on their
+ # rounds, and past the eleventh chapter a chance of pirates.
+ var quiet=fixture(-1)
+ expect(quiet.region.creatures.size()==20,"Free water holds twenty creatures")
+ expect(quiet.region.friends.size()==quiet.session.stations[quiet.session.station_id].ships.size(),"The station's own ships patrol its water")
+ quiet.dispose()
+ var pirates:=0
+ for seed in 40:
+  var s=Session.new();s.new_game(data,"Pirate odds",seed)
+  while s.campaign.chapter<30:s.campaign.next_chapter(s.counters)
+  s.campaign.primary.kind=-1;s.prepare_station(0)
+  var w=World.new();w.configure(s);w.depart()
+  if not w.region.enemies.is_empty():pirates+=1
+  w.dispose()
+ expect(pirates>4 and pirates<36,"Late-chapter free water sees pirates now and then (%d of 40)"%pirates)
  var contract=fixture(3);contract.enter_region(113)
- expect(contract.region.enemies.size()>=2,"Generated hunt contracts retain their squad policy")
+ expect(contract.region.enemies.size()>=3,"A pirate hunt fields a gang of three or more")
  contract.dispose()

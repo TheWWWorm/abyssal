@@ -47,8 +47,10 @@ var cinematic_target := ""
 var finale_station_offset: Array = [0,0,0]
 var active_transmission = null
 var encounter_resolved := false
-var ending_pending := false
 var hook_was_down := false
+var story_departed := false
+var finale_motion := 0
+var finale_player_route = null
 func configure(owner_session) -> void:
 	session=owner_session; mission=session.campaign.active
 	sine=session.data.constants.dt["a:[S"]
@@ -68,6 +70,12 @@ func configure(owner_session) -> void:
 	var setup := Setup.new(); setup.configure(self); setup.populate()
 	if mission.story:
 		for record_event in session.data.timelines.get(str(session.campaign.chapter),[]): timeline.append(Timeline.new().configure(record_event))
+		# The last chapter's calls about Raoul name him as the last of the
+		# hostile list (cy: "aw_arr_a.length - 1"), an expression the import
+		# reads as nought; here he is the last ship placed.
+		if session.campaign.chapter==47 and not enemies.is_empty():
+			for entry in timeline:
+				if entry.kind in [1,17,19]:entry.values=[enemies.size()-1]
 	loadout.configure(session.ship,session.data)
 	for weapon in loadout.all_weapons():
 		weapon.targets=enemies+creatures
@@ -77,11 +85,16 @@ func configure(owner_session) -> void:
 			hook.visible_to_camera=func(point): return Math.dot_long(player.pose.forward,Math.normalize_vector(Math.subtracted(point,player.pose.origin)))>1700
 			fishing.append(hook)
 		else: weapons.append(weapon)
-	# Each target appears once. Protect missions prioritize their objective group.
-	var hostile_targets: Array=[player]
-	if mission.kind==6:hostile_targets=creatures+[player]
-	elif mission.kind in [4,11]:hostile_targets=friends+[player]
-	else:hostile_targets.append_array(friends)
+	# Who fights whom, in the order the phone game's cy lists them: pirates
+	# go for the player, then for the player's friends; in the missions that
+	# guard something (the school, the capsules, the convoy) they go for the
+	# charges first, and the player is listed again ahead of the friends,
+	# which the original's random choice of target can be seen to favour.
+	var charges: Array=creatures if mission.kind==6 else ([] if mission.kind in [11,4] else [player])
+	var hostile_targets: Array=charges.duplicate()
+	if mission.kind==6:hostile_targets.append(player)
+	if not friends.is_empty() or mission.kind==12 and not mission.story:
+		hostile_targets+=([] if mission.kind in [6,11,4] else [player])+friends
 	for actor in enemies+friends:
 		actor.obstacle_groups=[station]; actor.player=player
 		if actor in enemies: actor.targets=hostile_targets
@@ -100,16 +113,20 @@ func gate_index(index: int) -> int:
 	return 0 if index==1 and gates[0]==gates[1] else index
 
 func configure_npc_weapons(actors: Array,hostile: bool) -> void:
-	# Independent cooldown/pool per ship avoids order-dependent fleet firing.
-	var power:=clampi(3+int(session.counters.k)/2,3,15)
+	# One pool of shots for all the pirates and one for all the friends, as
+	# the original allots them (cy.i): each side's guns grow with the pilot's
+	# rank and the chapter, the friends' a little weaker and slower to
+	# cycle. The aquar fire laser_aqua from their own deeper, slower pool.
+	if actors.is_empty():return
+	var power: int=int(float(session.counters.k)/1.5)+int(float(session.campaign.chapter)/5.0)
+	var guns:=Weapon.new();guns.configure(3+power if hostile else 3+int(power*0.8),4 if hostile else 10,3000,500,16,[0,0,0])
+	guns.model_id=int(session.data.constants.ah["a:[S"][8 if hostile else 2]);guns.special_kill=not hostile
+	guns.targets=actors[0].targets;guns.terrain_collision=station.contains;weapons.append(guns)
+	var bolts:=Weapon.new();bolts.configure(3+power if hostile else 5+power,6 if hostile else 10,3000,600,15,[0,0,0]);bolts.model_id=6767
+	bolts.targets=guns.targets;bolts.terrain_collision=station.contains;weapons.append(bolts)
 	for actor in actors:
 		if actor is Special:continue
-		var weapon:=Weapon.new()
-		# cy.b arms the aquar with laser_aqua from a deeper, slower-cycling pool.
-		if actor.model_id==19:weapon.configure(power,6,3000,600,15,[0,0,0]);weapon.model_id=6767
-		else:weapon.configure(power,3,2800,850 if hostile else 1100,14,[0,0,0]);weapon.model_id=int(session.data.constants.ah["a:[S"][8 if hostile else 2])
-		weapon.targets=actor.targets;weapon.terrain_collision=station.contains
-		actor.weapons=[weapon];weapons.append(weapon)
+		actor.weapons=[bolts if actor.original_model_id==19 else guns]
 func recount() -> void:
 	enemy_count=enemies.filter(func(actor): return actor.health.hull>0 and not actor.health.special_kill).size()
 	friendly_count=friends.filter(func(actor): return actor.health.hull>0).size()
@@ -190,15 +207,15 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 		mission.failed=true;failed=true;events.append({"kind":"mission_failed","text":"Mission failed."});return
 	encounter_resolved=success!=null and success.evaluate(self,elapsed_ms)
 	update_radio()
+	scripted_events(delta_ms)
+	# The last chapter's encounter ends only through its staged finale.
+	if session.campaign.chapter==47 and mission.story and finale_stage<10:return
 	# Persistent milestones can complete while a side encounter stays active.
 	var persistent=session.campaign.completion(false,elapsed_ms,session.station_id,session.ship,session.counters)
 	if persistent!=null and persistent!=mission:pending_mission=persistent
 	elif (encounter_resolved or persistent==mission) and active_transmission==null:
 		# Deliver any now-satisfied dialogue chain before resolving the encounter.
-		if not update_radio():
-			if is_final_encounter() and not ending_pending:
-				ending_pending=true;finale_stage=8;events.append({"kind":"credits"});return
-			if not ending_pending:pending_mission=mission
+		if not update_radio():pending_mission=mission
 	if pending_mission!=null:pending_mission.completed=true;events.append({"kind":"mission_complete","mission":pending_mission})
 
 func update_radio() -> bool:
@@ -208,12 +225,6 @@ func update_radio() -> bool:
 		if entry.evaluate(self):
 			active_transmission=entry;events.append({"kind":"transmission","entry":entry});return true
 	return false
-
-func is_final_encounter() -> bool:
-	if not mission.story or mission.kind<0:return false
-	for index in range(session.campaign.chapter,session.data.campaign.size()):
-		if int(session.data.campaign[index].mission.get("a:int",-1))>=0:return false
-	return true
 
 func audio_event(kind: String, position: Array=[], delay_ms: int=0) -> void:
 	audio_serial+=1
@@ -236,11 +247,66 @@ func pressure(delta_ms: int) -> void:
 		var deep: bool = depth>session.ship.maximum_depth
 		player.health.damage(2+maxi(0,(depth-30000 if deep else 15000-depth)/2000),"shield" if deep else "armor")
 func cinematic() -> bool:
-	return ending_pending
+	return mission.story and session.campaign.chapter==47 and finale_stage>=2 and finale_stage<8
+func scripted_events(delta_ms: int) -> void:
+	# The story's own stage directions (br/cy): the companion of chapter 21
+	# sets off at once; Ayumi's ship in chapter 25 runs for it after the
+	# fourth call and is gone at the end of its route; the reinforcements of
+	# chapter 43 wake on the first call; and chapter 47 plays its finale.
+	if not mission.story:return
+	match session.campaign.chapter:
+		21:
+			if not story_departed and not friends.is_empty():friends[0].activate();story_departed=true
+		25:
+			if friends.is_empty():return
+			if timeline.size()>3 and timeline[3].fired:friends[0].set_speed(10);friends[0].targets=[]
+			if friends[0].route!=null and friends[0].route.complete():friends[0].health.enabled=false
+		43:
+			if not timeline.is_empty() and timeline[0].fired and not timeline[0].acknowledged:
+				for actor in friends:actor.activate()
+		47:advance_finale(delta_ms)
+func advance_finale(delta_ms: int) -> void:
+	# Raoul's ship is beaten down to a hundred on the third call; after the
+	# seventh it turns into the capsule that runs for the station with the
+	# camera on it; the station lifts away on the eleventh; then the shots
+	# of the player and each friend in turn, and the credits after the
+	# twenty-fifth. Each acknowledged call moves the stage on.
+	if enemies.is_empty() or timeline.size()<25:return
+	var actor=enemies[-1]
+	if timeline[2].fired and finale_stage==0:
+		actor.health.configure(100,0,0);finale_stage=1
+	elif timeline[6].acknowledged and finale_stage==1:
+		actor.model_id=9994;actor.health.set_hull(32000);actor.targets=[];actor.weapons=[];actor.route=Route.new();actor.route.configure([0,0,0]);actor.following=true;actor.activate();actor.set_speed(6)
+		for escort in friends:
+			escort.targets=[];escort.weapons=[];escort.route=Route.new();escort.route.configure([0,0,0])
+		cinematic_camera=Math.added(actor.pose.origin,[0,0,-4000]);cinematic_target="capsule";finale_stage=2
+	elif timeline[10].fired and finale_stage==2:
+		cinematic_camera=[15000,8000,28000];cinematic_target="station";finale_stage=3
+	elif finale_stage==2 and actor.route.complete():
+		actor.set_position([0,0,0]);actor.dormant();actor.health.set_hull(0)
+		for escort in friends:
+			escort.route=Route.new();escort.route.configure([40000,0,0,36000,-3000,4000],true)
+		finale_player_route=Route.new();finale_player_route.configure([42000,-2000,3000,30000,-1000,-5000],true)
+		player.autopilot_target=finale_player_route.points[-1]
+	if finale_stage==3:
+		finale_motion+=delta_ms/4
+		finale_station_offset[1]+=delta_ms*2+finale_motion
+		if timeline[12].acknowledged:
+			player.pose.origin=[44000,-5000,1000];cinematic_camera=[33000,-4000,2000];cinematic_target="player";finale_stage=4
+	if finale_stage==4 and timeline[15].acknowledged:
+		cinematic_camera=Math.added(friends[0].pose.origin,[5000,-2000,0]);cinematic_target="friend0";finale_stage=5
+	if finale_stage==5 and timeline[17].acknowledged:
+		cinematic_camera=Math.added(friends[1].pose.origin,[-5000,2000,0]);cinematic_target="friend1";finale_stage=6
+	if finale_stage==6 and timeline[19].acknowledged:
+		cinematic_camera=Math.added(friends[1].pose.origin,[0,1000,8000]);cinematic_target="friend1";finale_stage=7
+	if finale_stage==7 and timeline[24].acknowledged:
+		player.pose.origin=[44000,-5000,1000];cinematic_camera=[];cinematic_target="";finale_stage=8
+		events.append({"kind":"credits"})
 func acknowledge_credits() -> void:
-	if not ending_pending:return
-	ending_pending=false;finale_stage=10;pending_mission=mission;mission.completed=true
-	player.autopilot_target=null
+	if finale_stage!=8:return
+	finale_stage=10;pending_mission=mission;mission.completed=true
+	enemies[-1].state=4;enemies[-1].health.enabled=false
+	player.autopilot_target=null;finale_player_route=null
 	events.append({"kind":"mission_complete","mission":mission})
 func acknowledge_transmission() -> void:
 	if active_transmission!=null: active_transmission.acknowledged=true; active_transmission=null
@@ -252,7 +318,7 @@ func acknowledge_completion() -> void:
 	if not closes_encounter: return
 	success=null; failure=null; time_limit=0
 	route=Route.new()
-	timeline=[]; active_transmission=null
+	if finale_stage==10:timeline=[];active_transmission=null
 	mission=preload("res://native/simulation/mission.gd").new(); session.campaign.active=mission
 func danger() -> bool:
 	if failed or pending_mission!=null or active_transmission!=null or cinematic() or player.outside_depth_limits or player.contact: return true

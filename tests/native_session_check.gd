@@ -25,7 +25,7 @@ func _initialize() -> void:
 	var credits_before: int=restored.credits
 	restored.arrive()
 	assert(restored.ship.cargo_used==0,"Colonist docking takes all cargo")
-	assert(restored.pending_cargo_payment==0 and restored.credits==credits_before+restored.make_goods(0,8).total_price(),"Colonist settlement pays the fixed catalog value immediately")
+	assert(restored.pending_cargo_payment==0 and restored.credits==credits_before+8*restored.make_goods(0,8).minimum_price,"Colonist settlement pays the floor price at once, as the phone game does")
 	var paid: int=restored.credits;restored.arrive()
 	assert(restored.credits==paid,"Repeated docking cannot pay twice")
 	restored.campaign.rebel_stations[restored.station_id]=true
@@ -33,7 +33,7 @@ func _initialize() -> void:
 	restored.arrive()
 	assert(restored.ship.cargo_used==3 and restored.credits==paid,"Non-colonist docking preserves fish and manufactured cargo")
 	restored.campaign.rebel_stations[restored.station_id]=false
-	var fixed_payment: int=restored.make_goods(0,2).total_price()+restored.make_goods(22,1).total_price()
+	var fixed_payment: int=2*restored.make_goods(0,2).minimum_price+restored.make_goods(22,1).minimum_price
 	for stack in restored.ship.cargo:stack.price=99999
 	restored.arrive()
 	assert(restored.ship.cargo_used==0 and restored.credits==paid+fixed_payment,"All cargo settles at fixed values, not stale market quotes")

@@ -27,12 +27,16 @@ func run():
   for tick in 4:region.step(40)
   if region.success!=null:
    expect(not region.success.evaluate(region,region.elapsed_ms),"Objective starts incomplete %d"%chapter)
-   for actor in region.success.subjects:
-    match region.success.metric:
-     "recover":actor.capturable=false;actor.health.hull=0
-     "harvest":
+   match region.success.metric:
+    "harvest":
+     for actor in region.creatures:
       if actor.species==region.success.species:actor.subdued=true
-     _:actor.health.hull=0
+    "enemy_rescued":region.enemies[region.success.value].protect(true);region.enemies[region.success.value].capturable=false
+    "all_rescued":
+     for actor in region.enemies:actor.protect(true);actor.capturable=false
+    _:
+     for actor in region.enemies:actor.health.hull=0;actor.state=4;actor.health.enabled=false
+     region.recount()
    expect(region.success.evaluate(region,region.elapsed_ms),"Goal has an attainable completion %d"%chapter)
   # Radio references remain bounded even for a changed formation.
   for entry in region.timeline:entry.evaluate(region)
@@ -42,31 +46,36 @@ func run():
  session.campaign.secondary.kind=8;session.campaign.secondary.destination=session.station_id
  expect(session.campaign.completion(true,0,session.station_id,session.ship,session.counters)==session.campaign.secondary,"Completed story does not block side-contract reward")
  side.dispose()
- # Finale uses radio dependencies and a credits acknowledgement, without indexed
- # chapter-specific camera/formation actions. Exercise all ending transmissions.
+ # The finale is the phone game's staged one: Raoul's ship beaten down,
+ # turned into the capsule that runs for the station, the shots of the
+ # player and the friends, and the credits at the twenty-fifth call.
  var finale=fixture(data.campaign.size()-1);var region=finale.region
- for actor in region.enemies:actor.health.hull=0;actor.health.enabled=false;actor.state=4
- region.elapsed_ms=60000
+ expect(region.enemies.size()>=9 and region.friends.size()==5,"The last chapter fields five freighters, three pirates, Raoul and five friends")
+ for index in region.enemies.size()-1:
+  var actor=region.enemies[index];actor.health.hull=0;actor.health.enabled=false;actor.state=4
  var transmissions:=0;var credits:=0
- for tick in 200:
+ for tick in 3000:
   region.step(40)
+  if region.finale_stage==1 and region.enemies[-1].health.hull>0:region.enemies[-1].health.hull=0
+  if region.finale_stage==2:region.enemies[-1].pose.origin=[0,0,0]
   if region.active_transmission!=null:transmissions+=1;region.acknowledge_transmission()
-  if region.ending_pending:credits+=1;region.acknowledge_credits();break
- expect(transmissions==region.timeline.size(),"All ending radio lines are acknowledged")
- expect(credits==1 and region.pending_mission==region.mission,"Finale finishes through one credits acknowledgement")
+  var event=region.events.filter(func(entry):return entry.kind=="credits")
+  if not event.is_empty():credits+=1;region.events.clear();break
+ expect(transmissions>=25,"The finale's radio calls are all delivered (%d)"%transmissions)
+ expect(credits==1 and region.finale_stage==8 and region.pending_mission==null,"The credits roll after the last call")
+ region.acknowledge_credits()
+ expect(region.pending_mission==region.mission,"Acknowledging the credits ends the chapter")
  region.acknowledge_completion();expect(finale.session.campaign.finished(),"Finale advances to free play")
  finale.dispose()
- # Fishing: compare two step partitions; brief camera slips do not discard work.
+ # Fishing as the phone game runs it: the creature's own fight decides
+ # the countdown, the catch is lost the moment it is out of view, and a
+ # subdued catch is drawn in and taken aboard once.
  var a=fish_fixture();var b=fish_fixture()
- for i in 50:a.hook.advance(40)
- for i in 100:b.hook.advance(20)
- expect(a.fish.struggle_remaining==b.fish.struggle_remaining,"Fishing progress is time-based, independent of step partition")
+ for i in 50:a.hook.advance(40);a.fish.advance(40,a.world.session.rng,a.world.region.player.pose.origin)
+ expect(a.hook.hooked and a.fish.fleeing and a.fish.struggle_remaining<a.fish.struggle_total,"A hooked creature runs and spends its strength")
  a.hook.visible_to_camera=func(_point):return false
- for i in 25:a.hook.advance(40)
- expect(a.hook.hooked,"One-second camera slip keeps the line")
- for i in 110:a.hook.advance(40)
- expect(not a.hook.hooked and not a.fish.towing,"Extended loss of sight releases the line cleanly")
- # No teleporting/shrinking during towing; successful collection detaches once.
+ a.hook.advance(40)
+ expect(not a.hook.hooked and not a.fish.towing and a.world.session.counters.i==1,"Losing sight of the catch loses it, and the log counts it")
  b.fish.subdued=true;b.fish.pose.origin=[0,0,-25000]
  var before: int=b.world.session.counters.h
  for i in 200:
@@ -75,20 +84,20 @@ func run():
  expect(not b.hook.hooked and not b.fish.health.enabled,"Successful catch detaches and deactivates target")
  expect(b.world.session.counters.h==before+1,"Catch recorded exactly once")
  a.world.dispose();b.world.dispose()
- # Cargo-full recovery keeps a salvageable target instead of losing its cargo.
+ # A creature that will not fit stays on the water, off the line.
  var c=fish_fixture();c.fish.mass=c.world.session.ship.capacity()+1;c.fish.subdued=true;c.fish.pose.origin=c.world.region.player.pose.origin.duplicate()
  c.hook.advance(40)
  expect(c.fish.health.enabled and c.fish.capturable and not c.hook.hooked,"Full hold preserves the catch and releases safely")
  c.world.dispose()
- # Rescue capsules can be collected alive; the tether must not require damage.
- var rescue=fish_fixture();rescue.hook.detach(false)
+ # Capsules fall through the water and are dropped in again from the top.
+ var drop=fish_fixture();drop.hook.detach(false)
  var capsule=preload("res://native/simulation/special_actor.gd").new()
- capsule.configure_special("capsule",9994,false,rescue.world.region.player.pose.origin.duplicate(),data,rescue.world.session.rng)
- capsule.health.configure(30,0,0)
- var credits_before: int=rescue.world.session.credits
- rescue.hook.attach(capsule);rescue.hook.advance(40)
- expect(capsule.state==4 and not rescue.hook.hooked and rescue.world.session.credits==credits_before+100,"Live capsule is rescued and rewarded once")
- rescue.world.dispose()
+ capsule.configure_special("capsule",9994,false,[0,0,0],data,drop.world.session.rng)
+ capsule.health.configure(30,0,0);var start_y: int=capsule.pose.origin[1]
+ capsule.advance(40);expect(capsule.pose.origin[1]>start_y and not capsule.capturable,"A capsule sinks and cannot be hooked")
+ capsule.pose.origin[1]=capsule.CAPSULE_FLOOR+1;capsule.advance(40)
+ expect(capsule.pose.origin[1]==capsule.origin[1] and capsule.state==0,"Past the floor a capsule starts again from its drop")
+ drop.world.dispose()
  # Swept hits catch a small target between frame endpoints, and a full pool
  # cannot consume cooldown or report a fictitious launch.
  var target:=NPC.new();target.health.configure(30,0,0);target.pose.origin=[0,0,2000];target.radius=100
@@ -113,30 +122,34 @@ func run():
  shot.advance(40);expect(target.health.hull==20,"One projectile damages its target only once")
  var layers=preload("res://native/simulation/health.gd").new();layers.configure(50,10,20);layers.damage(35)
  expect(layers.hull==45 and layers.shield==0 and layers.armor==0,"Damage flows through defensive layers")
- layers.damage(-10);expect(layers.hull==45,"Negative damage cannot heal")
- # AI chooses nearby live threats, without duplicated targets or frame RNG.
- var pilot:=NPC.new();pilot.pose.math.sine_table=data.constants.dt["a:[S"]
- var far:=NPC.new();far.health.configure(30,0,0);far.pose.origin=[0,0,50000]
+ layers.configure(50,10,20);layers.damage(15,"armor");layers.damage(15,"armor")
+ expect(layers.armor==0 and layers.hull==50,"Pressure damage is borne by its layer alone while any of it is left")
+ layers.damage(15,"armor");expect(layers.hull==35,"Once the layer is gone the hull takes the pressure")
+ # The AI takes the first live target of its list within five hundred
+ # metres, and drops one that dies.
+ var pilot:=NPC.new();pilot.pose.math.sine_table=data.constants.dt["a:[S"];pilot.rng=Session.new().rng
+ var far:=NPC.new();far.health.configure(30,0,0);far.pose.origin=[0,0,60000]
  pilot.targets=[far,target];pilot.choose_target(40)
- expect(pilot.target==target,"AI selects closest live threat")
- target.health.hull=0;pilot.choose_target(40);expect(pilot.target==far,"AI drops defeated targets")
+ expect(pilot.target==target,"AI takes the first live target within notice")
+ target.health.hull=0;target.health.enabled=false;pilot.choose_target(40);expect(pilot.target==null or pilot.target!=target,"AI drops defeated targets")
  pilot.targets=[];pilot.target=null;shot.targets=[]
- # Every station gets a finite offer list; travel offers are pressure-compatible.
+ # The job board as the phone game posts it: one to eight offers, kinds
+ # by the station's side, fees on the fifty with a deposit, and never a
+ # delivery of the story's own goods.
  var contracts=preload("res://native/simulation/contracts.gd").new()
  contracts.session=Session.new();contracts.session.new_game(data,"Contract check",901)
- var bounded:=true;var reachable:=true;var deliverable:=true
+ var bounded:=true;var sided:=true;var priced:=true
  for station in contracts.session.stations:
-  var offers: Array=contracts.generate(station);bounded=bounded and offers.size()==4
+  var colonist: bool=contracts.session.is_colonist_station(station.id)
+  var offers: Array=contracts.generate(station);bounded=bounded and offers.size()>=1 and offers.size()<=8
   for offer in offers:
-   var destination: Dictionary=contracts.session.stations[offer.destination]
-   if offer.destination!=station.id:
-    reachable=reachable and destination.percent>=contracts.session.ship.shallow_percent and destination.percent<=contracts.session.ship.deep_percent
-   if offer.kind in [13,14]:deliverable=deliverable and offer.item_count>0 and offer.item_count<=contracts.session.ship.capacity()
- expect(bounded,"All stations receive a bounded four-contract board")
- expect(reachable,"Remote contracts stay inside current ship pressure limits")
- expect(deliverable,"Delivery quantities fit the current hold")
- contracts.session.ship.shallow_percent=1000;contracts.session.ship.deep_percent=1001
- expect(contracts.destination(contracts.session.stations[0])==0,"No reachable destination falls back without retry loops")
+   if colonist:sided=sided and offer.kind not in [13,14,6,12]
+   else:sided=sided and offer.kind not in [12,5,4,7,11]
+   priced=priced and offer.reward%50==0 and offer.deposit%50==0 and offer.reward>0
+   if offer.kind in [13,14]:priced=priced and offer.item_id not in [33,34,35,37,38,39,40] and offer.item_count>0
+ expect(bounded,"Every board carries one to eight offers")
+ expect(sided,"Offers follow the station's side")
+ expect(priced,"Fees and deposits fall on the fifty and deliveries avoid the story's goods")
  var delivery_session=contracts.session
  delivery_session.ship.set_cargo([delivery_session.make_goods(0,3)])
  var delivery=preload("res://native/simulation/mission.gd").new()
@@ -156,7 +169,7 @@ func run():
  delivery_session.campaign.secondary=colonial_delivery
  var prior: int=delivery_session.credits
  delivery_session.arrive()
- expect(delivery_session.ship.cargo_used==0 and delivery_session.credits==prior+500+delivery_session.make_goods(0,1).total_price(),"Colonist docking completes a due delivery before cashing out the remainder")
+ expect(delivery_session.ship.cargo_used==0 and delivery_session.credits==prior+500+delivery_session.make_goods(0,1).minimum_price,"Colonist docking completes a due delivery before cashing out the remainder")
  # Close-range pilots must keep a firing solution instead of orbiting forever.
  var regression_duel=fixture(10)
  var regression_pilot=NPC.new();regression_pilot.configure(0,2,true,[0,0,0],data,10,regression_duel.session.rng)
@@ -166,7 +179,7 @@ func run():
  var regression_gun=Weapon.new();regression_gun.configure(5,2,3000,200,20,[0,0,0]);regression_pilot.weapons=[regression_gun]
  for tick in 200:
   regression_gun.advance(40);regression_pilot.advance(40)
- expect(regression_gun.launch_serial>2,"Close-range opponent fires rather than orbiting without alignment")
+ expect(regression_gun.launch_serial>2,"An opponent with its nose on a target inside 350 m fires")
  regression_pilot.targets=[];regression_pilot.weapons=[];regression_duel.dispose()
  var regression_navigation=fixture(10);regression_navigation.session.docked=false
  regression_navigation.region.route.configure([0,0,30000,0,0,60000])

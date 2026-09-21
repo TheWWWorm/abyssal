@@ -18,7 +18,10 @@ func observe_credits(credits: int) -> void:
 func complete_set() -> bool:return levels.all(func(value):return value>0)
 func gold_set() -> bool:return levels.all(func(value):return value==1)
 func evaluate(session,hull_percent: int) -> void:
- weapon_count=session.ship.equipment.filter(func(item):return item!=null and item.kind in [0,1]).size()
+ # f.a: the guns aboard are counted up on every dock of the trip, and the
+ # tutorial chapters count as armed, so no one is a pacifist before Gosu.
+ if session.campaign.chapter>3:weapon_count+=session.ship.equipment.filter(func(item):return item!=null and item.kind in [0,1]).size()
+ else:weapon_count=1
  var thresholds: Array=session.data.constants.f["a:[[I"]
  for id in mini(levels.size(),thresholds.size()):
   for tier in thresholds[id].size():
@@ -38,7 +41,7 @@ func qualifies(id: int,threshold: int,session,hull_percent: int) -> bool:
  if id==7:
   var products: Array=session.data.tables.goods.filter(func(row):return row.size()>7 and not row[7].is_empty())
   return not products.is_empty() and products.all(func(row):return session.goods_found[int(row[0])])
- if id==15:return weapon_count==0 and kills==0
+ if id==15:return weapon_count==0
  if id==17:return session.campaign.finished()
  if id==23:return levels.slice(0,23).all(func(value):return value>0)
  return false

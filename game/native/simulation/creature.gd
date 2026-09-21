@@ -1,8 +1,20 @@
 extends RefCounted
-## Habitat-bound wildlife with continuous motion. Fishing owns struggle progress.
+## A creature of the water, as the phone game keeps it (af/cj): it swims its
+## own way until it is hurt or hooked, then flees, thrashing, until its
+## strength is spent; on the line it is subdued, off it it calms. Killed, it
+## turns to a drifting carcass. The water is never empty: any creature the
+## camera leaves four hundred metres behind is set down again three hundred
+## metres out, so there is always something to catch. Units are the game's
+## own, a centimetre each, and directions are Q12.
 const Math = preload("res://native/simulation/fixed_math.gd")
 const Transform = preload("res://native/simulation/ship_transform.gd")
 const Health = preload("res://native/simulation/health.gd")
+## How far a creature may drift from the camera before it is placed anew,
+## and how far out it is then set.
+const LEAVE_DISTANCE := 40000
+const RETURN_DISTANCE := 30000
+## A carcass rises a third of a unit a millisecond.
+const CARCASS_RISE := 3
 var pose := Transform.new()
 var turn := Transform.new()
 var secondary_pose := Transform.new()
@@ -36,80 +48,145 @@ var secondary_scale: Array = [4096,4096,4096]
 var render_tilt: Array = [0.0,0.0,0.0]
 var events: Array = []
 
-var habitat_center: Array=[]
-var heading_time := 0.0
 func configure(id: int,row: Array,rng,sine: Array,center: Array=[0,0,0]) -> void:
- model_id=id;species=int(row[0]);base_mass=int(row[1]);resistance=int(row[2])
- pose.math.sine_table=sine;turn.math.sine_table=sine
- mass=maxi(1,roundi(base_mass*(.85+float(rng.next_int(31))*.01)))
- health.configure(maxi(10,base_mass*2),0,0);previous_hull=health.hull
- stationary=id in [4443,4444,4445,4446,4447]
- habitat_center=center.duplicate();pose.origin=center.duplicate()
- speed=clampf(1.2+resistance*.08,1.2,3.5)
- heading_time=rng.next_int(628)/100.0
- pose.face([roundi(sin(heading_time)*4096),0,roundi(cos(heading_time)*4096)])
- struggle_total=clampi(3000+resistance*180,3000,12000)
- if id in [4424,4427,4430,4432,4434,4440,4436,4438]:secondary_model=id+1
- secondary_pose=pose.copy_pose();release()
+	model_id=id;species=int(row[0]);base_mass=int(row[1]);resistance=int(row[2])
+	pose.math.sine_table=sine;turn.math.sine_table=sine
+	health.configure(base_mass*2,0,0);previous_hull=health.hull
+	# The algae stand on the bed, pitched over, and weigh what the table says;
+	# everything else varies a quarter either way.
+	stationary=id in [4443,4444,4445,4446,4447]
+	if stationary:pose.set_euler(256,0,0);mass=base_mass
+	else:mass=maxi(1,base_mass+int(Math.f32(Math.f32(float(-25+rng.next_int(50))/100.0)*float(base_mass))))
+	speed=cruise_speed()
+	# A creature fights 2.1 s, and a tenth of that again for each point of
+	# its resistance.
+	struggle_total=2100+int(Math.f32(Math.f32(float(resistance)/10.0)*2100.0))
+	if center==[0,0,0]:
+		# Anywhere in the six hundred metre cube about the region's centre,
+		# heading anywhere.
+		pose.face(Math.normalize_vector([-4096+rng.next_int(8192),-4096+rng.next_int(8192),-4096+rng.next_int(8192)]))
+		pose.origin=[-30000+rng.next_int(59000),-30000+rng.next_int(59000),-30000+rng.next_int(59000)]
+	else:
+		pose.origin=[center[0]-8000+rng.next_int(16000),center[1]-8000+rng.next_int(16000),center[2]-8000+rng.next_int(16000)]
+	if id in [4424,4427,4430,4432,4434,4440,4436,4438]:secondary_model=id+1
+	secondary_pose=pose.copy_pose();release()
+
+func cruise_speed() -> float:
+	return Math.f32(1.0+Math.f32(float(resistance)/2.2))
+
 func release() -> void:
- struggle_remaining=struggle_total;struggle_time=0;fleeing=false;hooked=false
- if state!=4:subdued=false
-func hook(_slow_percent: int) -> void:
- hooked=true;fleeing=true;struggle_time=0
-func countdown() -> int:return ceili(float(struggle_remaining)/1000.0)
+	struggle_remaining=0 if stationary else struggle_total
+	struggle_time=0;fleeing=false;hooked=false
+
+func hook(slow_percent: int) -> void:
+	# On the line the creature runs, slowed by the harpoon's paralysis.
+	fleeing=true;hooked=true;struggle_time=0
+	speed=Math.f32(cruise_speed()*Math.f32(1.0-Math.f32(float(slow_percent)/100.0)))
+
+func countdown() -> int:
+	return struggle_remaining/1000+1
+
 func capture(session) -> bool:
- if not session.ship.can_carry(mass):events.append("cargo_full");return false
- if state==4:
-  session.counters.p+=mass;session.ship.set_cargo(preload("res://native/simulation/goods.gd").merge(session.ship.cargo,[session.make_goods(18,mass)]));events.append("meat_collected")
- elif not session.register_catch(species,mass):events.append("cargo_full");return false
- else:events.append("caught")
- health.enabled=false;capturable=false;render_scale.fill(0);secondary_scale.fill(0);events.append("depleted");return true
-func advance(delta_ms: int,_rng,_camera_origin: Array) -> void:
- if not health.enabled:return
- if health.hull<=0 and state!=4:
-  state=4;model_id=14;secondary_model=-1;meat=true;mass=maxi(1,mass/3);render_scale=[4096,4096,4096];render_tilt=[0.0,0.0,0.0];events.append("killed");return
- if state==4:
-  if not towing:pose.origin[1]+=roundi(delta_ms*.1)
-  secondary_pose=pose.copy_pose();return
- if not stationary and not subdued and not towing:
-  heading_time+=delta_ms*.0002
-  var current:=Vector3(pose.origin[0],pose.origin[1],pose.origin[2])
-  var home:=Vector3(habitat_center[0],habitat_center[1],habitat_center[2])
-  var desired:=Vector3(sin(heading_time),sin(heading_time*.6)*.08,cos(heading_time))
-  if not constrained and current.distance_squared_to(home)>18000.0*18000.0:desired=(home-current).normalized()
-  if not constrained:
-   var forward:=Vector3(pose.forward[0],pose.forward[1],pose.forward[2]).normalized().lerp(desired.normalized(),1.0-exp(-delta_ms*.001)).normalized()
-   pose.face([roundi(forward.x*4096),roundi(forward.y*4096),roundi(forward.z*4096)])
-  pose.advance(roundi(delta_ms*speed*(.35 if hooked else 1.0)))
- phase=(phase+delta_ms)&0xFFF;animate(delta_ms)
+	if state==4:
+		# A carcass is a third of the animal in fish meat, if there is room.
+		if session.ship.can_carry(mass):
+			session.counters.p+=mass
+			session.ship.set_cargo(preload("res://native/simulation/goods.gd").merge(session.ship.cargo,[session.make_goods(18,mass)]))
+			events.append("meat_collected")
+		else:events.append("cargo_full")
+		meat=false;health.enabled=false;capturable=false;render_scale.fill(0);secondary_scale.fill(0)
+		return true
+	if not session.ship.can_carry(mass) or not session.register_catch(species,mass):
+		render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096];hooked=false;subdued=false
+		events.append("cargo_full");return false
+	health.enabled=false;capturable=false;render_scale.fill(0);secondary_scale.fill(0)
+	events.append("caught");events.append("depleted");return true
+
+func advance(delta_ms: int,rng,camera_origin: Array) -> void:
+	if not health.enabled or subdued:return
+	var movement := 0
+	if not stationary:
+		movement=delta_ms
+		# A wound sends it running.
+		if previous_hull>health.hull and state!=4:fleeing=true
+		previous_hull=health.hull
+	if fleeing:
+		# A fleeing creature gathers speed, and for the first two seconds of
+		# each bout of struggle turns the way it last chose; then it spends
+		# a second of its strength and picks a new turn.
+		speed=Math.f32(speed+0.01)
+		struggle_time+=delta_ms
+		movement=int(Math.f32(float(delta_ms)*speed))
+		if struggle_time<2000:pose.compose_rotation(turn)
+		else:
+			struggle_remaining-=struggle_time>>1
+			if not constrained:
+				var amount: int=movement>>1
+				turn.set_euler(-(amount>>1)+rng.next_int(maxi(1,amount)),-(amount>>1)+rng.next_int(maxi(1,amount)),0)
+			struggle_time=0
+		if struggle_remaining<=0:
+			if hooked:subdued=true
+			else:release()
+	if not stationary and health.hull<=0 and state!=4:
+		state=4;events.append("killed");events.append("depleted")
+		if capturable:
+			# What is left floats up, level, as a third of the mass in meat.
+			model_id=14;secondary_model=-1;meat=true;mass=mass/3+1
+			var resting: Array=pose.origin.duplicate()
+			pose=Transform.new();pose.math.sine_table=turn.math.sine_table;pose.origin=resting
+			render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096];render_tilt=[0.0,0.0,0.0]
+		return
+	if state==4:
+		if not hooked:pose.origin[1]+=delta_ms/CARCASS_RISE
+		secondary_pose=pose.copy_pose()
+		if Math.length_of(Math.subtracted(camera_origin,pose.origin))>LEAVE_DISTANCE:health.enabled=false
+		return
+	if not stationary and model_id!=4429:
+		pose.advance(movement)
+		phase=(phase+delta_ms)&0xFFF
+	animate(delta_ms)
+	if not constrained and Math.length_of(Math.subtracted(camera_origin,pose.origin))>LEAVE_DISTANCE:
+		reappear(rng,camera_origin)
+
+func reappear(rng,camera_origin: Array) -> void:
+	# Set down three hundred metres from the camera, on a bearing that keeps
+	# nearer the camera's level than the vertical, heading somewhere within
+	# a hundred and fifty metres of it.
+	var bearing: Array=[-2048+rng.next_int(4096),-2048+rng.next_int(4096),-2048+rng.next_int(4096)]
+	bearing[1]>>=1
+	bearing=Math.normalize_vector(bearing)
+	pose.origin=Math.added(Math.scaled(bearing,RETURN_DISTANCE),camera_origin)
+	pose.face(Math.normalize_vector([-15000+rng.next_int(30000)-bearing[0],-15000+rng.next_int(30000)-bearing[1],-15000+rng.next_int(30000)-bearing[2]]))
+	release();previous_hull=health.hull
+
 func animate(_delta_ms: int=0) -> void:
- # The phone game's own life for each species (af.a): a body scale that
- # breathes, a tail hinged on the body, and a slow wander of the body itself.
- # The cycle is 4096 ms, and every wave is the game's sine in 4096 units.
- secondary_pose=pose.copy_pose()
- render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096]
- var s:=pose.math.sine(phase)
- match model_id:
-  4422:render_scale=[4096,maxi(48,absi(s)/3)*signi(s if s!=0 else 1),4096]
-  4426:render_scale=[4096,4096+(pose.math.sine((phase<<1)&0xFFF)>>2),4096]
-  4442:render_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
-  4424:secondary_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
-  4438:secondary_scale=[4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2),4096]
- # The original turns the body a little every frame, sin/128 or sin/256 of
- # a turn at its fifteen frames a second, which sums to a swing about the
- # heading of about 316 or 158 units either way. That swing is written out
- # directly, centred on the heading, and never fed back into the AI.
- var swing:=-pose.math.cosine(phase)
- render_tilt=[0.0,0.0,0.0]
- match model_id:
-  4423:render_tilt[1]=swing*316.0/4096.0
-  4427,4432,4436:render_tilt[0]=swing*158.0/4096.0
-  4430,4434,4440:render_tilt[1]=-swing*316.0/4096.0
- if secondary_model>=0:
-  var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table
-  fin.set_euler(roundi(render_tilt[0]),roundi(render_tilt[1]),roundi(render_tilt[2]));secondary_pose.compose_rotation(fin)
-  match model_id:
-   4427,4432,4436:fin.set_euler(-(s>>6),0,0)
-   4430,4434,4440:fin.set_euler(0,s>>5,0)
-   _:fin.set_euler(0,0,0)
-  secondary_pose.compose_rotation(fin)
+	# The phone game's own life for each species (af.a): a body scale that
+	# breathes, a tail hinged on the body, and a slow wander of the body itself.
+	# The cycle is 4096 ms, and every wave is the game's sine in 4096 units.
+	secondary_pose=pose.copy_pose()
+	render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096]
+	var s:=pose.math.sine(phase)
+	match model_id:
+		4422:render_scale=[4096,maxi(48,absi(s)/3)*signi(s if s!=0 else 1),4096]
+		4426:render_scale=[4096,4096+(pose.math.sine((phase<<1)&0xFFF)>>2),4096]
+		4442:render_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
+		4424:secondary_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
+		4438:secondary_scale=[4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2),4096]
+	# The original turns the body a little every frame, sin/128 or sin/256 of
+	# a turn at its fifteen frames a second, which sums to a swing about the
+	# heading of about 316 or 158 units either way. That swing is written out
+	# directly, centred on the heading, and never fed back into the AI.
+	var swing:=-pose.math.cosine(phase)
+	render_tilt=[0.0,0.0,0.0]
+	match model_id:
+		4423:render_tilt[1]=swing*316.0/4096.0
+		4427,4432,4436:render_tilt[0]=swing*158.0/4096.0
+		4430,4434,4440:render_tilt[1]=-swing*316.0/4096.0
+	if secondary_model>=0:
+		var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table
+		fin.set_euler(roundi(render_tilt[0]),roundi(render_tilt[1]),roundi(render_tilt[2]));secondary_pose.compose_rotation(fin)
+		match model_id:
+			4427,4432,4436:fin.set_euler(-(s>>6),0,0)
+			4430,4434,4440:fin.set_euler(0,s>>5,0)
+			_:fin.set_euler(0,0,0)
+		secondary_pose.compose_rotation(fin)

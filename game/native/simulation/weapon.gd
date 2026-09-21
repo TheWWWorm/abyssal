@@ -59,11 +59,15 @@ func advance(delta_ms: int) -> void:
  for index in remaining.size():
   if remaining[index]<=0:continue
   var start:=vector(positions[index]);var direction:=vector(velocities[index]).normalized()
-  if homing:
-   var nearest=null;var squared:=45000.0*45000.0
+  # A torpedo runs straight for its first second and a half, then turns
+  # after the nearest live target within a hundred and fifty metres (dm.b).
+  if homing and remaining[index]<lifetime-1500:
+   var nearest=null;var squared:=15000.0*15000.0*3
    for actor in targets:
     if not actor.health.enabled or actor.health.hull<=0:continue
-    var distance:=start.distance_squared_to(vector(actor.pose.origin))
+    var offset:=vector(actor.pose.origin)-start
+    if absf(offset.x)>=15000 or absf(offset.y)>=15000 or absf(offset.z)>=15000:continue
+    var distance:=offset.length_squared()
     if distance<squared:squared=distance;nearest=actor
    if nearest!=null:direction=direction.lerp((vector(nearest.pose.origin)-start).normalized(),1.0-exp(-delta_ms*.0025)).normalized()
   var travel:=direction*speed*mini(delta_ms,remaining[index])

@@ -61,7 +61,7 @@ func recompute() -> void:
     boost_factor=int(item.parameters[0]); boost_duration=int(item.parameters[1]); boost_cooldown=int(item.parameters[2])
    10: self_repair=true
   total_value+=item.total_price()
- cargo_bonus=roundi(base_cargo*maxi(0,cargo_percent)/100.0)
+ cargo_bonus=int(Math.f32(Math.f32(float(base_cargo)*float(cargo_percent))/100.0))
  shallow_percent=Math.depth_percent(minimum_depth)
  deep_percent=Math.depth_percent(maximum_depth)
  total_value+=cargo_value()
@@ -89,7 +89,7 @@ func can_carry(count: int) -> bool:
  return count>=0 and cargo_used+count <= capacity()
 
 func engine_range() -> int:
- return roundi(275.0*(1+maxi(0,engine_bonus)/100.0))
+ return int(Math.f32(275.0+Math.f32(float(int(Math.f32(275.0*float(engine_bonus))))/100.0)))
 
 func steering() -> float:
  return maxf(.1,base_steering+steering_bonus/100.0)

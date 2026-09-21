@@ -1,5 +1,5 @@
 extends RefCounted
-## Imported equipment schema; linear technology pricing and explicit resale.
+## Imported equipment records: technology pricing and the resale cut, as the phone game deals them.
 const Math = preload("res://native/simulation/fixed_math.gd")
 var id := 0
 var kind := 0
@@ -24,8 +24,12 @@ func total_price() -> int:
  return maxi(0,price)*maxi(0,quantity)
 
 func station_price(tech_level: int, resale: bool = false) -> void:
- var quality:=clampf(tech_level/10.0,0,1)
- price=maxi(1,roundi(lerpf(maximum_price,minimum_price,quality)*(0.65 if resale else 1.0)))
+ # dn.a: a station of technology n sells at the floor plus (10-n)/10 of the
+ # spread, and what is sold back, or bought back, is worth a fifth less;
+ # both cuts apply to gear that has already been owned once.
+ price=minimum_price+int(Math.f32(Math.f32(float(10-tech_level)/10.0)*float(maximum_price-minimum_price)))
+ if discounted:price=int(Math.f32(float(price)/1.25))
+ if resale:price=int(Math.f32(float(price)/1.25))
 
 func copy_stack(count: int = 1, at_price: int = -1):
  var result = get_script().new()

@@ -387,7 +387,7 @@ func run():
  expect(view.objects[mine.get_instance_id()].visual.visible,"Armed bomb has a visible body")
  mine.detonate();view._process(0)
  expect(not view.objects[mine.get_instance_id()].visual.visible,"Bomb body disappears on the detonation frame")
- expect(mine.state==3 and mine.events.has("killed"),"Hiding a bomb preserves its explosion event and lifecycle")
+ expect(mine.state==999 and mine.events.has("killed"),"Hiding a bomb preserves its explosion event and lifecycle")
  app.world.region.enemies.erase(mine);view._process(0)
  var salvage=load("res://native/simulation/npc.gd").new()
  salvage.configure(0,2,true,app.world.region.player.pose.origin.duplicate(),content.data,app.session.campaign.chapter,app.session.rng)

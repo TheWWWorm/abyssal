@@ -67,14 +67,22 @@ static func instruction(mission) -> String:
 static func encounter_progress(region) -> String:
 	var goal=region.success
 	if goal==null:return ""
+	var hostile: Array=region.enemies.filter(func(actor):return not actor.excluded_from_objectives)
 	match goal.metric:
+		"no_enemies","enemy_dead","first_enemies_dead":
+			var subjects: Array=hostile if goal.metric=="no_enemies" else region.enemies.slice(0,goal.value if goal.metric=="first_enemies_dead" else goal.value+1)
+			var done: int=subjects.filter(func(actor):return actor.health.hull<=0 or actor.rescued()).size()
+			return "Targets cleared: %d / %d"%[done,subjects.size()]
+		"enemy_rescued","all_rescued":
+			var subjects: Array=region.enemies if goal.metric=="all_rescued" else region.enemies.slice(goal.value,goal.value+1)
+			return "Ships recovered: %d / %d"%[subjects.filter(func(actor):return actor.rescued()).size(),subjects.size()]
+		"harvest":
+			var caught: int=region.creatures.filter(func(actor):return actor.species==goal.species and (actor.subdued or actor.state==4)).size()
+			return "Creatures caught: %d / %d"%[mini(caught,goal.minimum),goal.minimum]
 		"clear_hostiles":
 			var done: int=goal.subjects.filter(func(actor):return actor.health.hull<=0 or actor.rescued()).size()
 			return "Targets cleared: %d / %d"%[done,goal.subjects.size()]
 		"recover":
 			return "Ships recovered: %d / %d"%[goal.subjects.filter(func(actor):return actor.rescued()).size(),goal.subjects.size()]
-		"harvest":
-			var caught: int=goal.subjects.filter(func(actor):return actor.species==goal.species and (actor.subdued or actor.state==4)).size()
-			return "Creatures caught: %d / %d"%[mini(caught,goal.minimum),goal.minimum]
 		"route":return "Waypoints reached: %d / %d"%[region.route.index,region.route.points.size()]
 	return ""

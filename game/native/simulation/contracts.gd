@@ -1,78 +1,130 @@
 extends RefCounted
-## Bounded contract offers based on reachability, cargo capacity and player rank.
-## Imported tables supply names/art/content; engine policy supplies each offer.
+## The job board, as the phone game's cp fills it: one to eight offers,
+## each of a kind the station's side will post, to a destination within the
+## story's reach, paid by difficulty and distance with a deposit of a tenth
+## or so, and fronted by a face from the imported portrait parts.
+const Math=preload("res://native/simulation/fixed_math.gd")
 const Mission=preload("res://native/simulation/mission.gd")
+## The story's own goods and the imports never make a delivery order.
+const UNDELIVERABLE := [33,34,35,37,38,39,40]
 var session
+
 func roll(bound: int) -> int:return session.rng.next_int(maxi(1,bound))
-func nearby_stations(station: Dictionary) -> Array:
- var candidates: Array=[]
- for target in session.stations:
-  if target.id==station.id:continue
-  if target.percent<session.ship.shallow_percent or target.percent>session.ship.deep_percent:continue
-  candidates.append(target)
- candidates.sort_custom(func(a,b):return distance(station,a)<distance(station,b))
- return candidates.slice(0,12)
-func distance(a: Dictionary,b: Dictionary) -> float:
- return Vector3(a.x-b.x,a.y-b.y,(a.percent-b.percent)*.1).length()
+
 func destination(station: Dictionary) -> int:
- var candidates:=nearby_stations(station)
- return station.id if candidates.is_empty() else int(candidates[roll(candidates.size())].id)
+	# A holding past the first twenty, mostly within the ship's depth band,
+	# and no further off on the chart than the chapter allows.
+	while true:
+		var id: int=maxi(20,roll(200))
+		var target: Dictionary=session.stations[id]
+		if roll(100)<70 and (target.percent>session.ship.deep_percent or target.percent<session.ship.shallow_percent):continue
+		if roll(100)<100 and (absi(target.x-station.x)>20+session.campaign.chapter or absi(target.y-station.y)>20+session.campaign.chapter):continue
+		return id
+	return 20
+
 func portrait(variant: bool,faction: int) -> Array:
- # The layer/category schema is part of the imported portrait format.
- var art: Dictionary=session.data.constants.ab
- var category:=roll(2) if variant else 2
- var result: Array=[]
- for layer in art["a:[[[B"].size():
-  if layer==0:result.append(int(art["f:[B"][faction]));continue
-  var source_layer: int=3-layer if not variant and layer in [1,2] else layer
-  var options: Array=art["a:[[[B"][source_layer][category]
-  result.append(-1 if options.is_empty() else int(options[roll(options.size())]))
- return result
-func cargo_candidates(fish: bool) -> Array:
- var candidates: Array=[]
- var species_count: int=session.data.constants.ah["b:[S"].size()
- for id in session.data.tables.goods.size():
-  var row: Array=session.data.tables.goods[id]
-  if int(row[4])>0 and (id<species_count)==fish:candidates.append(id)
- return candidates
+	# The face is assembled layer by layer from the imported parts: the
+	# faction's own first layer, then one of each category, the last layer
+	# only sometimes.
+	var parts: Dictionary=session.data.constants.ab
+	var special: bool=variant and roll(100)<int(parts["c:byte"])
+	var result: Array=[]
+	for layer in parts["a:[[[B"].size():
+		var category: int=(1 if special else 0) if variant else 2
+		if layer==0:result.append(int(parts["f:[B"][faction]))
+		elif layer!=5 or roll(100)<int(parts["d:byte"]):
+			var source: int=(2 if layer==1 else 1) if not variant and layer in [1,2] else layer
+			var options: Array=parts["a:[[[B"][source][category]
+			result.append(int(options[roll(options.size())]))
+		else:result.append(-1)
+	return result
+
+func offer_kind(station: Dictionary,colonist: bool) -> int:
+	# Colonists post no deliveries, fish defences or capsule raids; rebels
+	# post no escorts, intercepts, fish hunts, capsule raids or capsule
+	# defences, and no fish defence once the war is won.
+	while true:
+		var kind: int=roll(15)
+		if kind in [13,14] and station.id<=20:continue
+		if colonist and kind in [13,14,6,12]:continue
+		if not colonist and ((session.campaign.finished() and kind==6) or kind in [12,5,4,7,11]):continue
+		return kind
+	return 3
+
 func generate(station: Dictionary) -> Array:
- var result: Array=[]
- var remote:=nearby_stations(station)
- var types: Array=[0,1,2,3,4,5,6,7,9,11,12]
- if not remote.is_empty():types.append_array([8,10])
- var cargo:=cargo_candidates(false);var fish:=cargo_candidates(true)
- if session.ship.capacity()>0:
-  if not cargo.is_empty():types.append(13)
-  if not fish.is_empty():types.append(14)
- var rank:=clampi(int(session.counters.k),1,40)
- var combat_tier:=clampi(1+rank/5,1,8)
- for index in 4:
-  var mission:=Mission.new();mission.kind=int(types[roll(types.size())])
-  var target: Dictionary=station
-  if mission.kind in [8,10] or not remote.is_empty() and mission.kind not in [13,14] and roll(2)==0:
-   target=remote[roll(remote.size())]
-  mission.destination=target.id;mission.destination_name=target.name
-  mission.sponsor_faction=0 if session.is_colonist_station(station.id) else 1
-  var variant:=roll(2)==0
-  var names: Array=session.data.name_pools[1 if variant else 0]
-  mission.sponsor="Contract office" if names.is_empty() else str(names[roll(names.size())])
-  mission.portrait=portrait(variant,mission.sponsor_faction)
-  mission.difficulty=combat_tier*clampi(rank/2,1,20)
-  # No random jump expiry: players may explore or stop for upgrades en route.
-  mission.jump_limit=-1
-  if mission.kind in [13,14]:
-   var goods: Array=cargo if mission.kind==13 else fish
-   mission.item_id=int(goods[roll(goods.size())])
-   mission.item_count=1+roll(mini(12,maxi(1,session.ship.capacity()/2)))
-  if mission.kind in [6,7]:
-   var total:=4+combat_tier if mission.kind==7 else 8+combat_tier
-   mission.parameters(roll(mini(13,session.data.tables.creatures.size())),total,maxi(1,ceili(total*.6)) if mission.kind==6 else 0)
-  elif mission.kind in [11,12]:
-   var total:=4+combat_tier/2;mission.parameters(0,total,maxi(1,ceili(total*.6)) if mission.kind==11 else total)
-  var reward:=1500.0+combat_tier*450+distance(station,target)*40
-  if mission.kind in [4,6,11]:reward*=1.25
-  if mission.kind in [13,14]:reward+=mission.item_count*int(session.data.tables.goods[mission.item_id][6])*1.3
-  mission.reward=maxi(500,roundi(reward/50.0)*50)
-  mission.deposit=mini(roundi(mission.reward*.1/50.0)*50,maxi(0,session.credits/10))
-  result.append(mission)
- return result
+	var result: Array=[]
+	var goods: Array=session.data.tables.goods
+	var species: int=session.data.constants.ah["b:[S"].size()
+	var colonist: bool=session.is_colonist_station(station.id)
+	for _offer in 1+roll(8):
+		var target := 0
+		while target<=20:target=station.id if roll(100)<40 else destination(station)
+		var kind: int=offer_kind(station,colonist)
+		if kind in [13,14]:target=station.id
+		var mission:=Mission.new()
+		mission.kind=kind;mission.sponsor_faction=0 if colonist else 1
+		var variant: bool=roll(100)<60
+		var names: Array=session.data.name_pools[1 if variant else 0]
+		mission.sponsor=str(names[roll(names.size())])
+		mission.portrait=portrait(variant,mission.sponsor_faction)
+		var difficulty := 0
+		if kind in [13,14]:
+			# A product (13) or a fish (14) that is actually traded, in a
+			# quantity; deliveries are rated by the product's technology,
+			# fishing orders by the size of the catch.
+			while true:
+				var id: int=species+1+roll(goods.size()-species-1) if kind==13 else roll(species)
+				if id in UNDELIVERABLE or roll(100)>=int(goods[id][4]):continue
+				mission.item_id=id;break
+			mission.item_count=3+roll(22) if kind==14 else 1+roll(9)
+			difficulty=int(Math.f32(Math.f32(float(mission.item_count)/25.0)*10.0)) if kind==14 else int(goods[mission.item_id][1])+2
+		else:difficulty=1+roll(2 if session.campaign.chapter<10 else 9)
+		if kind in [10,8]:
+			while target==station.id:target=destination(station)
+		elif kind in [12,11]:
+			# Capsules are raided at rebel holdings and defended at colonist
+			# ones; failing to find one, the offer becomes a pirate hunt.
+			var attempts := 100
+			while (session.campaign.rebel_stations[target] if kind==12 else not session.campaign.rebel_stations[target]) and attempts>0:
+				target=destination(station);attempts-=1
+			if attempts<=0:kind=3;mission.kind=3
+		mission.destination=target;mission.destination_name=session.stations[target].name
+		mission.difficulty=difficulty*clampi(session.counters.k/2,1,20)
+		mission.jump_limit=roll(6)-1 if kind==8 else -1
+		# The fee: 3,500 plus up to 9,500 by difficulty, raised by the
+		# distance, adjusted by kind, and rounded to the fifty.
+		var journey: float=preload("res://native/simulation/economy.gd").distance(station,session.stations[target])
+		var reward: float=float(3500+int(Math.f32(Math.f32(float(mission.difficulty)/200.0)*9500.0)))
+		reward=Math.f32(reward*Math.f32(1.0+Math.f32(journey/1500.0)))
+		match kind:
+			9:reward=Math.f32(reward*0.7)
+			6,4,11:reward=Math.f32(reward*1.3)
+			12,7:reward=Math.f32(reward*1.2)
+			13:reward=Math.f32(Math.f32(reward/2.0)+float(mission.item_count*int(goods[mission.item_id][6])*3))
+			8:
+				if mission.jump_limit>=0:reward=Math.f32(reward+float(int(Math.f32(Math.f32(float(6-mission.jump_limit)*reward)/20.0))))
+		mission.reward=to_fifty(reward)
+		var deposit: int=int(Math.f32(Math.f32(reward/10.0)+float(roll(int(reward)/10))))
+		if kind in [13,14]:deposit=int(Math.f32(float(deposit)*0.5))
+		mission.deposit=to_fifty(float(deposit))
+		var ratio: float=Math.f32(float(difficulty)/10.0)
+		match kind:
+			7:mission.parameters(roll(13),3+int(Math.f32(ratio*7.0)),0)
+			6:
+				var kind_of_fish := 0
+				while kind_of_fish in [0,2,9,11,12]:kind_of_fish=roll(13)
+				var total: int=15+roll(10)
+				mission.parameters(kind_of_fish,total,total-int(Math.f32(Math.f32(1.0-ratio)*Math.f32(float(total)*0.35))))
+			11:
+				var total: int=5+roll(10)
+				mission.parameters(0,total,total-int(Math.f32(Math.f32(1.0-ratio)*float(total))))
+			12:
+				var total: int=3+roll(3);mission.parameters(0,total,total)
+		result.append(mission)
+	return result
+
+static func to_fifty(amount: float) -> int:
+	# Rounded to the fifty the phone game's way: the remainder is added when
+	# that lands on a fifty, otherwise taken off.
+	var remainder: int=int(amount)%50
+	return int(amount+remainder) if fmod(amount+remainder,50.0)==0 else int(amount-remainder)

@@ -1,5 +1,6 @@
 extends RefCounted
-## Engine session, starter equipment, persistent milestones and settlement.
+## The expedition (dj): the pilot, the ship and its outfit, the credits, the
+## record, the chart of two hundred holdings and the story's place in it.
 const Math = preload("res://native/simulation/fixed_math.gd")
 const Ship = preload("res://native/simulation/ship_stats.gd")
 const Equipment = preload("res://native/simulation/equipment.gd")
@@ -53,12 +54,10 @@ func new_game(owner_data: Dictionary, player_name: String, random_seed: int) -> 
  station_id=0
  campaign=Campaign.new(); campaign.configure(data); campaign.next_chapter(counters); campaign.active=campaign.primary
  ship=Ship.new(); ship.configure(data.tables.ships[0]); ship.price=int(Math.f32(float(ship.price)/1.25))
- # Starter gear is selected by category and price from the imported catalog.
- for kind in [2,3,4,8]:
-  var candidates: Array=data.tables.equipment.filter(func(row):return int(row[1])==kind)
-  candidates.sort_custom(func(a,b):return int(a[3])<int(b[3]))
-  if candidates.is_empty():continue
-  var item=make_equipment(int(candidates[0][0]));item.station_price(stations[0].tech,true);item.discounted=true;ship.equip(item)
+ # The Ino is fitted out as the phone game hands it over: a Holorope, the
+ # Veto shield, Ballistic armour and the Nucom radar, at Gosu's prices.
+ for id in [15,18,22,35]:
+  var item=make_equipment(id);item.station_price(stations[0].tech,true);item.discounted=true;ship.equip(item)
  hull=ship.hull; shield=ship.shield; armor=ship.armor
 
 func make_equipment(id: int):
@@ -72,8 +71,14 @@ func make_goods(id: int, count: int):
 func is_colonist_station(id: int = -1) -> bool:
  return not campaign.rebel_stations[station_id if id < 0 else id]
 
-func service_denial(_service: String) -> int:
- return -1 # Core station tools stay accessible throughout the campaign.
+func service_denial(service: String) -> int:
+ # What the station will not open yet (ch.c): colonists do not trade; the
+ # job board waits for the ninth chapter and the chart for the seventh;
+ # and in the forty-second both wait on the Eclipse being aboard.
+ if service=="trade" and is_colonist_station():return 256
+ if (service=="missions" and campaign.chapter<9) or (service=="map" and campaign.chapter<7):return 282
+ if service in ["missions","map"] and campaign.chapter==42 and not ship.equipment.any(func(item):return item!=null and item.id==42):return 289
+ return -1
 
 func register_catch(creature_id: int,count: int) -> bool:
  if creature_id<0 or creature_id>=data.tables.goods.size() or count<=0 or not ship.can_carry(count):return false
@@ -83,9 +88,10 @@ func register_catch(creature_id: int,count: int) -> bool:
  return true
 
 func update_rank() -> void:
- var milestones:=maxi(0,int(counters.h)+int(counters.f)*2+int(counters.n)+int(counters.j)*4)
- counters.k=maxi(int(counters.k),1+floori(sqrt(milestones/8.0)))
- counters.l=maxi(int(counters.l),milestones)
+ # Rank rises each time the score, of catches, kills twice, goods made and
+ # contracts three times, has grown by a third since the last rise.
+ var score: int=counters.h+2*counters.f+counters.n+3*counters.j
+ if Math.f32(float(counters.l)*1.3)<float(score):counters.l=score;counters.k+=1
 
 func text(id: int, replacement: String = "") -> String:
  if id < 0 or id>=data.strings.size(): return ""
@@ -118,45 +124,50 @@ func arrive() -> void:
  if not awarded.is_empty():
   var names: Array = awarded.map(func(id): return text(int(data.constants.e["a:[[S"][id][0])))
   notices.append({"kind":"notice","text":"Medals awarded: "+", ".join(names)})
+ # The bounty on the trip's pirates grows with the square of their number,
+ # a hundred a head at a colonist holding and fifty at a rebel one.
  if medals.pirates>0 and pending_bounty==0:
-  pending_bounty=medals.pirates*250
-  notices.append({"kind":"pirate_bounty","text":"Pirate bounty · %d defeated · %d cr"%[medals.pirates,pending_bounty]})
+  var rate: int=100 if is_colonist_station() else 50
+  var count: int=medals.pirates
+  pending_bounty=count*count*rate
+  var praise: int=284 if count<4 else 285 if count<7 else 286 if count<12 else 287
+  notices.append({"kind":"pirate_bounty","text":"%s: %d\n%d x %d x %d $\n%s: %d $\n\n%s"%[text(283),count,count,count,rate,text(40),pending_bounty,text(praise)]})
  medals.observe_credits(credits)
- # Complete deliveries addressed here before the port settles the remainder.
+ # Deliveries addressed here settle before the colonists take the rest.
  if is_colonist_station():
   for objective in [campaign.primary,campaign.secondary]:
    if objective.kind in [13,14] and not objective.failed and not objective.completed and objective.destination==station_id and Goods.contains(ship.cargo,objective.item_id,objective.item_count):complete_mission(objective)
   settle_colonist_cargo()
+ elif campaign.chapter==12 and station_id==3:notices.append({"text":text(258),"kind":"notice"})
  station_story_stock()
 
 func settle_colonist_cargo() -> void:
+ # Colonists take whatever is in the hold at its floor price.
  if not is_colonist_station() or ship.cargo.is_empty():return
  var payment := 0
  var count := 0
  var fish := 0
  for stack in ship.cargo:
-  # Fixed catalog valuation, independent of market prices last seen by the UI.
-  var catalog_item=make_goods(stack.id,stack.owned)
-  payment+=catalog_item.total_price();count+=stack.owned
+  payment+=int(Math.f32(float(stack.owned)*float(stack.minimum_price)));count+=stack.owned
   if stack.id<fish_found.size():fish+=stack.owned
  ship.set_cargo([])
  credits+=payment;medals.observe_credits(credits)
- cargo_receipt=("Fish automatically sold" if fish==count else "Cargo automatically sold")+" · %d t · +%d cr"%[count,payment]
+ cargo_receipt=text(257)+" %d $"%payment+"\n"+("Fish" if fish==count else "Cargo")+" · %d t"%count
  notices.append({"kind":"cargo_settlement","text":cargo_receipt})
 
 func station_story_stock() -> void:
- # Imported objectives guarantee the availability of required equipment.
- # Delivery supplies are offered away from the receiving station, so cargo
- # still needs to be transported rather than collected at the destination.
+ # What the story puts on a shelf (ch): the Railgun alone at Gosu in the
+ # second chapter; the Biotek generator and the incubator at the holdings
+ # of chapters 33-34 and 36-37; and the Eclipse at Choral (14) once the
+ # incubator is aboard, or in the forty-second chapter.
  var station: Dictionary=stations[station_id]
- var objectives: Array=[campaign.primary]
- if campaign.chapter<data.campaign.size():
-  var upcoming:=Mission.new();upcoming.from_record(data.campaign[campaign.chapter].mission);objectives.append(upcoming)
- for objective in objectives:
-  if objective.kind==17 and objective.threshold>=0 and objective.threshold<data.tables.equipment.size():
-   if not station.equipment.any(func(item):return item.id==objective.threshold):station.equipment.append(make_equipment(objective.threshold))
-  if objective.kind in [13,14] and objective.destination!=station_id and objective.item_id>=0 and objective.item_id<data.tables.goods.size():
-   if not Goods.contains(station.cargo,objective.item_id):station.cargo=Goods.merge(station.cargo,[make_goods(objective.item_id,maxi(1,objective.item_count))])
+ if campaign.chapter==2:station.equipment=[make_equipment(0)]
+ if campaign.chapter in [33,34,36,37] and station_id==campaign.primary.destination:
+  var id: int=37 if campaign.chapter in [33,34] else 38
+  if not Goods.contains(station.cargo,id):station.cargo=Goods.merge(station.cargo,[make_goods(id,1)])
+ if ((campaign.chapter==41 and Goods.contains(ship.cargo,36)) or campaign.chapter==42) and station_id==14:
+  var aboard: bool=ship.equipment.any(func(item):return item!=null and item.id==42)
+  if not aboard and not station.equipment.any(func(item):return item.id==42):station.equipment.append(make_equipment(42))
 
 func acknowledge_notice(notice: Dictionary) -> void:
  if notice.kind=="cargo_payment": credits+=pending_cargo_payment; pending_cargo_payment=0
@@ -165,7 +176,11 @@ func acknowledge_notice(notice: Dictionary) -> void:
  if docked: medals.observe_credits(credits)
 
 func depart_denial() -> int:
- return -1 # Equipment advice belongs in the journal, not a hidden chapter lock.
+ # The third chapter does not leave Gosu without the Railgun, nor the
+ # forty-second Choral without the Eclipse.
+ if campaign.chapter==3:return 288
+ if campaign.chapter==42 and not ship.equipment.any(func(item):return item!=null and item.id==42):return 289
+ return -1
 
 func depart() -> bool:
  if depart_denial()>=0: return false
@@ -195,9 +210,11 @@ func complete_mission(mission) -> void:
  if mission==null or mission.kind<0 or mission.failed or mission not in [campaign.primary,campaign.secondary]: return
  if mission.kind in [13,14]:
   if not docked or station_id!=mission.destination or not Goods.contains(ship.cargo,mission.item_id,mission.item_count):return
-  for item in ship.cargo:
-   if item.id==mission.item_id: item.owned-=mission.item_count
-  ship.set_cargo(Goods.owned_items(ship.cargo))
+  # The incubator stays aboard at the fortieth chapter: the next one wants it at Fiir.
+  if not mission.story or mission.item_id!=36 or campaign.chapter==41:
+   for item in ship.cargo:
+    if item.id==mission.item_id: item.owned-=mission.item_count
+   ship.set_cargo(Goods.owned_items(ship.cargo))
  credits+=mission.reward
  if mission.story: campaign.next_chapter(counters)
  else: counters.j+=1; campaign.secondary=Mission.new()
