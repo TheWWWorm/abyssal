@@ -10,6 +10,7 @@ cache.
 - Engine regression suite: **14 of 14 checks passed** headless on OpenGL
   (`tools/check.py --compatibility`).
 - Python packaging, importer and distribution tests: **36 of 36 passed**.
+- The opening's last leg was re-timed and routed over the station in this patch and checked by captures at 64–78 s.
 - The title menu, its station backdrop and the loading notice, the opening
   sequence at eight moments including its hand-over to the chase camera beside
   the hull, and the manta, whale, anglerfish and jellyfish at four phases of
@@ -23,7 +24,7 @@ cache.
   from its own data directory: it starts on Vulkan Forward+ and shows the new title.
 - Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
 - The Android APK is signed with the same release key as every build since
-  preview.2 and carries version code 22, so it updates earlier builds in place.
+  preview.2 and carries version code 23, so it updates earlier builds in place.
 
 ## What was not validated
 
