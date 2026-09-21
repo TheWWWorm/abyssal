@@ -17,8 +17,6 @@ const RETURN_DISTANCE := 30000
 ## Set when the creature has just been set down somewhere new; the view
 ## takes it as the cue to bring the body in out of the haze.
 var fresh := true
-## Species whose model is authored belly up; see animate.
-const KEEL_UP := [4426,4436,4438]
 const CARCASS_RISE := 3
 var pose := Transform.new()
 var turn := Transform.new()
@@ -201,10 +199,10 @@ func animate(_delta_ms: int=0) -> void:
 		4423:render_tilt[1]=swing*316.0/4096.0
 		4427,4432,4436:render_tilt[0]=swing*158.0/4096.0
 		4430,4434,4440:render_tilt[1]=-swing*316.0/4096.0
-	# Three models are built the other way up from the rest (the turtle's
-	# shell, the jellyfish's bell and the shrimp's back all lie on the side
-	# the others keep their bellies); they are turned over to be drawn.
-	if model_id in KEEL_UP:render_tilt[2]+=2048.0
+	# Every creature model comes out of the JAR the other way up from how
+	# the engine reads the hulls and stations, so each is turned over to be
+	# drawn: the phone's creature drawing carried that half turn itself.
+	render_tilt[2]+=2048.0
 	if secondary_model>=0:
 		var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table
 		fin.set_euler(roundi(render_tilt[0]),roundi(render_tilt[1]),roundi(render_tilt[2]));secondary_pose.compose_rotation(fin)

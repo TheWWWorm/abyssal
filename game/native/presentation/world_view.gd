@@ -165,11 +165,14 @@ func rebuild() -> void:
 		if visual==null: continue
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine; pose.origin=part.origin; pose.set_euler(0,part.yaw,0)
 		visual.transform=Model.station_transform(pose.godot_transform())
-		# A bridge's end cap lies exactly in the wall it meets, and station
-		# faces are drawn from both sides, so the two fought for the pixels
-		# along the joint. Drawn a hair short (about a centimetre an end) the
-		# cap sits just inside the wall instead.
-		if int(part.model_id) in [3301,3302,3310]:visual.transform=visual.transform.scaled_local(Vector3.ONE*0.9997)
+		# The phone's modules overlap: bridges eighty metres long chained at a
+		# sixty-three metre step, habitats sixty-nine metres tall stacked at
+		# forty-five, a cap lying in the wall it meets. Its painter's order
+		# never minded; a depth buffer sees the same plane twice and fights
+		# over it. Each module is drawn a fraction smaller by a step that
+		# differs from its neighbours', so no two overlapping faces share a
+		# plane: at most a few centimetres over an eighty-metre module.
+		visual.transform=visual.transform.scaled_local(Vector3.ONE*station_trim(station_nodes.size()))
 		visual.configure_station(part)
 		station_nodes.append(visual)
 		add_station_collision(visual)
@@ -401,6 +404,9 @@ func _process(delta: float) -> void:
 	var particle_ms := maxf(0,float(ms)+world.accumulator-previous_particle_fraction)
 	previous_particle_fraction=world.accumulator
 	combat.update(region,ms,delta*1000 if departure_progress>=0 else particle_ms)
+
+static func station_trim(index: int) -> float:
+	return 1.0-0.002*(1+(index%3))
 
 func set_depth_limits(on: bool) -> void:
 	depth_limits=on
