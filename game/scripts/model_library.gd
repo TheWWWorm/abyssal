@@ -310,6 +310,25 @@ func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
 	holder.position=lamp.centre
 	return holder
 
+## How far from the join, along the part's Z, the hinge bend reaches its full
+## angle; the pose shader's hinge_reach.
+const HINGE_REACH := 1.5
+
+static func bend_lamp(rest: Transform3D, axis: int, bend: float) -> Transform3D:
+	"""The pose shader bends a hinged part's vertices about its local Y (axis
+	1) or X by their distance from the join; a lamp on that part - the lure at
+	the end of an anglerfish's rod - bends with them, or it hangs beside the
+	tip whenever the fish turns its head."""
+	if bend==0.0:return rest
+	var a: float=bend*smoothstep(0.0,HINGE_REACH,absf(rest.origin.z))
+	var turn := Basis(Vector3.UP if axis==1 else Vector3.RIGHT,a)
+	return Transform3D(turn*rest.basis,turn*rest.origin)
+
+static func set_lamp_hinge(node: Node3D, axis: int, bend: float) -> void:
+	node.set_meta("hinge",[axis,bend])
+	for point in node.get_meta("lamps",[]):
+		if point.has("rest"):point.node.transform=bend_lamp(point.rest,axis,bend)
+
 static func set_lamp_visibility(node: Node3D, value: float) -> void:
 	for point in node.get_meta("lamps",[]):
 		var holder: Node3D=point.node
@@ -371,9 +390,11 @@ func pose(node: Node3D, call: Dictionary) -> void:
 	# The lamps ride their own bone, as the sprites did, and a station's
 	# animation blinks its lamps by shrinking their bones to nothing: a lamp
 	# whose bone is shrunk away is dark, light and all.
+	var hinge: Array=node.get_meta("hinge",[1,0.0])
 	for point in node.get_meta("lamps",[]):
 		var bone: Transform3D=transforms[int(point.lamp.bone)]
-		point.node.transform=Transform3D(bone.basis.orthonormalized(),bone*point.lamp.centre)
+		point.rest=Transform3D(bone.basis.orthonormalized(),bone*point.lamp.centre)
+		point.node.transform=bend_lamp(point.rest,int(hinge[0]),float(hinge[1]))
 		point.node.visible=bone.basis.get_scale().length_squared()>0.75
 	if not pose_key.is_empty() and native_pose_cache.has(pose_key):
 		var cached: Dictionary = native_pose_cache[pose_key]

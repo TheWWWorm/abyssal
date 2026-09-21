@@ -65,6 +65,7 @@ func apply_hinge() -> void:
 	var mesh := figure.get_node("Mesh") as MeshInstance3D
 	mesh.set_instance_shader_parameter("hinge_axis",hinge_axis)
 	mesh.set_instance_shader_parameter("hinge_bend",hinge_bend)
+	Library.set_lamp_hinge(figure,hinge_axis,hinge_bend)
 
 func set_stream_visibility(value: float) -> void:
 	stream_visibility=clampf(value,0.0,1.0)

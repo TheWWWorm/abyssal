@@ -734,4 +734,11 @@ func check_lamp_points(app,view) -> void:
  var head=view.objects[fish.get_instance_id()].secondary
  expect(head!=null and absf(head.hinge_bend+128*TAU/4096.0)<1e-5 and head.hinge_axis==1,"The head is bent at the join by that angle in Godot space (%f)"%(head.hinge_bend if head!=null else 0.0))
  expect(head!=null and head.transform.basis.is_equal_approx(fish.hinge_pose.godot_transform().basis),"The bent head keeps the pose before the swing")
+ # The lure at the end of the rod bends with the rod: the lamp sits where
+ # the shader puts the tip, turned about the head's Y by the full bend.
+ var lure_point: Dictionary=head.figure.get_meta("lamps",[])[0] if head!=null else {}
+ var expected: Vector3=Basis(Vector3.UP,head.hinge_bend)*lure_point.rest.origin if head!=null else Vector3.ZERO
+ expect(head!=null and absf(lure_point.rest.origin.z)>library.HINGE_REACH and lure_point.node.position.is_equal_approx(expected) and absf(lure_point.node.position.x-lure_point.rest.origin.x)>0.5,"The lure lamp follows the bent rod tip (%s -> %s)"%[str(lure_point.get("rest",Transform3D()).origin),str(lure_point.node.position if head!=null else null)])
+ head.set_hinge(1,0.0)
+ expect(head!=null and lure_point.node.position.is_equal_approx(lure_point.rest.origin),"Unbent, the lamp is back at its rest")
  app.world.region.creatures.erase(fish);view._process(0)
