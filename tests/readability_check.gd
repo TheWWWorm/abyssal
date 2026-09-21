@@ -216,3 +216,16 @@ func check_helm_response(TestPlayer,stats,sine: Array) -> void:
  expect(sidestep.pose.forward==level and sidestep.bank==0,"The lean is only on the rendered hull")
  for i in 40:sidestep.advance(40)
  expect(absi(sidestep.visual_bank)<=2,"The lean settles after the key is released (%d)"%sidestep.visual_bank)
+ # bb: a turn leans the hull a unit a millisecond to 384, holds it while
+ # the helm is over, and lets it back upright at a fifth of that.
+ var leaning=TestPlayer.new();leaning.configure(stats,22500,sine);leaning.set_throttle(0);leaning.smooth_steering=false
+ leaning.steer(1,0,40);leaning.advance(40)
+ expect(leaning.bank==40,"The lean builds a unit a millisecond (%d)"%leaning.bank)
+ for i in 20:leaning.steer(1,0,40);leaning.advance(40)
+ expect(leaning.bank==384 and leaning.visual_bank==-384,"The lean holds at 384 while the helm is over (%d)"%leaning.bank)
+ leaning.advance(40)
+ expect(leaning.bank==376,"The hull comes back upright at a fifth of the rate (%d)"%leaning.bank)
+ for i in 46:leaning.advance(40)
+ expect(leaning.bank>0,"It is still leaning well over a second after the helm centres (%d)"%leaning.bank)
+ for i in 4:leaning.advance(40)
+ expect(leaning.bank==0,"Level again after about two seconds (%d)"%leaning.bank)

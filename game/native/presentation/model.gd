@@ -51,6 +51,21 @@ var portal_enabled := false
 var portal_plane := Vector4.ZERO
 var portal_materials := {}
 
+var hinge_axis := 1
+var hinge_bend := 0.0
+
+func set_hinge(axis: int, bend: float) -> void:
+	"""Bends this part at its join with the body by a Godot-space angle
+	about its local X (pitch) or Y (yaw), per instance, so the shared pose
+	materials stay untouched."""
+	hinge_axis=axis;hinge_bend=bend;apply_hinge()
+
+func apply_hinge() -> void:
+	if figure==null:return
+	var mesh := figure.get_node("Mesh") as MeshInstance3D
+	mesh.set_instance_shader_parameter("hinge_axis",hinge_axis)
+	mesh.set_instance_shader_parameter("hinge_bend",hinge_bend)
+
 func set_stream_visibility(value: float) -> void:
 	stream_visibility=clampf(value,0.0,1.0)
 	apply_stream_visibility()
@@ -76,6 +91,7 @@ func apply_stream_visibility() -> void:
 			original=fade_materials[key];mesh.set_surface_override_material(index,original)
 		original.set_shader_parameter("stream_visibility",stream_visibility)
 	if stream_visibility>=1.0:fade_materials.clear()
+	Library.set_lamp_visibility(figure,stream_visibility)
 
 
 func configure(cache: String, entry: Dictionary, preview_frame_ms: int = 32) -> void:
@@ -259,7 +275,7 @@ func refresh() -> void:
 	if (call.pixelated_station or call.smoothed_station) and figure.get_meta("station_smoothing",false)!=library.station_smoothing:
 		library.apply_figure_materials(figure,call)
 	library.pose(figure,call)
-	apply_stream_visibility()
+	apply_stream_visibility();apply_hinge()
 	apply_portal_clip()
 	if is_hangar():apply_hangar_open()
 

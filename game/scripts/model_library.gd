@@ -21,6 +21,10 @@ var water_to_world := Transform3D.IDENTITY
 var ocean_strength := 0.0
 var effect_glow := 1.6
 
+## The game's frame to Godot's: y and z the other way. A turn expressed in
+## the game's units becomes S*R*S in Godot.
+const SIM_FLIP := Basis(Vector3(1,0,0),Vector3(0,-1,0),Vector3(0,0,-1))
+
 static func point(v: Array, offset: int = 0) -> Vector3:
 	return Vector3(float(v[offset]), -float(v[offset+1]), -float(v[offset+2])) * UNIT
 
@@ -142,8 +146,48 @@ func surface_map(resource: String) -> Texture2D:
 		surface_maps[key]=ImageTexture.create_from_image(preload("res://native/presentation/imported_surface.gd").derive(source))
 	return surface_maps[key]
 
-func mesh_for(resource: String, pattern: int) -> Array:
-	var key := resource + ":" + str(pattern)
+## The lamp sprites of the original, additive quads that carry a whole
+## radial glow from an atlas: the main atlas has two thirty-two texel ones at
+## its top left, red then blue, and the effects atlas eight sixteen texel
+## ones along its bottom, red, orange, yellow, green, cyan, blue, deep blue
+## and magenta. Enhanced graphics give each a light of its own.
+## Station and mine lamps keep their sprites, where they were, and only gain
+## a light; a creature's lure is drawn as a point instead of its sprite.
+const LAMP_SHEETS := {
+	"deep.bmp":{"cell":32,"origin":Vector2i(0,0),"columns":2,"rows":1,"halo":false,"tints":[Color(1.0,0.27,0.3),Color(0.36,0.62,1.0)]},
+	"fx.bmp":{"cell":16,"origin":Vector2i(0,96),"columns":4,"rows":2,"halo":true,"tints":[Color(1.0,0.25,0.25),Color(1.0,0.6,0.2),Color(1.0,0.95,0.3),Color(0.3,1.0,0.4),Color(0.3,1.0,1.0),Color(0.35,0.65,1.0),Color(0.3,0.4,1.0),Color(1.0,0.35,1.0)]}}
+const LAMP_ENERGY := 18.0
+
+static func lamp_sheet(atlas: String) -> Dictionary:
+	var name := atlas.get_file()
+	for suffix in [".png",".bmp"]:
+		if name.ends_with(suffix) and LAMP_SHEETS.has(name.trim_suffix(suffix)):return LAMP_SHEETS[name.trim_suffix(suffix)]
+	return LAMP_SHEETS.get(name,{})
+
+static func lamp_tint(polygon: Dictionary, sheet: Dictionary) -> Color:
+	"""The lamp colour of a face that carries a whole glow sprite; a
+	transparent black for an ordinary face, a slice of a sprite (a laser beam
+	or a mine's tail glow), or a face that is not additive."""
+	if sheet.is_empty() or int(polygon.blend)!=4 or int(polygon.texture)!=0:return Color(0,0,0,0)
+	var a: Array=polygon.attributes
+	var low := Vector2(1e9,1e9);var high := Vector2(-1e9,-1e9)
+	for j in polygon.indices.size():
+		var uv := Vector2(float(a[j*5]),float(a[j*5+1]))
+		low=low.min(uv);high=high.max(uv)
+	var cell: int=sheet.cell;var origin: Vector2i=sheet.origin
+	var column := int(floor((low.x-origin.x)/cell));var row := int(floor((low.y-origin.y)/cell))
+	if column<0 or row<0 or column>=int(sheet.columns) or row>=int(sheet.rows):return Color(0,0,0,0)
+	var left: float=origin.x+column*cell;var top: float=origin.y+row*cell
+	if high.x>left+cell-1 or high.y>top+cell-1:return Color(0,0,0,0)
+	if high.x-low.x<cell*.75 or high.y-low.y<cell*.75:return Color(0,0,0,0)
+	return sheet.tints[row*int(sheet.columns)+column]
+
+func lamps_for(resource: String, pattern: int, atlas: String) -> Array:
+	return mesh_for(resource,pattern,atlas)[2]
+
+func mesh_for(resource: String, pattern: int, atlas: String = "") -> Array:
+	var sheet := lamp_sheet(atlas) if enhanced else {}
+	var key := resource + ":" + str(pattern) + (":lamps:"+atlas if not sheet.is_empty() else "")
 	if meshes.has(key):
 		return meshes[key]
 	var source := data(resource)
@@ -152,9 +196,29 @@ func mesh_for(resource: String, pattern: int) -> Array:
 		for j in int(source.bones[i].vertices):
 			vertex_bones.append(i)
 	var groups: Dictionary = {}
+	# The crossed quads of one lamp share a centre; each centre is one light.
+	var lamps: Array = [];var lamp_index: Dictionary = {}
 	for polygon: Dictionary in source.polygons:
 		if int(polygon.pattern) != 0 and (int(polygon.pattern) & pattern) == 0:
 			continue
+		var tint := lamp_tint(polygon,sheet)
+		if tint.a>0:
+			var box := AABB()
+			for j in polygon.indices.size():
+				var vertex := point(source.vertices,int(polygon.indices[j])*3)
+				box=AABB(vertex,Vector3.ZERO) if j==0 else box.expand(vertex)
+			var centre := box.get_center()
+			# A hangar's berth lamps all sit at their own bone's origin: the
+			# bone is what tells them apart.
+			var bone: int=vertex_bones[int(polygon.indices[0])]
+			var slot := str([tint,bone,centre.snapped(Vector3.ONE*0.05)])
+			if not lamp_index.has(slot):
+				lamp_index[slot]=lamps.size()
+				lamps.append({"centre":centre,"radius":0.0,"tint":tint,"bone":bone,"halo":bool(sheet.halo)})
+			var entry: Dictionary=lamps[lamp_index[slot]]
+			entry.radius=maxf(entry.radius,box.size[box.size.max_axis_index()]*.5)
+			# A sprite that becomes a point leaves the mesh; the others stay.
+			if entry.halo:continue
 		var a: Array = polygon.attributes
 		var is_textured := int(polygon.texture) >= 0
 		var lit := int(a[2 if is_textured else 3]) != 0
@@ -193,7 +257,7 @@ func mesh_for(resource: String, pattern: int) -> Array:
 		arrays[Mesh.ARRAY_COLOR] = colors
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		surfaces.append(g)
-	meshes[key] = [mesh, surfaces]
+	meshes[key] = [mesh, surfaces, lamps]
 	return meshes[key]
 
 static func is_hangar_door(resource: String, polygon: Dictionary) -> bool:
@@ -211,18 +275,52 @@ func figure(call: Dictionary) -> Node3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	node.add_child(instance)
-	var mesh_data := mesh_for(call.resource, int(call.pattern))
+	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call))
 	instance.mesh = mesh_data[0]
 	# Light added or taken from the water throws no shadow: an explosion, a
 	# shot or the depth-limit panel would otherwise darken the fog below it.
 	if not mesh_data[1].is_empty() and mesh_data[1].all(func(g): return int(g.blend) in [4,6]):
 		instance.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	apply_figure_materials(node,call)
+	if sky_pass_for_call(call)==0 and bool(call.get("source_glow_visible",true)) and call.effect.get("transparency",true):
+		var points: Array=[]
+		for lamp in mesh_data[2]:points.append({"node":add_lamp(node,lamp),"lamp":lamp})
+		node.set_meta("lamps",points)
 	return node
+
+func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
+	"""One of the original's lamp sprites as a light: an unshadowed point
+	light at the sprite's centre that reaches a few sprite-widths and lights
+	whatever the lamp is near, and, for a lure drawn as a point, a halo
+	billboard the size of the sprite in its place."""
+	var holder := Node3D.new();holder.name="Lamp";node.add_child(holder)
+	if lamp.halo:
+		var halo := MeshInstance3D.new();var quad := QuadMesh.new();quad.size=Vector2.ONE
+		var material := ShaderMaterial.new();material.shader=preload("res://native/presentation/lamp_point.gdshader")
+		material.set_shader_parameter("tint",lamp.tint);material.set_shader_parameter("radius",lamp.radius)
+		quad.material=material;halo.mesh=quad;halo.name="Halo"
+		halo.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		halo.custom_aabb=AABB(Vector3.ONE*-lamp.radius,Vector3.ONE*lamp.radius*2)
+		holder.add_child(halo)
+	var light := OmniLight3D.new();light.name="Light";holder.add_child(light)
+	light.light_color=lamp.tint;light.light_energy=LAMP_ENERGY;light.light_size=0.0
+	light.omni_range=clampf(lamp.radius*10.0,15.0,90.0);light.omni_attenuation=1.0
+	light.shadow_enabled=false;light.light_volumetric_fog_energy=.6
+	light.distance_fade_enabled=true;light.distance_fade_begin=420;light.distance_fade_length=180
+	holder.position=lamp.centre
+	return holder
+
+static func set_lamp_visibility(node: Node3D, value: float) -> void:
+	for point in node.get_meta("lamps",[]):
+		var holder: Node3D=point.node
+		var halo := holder.get_node_or_null("Halo") as MeshInstance3D
+		if halo!=null:halo.mesh.material.set_shader_parameter("visibility",value)
+		var light := holder.get_node_or_null("Light") as OmniLight3D
+		if light!=null:light.light_energy=LAMP_ENERGY*value
 
 func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 	var instance := node.get_node("Mesh") as MeshInstance3D
-	var mesh_data := mesh_for(call.resource, int(call.pattern))
+	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call))
 	for i in mesh_data[1].size():
 		var g: Dictionary = mesh_data[1][i]
 		var resource_name := ""
@@ -254,6 +352,10 @@ func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 		instance.set_surface_override_material(i, mat)
 	node.set_meta("station_smoothing",station_smoothing)
 
+static func call_atlas(call: Dictionary) -> String:
+	var textures: Array=call.get("textures",[])
+	return str(textures[0]) if textures.size()>0 else ""
+
 static func sky_pass_for_call(call: Dictionary) -> int:
 	return int(call.get("sky_pass",0))
 
@@ -261,16 +363,23 @@ func pose(node: Node3D, call: Dictionary) -> void:
 	node.transform = matrix(call.layout.transform, true)
 	var mesh := node.get_node("Mesh") as MeshInstance3D
 	var pose_key: String = call.get("native_pose_key","")
-	if not pose_key.is_empty() and native_pose_cache.has(pose_key):
-		var cached: Dictionary = native_pose_cache[pose_key]
-		mesh.custom_aabb=cached.bounds
-		for i in cached.materials.size(): mesh.set_surface_override_material(i,cached.materials[i])
-		return
 	var transforms: Array[Transform3D] = []
 	for values: Array in call.bones:
 		transforms.append(matrix(values))
 	while transforms.size() < 64:
 		transforms.append(Transform3D.IDENTITY)
+	# The lamps ride their own bone, as the sprites did, and a station's
+	# animation blinks its lamps by shrinking their bones to nothing: a lamp
+	# whose bone is shrunk away is dark, light and all.
+	for point in node.get_meta("lamps",[]):
+		var bone: Transform3D=transforms[int(point.lamp.bone)]
+		point.node.transform=Transform3D(bone.basis.orthonormalized(),bone*point.lamp.centre)
+		point.node.visible=bone.basis.get_scale().length_squared()>0.75
+	if not pose_key.is_empty() and native_pose_cache.has(pose_key):
+		var cached: Dictionary = native_pose_cache[pose_key]
+		mesh.custom_aabb=cached.bounds
+		for i in cached.materials.size(): mesh.set_surface_override_material(i,cached.materials[i])
+		return
 	mesh.custom_aabb = pose_bounds(call.resource,transforms)
 	var pose_materials: Array = []
 	for i in mesh.mesh.get_surface_count():
@@ -374,6 +483,12 @@ varying vec3 material_normal;
 varying vec3 architecture_position;
 varying vec3 architecture_normal;
 uniform mat4 source_bones[64];
+// A creature's second part bends at its join with the body instead of
+// turning whole: the angle, its axis (0 pitch, 1 yaw) and how far from
+// the join the bend reaches before the part is carried rigidly.
+instance uniform float hinge_bend = 0.0;
+instance uniform int hinge_axis = 1;
+instance uniform float hinge_reach = 1.5;
 uniform vec2 texture_size = vec2(1.0);
 uniform float source_ambient = 1.0;
 uniform float source_intensity = 0.0;
@@ -410,6 +525,12 @@ void vertex() {
 	mat4 bone = source_bones[int(UV2.x+0.5)];
 	VERTEX = (bone*vec4(VERTEX,1.0)).xyz;
 	vec3 n = mat3(bone)*NORMAL;
+	if(hinge_bend!=0.0){
+		float a=hinge_bend*smoothstep(0.0,hinge_reach,abs(VERTEX.z));
+		float c=cos(a);float s=sin(a);
+		if(hinge_axis==1){VERTEX=vec3(c*VERTEX.x+s*VERTEX.z,VERTEX.y,c*VERTEX.z-s*VERTEX.x);n=vec3(c*n.x+s*n.z,n.y,c*n.z-s*n.x);}
+		else{VERTEX=vec3(VERTEX.x,c*VERTEX.y-s*VERTEX.z,s*VERTEX.y+c*VERTEX.z);n=vec3(n.x,c*n.y-s*n.z,s*n.y+c*n.z);}
+	}
 	original_normal = mat3(MODEL_MATRIX)*n;
 	water_position = (water_to_world*MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
 	water_normal = mat3(water_to_world)*original_normal;

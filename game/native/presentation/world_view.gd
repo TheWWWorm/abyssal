@@ -372,8 +372,11 @@ func _process(delta: float) -> void:
 				node.set_stream_visibility(smoothstep(0.0,1.0,objects[id].reveal))
 				if objects[id].secondary!=null:objects[id].secondary.set_stream_visibility(smoothstep(0.0,1.0,objects[id].reveal))
 		var pose: Transform3D = world.render_pose(actor)
+		var rendered_body: Transform3D = pose
 		if actor.is_creature and not actor.render_tilt.all(func(v):return v==0):
-			pose.basis=pose.basis*Basis.from_euler(Vector3(actor.render_tilt[0],actor.render_tilt[1],actor.render_tilt[2])*TAU/4096.0,EULER_ORDER_XYZ)
+			# The swing is a turn in the game's own frame, as the second part's
+			# is, so the two parts turn together.
+			pose.basis=pose.basis*Library.SIM_FLIP*Basis.from_euler(Vector3(actor.render_tilt[0],actor.render_tilt[1],actor.render_tilt[2])*TAU/4096.0,EULER_ORDER_XYZ)*Library.SIM_FLIP
 		if not (node.replacement!=null and actor.model_id==4422):
 			pose.basis=pose.basis.scaled_local(Vector3(actor.render_scale[0],actor.render_scale[1],actor.render_scale[2])/4096.0)
 		var travel_speed: float = node.position.distance_to(pose.origin)/maxf(delta,.001)
@@ -385,9 +388,20 @@ func _process(delta: float) -> void:
 		var secondary=objects[id].secondary
 		if secondary!=null:
 			secondary.visible=node.visible
-			var secondary_pose: Transform3D = actor.secondary_pose.godot_transform()
+			# Enhanced graphics bend the part at the join rather than turning
+			# it whole, which opened a wedge between a head and its body. The
+			# game's yaw unit is a turn about -Y in Godot space, pitch about +X.
+			var bent: bool=modern_graphics and actor.hinge_axis!=""
+			# The part is placed from the body as rendered - interpolated
+			# between steps like the body - by its turn relative to the body's
+			# own pose, or a swimming fish's head lagged a step behind it.
+			var body: Transform3D=actor.pose.godot_transform()
+			var relative: Basis=body.basis.orthonormalized().inverse()*(actor.hinge_pose if bent else actor.secondary_pose).godot_transform().basis
+			var secondary_pose := Transform3D(rendered_body.basis.orthonormalized()*relative,rendered_body.origin)
 			secondary_pose.basis=secondary_pose.basis.scaled_local(Vector3(actor.secondary_scale[0],actor.secondary_scale[1],actor.secondary_scale[2])/4096.0)
 			secondary.transform=secondary_pose
+			if bent:secondary.set_hinge(1 if actor.hinge_axis=="yaw" else 0,(-1.0 if actor.hinge_axis=="yaw" else 1.0)*actor.hinge_angle*TAU/4096.0)
+			else:secondary.set_hinge(1,0.0)
 		if ms>0:
 			var distance: float = camera.global_position.distance_to(node.global_position)
 			var on_screen: bool = distance<150 or frustum.all(func(plane): return plane.distance_to(node.global_position)<150)
@@ -491,7 +505,10 @@ func stream_neighbors() -> void:
 					add_station_collision(visual)
 					if int(visual.record.id)>=3300:add_station_lights(visual)
 				else:
-					for detail in visual.find_children("*","StaticBody3D",true,false)+visual.find_children("*","Light3D",true,false):detail.queue_free()
+					# The lamp points keep their lights: those fade out with
+					# distance on their own, and come back with the band.
+					for detail in visual.find_children("*","StaticBody3D",true,false)+visual.find_children("*","Light3D",true,false):
+						if detail.get_parent().name!="Lamp":detail.queue_free()
 					visual.remove_meta("station_lights")
 			neighbors[id].detail=detailed
 			break

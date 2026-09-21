@@ -459,6 +459,7 @@ func run():
  view.clear_player_clip()
  expect(not player_mesh.get_surface_override_material(0).get_shader_parameter("portal_clip_enabled"),"Portal exit restores the imported ship material")
  await check_station_machinery(view)
+ check_lamp_points(app,view)
  var station_triangles:=station_surface_triangles(view)
  for id in [3302,3304]:
   var record=content.registry.filter(func(r):return int(r.id)==id)[0]
@@ -676,3 +677,61 @@ func station_surface_triangles(view) -> Dictionary:
      expect(triangles.any(func(t):return Geometry3D.segment_intersects_triangle(inside,outside,t[0],t[1],t[2])!=null),"Imported module %d has a closed roof/floor at %d/%d"%[id,x,z])
   model.queue_free()
  return result
+
+func check_lamp_points(app,view) -> void:
+ # The original's lamp sprites are drawn as points of light: the station
+ # engine carries one red lamp, the anglerfish's lure is one blue one, and
+ # the glow quads themselves are no longer in the mesh. The mine's own
+ # sprite faces are the same patch, so it lights up too.
+ var library=view.library
+ var engine_lamps: Array=library.lamps_for("data/v3d/station_engine.mbac",0,"data/textures/deep.bmp")
+ expect(engine_lamps.size()==1 and engine_lamps[0].tint.r>engine_lamps[0].tint.b and absf(engine_lamps[0].radius-5.0)<.01 and not engine_lamps[0].halo,"The station engine's crossed red sprite is one five-metre lamp, kept as a sprite (%s)"%str(engine_lamps))
+ var hangar_lamps: Array=library.lamps_for("data/v3d/station_hangar_ve.mbac",0,"data/textures/deep.bmp")
+ var bones: Array=hangar_lamps.map(func(l):return int(l.bone));bones.sort()
+ expect(hangar_lamps.size()==6 and hangar_lamps.all(func(l):return l.tint.b>l.tint.r) and bones==[1,2,3,4,5,6],"The hangar's six berth lamps, one per bone, are blue lights (%s)"%str(bones))
+ var lure: Array=library.lamps_for("data/v3d/anglerfish_02.mbac",0,"data/textures/fx.bmp")
+ expect(lure.size()==1 and lure[0].tint.b>lure[0].tint.r and int(lure[0].bone)==1 and lure[0].halo,"The anglerfish lure is one blue point on its own bone (%s)"%str(lure))
+ var beam: Array=library.lamps_for("data/v3d/laser_0.mbac",0,"data/textures/deep.bmp")
+ expect(beam.is_empty(),"A laser's sliced sprite is not a lamp")
+ var surfaces: Array=library.mesh_for("data/v3d/station_engine.mbac",0,"data/textures/deep.bmp")[1]
+ expect(surfaces.any(func(g):return int(g.blend)==4),"The engine's sprite faces stay in the mesh")
+ var lure_surfaces: Array=library.mesh_for("data/v3d/anglerfish_02.mbac",0,"data/textures/fx.bmp")[1]
+ expect(lure_surfaces.all(func(g):return int(g.blend)!=4),"The lure's sprite faces leave the mesh for the point")
+ var figure: Node3D=library.figure({"resource":"data/v3d/station_engine.mbac","textures":["data/textures/deep.bmp"],"pattern":0,"effect":{"lit":true,"ambient":300,"intensity":512,"direction":[1134,3929,0]}})
+ var points: Array=figure.get_meta("lamps",[])
+ expect(points.size()==1 and points[0].node.get_node("Light") is OmniLight3D and points[0].node.get_node_or_null("Halo")==null,"A station figure carries a light per lamp and no halo")
+ library.set_lamp_visibility(figure,0.25)
+ expect(absf((points[0].node.get_node("Light") as OmniLight3D).light_energy-library.LAMP_ENERGY*.25)<.001,"Lamp light follows the stream fade")
+ figure.free()
+ # The hangar's animation chases the berth lamps a pair at a time by shrinking the other bones:
+ # a shrunk lamp is off, light included.
+ var hangar_call := {"resource":"data/v3d/station_hangar_ve.mbac","textures":["data/textures/deep.bmp"],"pattern":0,"effect":{"lit":true,"ambient":300,"intensity":512,"direction":[1134,3929,0]},"layout":{"transform":[4096,0,0,0,0,4096,0,0,0,0,4096,0]}}
+ var hangar: Node3D=library.figure(hangar_call)
+ var frame: Array=library.native_animations.get(library.root.path_join("data/v3d/station_hangar_ve.mtra.json"),JSON.parse_string(FileAccess.get_file_as_string(library.root.path_join("data/v3d/station_hangar_ve.mtra.json"))))[0].matrices[0]
+ var bones_now: Array=[]
+ for i in 7:bones_now.append(frame.slice(i*12,(i+1)*12))
+ hangar_call.bones=bones_now;library.pose(hangar,hangar_call)
+ var lit := 0;var dark := 0
+ for point in hangar.get_meta("lamps",[]):
+  if point.node.visible:lit+=1
+  else:dark+=1
+ expect(lit==2 and dark==4,"In the first frame one pair of berth lamps is on and the other four are shrunk away and dark (%d on, %d off)"%[lit,dark])
+ var identity: Array=[];for i in 7:identity.append([1,0,0,0,0,1,0,0,0,0,1,0])
+ hangar_call.bones=identity;library.pose(hangar,hangar_call)
+ expect(hangar.get_meta("lamps",[]).all(func(point):return point.node.visible),"With every bone whole all six are lit")
+ hangar.free()
+ var lure_figure: Node3D=library.figure({"resource":"data/v3d/anglerfish_02.mbac","textures":["data/textures/fx.bmp"],"pattern":0,"effect":{"lit":true,"ambient":300,"intensity":512,"direction":[1134,3929,0]}})
+ var lure_points: Array=lure_figure.get_meta("lamps",[])
+ expect(lure_points.size()==1 and lure_points[0].node.get_node("Halo") is MeshInstance3D,"A lure figure carries the halo too")
+ lure_figure.free()
+ # The two-part creatures bend at the join in enhanced graphics: the head
+ # keeps its own pose before the swing, and the swing goes to the shader.
+ var fish=load("res://native/simulation/creature.gd").new()
+ fish.configure(4430,app.content.data.tables.creatures[5],app.session.rng,app.world.region.sine,app.world.region.player.pose.origin.duplicate())
+ fish.fresh=false;fish.stationary=true;fish.phase=1024
+ app.world.region.creatures.append(fish);fish.advance(40,app.session.rng,app.world.region.player.pose.origin);view._process(0)
+ expect(fish.hinge_axis=="yaw" and fish.hinge_angle==128,"The anglerfish head swings about its yaw by s>>5 (%s %d)"%[fish.hinge_axis,fish.hinge_angle])
+ var head=view.objects[fish.get_instance_id()].secondary
+ expect(head!=null and absf(head.hinge_bend+128*TAU/4096.0)<1e-5 and head.hinge_axis==1,"The head is bent at the join by that angle in Godot space (%f)"%(head.hinge_bend if head!=null else 0.0))
+ expect(head!=null and head.transform.basis.is_equal_approx(fish.hinge_pose.godot_transform().basis),"The bent head keeps the pose before the swing")
+ app.world.region.creatures.erase(fish);view._process(0)

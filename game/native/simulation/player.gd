@@ -128,7 +128,12 @@ func advance(delta_ms: int) -> void:
  if steering_quiet_ms>=600:pose.auto_level(delta_ms)
  pose.advance(roundi(delta_ms*speed_factor*throttle/100.0))
  if strafe_input!=0:pose.strafe(roundi(strafe_input*delta_ms*speed_factor*STRAFE_RATE))
- bank=roundi(move_toward(float(bank),yaw_level*320.0,delta_ms*1.2))
+ # bb: the hull leans into a turn a unit a millisecond, to 384 (about
+ # thirty-four degrees), holds the lean while the helm is over, and comes
+ # back upright at a fifth of that once it centres. The smooth helm's
+ # part-way levels lean in at their own share of the rate.
+ if yaw_level!=0:bank=roundi(move_toward(float(bank),signf(yaw_level)*384.0,delta_ms*absf(yaw_level)))
+ else:bank=roundi(move_toward(float(bank),0.0,delta_ms/5.0))
  # A gentle seven-degree lean follows lateral thrust and settles after release.
  # Only the rendered hull banks; flight, aiming and collision keep the same pose.
  strafe_bank=lerpf(strafe_bank,strafe_input*80.0,1-exp(-delta_ms*.007))

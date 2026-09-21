@@ -35,6 +35,7 @@
     "game/native/presentation/action_freeze.gd",
     "game/native/presentation/audio_settings.gd",
     "game/native/presentation/beacon.gdshader",
+    "game/native/presentation/lamp_point.gdshader",
     "game/native/presentation/biological_surface.gd",
     "game/native/presentation/bubble.gdshader",
     "game/native/presentation/catalogue_surface.gdshader",

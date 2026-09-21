@@ -21,6 +21,12 @@ const CARCASS_RISE := 3
 var pose := Transform.new()
 var turn := Transform.new()
 var secondary_pose := Transform.new()
+## The second part's pose before its own swing, and that swing as an axis
+## and an angle in the game's units, for a view that bends the part at
+## the join rather than turning it rigidly.
+var hinge_pose := Transform.new()
+var hinge_axis := ""
+var hinge_angle := 0
 var health := Health.new()
 var radius := 1500
 var model_id := 0
@@ -206,8 +212,11 @@ func animate(_delta_ms: int=0) -> void:
 	if secondary_model>=0:
 		var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table
 		fin.set_euler(roundi(render_tilt[0]),roundi(render_tilt[1]),roundi(render_tilt[2]));secondary_pose.compose_rotation(fin)
+		# The second part turns on the body's origin, which is where the two
+		# meet; the view may bend it there instead of turning it whole.
+		hinge_pose=secondary_pose.copy_pose();hinge_axis="";hinge_angle=0
 		match model_id:
-			4427,4432,4436:fin.set_euler(-(s>>6),0,0)
-			4430,4434,4440:fin.set_euler(0,s>>5,0)
+			4427,4432,4436:hinge_axis="pitch";hinge_angle=-(s>>6);fin.set_euler(hinge_angle,0,0)
+			4430,4434,4440:hinge_axis="yaw";hinge_angle=s>>5;fin.set_euler(0,hinge_angle,0)
 			_:fin.set_euler(0,0,0)
 		secondary_pose.compose_rotation(fin)
