@@ -11,8 +11,12 @@ void vertex() { local = VERTEX.xz; }
 void fragment() {
 	float radius = length(local) / half_extent;
 	float edge = 1.0 - smoothstep(0.2, 0.9, radius);
-	vec2 cell = abs(fract(local / 12.0) - 0.5);
-	float line = 1.0 - smoothstep(0.0, 0.05, min(cell.x, cell.y));
+	// Lines thirty centimetres wide, softened by one screen pixel only,
+	// so they stay crisp at every distance and angle instead of blurring.
+	vec2 cell = abs(fract(local / 12.0) - 0.5) * 12.0;
+	float gap = min(cell.x, cell.y);
+	float aa = fwidth(gap);
+	float line = 1.0 - smoothstep(0.15 - aa, 0.15 + aa, gap);
 	float hatch = 0.05 + 0.95 * line;
 	// The water takes it back with distance, as it does the headlight beams.
 	float haze = exp(-length(VERTEX) * 0.016);
