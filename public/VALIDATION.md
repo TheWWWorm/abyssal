@@ -8,31 +8,26 @@ compatibility renderer, and by rendered captures read back from a real GPU
 cache.
 
 - Engine regression suite: **14 of 14 checks passed** headless on OpenGL
-  (`tools/check.py --compatibility`).
+  (`tools/check.py --compatibility`), including new checks for the bank
+  profile, the lamp lights (one per sprite, per bone, off while the station's
+  animation has the bone shrunk away), the lure point, and the bent head.
 - Python packaging, importer and distribution tests: **36 of 36 passed**.
-- Every creature species was captured side on from the GPU, body and tail parts
-  together, and its orientation confirmed by the requester.
-- The depth-limit markers, the Mods · Textures page (list, view, replace, restore,
-  live reload on the station behind the menu with a 4x atlas), the gold interface
-  at the dock and in flight, the docked water in motion, a sunk vessel's lamps,
-  the girder joints and overlapping girders at Salty Void, and the one-Back menu
-  pages were each checked by captures from the GPU.
-- Pirates were simulated against a stationary player for sixty seconds: constant
-  speed, strafing passes, no stopping.
-- A Linux x86-64 test package built from the same tree was extracted and launched.
+- The anglerfish was captured swimming, tracked over four seconds from the side
+  and the front quarter, with the neck closed in every frame; the devilfish and
+  marlin at both swing extremes; the hangar's berth-lamp chase over a hundred
+  frames from a fixed camera with the blue spill on the deck coming and going
+  with the sprites; the engine's red lamp on its rotor.
+- Two Linux x86-64 test packages built from the tree during the work were
+  extracted and played by the requester, whose reports shaped the lamp change.
 - Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
 - The Android APK is signed with the same release key as every build since
-  preview.2 and carries version code 25, so it updates earlier builds in place.
-  The importer plugin's new image picker compiled into it.
+  preview.2 and carries version code 26, so it updates earlier builds in place.
 
 ## What was not validated
 
-- **The Android package was not installed or run.** Its tilt-steering fix (the
-  project now asks for the accelerometer and gravity sensors), the Mobile
-  renderer on Vulkan, and the Mods page's document picker are built and signed
-  but untested on a device; the build host has no `/dev/kvm` and its emulator no
-  GPU.
+- **The Android package was not installed or run**: the build host has no
+  `/dev/kvm` and its emulator no GPU. The Mobile renderer's handling of the new
+  per-instance shader uniform (the bent head) and of a dozen unshadowed omni
+  lights on a hangar was not seen on a device.
 - Windows, macOS, Linux ARM64 and browser packages were exported but not launched.
-- Content caches imported by earlier versions keep their raw `.bmp` and
-  `.alpha.png` texture files; the game no longer reads them. The one-file keying
-  was checked against a fresh import's PNGs and a 4x replacement.
+  The browser's WebGL 2 renderer was not exercised with the per-instance uniform.
