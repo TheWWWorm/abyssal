@@ -8,34 +8,31 @@ compatibility renderer, and by rendered captures read back from a real GPU
 cache.
 
 - Engine regression suite: **14 of 14 checks passed** headless on OpenGL
-  (`tools/check.py --compatibility`), including the rewritten gameplay, story
-  layout, market, contract, session, UI and stream checks.
+  (`tools/check.py --compatibility`).
 - Python packaging, importer and distribution tests: **36 of 36 passed**.
-- Every story chapter's layout (ship and special-object counts), every contract
-  kind, the chapter-47 finale, station rounds, pirate odds over 40 seeds and the
-  twenty-creature habitat were checked headless against the original's rules.
-- Three contracts were driven end to end through the real UI on the GPU: accept
-  from the job board with deposit, depart, autopilot to the holding, waypoint,
-  gang wake, completion radio, reward and dock unlock.
-- The Help pages, load slots, save slots, job board card and loading tips were
-  each checked by captures from the GPU, as were twenty creatures in the water,
-  the anglerfish and whale belly-down while fleeing, and the showroom's first
-  frame after a ship switch.
-- A Linux x86-64 test package built from the same tree was extracted and launched
-  from its own data directory: it starts on Vulkan Forward+.
+- Every creature species was captured side on from the GPU, body and tail parts
+  together, and its orientation confirmed by the requester.
+- The depth-limit markers, the Mods · Textures page (list, view, replace, restore,
+  live reload on the station behind the menu with a 4x atlas), the gold interface
+  at the dock and in flight, the docked water in motion, a sunk vessel's lamps,
+  the girder joints and overlapping girders at Salty Void, and the one-Back menu
+  pages were each checked by captures from the GPU.
+- Pirates were simulated against a stationary player for sixty seconds: constant
+  speed, strafing passes, no stopping.
+- A Linux x86-64 test package built from the same tree was extracted and launched.
 - Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
 - The Android APK is signed with the same release key as every build since
-  preview.2 and carries version code 24, so it updates earlier builds in place.
+  preview.2 and carries version code 25, so it updates earlier builds in place.
+  The importer plugin's new image picker compiled into it.
 
 ## What was not validated
 
-- **The Android package was not installed or run.** This release switches the
-  Android export to the Mobile renderer on Vulkan (OpenGL ES fallback). It builds
-  and is correctly signed, but nothing was executed on Android; the build host
-  exposes no `/dev/kvm` and its emulator has no GPU, so the Vulkan path is untested
-  on a device.
+- **The Android package was not installed or run.** Its tilt-steering fix (the
+  project now asks for the accelerometer and gravity sensors), the Mobile
+  renderer on Vulkan, and the Mods page's document picker are built and signed
+  but untested on a device; the build host has no `/dev/kvm` and its emulator no
+  GPU.
 - Windows, macOS, Linux ARM64 and browser packages were exported but not launched.
-- Gamepad vibration and Android vibration were exercised only by code path, not
-  felt on hardware.
-- Save migration from 1.1.1 was checked by the session tests' reseed rule, not by
-  loading a long-played 1.1.1 save.
+- Content caches imported by earlier versions keep their raw `.bmp` and
+  `.alpha.png` texture files; the game no longer reads them. The one-file keying
+  was checked against a fresh import's PNGs and a 4x replacement.
