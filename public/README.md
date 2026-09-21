@@ -8,6 +8,10 @@ Abyssal is a separate game engine, built in Godot, that reads a DEEP JAR you alr
 
 ## What it looks like
 
+[![The submarine running in towards Rygg under its own headlights, two vessels coming out from the station under theirs](docs/screenshots/headlights-off-rygg.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-headlights-off-rygg.png)
+
+[![Rygg station from outside, the submarine crossing in front of it](docs/screenshots/rygg-from-outside.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-rygg-from-outside.png)
+
 [![The engine module of a station, its rotor turning under the work lamps, lit by the submarine's headlights](docs/screenshots/station-engine.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-station-engine.png)
 
 [![The submarine leaving a station's berth, its beams out ahead of it](docs/screenshots/leaving-the-berth.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-leaving-the-berth.png)
@@ -140,6 +144,8 @@ Touch players can select **Controls → Touch look area → Whole screen** to dr
 
 ## Playing
 
+The title menu stands in front of the station your expedition is at - the one you will return to, or the first one of a new expedition - with the camera circling it and the game's own music playing, as the phone game shows it. A new expedition opens on the original's title sequence: the camera coming in on the station over a minute while the imported title cards go by, with its two sonar pings and its music. Enter, a click, a tap or the pad's A button skips it. Starting or loading a dive shows a notice while the water is built.
+
 The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible in flight, and quest destinations get gold labels and off-screen direction markers.
 
 Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its − and + steps, or press **Max** for as much as the purse, the hold and the station's shelf allow, then Buy or Sell in one press. Each button offers only what it can actually move, and reports what it actually moved.
@@ -165,6 +171,8 @@ Hits show the direction they came from as arcs around the centre of the view, so
 **Transfer expedition**, in the pause menu and in a station's System menu, moves a saved expedition between your devices. An export is a small data-only file: it carries the expedition and never the game content, which each device imports from its own JAR. An export loads only on a copy that imported the same game content, and importing keeps the expedition it replaces as the backup checkpoint. If a save is ever damaged, the game falls back to that backup and tells you it did.
 
 **Graphics** offers a picture **Aspect ratio**: **Auto** fills the window, and **4:3**, **16:9**, **16:10** or **21:9** pin the picture shape and letterbox the rest.
+
+In the water the game's music stops, as it does in the original; every ten seconds one of the four ocean cues plays instead, at a volume of its own. Creatures move as the phone game moves them - the manta's flap, the jellyfish's pulse, the tail wags and body wander of each species - a closed S.T.R.E.A.M. gate turns slowly on its axis, a moored mine rocks in place, and a harpooned catch shrinks into the hull as the line shortens.
 
 Campaign and radio content comes from your local JAR. Exact choreography, timings and balance can differ from the original. Existing engine saves migrate to the native RNG, so future random outcomes may change.
 

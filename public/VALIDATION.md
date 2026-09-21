@@ -3,37 +3,33 @@
 ## What was actually run
 
 Checks were run on Linux x86-64 with Godot 4.7.stable, headless on the OpenGL
-compatibility renderer and on a real GPU (RTX 3090) on the Vulkan Forward+ renderer,
-using a locally imported DEEP content cache.
+compatibility renderer, and by rendered captures read back from a real GPU
+(RTX 3090) on the Vulkan Forward+ renderer, using a locally imported DEEP content
+cache.
 
 - Engine regression suite: **14 of 14 checks passed** headless on OpenGL
-  (`tools/check.py --compatibility`) and **14 of 14 on the GPU** on Vulkan
-  (`tools/check.py --gpu`). The gamepad/touch check is sensitive to a real mouse
-  pointer resting over the test window on this desktop and was passed standalone.
+  (`tools/check.py --compatibility`).
 - Python packaging, importer and distribution tests: **36 of 36 passed**.
-- The station generator was compared against the layouts recorded from the original
-  for all **200 stations: 1490 parts, no differences** in model ids or transforms.
-- The Linux x86-64 package was extracted and launched from its own data directory: it
-  starts on Vulkan Forward+ and logs no errors. This is the first release whose Linux
-  and Windows packages run Forward+; every earlier preview ran OpenGL, where volumetric
-  light, shading detail and temporal antialiasing never applied.
-- Frame cost was measured near a fully lit station at native 5120x2880: 9 ms on Vulkan
-  at 150 m from Gosu, 4 ms in open water.
-- Headlights, beams, station orientation, the departure shot, the reticle and the
-  harpoon, the free-look camera and the mods folder were each checked by rendered
-  captures read back from the GPU, and by assertions in the suite.
+- The title menu, its station backdrop and the loading notice, the opening
+  sequence at eight moments including its hand-over to the chase camera beside
+  the hull, and the manta, whale, anglerfish and jellyfish at four phases of
+  their motion were each checked by captures from the GPU.
+- Creature motion ranges were checked numerically over 400 ticks per species:
+  scales and body swings stay within the original's bounds and do not drift.
+- Every sound trigger and every animated element was audited against the
+  decompiled original; the audit and the list of deliberate replacements are
+  recorded outside the repository.
+- A Linux x86-64 test package built from the same tree was extracted and launched
+  from its own data directory: it starts on Vulkan Forward+ and shows the new title.
 - Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
-- The Android APK is signed with the same release key as every preview since preview.2
-  and carries version code 21, so it updates earlier previews in place.
+- The Android APK is signed with the same release key as every build since
+  preview.2 and carries version code 22, so it updates earlier builds in place.
 
 ## What was not validated
 
-- **The Android package was not installed or run.** It builds and is correctly signed,
-  but nothing in this release has been executed on Android. The build host exposes no
-  `/dev/kvm`, so the x86-64 emulator cannot start.
-- Windows, macOS, Linux ARM64 and browser packages were exported but not launched. No
-  gameplay, fresh JAR import or save transfer was exercised on those platforms. A
-  Windows machine without a Vulkan driver falls back to OpenGL by the project's own
-  setting; that fallback was not exercised.
-- **Steer by tilting** (Controls · Steering) has never been run on a device.
-- The frame-rate numbers are from one machine at one resolution.
+- **The Android package was not installed or run.** It builds and is correctly
+  signed, but nothing in this release has been executed on Android; the build host
+  exposes no `/dev/kvm`, so the x86-64 emulator cannot start.
+- Windows, macOS, Linux ARM64 and browser packages were exported but not launched.
+  The browser's music transport was exercised only by its own unit test.
+- The opening was watched only as captured stills, not as a continuous run.
