@@ -192,7 +192,12 @@ func figure(call: Dictionary) -> Node3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	node.add_child(instance)
-	instance.mesh = mesh_for(call.resource, int(call.pattern))[0]
+	var mesh_data := mesh_for(call.resource, int(call.pattern))
+	instance.mesh = mesh_data[0]
+	# Light added or taken from the water throws no shadow: an explosion, a
+	# shot or the depth-limit panel would otherwise darken the fog below it.
+	if not mesh_data[1].is_empty() and mesh_data[1].all(func(g): return int(g.blend) in [4,6]):
+		instance.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	apply_figure_materials(node,call)
 	return node
 

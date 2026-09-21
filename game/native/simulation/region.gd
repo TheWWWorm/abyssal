@@ -130,6 +130,17 @@ func configure_npc_weapons(actors: Array,hostile: bool) -> void:
 func recount() -> void:
 	enemy_count=enemies.filter(func(actor): return actor.health.hull>0 and not actor.health.special_kill).size()
 	friendly_count=friends.filter(func(actor): return actor.health.hull>0).size()
+func step_ambient(delta_ms: int, rng) -> void:
+	"""The water seen from a berth: the wildlife and the station's own ships
+	carry on while the submarine is docked, drawing on the given sequence
+	rather than the game's. Nothing fights, nothing fires, nothing is
+	scored; a ship that was fighting or sunk stays as it is."""
+	elapsed_ms+=delta_ms
+	for actor in creatures: actor.advance(delta_ms,rng,[0,0,0],[0,0,4096])
+	for actor in friends:
+		if actor is Special or actor.state in [3,4] or not actor.health.enabled: continue
+		var own=actor.rng;actor.rng=rng;actor.weapons=[];actor.advance(delta_ms);actor.rng=own
+		actor.events.clear()
 func step(delta_ms: int, input: Dictionary={}) -> void:
 	if session.docked or failed or pending_mission!=null: return
 	if cinematic(): input={}

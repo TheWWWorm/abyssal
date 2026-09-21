@@ -38,6 +38,17 @@ var rendered_pack := false
 var neighbors: Dictionary = {}
 var neighbor_clock := 0.0
 var player_model
+## The depth-limit barriers, after bb's two limiter panels (models 9993 and
+## 9997) that ride with the submarine at its shallowest and deepest safe
+## depth: here a drawn, hatched panel that fades in over the last stretch
+## before each limit. Off unless asked for; the instruments show the limits.
+var depth_limits := false
+var limit_nodes: Array = []
+const LIMIT_EXTENT := 60.0
+## Metres of water, in the view's units, over which the panel fades in.
+const LIMIT_FADE := 30.0
+## Radiation waits above the shallow limit, pressure below the deep one.
+const LIMIT_TINTS := [Color(1.0,0.82,0.25),Color(0.3,0.62,1.0)]
 var banking := preload("res://native/simulation/ship_transform.gd").new()
 var gate_preview := false
 ## A shot scripted from outside the view: its transform, and how far it has
@@ -137,6 +148,15 @@ func rebuild() -> void:
 	if not keep_player:
 		if player_model!=null: player_model.queue_free()
 		player_model=model(world.session.ship.id)
+	for node in limit_nodes: node.queue_free()
+	limit_nodes=[]
+	for i in 2:
+		var panel := MeshInstance3D.new();var plane := PlaneMesh.new()
+		plane.size=Vector2.ONE*LIMIT_EXTENT*2;panel.mesh=plane
+		var surface := ShaderMaterial.new();surface.shader=preload("res://native/presentation/depth_limit.gdshader")
+		surface.set_shader_parameter("half_extent",LIMIT_EXTENT);surface.set_shader_parameter("tint",LIMIT_TINTS[i]);panel.material_override=surface
+		panel.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;panel.visible=false
+		add_child(panel);limit_nodes.append(panel)
 	if player_model!=null: player_model.apply_range(Model.ship_animation_range(world.session.ship.id,int(world.session.ship.upgraded)))
 	for part in ([] if not station_nodes.is_empty() else world.region.station.parts):
 		var visual=model(int(part.model_id),part.frame_ms)
@@ -217,6 +237,7 @@ func _process(delta: float) -> void:
 		banking.math.sine_table=region.sine; banking.set_euler(0,0,roundi(lerpf(world.previous_render_bank,region.player.visual_bank,clampf(world.accumulator/world.STEP_MS,0,1))))
 		player_model.transform=player_pose*banking.godot_transform()
 		animate_model(player_model,delta,region.player.throttle/100.0)
+	place_depth_limits(player_pose.origin)
 	var camera_scale: float=clampf(player_model.solid_bounds().size.x/24.0,.48,1.25) if player_model!=null else 1.0
 	var camera_frame := player_pose
 	if camera_mode==0:
@@ -317,8 +338,11 @@ func _process(delta: float) -> void:
 			if objects.has(id): release_object(objects[id]); objects.erase(id)
 			var visual=model(actor.model_id)
 			if visual==null: continue
-			objects[id]={"visual":visual,"model_id":actor.model_id,"secondary":null,"secondary_id":-1}
-			if not actor.is_creature: add_actor_lights(visual)
+			objects[id]={"visual":visual,"model_id":actor.model_id,"secondary":null,"secondary_id":-1,"lamps":[]}
+			# Headlights belong to vessels under way: a mine, a capsule, or the
+			# wreck a ship becomes has nobody aboard to switch them on.
+			if not actor.is_creature and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter"):
+				objects[id].lamps=add_actor_lights(visual)
 		var secondary_id: int = actor.secondary_model if actor.is_creature else -1
 		if objects[id].visual.replacement!=null: secondary_id=-1
 		if objects[id].secondary_id!=secondary_id:
@@ -328,6 +352,7 @@ func _process(delta: float) -> void:
 		var node=objects[id].visual
 		node.apply_actor_animation(actor)
 		node.visible=actor.health.enabled or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
+		for lamp in objects[id].lamps:lamp.visible=actor.health.enabled and actor.state<3
 		var pose: Transform3D = world.render_pose(actor)
 		if actor.is_creature and not actor.render_tilt.all(func(v):return v==0):
 			pose.basis=pose.basis*Basis.from_euler(Vector3(actor.render_tilt[0],actor.render_tilt[1],actor.render_tilt[2])*TAU/4096.0,EULER_ORDER_XYZ)
@@ -361,6 +386,27 @@ func _process(delta: float) -> void:
 	var particle_ms := maxf(0,float(ms)+world.accumulator-previous_particle_fraction)
 	previous_particle_fraction=world.accumulator
 	combat.update(region,ms,delta*1000 if departure_progress>=0 else particle_ms)
+
+func set_depth_limits(on: bool) -> void:
+	depth_limits=on
+	for node in limit_nodes: node.visible=false
+
+func place_depth_limits(under: Vector3) -> void:
+	"""As bb keeps its panels: at the submarine's own x and z, at the height
+	where its depth reads the ship's limit. Shallower is up, so the panel for
+	the minimum depth rides above the hull and the maximum's below it, and
+	each shows only as the hull comes within the last stretch of water."""
+	if limit_nodes.size()<2: return
+	var player=world.region.player
+	var limits: Array=[player.stats.minimum_depth,player.stats.maximum_depth]
+	for i in 2:
+		var node: MeshInstance3D=limit_nodes[i]
+		var height: float=float(player.station_depth-limits[i])*8.0*Library.UNIT
+		var strength: float=clampf(1.0-absf(height-under.y)/LIMIT_FADE,0.0,1.0)
+		node.visible=depth_limits and not world.session.docked and strength>0.0
+		if not node.visible: continue
+		node.position=Vector3(under.x,height,under.z)
+		node.material_override.set_shader_parameter("strength",strength)
 
 func build_gate_field(node: Node3D) -> void:
 	"""The lit aperture inside the gate frame. gate_field.gdshader has been in the
@@ -483,8 +529,9 @@ func add_station_lights(visual) -> void:
 var actor_beams: Array = []
 var actor_beams_enabled := true
 var actor_beam_phase := 0
-func add_actor_lights(visual) -> void:
-	if not modern_graphics:return
+func add_actor_lights(visual) -> Array:
+	var lamps: Array=[]
+	if not modern_graphics:return lamps
 	var mounts: Array=visual.headlight_mounts()
 	for i in mini(2,mounts.size()):
 		var lamp: SpotLight3D=Abyss.create_headlight(0.0);visual.add_child(lamp)
@@ -495,12 +542,13 @@ func add_actor_lights(visual) -> void:
 		var beam: MeshInstance3D=Abyss.create_beam();lamp.add_child(beam)
 		beam.material_override.set_shader_parameter("fade_begin",400.0);beam.material_override.set_shader_parameter("fade_length",200.0)
 		beam.visible=actor_beams_enabled
-		actor_beams.append({"lamp":lamp,"beam":beam})
+		actor_beams.append({"lamp":lamp,"beam":beam});lamps.append(lamp)
+	return lamps
 
 func set_actor_beams(on: bool) -> void:
 	actor_beams_enabled=on
-	for entry in actor_beams:
-		if is_instance_valid(entry.beam): entry.beam.visible=on
+	actor_beams=actor_beams.filter(func(entry):return is_instance_valid(entry.lamp) and is_instance_valid(entry.beam))
+	for entry in actor_beams: entry.beam.visible=on
 
 func shade_actor_beams() -> void:
 	# One vessel's beam per frame, nearest the camera first would be nicer;

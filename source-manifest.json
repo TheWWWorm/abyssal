@@ -44,6 +44,7 @@
     "game/native/presentation/contact_marker.gd",
     "game/native/presentation/damage_feedback.gd",
     "game/native/presentation/display_settings.gd",
+    "game/native/presentation/depth_limit.gdshader",
     "game/native/presentation/dive_audio.gd",
     "game/native/presentation/equipment_info.gd",
     "game/native/presentation/flight_dashboard.gd",

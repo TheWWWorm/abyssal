@@ -9,6 +9,8 @@ const COURSE_LOOKAHEAD := 60000.0
 const REGION_APPROACH_DISTANCE := 60000.0 # Activate encounters before reaching station walls.
 var session
 var region
+## The berth's own random sequence; see advance_docked.
+var ambient_rng
 var accumulator := 0.0
 var speed := 1
 var destination := -1
@@ -304,6 +306,25 @@ func build_docked_view() -> void:
 	var state: int = session.rng.state
 	region=Region.new(); region.configure(session); attach_geography(); revision+=1
 	session.rng.state=state
+	ambient_rng=preload("res://native/simulation/java_random.gd").new()
+	ambient_rng.seed_from(session.station_id*7919+session.elapsed_ms)
+	accumulator=0
+
+func advance_docked(real_seconds: float) -> void:
+	"""The water outside a berth keeps moving: the wildlife and the station's
+	own ships go on as they would in the flight, on a random sequence of
+	their own, so the game's draws stay where docking left them however
+	long the player spends at the counter."""
+	if region==null or not session.docked or ambient_rng==null: return
+	accumulator+=minf(real_seconds,0.25)*1000.0
+	while accumulator>=STEP_MS:
+		accumulator-=STEP_MS
+		if render_interpolation_enabled:
+			previous_render_poses.clear()
+			for actor in region.enemies+region.friends+region.creatures:
+				previous_render_poses[actor.get_instance_id()]=actor.pose.godot_transform()
+		region.step_ambient(STEP_MS,ambient_rng)
+		keep_wildlife_outside_station()
 
 # bp's range is a fraction of its map width, multiplied by be.p. The square
 # continuous-world atlas uses the same 1/6 base radius and engine percentage,

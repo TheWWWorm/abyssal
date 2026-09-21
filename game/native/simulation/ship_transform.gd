@@ -21,14 +21,21 @@ func compose_rotation(other) -> void:assign(basis()*other.basis())
 func copy_pose():
  var result=get_script().new();result.origin=origin.duplicate();result.assign(basis());return result
 func auto_level(delta_ms: int) -> void:
- var before:=basis();var target:=Math.vector(forward).normalized()
- if absf(target.y)>.99:return
- var x:=Vector3.UP.cross(target).normalized()
- # Retain the nearest upright OR inverted horizon after releasing the controls.
- # A half-loop must not turn into an unsolicited half-roll.
- if x.dot(before.x)<0:x=-x
- var authority:=1.0-smoothstep(.85,.99,absf(target.y))
- assign(before.slerp(Basis(x,target.cross(x),target),1-exp(-delta_ms*.002*authority)))
+ # bb.a: with the helm idle the hull rolls about its own length towards
+ # upright, half a unit a millisecond and at most thirty a tick, and does
+ # not stop short at an inverted horizon: a hull left on its back rolls on
+ # the short way round until its keel is down again. Within about two
+ # degrees of level it rests.
+ var step: int=mini(delta_ms,60)>>1
+ if step<=0:return
+ var current:=basis()
+ var side: int=roundi(current.x.y*4096);var top: int=roundi(current.y.y*4096)
+ var angle:=0
+ if top<0:angle=-step if side>0 else step
+ # bb stops within a step of ninety degrees as well; a hull that has just
+ # come over the top would hang there on its side, so here it rolls on.
+ elif absi(side)>128:angle=step if side<0 else -step
+ if angle!=0:rotate_local("roll",angle)
 func advance(distance: int) -> void:origin=Math.array(Math.vector(origin)+basis().z*distance)
 func strafe(distance: int) -> void:origin=Math.array(Math.vector(origin)+basis().x*distance)
 func rotate_vector(value: Array,axis: Array,angle: int) -> Array:

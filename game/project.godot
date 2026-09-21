@@ -45,6 +45,9 @@ ui_cancel={
 [input_devices]
 
 pointing/emulate_mouse_from_touch=true
+; Godot 4.3 and later leave the phone's sensors off unless asked; tilt steering reads them.
+sensors/enable_accelerometer=true
+sensors/enable_gravity=true
 
 [rendering]
 

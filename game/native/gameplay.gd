@@ -101,6 +101,8 @@ var marker_by_contact := {}
 var focused_contact := 0
 const MAX_CONTACT_LABELS := 6
 var page := ""
+## The way back from the open page, taken by the header's BACK, Esc and B.
+var page_back := Callable()
 var lines: Array = []
 var line_index := 0
 var dialogue_cue := "message"
@@ -112,7 +114,7 @@ var modern_graphics := true
 var catch_status := Label.new()
 var travel_status := Label.new()
 var pending_notices: Array[String] = []
-var graphics := {"audio":true,"materials":true,"headlights":true,"beams":true,"volumetric":true,"detail":true,"station_smoothing":false}
+var graphics := {"audio":true,"materials":true,"headlights":true,"beams":true,"volumetric":true,"detail":true,"station_smoothing":false,"depth_limits":false}
 var binding_action := ""
 var map_widget
 var map_info: Label
@@ -397,7 +399,7 @@ func open_page(title: String, id: String) -> void:
 	dive_audio.set_context(id,session!=null and session.docked)
 	touch.set_active(false);controller.blocked=true
 	autopilot_pressed_at=-1
-	page=id; weapon_presses.clear();world.weapon_pending.clear();world.speed=1; world.mouse_pending=Vector2.ZERO; looking=false; release_flight_mouse()
+	page=id;page_back=Callable(); weapon_presses.clear();world.weapon_pending.clear();world.speed=1; world.mouse_pending=Vector2.ZERO; looking=false; release_flight_mouse()
 	overlay.add_theme_stylebox_override("panel",box_style())
 	auto_fire=false
 	for child in overlay.get_children(): overlay.remove_child(child); child.queue_free()
@@ -561,13 +563,17 @@ func _process(delta: float) -> void:
 		view.place_departure(clampf(departure_elapsed/3.2,0,1))
 		if departure_elapsed>=3.2:finish_departure()
 	if page=="opening":
-		# The water is not simulated under the shot; only its clocks run, so
+		# The flight is not simulated under the shot: the berth's water moves
+		# as it does from the dock, or failing that only the clocks run, so
 		# the station's doors and rotor and the creatures' fins keep moving.
-		opening_fraction+=minf(delta,.1)*1000.0
-		var opening_ms := int(opening_fraction);opening_fraction-=opening_ms
-		world.region.elapsed_ms+=opening_ms
+		if session.docked and world.ambient_rng!=null: world.advance_docked(minf(delta,.1))
+		else:
+			opening_fraction+=minf(delta,.1)*1000.0
+			var opening_ms := int(opening_fraction);opening_fraction-=opening_ms
+			world.region.elapsed_ms+=opening_ms
 		opening.advance(minf(delta,.1))
 	if page=="freeze": return
+	if session.docked and page not in ["departure","transit","opening"]: world.advance_docked(minf(delta,.1))
 	if page.is_empty() and not session.docked:
 		world.advance(delta,flight_input(delta))
 		collect_damage_bearings();check_hull_buzz()
@@ -725,8 +731,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode==KEY_ESCAPE:
 			if page in ["dialogue","freeze"]: return
 			if page.is_empty(): show_pause()
-			elif session.docked: dock_back()
-			else: close_page()
+			else: dock_back()
 			return
 		if event.keycode==KEY_F11: toggle_fullscreen()
 		if event.keycode==KEY_F5: save_game()
@@ -896,7 +901,7 @@ func show_journal() -> void:
 			"Give up \"%s\"? The deposit is not returned." % session.title(mission),
 			"Abandon contract",func(): session.abandon_contract(); show_journal(),show_journal),card)
 	label("Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d"%[session.counters.k,session.counters.m,session.counters.h,session.counters.f],16)
-	button("Back",dock_back if session.docked else show_pause)
+	back_row(dock_back if session.docked else show_pause)
 func autonavigate_from_journal(destination: int) -> void:
 	# Validate before leaving the berth; a denied route keeps the journal open.
 	var denial: String=world.route_denial(destination)
@@ -927,7 +932,7 @@ func show_ship_status() -> void:
 	label("INSTALLED SYSTEMS",13).modulate=Color("8bd6ee")
 	for item in ship.equipment:
 		if item!=null:compact_manifest(imported_art.item(item.id,"equipment"),item_name(item.id,"equipment"),EquipmentInfo.stats(item),item_description(item.id,"equipment"))
-	button("Back",dock_back if session.docked else show_pause)
+	back_row(dock_back if session.docked else show_pause)
 func compact_manifest(texture: Texture2D, title: String, stats: String, description: String) -> void:
 	var row:=HBoxContainer.new();row.add_theme_constant_override("separation",14);column.add_child(row);row.tooltip_text=description
 	var icon:=TextureRect.new();icon.texture=texture;icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.custom_minimum_size=Vector2(44,44);row.add_child(icon)
@@ -955,7 +960,7 @@ func show_profile(medal_view: bool=false) -> void:
 			var badge: Label = label(["Locked","Gold","Silver","Bronze"][tier],16,card)
 			badge.modulate=[Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")][tier]
 			if tier>0: label(session.text(int(content.data.constants.e["a:[[S"][id][1]),str(int(content.data.constants.f["a:[[I"][id][tier-1]))),15,card)
-	button("Back",dock_back if session.docked else show_pause)
+	back_row(dock_back if session.docked else show_pause)
 func section_row(text: String, key: String, act: Callable) -> Button:
 	"""A row that opens another page, carrying the key that page hands focus back
 	to. `option` cannot serve here: that one is for rows that rebuild their own."""
@@ -982,8 +987,8 @@ func show_controls(section: String="") -> void:
 			section_row("Touch controls · "+["Auto","On","Off"][touch.mode],"touch",func():show_controls("touch"))
 			section_row("Key bindings","bindings",func():show_controls("bindings"))
 			section_row("Control reference","reference",func():show_controls("reference"))
-	if section.is_empty(): button("Back",show_system if session.docked else show_pause)
-	else: button("Back",func():focus_option=section;show_controls(""))
+	if section.is_empty(): back_row(show_system if session.docked else show_pause)
+	else: back_row(func():focus_option=section;show_controls(""))
 func show_help(topic: int=-1) -> void:
 	"""The phone game's Help: Instructions, its ten topics of imported text,
 	Controls, and the Credits."""
@@ -994,7 +999,7 @@ func show_help(topic: int=-1) -> void:
 		var card := information_card(session.text(18))
 		label(topics[topic].text,15,card)
 		if topic==0:label(guide.key_note(),13,card)
-		button("Back",func():focus_option="topic%d"%topic;show_help())
+		back_row(func():focus_option="topic%d"%topic;show_help())
 		return
 	open_page(session.text(4),"help")
 	label(session.text(18),17)
@@ -1003,7 +1008,7 @@ func show_help(topic: int=-1) -> void:
 	if topics.is_empty():label("The instructions come with the imported game text.",15)
 	button(session.text(19),show_controls)
 	button(session.text(20),func():show_dialogue([{"speaker":session.text(20),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(25)}],show_help))
-	button("Back",show_system if session.docked else show_pause)
+	back_row(show_system if session.docked else show_pause)
 func slider_setting(caption: String, low: float, high: float, value: float, act: Callable) -> HSlider:
 	label(caption,16)
 	var node := HSlider.new()
@@ -1101,7 +1106,7 @@ func show_transfer() -> void:
 		label("Your export is the last checkpoint you saved at a station, not this dive in progress.",15).modulate=Color("d7c399")
 	button("Import expedition\u2026",func(): save_files.choose_import())
 	label("Importing replaces the expedition on this device. The replaced one is kept as the backup checkpoint.",15).modulate=Color("d7c399")
-	button("Back",show_system if session.docked else show_pause)
+	back_row(show_system if session.docked else show_pause)
 func import_transfer(path: String) -> void:
 	var record: Dictionary=transfer.read_export(content.data,path)
 	if record.is_empty(): notice(transfer.failure); return
@@ -1198,6 +1203,7 @@ func apply_graphics() -> void:
 	abyss.set_headlights(modern_graphics and graphics.headlights)
 	abyss.set_headlight_beams(modern_graphics and graphics.beams)
 	view.set_actor_beams(modern_graphics and graphics.beams)
+	view.set_depth_limits(graphics.depth_limits)
 	var env := abyss.environment.environment
 	env.volumetric_fog_enabled=modern_graphics and graphics.volumetric and RenderingServer.get_current_rendering_method()=="forward_plus"
 	env.ssao_enabled=modern_graphics and graphics.detail
@@ -1218,6 +1224,8 @@ func show_graphics() -> void:
 		var needs_forward: bool=key in ["volumetric","detail"] and not forward
 		var toggle := option(names[key]+(" · Needs Vulkan" if needs_forward else (" · On" if modern_graphics and graphics[key] else " · Off")),key,func():graphics[key]=not graphics[key];apply_graphics();save_settings();show_graphics(),settings_grid)
 		toggle.disabled=not modern_graphics or needs_forward;toggle.set_meta("modern_option",true)
+	option("Depth limit markers · "+("On" if graphics.depth_limits else "Off"),"depth_limits",func():graphics.depth_limits=not graphics.depth_limits;apply_graphics();save_settings();show_graphics())
+	label("A hatched panel below or above the submarine that shows as it nears its deepest or shallowest safe depth, after the phone game's limiter panels.",14)
 	option("Station texture smoothing · "+("On" if graphics.station_smoothing else "Off · pixelated"),"smoothing",func():graphics.station_smoothing=not graphics.station_smoothing;apply_graphics();save_settings();show_graphics())
 	var taa := option("Temporal antialiasing · "+("Needs Vulkan" if not forward else ("On" if modern_graphics and temporal_aa else "Off")),"taa",func():temporal_aa=not temporal_aa;update_render_resolution();save_settings();show_graphics())
 	taa.disabled=not modern_graphics or not forward;taa.set_meta("modern_option",true)
@@ -1228,7 +1236,7 @@ func show_graphics() -> void:
 	volume_slider("Music",dive_audio.music_gain,func(value):dive_audio.music_gain=value;dive_audio.apply_levels();save_settings())
 	volume_slider("Effects",dive_audio.effects_gain,func(value):dive_audio.effects_gain=value;dive_audio.apply_levels();save_settings())
 	button("Fullscreen / windowed",toggle_fullscreen)
-	button("Back",show_system if session.docked else show_pause)
+	back_row(show_system if session.docked else show_pause)
 func station_identity(parent: Node) -> void:
 	var station: Dictionary=session.stations[session.station_id]
 	var identity:=HBoxContainer.new();identity.name="StationIdentity";identity.add_theme_constant_override("separation",12);parent.add_child(identity)
@@ -1292,7 +1300,13 @@ func show_system() -> void:
 	button("Main menu",func(): confirm("Main menu",
 		"Your expedition is saved at this station first.",
 		"Return to main menu",return_to_menu,show_system))
+func back_row(action: Callable) -> void:
+	"""Where a page used to end in its own Back row, the header's BACK, Esc and
+	the pad's B now take that way instead; one way back per page."""
+	page_back=action
 func dock_back() -> void:
+	if page_back.is_valid():
+		var way := page_back;page_back=Callable();way.call();return
 	# Back inside Controls means the section list, not the way out of settings.
 	if page=="controls" and not controls_section.is_empty(): focus_option=controls_section;show_controls("");return
 	if not session.docked:close_page();return
@@ -1412,7 +1426,7 @@ func show_save_slots() -> void:
 			if entry.is_empty():write_slot(path)
 			else:confirm(store.slot_title(index),session.text(31),session.text(45),func():write_slot(path),show_save_slots))
 		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT
-	button("Back",dock_back if session.docked else show_pause)
+	back_row(dock_back if session.docked else show_pause)
 func write_slot(path: String) -> void:
 	if store.write(path,session):notice(session.text(32))
 	else:notice(store.failure)
@@ -1487,7 +1501,7 @@ func show_market(kind: String) -> void:
 					button("Accept · %d cr reward · %d cr deposit"%[mission.reward,mission.deposit],func():
 						if session.accept_contract(mission): show_station()
 						else: notice("Insufficient credits for the deposit."),card)
-	if kind not in ["equipment","ships","trade","manufacture"]: button("Back",dock_back)
+	if kind not in ["equipment","ships","trade","manufacture"]: back_row(dock_back)
 func transaction_result(result: int) -> void:
 	if result>=0: notice(session.text(result))
 func show_map(autopilot_only: bool=false) -> void:
@@ -1540,7 +1554,7 @@ func show_map(autopilot_only: bool=false) -> void:
 		else: notice(world.message))
 	stream_button.visible=not atlas_autopilot_only
 	select_station(map_destination)
-	button("Back",show_station if session.docked else close_page)
+	back_row(show_station if session.docked else close_page)
 	label("Pinch / wheel to zoom\nTouch drag / right mouse to pan",14)
 	column=root_column
 func map_key(parent: Node) -> void:
