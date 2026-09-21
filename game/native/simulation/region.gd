@@ -154,7 +154,7 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	if player.depth>int(session.counters.t): session.counters.t=player.depth
 	elif player.depth<int(session.counters.u): session.counters.u=player.depth
 	for actor in creatures:
-		actor.advance(delta_ms,session.rng,player.pose.origin)
+		actor.advance(delta_ms,session.rng,player.pose.origin,player.pose.forward)
 		if actor.constrained and school_route!=null and actor.health.enabled:
 			var path=school_route.current()
 			if path!=null:

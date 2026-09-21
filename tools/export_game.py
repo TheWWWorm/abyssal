@@ -75,6 +75,10 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     # itself where no Vulkan device exists. Web and Android have
     # no Forward+; macOS and ARM Linux exports are unverified and stay on OpenGL.
     if platform not in {'linux','windows'}:text=text.replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
+    # Android runs the Mobile renderer on Vulkan, with the same fallback to
+    # OpenGL ES where the device has no usable Vulkan driver. The web has no
+    # Vulkan or WebGPU path in this Godot: it stays on WebGL 2.
+    if platform=='android':text=text.replace('renderer/rendering_method.mobile="gl_compatibility"','renderer/rendering_method.mobile="mobile"')
     if platform in {'web','android'}:
         text=text.replace('anti_aliasing/quality/msaa_3d=2','anti_aliasing/quality/msaa_3d=0').replace('atlas_size=8192','atlas_size=2048').replace('directional_shadow/size=4096','directional_shadow/size=1024')
     if platform in {'web','android','macos','linux-arm64'}:text=text.replace('[rendering]','[rendering]\n\ntextures/vram_compression/import_etc2_astc=true')

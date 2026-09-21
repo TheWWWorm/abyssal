@@ -102,7 +102,7 @@ func capture(session) -> bool:
 	health.enabled=false;capturable=false;render_scale.fill(0);secondary_scale.fill(0)
 	events.append("caught");events.append("depleted");return true
 
-func advance(delta_ms: int,rng,camera_origin: Array) -> void:
+func advance(delta_ms: int,rng,camera_origin: Array,ahead: Array=[]) -> void:
 	if not health.enabled or subdued:return
 	var movement := 0
 	if not stationary:
@@ -144,17 +144,32 @@ func advance(delta_ms: int,rng,camera_origin: Array) -> void:
 	if not stationary and model_id!=4429:
 		pose.advance(movement)
 		phase=(phase+delta_ms)&0xFFF
+		keep_upright()
 	animate(delta_ms)
 	if not constrained and Math.length_of(Math.subtracted(camera_origin,pose.origin))>LEAVE_DISTANCE:
-		reappear(rng,camera_origin)
+		reappear(rng,camera_origin,ahead)
 
-func reappear(rng,camera_origin: Array) -> void:
+func keep_upright() -> void:
+	# The phone game's creatures turn by pitch and yaw alone, so one that
+	# pitches through the vertical comes out swimming on its back until it
+	# happens to pitch through again. A fish is kept belly down here: its
+	# heading is its own, its roll is not.
+	var heading: Vector3=Math.vector(pose.forward)
+	if absf(heading.normalized().y)>.98 or Math.vector(pose.up).y>=0:return
+	pose.face(pose.forward)
+
+func reappear(rng,camera_origin: Array,ahead: Array=[]) -> void:
 	# Set down three hundred metres from the camera, on a bearing that keeps
 	# nearer the camera's level than the vertical, heading somewhere within
-	# a hundred and fifty metres of it.
-	var bearing: Array=[-2048+rng.next_int(4096),-2048+rng.next_int(4096),-2048+rng.next_int(4096)]
-	bearing[1]>>=1
-	bearing=Math.normalize_vector(bearing)
+	# a hundred and fifty metres of it. Given the way the camera looks, the
+	# bearing is drawn again while it falls in front of it, so a creature
+	# does not appear in plain view.
+	var bearing: Array=[0,0,0]
+	for _try in 8:
+		bearing=[-2048+rng.next_int(4096),-2048+rng.next_int(4096),-2048+rng.next_int(4096)]
+		bearing[1]>>=1
+		bearing=Math.normalize_vector(bearing)
+		if ahead.is_empty() or Math.vector(bearing).normalized().dot(Math.vector(ahead).normalized())<.35:break
 	pose.origin=Math.added(Math.scaled(bearing,RETURN_DISTANCE),camera_origin)
 	pose.face(Math.normalize_vector([-15000+rng.next_int(30000)-bearing[0],-15000+rng.next_int(30000)-bearing[1],-15000+rng.next_int(30000)-bearing[2]]))
 	release();previous_hull=health.hull

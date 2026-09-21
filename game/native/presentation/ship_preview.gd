@@ -47,6 +47,15 @@ func configure(content, id: int, modern: bool, library=null) -> void:
  wake.transform_format=MultiMesh.TRANSFORM_3D;wake.use_custom_data=true;wake.use_colors=true;wake.mesh=bubble;wake.instance_count=32
  trail.multimesh=wake;trail.custom_aabb=AABB(Vector3.ONE*-200,Vector3.ONE*400);trail.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;viewport.add_child(trail)
  _process(0)
+ # The showroom's texture is shown the frame the container is drawn, before
+ # the viewport behind it has rendered into it once; on Vulkan that first
+ # frame is whatever the memory held. Keep the picture clear until the
+ # viewport has drawn, then show it.
+ self_modulate.a=0
+ RenderingServer.frame_post_draw.connect(reveal,CONNECT_ONE_SHOT)
+
+func reveal() -> void:
+ if is_inside_tree():self_modulate.a=1
 
 func _process(delta: float) -> void:
  if selected_id<0 or not is_visible_in_tree():return
