@@ -30,9 +30,13 @@ static func matrix(v: Array, fixed: bool = false) -> Transform3D:
 	return Transform3D(b, Vector3(v[3], -v[7], -v[11]) * UNIT)
 
 func texture(resource: String, alpha: bool = false) -> Texture2D:
+	"""The atlas, one image whichever polygons ask for it: the cut-out
+	polygons take the same texture and the material keys out its pure
+	white, which is what the phone's palette index 0 was. So one PNG, at
+	any size, serves both, and a replacement need only keep its see-through
+	areas white (or transparent)."""
 	var path := root.path_join(resource)
-	if resource.ends_with(".bmp"):
-		path += ".alpha.png" if alpha else ".png"
+	if resource.ends_with(".bmp"): path += ".png"
 	if not textures.has(path):
 		var img := Image.load_from_file(path)
 		if img == null:
@@ -41,7 +45,7 @@ func texture(resource: String, alpha: bool = false) -> Texture2D:
 		texture_sizes[path]=Vector2(img.get_width(),img.get_height())
 		# A player's own atlas stands in for the imported one at any size; the
 		# art keeps addressing it by the original's texels (texture_size).
-		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource,alpha)
+		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
 		if not replacement.is_empty():
 			var own := Image.load_from_file(replacement)
 			if own!=null: img=own
@@ -49,19 +53,17 @@ func texture(resource: String, alpha: bool = false) -> Texture2D:
 		img.convert(Image.FORMAT_RGBA8)
 		img.generate_mipmaps()
 		textures[path] = ImageTexture.create_from_image(img)
-		texture_resources[path]=[resource,alpha]
+		texture_resources[path]=resource
 	return textures[path]
 
 func reload_textures() -> void:
 	"""Reads every atlas again, replacement or original, into the textures
 	the materials already hold, so a mod added or removed shows at once."""
 	for path in textures.keys():
-		var entry: Array=texture_resources.get(path,[])
-		if entry.is_empty(): continue
-		var resource: String=entry[0]
+		if not texture_resources.has(path): continue
 		var img := Image.load_from_file(path)
 		if img==null: continue
-		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource,bool(entry[1]))
+		var replacement := preload("res://native/presentation/mods.gd").texture_path(texture_resources[path])
 		if not replacement.is_empty():
 			var own := Image.load_from_file(replacement)
 			if own!=null: img=own
@@ -72,8 +74,7 @@ func texture_size(resource: String, alpha: bool = false) -> Vector2:
 	"""The imported atlas's size in texels, which is what the geometry's
 	texture coordinates count in, whatever size is actually drawn."""
 	var path := root.path_join(resource)
-	if resource.ends_with(".bmp"):
-		path += ".alpha.png" if alpha else ".png"
+	if resource.ends_with(".bmp"): path += ".png"
 	if not texture_sizes.has(path): texture(resource,alpha)
 	return texture_sizes.get(path,Vector2.ONE)
 
@@ -432,7 +433,9 @@ void vertex() {
 		var coords := "(surface_uv+vec2(0.5))/texture_size" if (enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(0.0001))+vec2(0.5))/texture_size"
 		code += "vec4 color="+("texture(albedo,%s)" % coords if resource != "" else "vec4(OUTPUT_IS_SRGB?COLOR.rgb:to_linear(COLOR.rgb),COLOR.a)")+";\n"
 		if alpha:
-			code += "if(color.a<0.5){discard;}\n"
+			# The phone keys palette index 0 on these polygons, and that entry is
+			# pure white in every atlas; a replacement may use alpha instead.
+			code += "if(color.a<0.5||all(greaterThanEqual(color.rgb,vec3(0.97)))){discard;}\n"
 		if lit and not modern:
 			# Mascot applies per-fragment Lambert lighting to byte-space colors.
 			code += "float brightness=clamp(clamp(source_ambient,0.0,1.0)+clamp(source_intensity,0.0,4.0)*max(dot(normalize(original_normal),-source_light),0.0),0.0,1.0);\n"

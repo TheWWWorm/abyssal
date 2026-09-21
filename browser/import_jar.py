@@ -134,13 +134,15 @@ def decode(jar, root, progress=lambda message: None):
             data = read_entry(archive, entry)
             # The phone launcher reads its icon directly, outside the resource envelope.
             if name != launcher_icon and path.suffix in {'.mbac', '.mtra', '.bmp', '.png'}: data = unwrap(data)
-            path.write_bytes(data)
+            # A texture is kept as one PNG, the atlas as painted: the engine keys
+            # its pure white (the phone's palette index 0) on the cut-out
+            # polygons itself, so a modder has one file to work with.
+            if path.suffix != '.bmp': path.write_bytes(data)
             if path.suffix in {'.mbac', '.mtra'}:
                 decoded = (model if path.suffix == '.mbac' else animation)(data)
                 pathlib.Path(str(path)+'.json').write_text(json.dumps(decoded, separators=(',', ':')))
             if path.suffix == '.bmp':
                 pathlib.Path(str(path)+'.png').write_bytes(bitmap(data))
-                pathlib.Path(str(path)+'.alpha.png').write_bytes(bitmap(data, True))
     progress('Reading game data…')
     extract(jar, root)
     return [p.relative_to(root).as_posix() for p in sorted(root.rglob('*')) if p.suffix in {'.mid', '.amr'}]

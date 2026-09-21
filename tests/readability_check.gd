@@ -109,6 +109,10 @@ func run():
  app.session.docked=true
  # Trade and the workshop are rebel services; Gosu is a colonist holding.
  app.session.campaign.rebel_stations[app.session.station_id]=true
+ # The market carries nought to four lines by the session's draw; the pages
+ # are what is under test, so make sure there is a line to show and buy.
+ var holding: Dictionary=app.session.stations[app.session.station_id]
+ while app.economy.market(holding).is_empty(): holding.cargo=app.economy.generate_goods(holding)
  for mode in [2,1]:
   app.touch.mode=mode
   app.show_station();await settle()

@@ -48,20 +48,16 @@ public final class Assets {
                 entries.add(Map.of("path",n,"bytes",raw.length,"sha256",hash(raw),"decoded_sha256",hash(data),"envelope",wrapped ? "cv.a(String)" : "none"));
                 if(!n.startsWith("data/"))continue;
                 Path out=root.resolve(n); Files.createDirectories(out.getParent());
-                Files.write(out,data);
+                // A texture is kept only as the two PNGs the engine draws with.
+                if(!n.endsWith(".bmp")) Files.write(out,data);
                 if(n.endsWith(".mbac")) Files.writeString(Path.of(out+".json"),Json.encode(AssetExport.model(data)));
                 if(n.endsWith(".mtra")) Files.writeString(Path.of(out+".json"),Json.encode(AssetExport.animation(data)));
                 if(n.endsWith(".bmp")) {
+                    // One PNG per atlas, as painted; the engine keys its pure white
+                    // (palette index 0) on the cut-out polygons itself.
                     BufferedImage image=ImageIO.read(new ByteArrayInputStream(data));
                     if(image==null)throw new IOException("Unsupported texture "+n);
                     ImageIO.write(image,"png",Path.of(out+".png").toFile());
-                    BufferedImage alpha=new BufferedImage(image.getWidth(),image.getHeight(),BufferedImage.TYPE_INT_ARGB);
-                    for(int y=0;y<image.getHeight();y++)for(int x=0;x<image.getWidth();x++) {
-                        int color=image.getRGB(x,y);
-                        if(image.getColorModel() instanceof java.awt.image.IndexColorModel && image.getRaster().getSample(x,y,0)==0)color&=0xffffff;
-                        alpha.setRGB(x,y,color);
-                    }
-                    ImageIO.write(alpha,"png",Path.of(out+".alpha.png").toFile());
                 }
             }
         }
