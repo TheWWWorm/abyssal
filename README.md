@@ -190,7 +190,7 @@ Nothing is shipped as a mod; the game reads a `mods` folder you make yourself, a
 - Windows: `%APPDATA%\abyssal-engine\mods\`
 - macOS: `~/Library/Application Support/abyssal-engine/mods/`
 
-**Textures, from the title menu.** **Mods** on the title screen lists the three atlases with what stands for each, and offers **View**, **Replace…** (a PNG from your device, through the system file picker - on Android too), **Restore original** and **Copy original out…**; on desktop it also opens the mods folder and the folder of the imported originals. A replacement applies at once. Everything below is the same thing done by hand.
+**Textures, from the title menu.** **Mods** on the title screen lists the three atlases with what stands for each, and offers **View**, **Replace…** (a PNG from your device, through the system file picker - on Android too), and **Restore original**; on desktop it also opens the mods folder and the folder of the imported originals. A replacement applies at once. Everything below is the same thing done by hand.
 
 **Textures.** Put a PNG at `mods/textures/deep.png`, `mods/textures/fx.png` or `mods/textures/skybox.png` to replace that atlas. `deep` carries the submarines, creatures and stations, `fx` the shots, explosions and effects, `skybox` the surface. Any size works: a 4x or 8x repaint is drawn at more pixels per texel, but keep the original's layout, because every model addresses the atlas by the original's texel positions. The PNG's own alpha channel is used where the original used cut-outs. To get the originals to paint over, open your content cache (the `user data folder/content/<hash>/data/textures/` directory) and copy `deep.bmp.png`, `fx.bmp.png` and `skybox.bmp.png` out of it.
 

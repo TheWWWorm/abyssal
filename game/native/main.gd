@@ -130,7 +130,6 @@ func _ready() -> void:
 	add_child(images)
 	images.chosen.connect(install_texture)
 	images.failed.connect(func(message):mods_notice=message;show_mods())
-	images.delivered.connect(func(message):mods_notice=message;show_mods())
 	ui.add_child(panel)
 	panel.add_theme_stylebox_override("panel",style(Color("091720f5"),Color("254451")))
 	var scroll := ScrollContainer.new()
@@ -556,7 +555,8 @@ func show_help(topic: int=-1) -> void:
 func show_mods() -> void:
 	"""Mods · Textures: the three atlases the game is drawn with, what stands
 	for each now, and the ways to see it, replace it, or have the original
-	back. A replacement is a PNG of any size in the original's layout."""
+	back; on desktop, the folders themselves. A replacement is a PNG of any
+	size in the original's layout."""
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
@@ -591,8 +591,6 @@ func show_mods() -> void:
 			mods_notice=("The original %s stands again."%atlas.name) if Mods.remove_texture(atlas.name) else "Could not remove the replacement."
 			apply_textures();show_mods(),actions)
 		restore.custom_minimum_size.y=30;restore.add_theme_font_size_override("font_size",14);restore.disabled=not status.replaced
-		var copy := button("Copy original out…",func():mods_notice="";images.export_png(atlas.name+".png",status.original),actions)
-		copy.custom_minimum_size.y=30;copy.add_theme_font_size_override("font_size",14);copy.disabled=not images.available()
 	var folders := HBoxContainer.new();folders.add_theme_constant_override("separation",8);box.add_child(folders)
 	if not OS.has_feature("android") and not OS.has_feature("web"):
 		var mods_dir := ProjectSettings.globalize_path(Mods.user_texture_path("deep").get_base_dir())
