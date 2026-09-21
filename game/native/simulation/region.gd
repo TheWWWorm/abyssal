@@ -104,8 +104,10 @@ func configure_npc_weapons(actors: Array,hostile: bool) -> void:
 	var power:=clampi(3+int(session.counters.k)/2,3,15)
 	for actor in actors:
 		if actor is Special:continue
-		var weapon:=Weapon.new();weapon.configure(power,3,2800,850 if hostile else 1100,14,[0,0,0])
-		weapon.model_id=int(session.data.constants.ah["a:[S"][8 if hostile else 2])
+		var weapon:=Weapon.new()
+		# cy.b arms the aquar with laser_aqua from a deeper, slower-cycling pool.
+		if actor.model_id==19:weapon.configure(power,6,3000,600,15,[0,0,0]);weapon.model_id=6767
+		else:weapon.configure(power,3,2800,850 if hostile else 1100,14,[0,0,0]);weapon.model_id=int(session.data.constants.ah["a:[S"][8 if hostile else 2])
 		weapon.targets=actor.targets;weapon.terrain_collision=station.contains
 		actor.weapons=[weapon];weapons.append(weapon)
 func recount() -> void:
@@ -156,7 +158,9 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	for actor in creatures+enemies+friends:
 		for event in actor.events:
 			if event in ["killed","capsule_destroyed","debris_destroyed"]:
-				visual_event({"kind":"explosion","position":actor.pose.origin.duplicate(),"creature":actor.is_creature,"delays":[0] if actor.is_creature else actor.explosion_delays.duplicate(),"offsets":[[0,0,0]] if actor.is_creature else actor.explosion_offsets.duplicate(true),"duration":4000 if actor.is_creature else actor.explosion_duration})
+				# The aquar (19) is a ship that dies as a fish: one burst, fischtod, tiertot.
+				var as_creature: bool=actor.is_creature or actor.model_id==19
+				visual_event({"kind":"explosion","position":actor.pose.origin.duplicate(),"creature":as_creature,"delays":[0] if as_creature else actor.explosion_delays.duplicate(),"offsets":[[0,0,0]] if as_creature else actor.explosion_offsets.duplicate(true),"duration":4000 if as_creature else actor.explosion_duration})
 			if event=="killed" and actor in enemies and actor.model_id!=13 and not actor.health.special_kill:
 				session.counters.f+=1; session.medals.kills+=1
 				if actor.faction==2: session.counters.o+=1; session.medals.pirates+=1

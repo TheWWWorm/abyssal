@@ -28,7 +28,9 @@ func _ready() -> void:
 	add_child(logo);logo.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;logo.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;logo.mouse_filter=Control.MOUSE_FILTER_IGNORE;logo.hide()
 	add_child(panel)
-	var skin := StyleBoxFlat.new();skin.bg_color=Color("142e3f");skin.border_color=Color("5197b2");skin.set_border_width_all(1)
+	# The menu stands to the left of the station behind it, as the phone game's
+	# dock menu does, and lets the water show through.
+	var skin := StyleBoxFlat.new();skin.bg_color=Color("142e3fbe");skin.border_color=Color("5197b2");skin.set_border_width_all(1)
 	skin.content_margin_left=12;skin.content_margin_right=12;skin.content_margin_top=10;skin.content_margin_bottom=14
 	panel.add_theme_stylebox_override("panel",skin)
 	panel.add_child(choices);choices.add_theme_constant_override("separation",4)
@@ -38,12 +40,12 @@ func _ready() -> void:
 	entry("Options",func():settings_requested.emit())
 	entry("Help",toggle_help)
 	if not OS.has_feature("web"):entry("Exit",func():quit_requested.emit())
-	status=caption("Choose your DEEP JAR to begin.",15,Color("a2c3d3"));status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
+	status=caption("Choose your DEEP JAR to begin.",15,Color("a2c3d3"));status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT
 	footer=entry("Choose game JAR…",func():tools_requested.emit(),false)
 	edition=caption("ABYSSAL  /  ENGINE PREVIEW",12,Color("78a3b7"))
 	rule=ColorRect.new();rule.color=Color("377691");rule.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(rule)
 	add_child(help);help.hide();help.text="Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause."
-	help.add_theme_font_size_override("font_size",15);help.modulate=Color("b2d5e5");help.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;help.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	help.add_theme_font_size_override("font_size",15);help.modulate=Color("b2d5e5");help.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT;help.mouse_filter=Control.MOUSE_FILTER_IGNORE;help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	resized.connect(layout);layout()
 
 func load_content(directory: String) -> void:
@@ -60,7 +62,7 @@ func entry(value: String, action: Callable, in_list: bool=true) -> Button:
 	var node := Button.new();node.text=value;node.alignment=HORIZONTAL_ALIGNMENT_LEFT if in_list else HORIZONTAL_ALIGNMENT_CENTER
 	node.custom_minimum_size=Vector2(310,42);node.add_theme_font_size_override("font_size",19)
 	for state in ["normal","hover","focus","pressed","disabled"]:
-		var skin := StyleBoxFlat.new();skin.bg_color=Color("234e65") if state in ["hover","focus","pressed"] else Color("142e3f")
+		var skin := StyleBoxFlat.new();skin.bg_color=Color("234e65e0") if state in ["hover","focus","pressed"] else Color("142e3f90")
 		skin.border_color=Color("8cd6ef") if state in ["focus","pressed"] else Color("468ba7")
 		skin.set_border_width_all(1 if state in ["hover","focus","pressed"] or not in_list else 0)
 		skin.content_margin_left=12;skin.content_margin_right=12;skin.content_margin_top=6;skin.content_margin_bottom=6
@@ -74,15 +76,18 @@ func toggle_help() -> void:
 func layout() -> void:
 	if status==null:return
 	var unit := clampf(minf(size.x/1000.0,size.y/720.0),0.8,2.5)
-	var middle := size.x*.5
-	headline.scale=Vector2.ONE*unit;headline.position=Vector2(middle-headline.get_minimum_size().x*unit*.5,38*unit)
-	subtitle.scale=Vector2.ONE*unit;subtitle.position=Vector2(middle-subtitle.get_minimum_size().x*unit*.5,91*unit)
-	logo.position=Vector2(middle-177*unit,52*unit);logo.size=Vector2(354,81)*unit
-	panel.scale=Vector2.ONE*unit;panel.size=Vector2(360,0);panel.position=Vector2(middle-180*unit,161*unit)
-	status.scale=Vector2.ONE*unit;status.position=Vector2(middle-235*unit,470*unit);status.size=Vector2(470,65)
-	help.scale=Vector2.ONE*unit;help.position=Vector2(middle-310*unit,464*unit);help.size=Vector2(620,130)
-	footer.scale=Vector2.ONE*unit;footer.size=Vector2(360,42);footer.position=Vector2(middle-180*unit,size.y-94*unit)
-	edition.scale=Vector2.ONE*unit;edition.position=Vector2(middle-edition.get_minimum_size().x*unit*.5,size.y-33*unit)
+	# Everything keeps to a column down the left; the station has the rest.
+	var left := 40*unit
+	var column := minf(360,size.x/unit-80)
+	headline.scale=Vector2.ONE*unit;headline.position=Vector2(left,38*unit)
+	subtitle.scale=Vector2.ONE*unit;subtitle.position=Vector2(left,91*unit)
+	logo.position=Vector2(left,44*unit);logo.size=Vector2(column,column*81.0/354.0)*unit
+	panel.scale=Vector2.ONE*unit;panel.size=Vector2(column,0);panel.position=Vector2(left,150*unit)
+	var below: float=150*unit+panel.get_combined_minimum_size().y*unit+14*unit
+	status.scale=Vector2.ONE*unit;status.position=Vector2(left,below);status.size=Vector2(column,65)
+	help.scale=Vector2.ONE*unit;help.position=Vector2(left,below);help.size=Vector2(minf(620,size.x/unit-80),150)
+	footer.scale=Vector2.ONE*unit;footer.size=Vector2(column,42);footer.position=Vector2(left,size.y-94*unit)
+	edition.scale=Vector2.ONE*unit;edition.position=Vector2(left,size.y-33*unit)
 	rule.position=Vector2(16,size.y-110*unit);rule.size=Vector2(size.x-32,1)
 	queue_redraw()
 

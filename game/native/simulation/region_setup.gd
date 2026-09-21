@@ -148,9 +148,13 @@ func populate() -> void:
    for index in 8+threat*2:
     var actor=special("mine" if mission.kind==10 else "debris",13 if mission.kind==10 else 9996,true,position_in_formation(index,8+threat*2,center))
     r.enemies.append(actor);hazards.append(actor)
+   # cy.b: the minefield is guarded by four of the aquar, the creature-ships
+   # that also keep the capsule missions; they fire their own bolt and die as
+   # fish do. The field alone still decides the mission.
+   if mission.kind==10:ships(4,true,[center[0],0,center[2]+16000],19)
    r.success=goal("clear_hostiles",hazards)
   11,12:
-   ships(count,true,center)
+   ships(count,true,center,19)
    var capsules: Array=[]
    for index in maxi(1,mission.total):
     var actor=special("capsule",9994,mission.kind==12,position_in_formation(index,mission.total,center,4200))

@@ -13,6 +13,8 @@ var content
 var imported_art := preload("res://native/presentation/imported_art.gd").new()
 var stream_prompted := false
 var departure_elapsed := 0.0
+var opening := preload("res://native/presentation/opening.gd").new()
+var opening_fraction := 0.0
 var departure_destination := -1
 var departure_route := "station"
 var stream_selection := -1
@@ -101,6 +103,7 @@ const MAX_CONTACT_LABELS := 6
 var page := ""
 var lines: Array = []
 var line_index := 0
+var dialogue_cue := "message"
 var dialogue_done: Callable
 var key_bindings := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L}
 var suppress_fire_until_release := false
@@ -171,6 +174,7 @@ func _ready() -> void:
 	ui.add_child(classic_frame);classic_frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(dashboard); dashboard.imported_art=imported_art; dashboard.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(hazard_warning);hazard_warning.z_index=20
+	ui.add_child(opening);opening.z_index=30;opening.finished.connect(end_opening)
 	ui.add_child(damage_feedback);damage_feedback.z_index=19
 	ui.add_child(hints); hints.add_theme_font_size_override("font_size",12); hints.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; hints.modulate=Color("9bc2cf")
 	pressure_material.shader=preload("res://native/presentation/pressure_overlay.gdshader"); pressure_overlay.material=pressure_material
@@ -255,7 +259,10 @@ func _ready() -> void:
 	else:
 		session.prepare_station(session.station_id)
 		if not continue_save: session.docked=true; save_game(false)
-		world.depart(); close_page(); briefing()
+		world.depart(); close_page()
+		var tooling: Array=OS.get_cmdline_user_args()
+		if continue_save or "--gameplay-capture" in tooling or "--no-opening" in tooling: briefing()
+		else: begin_opening()
 	var launch_args := OS.get_cmdline_user_args()
 	for index in launch_args.size():
 		if launch_args[index]=="--gameplay-capture":simulated_capture=true
@@ -436,6 +443,8 @@ func display_sheet() -> void:
 	var number=sheet_bar.get_node_or_null("SheetNumber")
 	if number!=null:number.text="%02d / %02d"%[sheet_index+1,sheet_pages.size()]
 func close_page() -> void:
+	# Anything that closes the page under the opening ends the opening with it.
+	if opening.active:opening.finish(false)
 	dive_audio.set_context("",session!=null and session.docked)
 	view.gate_preview=false
 	touch_scroll.scroll=null;touch_scroll.gesture_control=null;touch_scroll.release()
@@ -539,6 +548,13 @@ func _process(delta: float) -> void:
 		departure_elapsed+=minf(delta,.1)
 		view.place_departure(clampf(departure_elapsed/3.2,0,1))
 		if departure_elapsed>=3.2:finish_departure()
+	if page=="opening":
+		# The water is not simulated under the shot; only its clocks run, so
+		# the station's doors and rotor and the creatures' fins keep moving.
+		opening_fraction+=minf(delta,.1)*1000.0
+		var opening_ms := int(opening_fraction);opening_fraction-=opening_ms
+		world.region.elapsed_ms+=opening_ms
+		opening.advance(minf(delta,.1))
 	if page=="freeze": return
 	if page.is_empty() and not session.docked:
 		world.advance(delta,flight_input(delta))
@@ -745,9 +761,11 @@ func _input(event: InputEvent) -> void:
 		if touch.enabled():release_flight_mouse()
 		elif not OS.has_feature("web"):capture_flight_mouse()
 		layout()
-	if page=="departure":
-		var skip: bool=(event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER,KEY_SPACE,KEY_ESCAPE]) or (event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT) or (event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_A,JOY_BUTTON_B]) or (event is InputEventScreenTouch and event.pressed)
-		if skip:finish_departure()
+	if page in ["departure","opening"]:
+		var skip: bool=(event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER,KEY_SPACE,KEY_ESCAPE]) or (event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT) or (event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_A,JOY_BUTTON_B,JOY_BUTTON_START]) or (event is InputEventScreenTouch and event.pressed)
+		if skip:
+			if page=="departure":finish_departure()
+			else:opening.skip()
 		get_viewport().set_input_as_handled();return
 	controller.accept(event)
 	if event is InputEventMouseButton and not event.pressed:
@@ -1266,6 +1284,15 @@ func check_station_progress() -> void:
 	if mission!=null:
 		mission.completed=true
 		show_dialogue(session.dialogue(mission,1),func(): session.complete_mission(mission); show_station(); save_game(false))
+func begin_opening() -> void:
+	"""A new expedition opens on the phone game's title sequence, laid over
+	the station the diver starts at; the briefing follows it."""
+	view.rebuild();view._process(0)
+	open_page("","opening");overlay.hide();opening_fraction=0.0
+	opening.begin(view,dive_audio,session,imported_art.image("logo"))
+func end_opening() -> void:
+	if page=="opening":close_page()
+	briefing()
 func briefing() -> void:
 	var secondary=session.campaign.secondary
 	if secondary.kind>=0 and secondary.jump_limit>=0 and secondary.expired():
@@ -1275,12 +1302,12 @@ func briefing() -> void:
 	var mission=session.campaign.active
 	if mission.kind>=0:
 		show_dialogue(session.dialogue(mission,0),close_page)
-func show_dialogue(entries: Array, after: Callable) -> void:
-	lines=entries; line_index=0; dialogue_done=after
+func show_dialogue(entries: Array, after: Callable, cue: String="message") -> void:
+	lines=entries; line_index=0; dialogue_done=after; dialogue_cue=cue
 	if lines.is_empty(): after.call(); return
 	dialogue_page()
 func dialogue_page() -> void:
-	dive_audio.cue("message")
+	dive_audio.cue(dialogue_cue)
 	open_page(str(lines[line_index].get("speaker","Transmission")),"dialogue")
 	for child in overlay.get_children():overlay.remove_child(child);child.queue_free()
 	column=VBoxContainer.new();column.add_theme_constant_override("separation",8);overlay.add_child(column)
@@ -1307,7 +1334,9 @@ func consume_events() -> void:
 			"mission_complete": show_dialogue(session.dialogue(entry.mission,1),func(): world.region.acknowledge_completion(); close_page())
 			"transmission":
 				var speaker: String = str(content.data.constants.ah["a:[Ljava.lang.String;"][entry.entry.speaker])
-				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":session.text(entry.entry.text_id,session.name),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],func(): world.region.acknowledge_transmission(); close_page())
+				# cq announces a radio call in the water with the signal cue; the
+				# message cue is M.A.I.'s, for the mission screens.
+				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":session.text(entry.entry.text_id,session.name),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],func(): world.region.acknowledge_transmission(); close_page(),"signal")
 			"death","mission_failed":
 				dive_audio.cue("pressure")
 				open_page(entry.text,"failure")
@@ -1847,7 +1876,7 @@ func cross_stream(arrival_local: Transform3D) -> bool:
 	world.stream_destination=stream_selection
 	if not world.stream_transfer(): view.clear_player_clip();view.end_transit();return false
 	view.rebuild()
-	var exit: Transform3D=view.gate_nodes[world.region.gate_index(1)].global_transform
+	var exit: Transform3D=view.gate_nodes[world.region.gate_index(1)].get_meta("gate_rest",view.gate_nodes[world.region.gate_index(1)].global_transform)
 	var arrival: Transform3D=exit*arrival_local
 	world.region.player.pose.origin=[roundi(arrival.origin.x*100),roundi(-arrival.origin.y*100),roundi(-arrival.origin.z*100)]
 	view.assign_player_basis(arrival.basis)

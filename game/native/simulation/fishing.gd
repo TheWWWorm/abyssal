@@ -71,7 +71,14 @@ func advance(delta_ms: int) -> void:
   detach(false);return
  var movement:=delta.normalized()*minf(distance,float(delta_ms*tow_speed))
  for axis in 3:target.pose.origin[axis]+=roundi(movement[axis])
- if target.is_creature:target.secondary_pose=target.pose.copy_pose()
+ if target.is_creature:
+  # Re-pose the tail on the moved body. Then the catch is drawn into the
+  # hull: cx shrinks it with the line's length over its last 2048 units, a
+  # fifth of its size when the original took it at 400. The same fifth is
+  # reached at this hook's own capture distance.
+  target.animate()
+  var swallow:=clampf((distance-capture_distance+400)*2.0/4096.0,0.0,1.0)
+  for axis in 3:target.render_scale[axis]=roundi(target.render_scale[axis]*swallow);target.secondary_scale[axis]=roundi(target.secondary_scale[axis]*swallow)
  weapon.positions[0]=target.pose.origin.duplicate()
 func audio_event(kind: String, position: Array) -> void:
  if audio_events.size()>=8:audio_events.pop_front()

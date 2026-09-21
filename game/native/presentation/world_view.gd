@@ -40,6 +40,11 @@ var neighbor_clock := 0.0
 var player_model
 var banking := preload("res://native/simulation/ship_transform.gd").new()
 var gate_preview := false
+## A shot scripted from outside the view: its transform, and how far it has
+## already given way to the ordinary camera (0 all its own, 1 all the chase's).
+var cinematic_override := false
+var cinematic_transform := Transform3D.IDENTITY
+var cinematic_blend := 0.0
 var departure_hangar
 var departure_frame := Transform3D.IDENTITY
 var departure_progress := -1.0
@@ -56,6 +61,8 @@ var departure_start := Vector3.ZERO
 var departure_end := Vector3.ZERO
 var portal_materials: Array=[]
 var dock_orbit := .65
+## The title menu's backdrop: the station circled as the phone game's ck path does.
+var menu_backdrop := false
 var previous_time := 0
 var previous_particle_fraction := 0.0
 var combat := preload("res://native/presentation/combat_effects.gd").new()
@@ -146,6 +153,7 @@ func rebuild() -> void:
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine
 		pose.origin=world.region.gates[i]; pose.set_euler(0,(300 if world.session.stations[world.session.station_id].tech>4 else -300)*(i+1)+2048,0)
 		visual.transform=pose.godot_transform(); gate_nodes.append(visual)
+		visual.set_meta("gate_rest",visual.transform);visual.set_meta("gate_roll",0.0)
 		build_gate_field(visual)
 		visual.visible=world.region.gate_index(i)==i
 	previous_time=world.region.elapsed_ms
@@ -237,6 +245,13 @@ func _process(delta: float) -> void:
 		animate_model(station_nodes[i],delta,1.0)
 	for i in gate_nodes.size():
 		if not gate_nodes[i].visible:continue
+		# at.a: a gate that is not open turns about its own axis, half a unit a
+		# millisecond, a turn every eight seconds; it holds still while open.
+		if world.gate_time[i]==0:
+			var roll: float=fmod(float(gate_nodes[i].get_meta("gate_roll",0.0))+delta*512.0,4096.0)
+			gate_nodes[i].set_meta("gate_roll",roll)
+			var rest: Transform3D=gate_nodes[i].get_meta("gate_rest",gate_nodes[i].transform)
+			gate_nodes[i].transform=Transform3D(rest.basis*Basis(Vector3(0,0,1),roll*TAU/4096.0),rest.origin)
 		if gate_nodes[i].has_meta("gate_surface"):
 			var distance: float=player_pose.origin.distance_to(gate_nodes[i].position)
 			var opening := maxf(clampf(float(world.gate_frame(i))/20.0,0,1),clampf(1.0-distance/550.0,0,1)*.65)
@@ -263,7 +278,8 @@ func _process(delta: float) -> void:
 	if world.session.docked: update_docked_camera(delta)
 	elif gate_preview and not gate_nodes.is_empty():
 		var gate: Node3D=gate_nodes[world.departure_gate]
-		var frame := gate.global_transform
+		# Framed on the gate at rest: its idle roll is the arms', not the shot's.
+		var frame: Transform3D=gate.get_meta("gate_rest",gate.global_transform)
 		camera.global_position=frame*Vector3(35,18,194)
 		camera.look_at(frame.origin,Vector3.UP)
 	if departure_progress>=0:
@@ -290,6 +306,9 @@ func _process(delta: float) -> void:
 		var subject: Vector3=player_pose.origin if transit_emerging else transit_frame.origin.lerp(player_pose.origin,.5)
 		camera.look_at(subject,Vector3.UP)
 		camera.global_transform=camera.global_transform.interpolate_with(following,smoothstep(.62,1.0,transit_progress))
+	# A scripted shot (the opening) is laid over whatever the frame would have
+	# been, and hands back to it by its blend, so the chase is where it lands.
+	if cinematic_override:camera.global_transform=cinematic_transform.interpolate_with(camera.global_transform,cinematic_blend)
 	previous_camera_mode=camera_mode
 	var frustum: Array[Plane] = camera.get_frustum()
 	for actor in region.creatures+region.enemies+region.friends:
@@ -310,6 +329,8 @@ func _process(delta: float) -> void:
 		node.apply_actor_animation(actor)
 		node.visible=actor.health.enabled or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
 		var pose: Transform3D = world.render_pose(actor)
+		if actor.is_creature and not actor.render_tilt.all(func(v):return v==0):
+			pose.basis=pose.basis*Basis.from_euler(Vector3(actor.render_tilt[0],actor.render_tilt[1],actor.render_tilt[2])*TAU/4096.0,EULER_ORDER_XYZ)
 		if not (node.replacement!=null and actor.model_id==4422):
 			pose.basis=pose.basis.scaled_local(Vector3(actor.render_scale[0],actor.render_scale[1],actor.render_scale[2])/4096.0)
 		var travel_speed: float = node.position.distance_to(pose.origin)/maxf(delta,.001)
@@ -595,7 +616,6 @@ func place_departure(progress: float) -> void:
 	world.previous_render_poses.clear()
 
 func update_docked_camera(delta: float) -> void:
-	dock_orbit+=delta*.055
 	var bounds := AABB();var first := true
 	for station in station_nodes:
 		var box: AABB=station.transform*station.solid_bounds()
@@ -603,10 +623,18 @@ func update_docked_camera(delta: float) -> void:
 	if first: return
 	var focus := bounds.get_center()
 	var radius := maxf(180,bounds.size.length()*.78)
-	camera.global_position=focus+Vector3(sin(dock_orbit)*radius,radius*.23,cos(dock_orbit)*radius)
+	var height := radius*.23
+	if menu_backdrop:
+		# ck's first path: a circle of the station once a minute, two hundred
+		# metres out, climbing and sinking by a quarter of that on the way.
+		dock_orbit+=delta*TAU/60.0
+		radius=maxf(200,bounds.size.length()*.9)
+		height=sin(dock_orbit*2.0)*radius*.25
+	else:dock_orbit+=delta*.055
+	camera.global_position=focus+Vector3(sin(dock_orbit)*radius,height,cos(dock_orbit)*radius)
 	camera.look_at(focus,Vector3.UP)
 	# Leave the left side clear for the original-style dock menu.
-	camera.h_offset=-radius*.22
+	camera.h_offset=-radius*(.3 if menu_backdrop else .22)
 	if player_model!=null: player_model.hide()
 
 func assign_player_basis(basis: Basis) -> void:

@@ -53,6 +53,10 @@ var settings_path := "user://native/settings.cfg"
 var inspector_environment: Environment
 var tools_status: Label
 var title_dock := preload("res://native/presentation/title_dock.gd").new()
+var launching := false
+var loading := PanelContainer.new()
+var loading_caption: Label
+var loading_spinner: Label
 
 func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
 	var node := Label.new()
@@ -155,6 +159,10 @@ func _ready() -> void:
 		title_menu.focus_behavior_recursive=behavior;panel.focus_behavior_recursive=behavior)
 	modal.add_theme_stylebox_override("panel",style(Color("07151df5"),Color("409bbd")))
 	modal.hide()
+	ui.add_child(loading);loading.add_theme_stylebox_override("panel",style(Color("07151df5"),Color("409bbd")));loading.hide()
+	var loading_row := HBoxContainer.new();loading_row.add_theme_constant_override("separation",18);loading.add_child(loading_row)
+	loading_spinner=label("◐",30,Color("8bd6ee"));loading_row.add_child(loading_spinner)
+	loading_caption=label("",19);loading_caption.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;loading_row.add_child(loading_caption)
 	add_child(portable)
 	portable.selected.connect(import_pack)
 	portable.failed.connect(func(message):status.text=message)
@@ -241,6 +249,7 @@ func layout_ui() -> void:
 	model_name.position=Vector2(410,ui.size.y-76)
 	modal.size=Vector2(minf(640,ui.size.x-48),minf(560,ui.size.y-40))
 	modal.position=(ui.size-modal.size)*0.5
+	loading.size=loading.get_combined_minimum_size();loading.position=(ui.size-loading.size)*0.5
 
 func import_jar(path: String) -> void:
 	if import_busy: return
@@ -279,6 +288,7 @@ func open_cache(path: String) -> void:
 		if int(content.registry[i].id)==0: initial=i; break
 	catalog.select(initial)
 	if inspector_open: show_model(initial)
+	title_dock.load_content(content,save_path,settings_path)
 	refresh_title()
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): launch_game.call_deferred()
 
@@ -307,6 +317,7 @@ func toggle_lights() -> void:
 
 func _process(delta: float) -> void:
 	if tools_status.text!=status.text: tools_status.text=status.text
+	if loading.visible:loading_spinner.text=["◐","◓","◑","◒"][int(Time.get_ticks_msec()/160)%4]
 	if import_busy and bundled_import and FileAccess.file_exists(import_progress):
 		var progress:=FileAccess.get_file_as_string(import_progress)
 		if not progress.is_empty():status.text=progress
@@ -448,6 +459,10 @@ func show_start() -> void:
 func refresh_face() -> void:
 	if is_instance_valid(face_preview): face_preview.texture=face_art.portrait(face_layers)
 
+func show_loading(text: String) -> void:
+	modal.hide();scrim.show();loading_caption.text=text;loading.show();layout_ui()
+	title_menu.focus_behavior_recursive=Control.FOCUS_BEHAVIOR_DISABLED
+
 func focus_title() -> void:
 	if not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus.call_deferred()
 	elif not title_menu.new_button.disabled: title_menu.new_button.grab_focus.call_deferred()
@@ -462,15 +477,14 @@ func refresh_title() -> void:
 			var saved = store.read(save_path,content.data)
 			if saved!=null:
 				title_menu.continue_button.disabled=false
-				status.text="%s · %s credits\n%s" % [saved.name,saved.credits,
-					"Your latest save is damaged; this is the previous checkpoint" if store.recovered else "Return to your last checkpoint"]
+				status.text="Your latest save is damaged; this is the previous checkpoint." if store.recovered else ""
 			else: status.text=store.failure
-		else: status.text="A new expedition awaits."
+		else: status.text=""
 	focus_title()
 
 func show_tools() -> void:
 	get_viewport().disable_3d=false
-	title_dock.hide();title_dock.process_mode=Node.PROCESS_MODE_DISABLED;title_dock.environment.environment=null;abyss.environment.environment=inspector_environment;camera.current=true
+	title_dock.set_active(false);abyss.environment.environment=inspector_environment;camera.current=true
 	inspector_open=true;title_menu.hide();panel.show();model_name.show()
 	abyss.show();abyss.process_mode=Node.PROCESS_MODE_INHERIT
 	if ready_for_preview: show_model(maxi(0,catalog.selected))
@@ -479,7 +493,7 @@ func show_tools() -> void:
 func hide_tools() -> void:
 	get_viewport().disable_3d=false
 	abyss.environment.environment=null
-	title_dock.show();title_dock.process_mode=Node.PROCESS_MODE_INHERIT;title_dock.environment.environment=title_dock.dock_environment;title_dock.camera.current=true
+	title_dock.set_active(true)
 	inspector_open=false;dragging=false;panel.hide();model_name.hide();title_menu.show()
 	if model!=null: remove_child(model);model.queue_free();model=null
 	abyss.hide();abyss.process_mode=Node.PROCESS_MODE_DISABLED
@@ -499,7 +513,7 @@ func show_settings() -> void:
 	var modern := bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true)))
 	var mode := button("Lighting · "+("ENHANCED LIGHTING" if modern else "CLASSIC LIGHTING")+"  ⇄",func():
 		if not config.has_section_key("graphics","modern") and not bool(config.get_value("graphics","materials",true)):set_preference("graphics","materials",true)
-		set_preference("graphics","modern",not modern);show_settings(),box)
+		set_preference("graphics","modern",not modern);title_dock.set_lighting(not modern);show_settings(),box)
 	mode.name="GraphicsMode"
 	var row := HBoxContainer.new();box.add_child(row)
 	var caption := label("Render resolution",16);caption.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(caption)
@@ -518,7 +532,10 @@ func show_settings() -> void:
 		var text := label(item[0],16);text.custom_minimum_size.x=180;line.add_child(text)
 		var slider := HSlider.new();slider.size_flags_horizontal=Control.SIZE_EXPAND_FILL;slider.min_value=item[4];slider.max_value=item[5];slider.step=item[6];slider.value=float(config.get_value(item[1],item[2],item[3]));line.add_child(slider)
 		var amount := label("%.2f" % slider.value,15);amount.custom_minimum_size.x=46;line.add_child(amount)
-		slider.value_changed.connect(func(value): amount.text="%.2f" % value;set_preference(item[1],item[2],value))
+		slider.value_changed.connect(func(value):
+			amount.text="%.2f" % value;set_preference(item[1],item[2],value)
+			if item[2]=="music":title_dock.set_music(value)
+			elif item[2]=="effects":title_dock.dive_audio.effects_gain=value;title_dock.dive_audio.apply_levels())
 	var invert := CheckButton.new();invert.text="Invert vertical mouse";invert.button_pressed=bool(config.get_value("keys","invert_mouse",false));box.add_child(invert)
 	invert.toggled.connect(func(value): set_preference("keys","invert_mouse",value))
 	button("Toggle fullscreen  ·  F11",func(): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN),box)
@@ -526,10 +543,17 @@ func show_settings() -> void:
 	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
 
 func launch_game(resume: bool=false, player_name: String="Diver") -> void:
-	if not ready_for_preview: return
+	if not ready_for_preview or launching: return
 	if resume:
 		var store=preload("res://native/simulation/save_store.gd").new()
 		if store.read(save_path,content.data)==null: status.text=store.failure; return
+	launching=true
+	# Building the dive is one long synchronous stretch: the region, every
+	# model in it and every shader variant. Say so on screen first, and let
+	# a frame draw it, so the last thing seen is not a menu that stopped.
+	show_loading("Returning to your checkpoint…" if resume else "Preparing the expedition…")
+	await get_tree().process_frame
+	if not is_inside_tree():return
 	get_viewport().disable_3d=false
 	var gameplay=load("res://native/gameplay.gd").new()
 	gameplay.save_path=save_path;gameplay.settings_path=settings_path

@@ -385,7 +385,6 @@ func stream_transfer() -> bool:
 	region.player.pose.set_euler(0,(300 if session.stations[target].tech>4 else -300)*(arrival_gate+1)+2048,0)
 	region.player.depth=session.stations[target].depth
 	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0
-	region.audio_event("signal")
 	message="S.T.R.E.A.M. arrival · "+session.stations[target].name
 	return true
 

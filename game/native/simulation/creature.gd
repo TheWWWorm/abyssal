@@ -32,6 +32,8 @@ var capturable := true
 var meat := false
 var render_scale: Array = [4096,4096,4096]
 var secondary_scale: Array = [4096,4096,4096]
+## Visual pitch/yaw/roll of the body about its own heading, in 4096 units.
+var render_tilt: Array = [0.0,0.0,0.0]
 var events: Array = []
 
 var habitat_center: Array=[]
@@ -65,7 +67,7 @@ func capture(session) -> bool:
 func advance(delta_ms: int,_rng,_camera_origin: Array) -> void:
  if not health.enabled:return
  if health.hull<=0 and state!=4:
-  state=4;model_id=14;secondary_model=-1;meat=true;mass=maxi(1,mass/3);events.append("killed");return
+  state=4;model_id=14;secondary_model=-1;meat=true;mass=maxi(1,mass/3);render_scale=[4096,4096,4096];render_tilt=[0.0,0.0,0.0];events.append("killed");return
  if state==4:
   if not towing:pose.origin[1]+=roundi(delta_ms*.1)
   secondary_pose=pose.copy_pose();return
@@ -79,9 +81,35 @@ func advance(delta_ms: int,_rng,_camera_origin: Array) -> void:
    var forward:=Vector3(pose.forward[0],pose.forward[1],pose.forward[2]).normalized().lerp(desired.normalized(),1.0-exp(-delta_ms*.001)).normalized()
    pose.face([roundi(forward.x*4096),roundi(forward.y*4096),roundi(forward.z*4096)])
   pose.advance(roundi(delta_ms*speed*(.35 if hooked else 1.0)))
- phase=(phase+delta_ms)%6284;animate()
-func animate() -> void:
+ phase=(phase+delta_ms)&0xFFF;animate(delta_ms)
+func animate(_delta_ms: int=0) -> void:
+ # The phone game's own life for each species (af.a): a body scale that
+ # breathes, a tail hinged on the body, and a slow wander of the body itself.
+ # The cycle is 4096 ms, and every wave is the game's sine in 4096 units.
  secondary_pose=pose.copy_pose()
+ render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096]
+ var s:=pose.math.sine(phase)
+ match model_id:
+  4422:render_scale=[4096,maxi(48,absi(s)/3)*signi(s if s!=0 else 1),4096]
+  4426:render_scale=[4096,4096+(pose.math.sine((phase<<1)&0xFFF)>>2),4096]
+  4442:render_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
+  4424:secondary_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
+  4438:secondary_scale=[4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2),4096]
+ # The original turns the body a little every frame, sin/128 or sin/256 of
+ # a turn at its fifteen frames a second, which sums to a swing about the
+ # heading of about 316 or 158 units either way. That swing is written out
+ # directly, centred on the heading, and never fed back into the AI.
+ var swing:=-pose.math.cosine(phase)
+ render_tilt=[0.0,0.0,0.0]
+ match model_id:
+  4423:render_tilt[1]=swing*316.0/4096.0
+  4427,4432,4436:render_tilt[0]=swing*158.0/4096.0
+  4430,4434,4440:render_tilt[1]=-swing*316.0/4096.0
  if secondary_model>=0:
-  var wave:=roundi(sin(phase*.006)*28)
-  var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table;fin.set_euler(0,wave,0);secondary_pose.compose_rotation(fin)
+  var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table
+  fin.set_euler(roundi(render_tilt[0]),roundi(render_tilt[1]),roundi(render_tilt[2]));secondary_pose.compose_rotation(fin)
+  match model_id:
+   4427,4432,4436:fin.set_euler(-(s>>6),0,0)
+   4430,4434,4440:fin.set_euler(0,s>>5,0)
+   _:fin.set_euler(0,0,0)
+  secondary_pose.compose_rotation(fin)

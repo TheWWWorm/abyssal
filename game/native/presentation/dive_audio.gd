@@ -20,7 +20,8 @@ var world
 var sounds := {}
 var source_paths := {}
 var station_music: AudioStreamWAV
-var flight_music: AudioStream
+## The opening plays the game's track over the water; set for its length.
+var opening_music := false
 var music_gain := 0.65
 var effects_gain := 0.75
 var voices: Array[AudioStreamPlayer] = []
@@ -83,6 +84,7 @@ func configure(owner_world, directory: String) -> void:
 				AudioServer.register_stream_as_sample(sound)
 	prepare_web_music("ocean",ambience)
 	prepare_web_music("station",station_music)
+	previous_bed=""
 func update_music_pause(paused: bool) -> void:
 	if music_paused==paused:return
 	music_paused=paused
@@ -96,7 +98,7 @@ func prepare_web_music(key: String, sound: AudioStream) -> bool:
 	web_music.prepare(key,Marshalls.raw_to_base64(sound.data),sound.mix_rate,sound.stereo)
 	return true
 func set_context(page: String, docked: bool) -> void:
-	context="station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure"] else "paused"
+	context="station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure","opening"] else "paused"
 func set_enabled(value: bool) -> void:
 	if enabled==value: return
 	enabled=value; pending.clear(); ui_requests.clear(); priority_until=-1; last_played.clear()
@@ -181,13 +183,18 @@ func _process(_delta: float) -> void:
 	var events: Array = collect_events(world.region)+collect_launches(world.region)
 	var ui: Array = ui_requests; ui_requests=[]
 	if not enabled: pending.clear(); return
-	var bed := "station" if context=="station" and station_music!=null else "score" if flight_music!=null else "station" if station_music!=null else "ocean"
+	# The phone game plays its one track in the menu, docked and during the
+	# opening (l, ch, br.a); br.void_a stops it on the way out into the water,
+	# where the only sound is the ocean's own cue every ten seconds. Without
+	# imported content the code-authored ocean bed stands in for that track.
+	var bed := "station" if (context=="station" or opening_music) and station_music!=null else "ocean" if station_music==null and (context=="station" or opening_music) else ""
 	if previous_bed!=bed:
-		stream=station_music if bed=="station" else flight_music if bed=="score" else ambience
+		if web_music!=null and not previous_bed.is_empty():web_music.stop()
+		stream=station_music if bed=="station" else ambience if bed=="ocean" else null
 		previous_bed=bed
 		music_paused=false
-		web_bed=prepare_web_music(bed,stream)
-		if web_bed:stop()
+		web_bed=not bed.is_empty() and prepare_web_music(bed,stream)
+		if web_bed or bed.is_empty():stop()
 		elif DisplayServer.get_name()!="headless":play()
 	volume_db=-12
 	apply_levels()
@@ -201,8 +208,10 @@ func _process(_delta: float) -> void:
 		return
 	if context=="station": events=[]; pending.clear()
 	var now := Time.get_ticks_msec()
-	if context=="flight" and now>ambience_at+10000:
-		events.append({"kind":"sonar","gain":0.12})
+	# br.a: every ten seconds in the water one of the four ocean cues, chosen
+	# at random, at a volume drawn between six tenths and the full level.
+	if context=="flight" and now>ambience_at+10000 and not opening_music:
+		events.append({"kind":["sonar","water","ambient_a","ambient_b"][randi()%4],"gain":maxf(0.6,randf())})
 		ambience_index+=1; ambience_at=now
 	events.append_array(ui)
 	var combined := {}

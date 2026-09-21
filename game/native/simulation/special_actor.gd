@@ -44,9 +44,11 @@ func advance(delta_ms: int) -> void:
   "mine":
    if state==0 and targets.any(func(actor):return actor.health.enabled and within(actor.pose.origin,pose.origin,5500)):
     state=1;timer=0;animation_range=[1,1]
-   if state==1:
-    pose.set_euler(0,roundi(timer*.3),0)
-    if timer>=2000:detonate()
+   # d.a: a moored mine rocks about its heading by sin(t)/64 as it waits; an
+   # armed one spins at two units a millisecond, a full turn over its fuse.
+   if state==1:mine_yaw+=delta_ms*2
+   pose.set_euler(0,mine_yaw+(pose.math.sine(timer&0xFFF)>>6),0)
+   if state==1 and timer>=2000:detonate()
   "capsule":
    if not towing:pose.origin[1]+=roundi(delta_ms*.3)
    if pose.origin[1]-origin[1]>60000:health.hull=0;begin_destruction()
