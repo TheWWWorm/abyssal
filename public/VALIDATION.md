@@ -8,20 +8,20 @@ compatibility renderer, and by rendered captures read back from a real GPU
 cache.
 
 - Engine regression suite: **14 of 14 checks passed** headless on OpenGL
-  (`tools/check.py --compatibility`), including new checks for the bank
-  profile, the lamp lights (one per sprite, per bone, off while the station's
-  animation has the bone shrunk away), the lure point, and the bent head.
+  (`tools/check.py --compatibility`), including a new check that the
+  anglerfish's lure lamp sits on the bent rod tip while the head swings, and
+  returns to its rest when the bend is cleared.
 - Python packaging, importer and distribution tests: **36 of 36 passed**.
-- The anglerfish was captured swimming, tracked over four seconds from the side
-  and the front quarter, with the neck closed in every frame; the devilfish and
-  marlin at both swing extremes; the hangar's berth-lamp chase over a hundred
-  frames from a fixed camera with the blue spill on the deck coming and going
-  with the sprites; the engine's red lamp on its rotor.
-- Two Linux x86-64 test packages built from the tree during the work were
-  extracted and played by the requester, whose reports shaped the lamp change.
+- The anglerfish was captured swimming from above, twelve frames over three
+  seconds with the head bent up to eleven degrees, the lure's halo on the rod
+  tip in every frame; the lamp's position was also logged against the bend
+  each ten frames (up to 0.94 m of sideways travel at the full bend, matching
+  the shader's turn of the tip).
+- The 1.2.2 build was played by the requester, whose report of the lure
+  hanging beside the tip is the fix in this build.
 - Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
 - The Android APK is signed with the same release key as every build since
-  preview.2 and carries version code 26, so it updates earlier builds in place.
+  preview.2 and carries version code 27, so it updates earlier builds in place.
 
 ## What was not validated
 
