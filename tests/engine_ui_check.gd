@@ -336,7 +336,8 @@ func check_dock_navigation(game) -> void:
  # The yard stocks nought to three hulls by the session's draw; the dealer's
  # showroom is what is under test, so make sure there is a hull to show.
  var yard: Dictionary=game.session.stations[game.session.station_id]
- while yard.ships.is_empty(): yard.ships=game.session.economy.generate_ships(yard)
+ var economy=load("res://native/simulation/economy.gd").new();economy.configure(game.session)
+ while yard.ships.is_empty(): yard.ships=economy.generate_ships(yard)
  game.show_hangar();game.show_market("ships")
  for i in 5:await process_frame
  var preview=game.column.find_child("ShipPreview",true,false)

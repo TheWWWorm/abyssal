@@ -31,6 +31,14 @@ func run():
 	var material: ShaderMaterial=modded.affine_material("data/textures/deep.bmp",0,false,true,false)
 	expect(material.get_shader_parameter("texture_size")==original,"Materials receive the original texel count, not the replacement's pixel count")
 	expect(modded.texture("data/textures/deep.bmp",true).get_width()==int(original.x)*2,"The cut-out variant uses the replacement's own alpha")
+	# A cut-out replacement of its own, at yet another size, serves the cut-out
+	# variant alone; the opaque one keeps the opaque replacement.
+	var mask := Image.create(int(original.x)*4,int(original.y)*4,false,Image.FORMAT_RGBA8);mask.fill(Color(0,1,1,.5))
+	expect(mask.save_png(ProjectSettings.globalize_path(folder.path_join("textures/deep.alpha.png")))==OK,"Test mask written")
+	var masked=Library.new();masked.root=content.root
+	expect(masked.texture("data/textures/deep.bmp",true).get_width()==int(original.x)*4 and masked.texture("data/textures/deep.bmp").get_width()==int(original.x)*2,"A deep.alpha.png of its own stands for the cut-out variant only")
+	expect(Mods.texture_status(content.root,Mods.ATLASES[0],true).own and not Mods.texture_status(content.root,Mods.ATLASES[0],false).own,"The status tells a cut-out replacement of its own from a shared one")
+	expect(Mods.remove_texture("deep",true) and Mods.texture_path("data/textures/deep.bmp",true).ends_with("deep.png"),"Removing the cut-out replacement leaves the opaque one serving both")
 	# The Mods page: a library already drawing takes a replacement up on
 	# reload, reports it, and gives the original back when it is removed.
 	plain.reload_textures()

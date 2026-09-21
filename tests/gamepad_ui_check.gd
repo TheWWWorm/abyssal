@@ -50,7 +50,7 @@ func run() -> void:
  await tilt(JOY_AXIS_LEFT_Y,-1);await tilt(JOY_AXIS_LEFT_Y,0)
  expect(focused_text()=="Mods","Left stick navigates the title to Mods")
  await tap(JOY_BUTTON_A);await settle()
- expect(app.modal.visible and root.gui_get_focus_owner()!=null and root.gui_get_focus_owner().text=="Back","A opens the Mods page (without content, its notice and Back)")
+ expect(app.modal.visible and root.gui_get_focus_owner()!=null and root.gui_get_focus_owner().text=="Textures","A opens Mods on its Textures section")
  await tap(JOY_BUTTON_B);await settle()
  expect(not app.modal.visible and focused_text()=="Mods","B closes Mods and returns to its entry")
  await tilt(JOY_AXIS_LEFT_Y,-1);await tilt(JOY_AXIS_LEFT_Y,0)

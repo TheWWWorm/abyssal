@@ -70,6 +70,8 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text()
+    # The title shows the package's version under its logo.
+    text=text.replace('[application]\n','[application]\n\nconfig/version="%s"\n'%version,1)
     # Desktop x86-64 keeps the project's Forward+ renderer (Vulkan), which the
     # enhanced lighting is written for; the project falls back to OpenGL by
     # itself where no Vulkan device exists. Web and Android have

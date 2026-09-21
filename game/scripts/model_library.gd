@@ -41,7 +41,7 @@ func texture(resource: String, alpha: bool = false) -> Texture2D:
 		texture_sizes[path]=Vector2(img.get_width(),img.get_height())
 		# A player's own atlas stands in for the imported one at any size; the
 		# art keeps addressing it by the original's texels (texture_size).
-		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
+		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource,alpha)
 		if not replacement.is_empty():
 			var own := Image.load_from_file(replacement)
 			if own!=null: img=own
@@ -61,7 +61,7 @@ func reload_textures() -> void:
 		var resource: String=entry[0]
 		var img := Image.load_from_file(path)
 		if img==null: continue
-		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
+		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource,bool(entry[1]))
 		if not replacement.is_empty():
 			var own := Image.load_from_file(replacement)
 			if own!=null: img=own

@@ -45,7 +45,8 @@ func _ready() -> void:
 	if not OS.has_feature("web"):entry("Exit",func():quit_requested.emit())
 	status=caption("Choose your DEEP JAR to begin.",15,Color("a2c3d3"));status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT
 	footer=entry("Choose game JAR…",func():tools_requested.emit(),false)
-	edition=caption("ABYSSAL  /  ENGINE PREVIEW",12,Color("78a3b7"))
+	var version := str(ProjectSettings.get_setting("application/config/version",""))
+	edition=caption("ABYSSAL" if version.is_empty() else "ABYSSAL  /  "+version,12,Color("78a3b7"))
 	rule=ColorRect.new();rule.color=Color("377691");rule.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(rule)
 	add_child(help);help.hide();help.text="Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause."
 	help.add_theme_font_size_override("font_size",15);help.modulate=Color("b2d5e5");help.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT;help.mouse_filter=Control.MOUSE_FILTER_IGNORE;help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART

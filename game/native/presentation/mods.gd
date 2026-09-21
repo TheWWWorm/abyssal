@@ -28,9 +28,15 @@ static func find(relative: String) -> String:
 		if FileAccess.file_exists(path): return path
 	return ""
 
-static func texture_path(resource: String) -> String:
-	# data/textures/deep.bmp -> textures/deep.png
-	return find("textures/"+resource.get_file().get_basename()+".png")
+static func texture_path(resource: String, alpha: bool=false) -> String:
+	# data/textures/deep.bmp -> textures/deep.png; the cut-out variant may
+	# have its own textures/deep.alpha.png, else it shares deep.png and its
+	# alpha channel.
+	var stem := resource.get_file().get_basename()
+	if alpha:
+		var own := find("textures/"+stem+".alpha.png")
+		if not own.is_empty(): return own
+	return find("textures/"+stem+".png")
 
 static func model_path(resource: String) -> String:
 	# data/v3d/u0.mbac -> models/u0.glb, or models/u0.gltf
@@ -92,45 +98,49 @@ static func fit(node: Node3D, bounds: AABB) -> void:
 	node.scale=Vector3.ONE*scale
 	node.position=bounds.get_center()-box.get_center()*scale
 
-## The three atlases the phone game draws everything with, for the Mods
-## page: which file, what is on it, and where a replacement goes.
+## The atlases the phone game draws everything with, for the Mods page:
+## which file, what is on it, and where a replacement goes. The third,
+## skybox.bmp, is not drawn by this engine (its water is its own sky), so
+## it is not offered.
 const ATLASES := [
 	{"name":"deep","resource":"data/textures/deep.bmp","title":"Hulls and stations","about":"Every submarine, every station module, mines, torpedoes, boxes, capsules and the S.T.R.E.A.M. gate."},
-	{"name":"fx","resource":"data/textures/fx.bmp","title":"Creatures and effects","about":"Every creature and the algae, explosions, shots, the harpoon and the Eclipse."},
-	{"name":"skybox","resource":"data/textures/skybox.bmp","title":"Surface","about":"The water's surface seen from below."}]
+	{"name":"fx","resource":"data/textures/fx.bmp","title":"Creatures and effects","about":"Every creature and the algae, explosions, shots, the harpoon and the Eclipse."}]
 
-static func user_texture_path(name: String) -> String:
-	return "user://mods/textures/"+name+".png"
+static func user_texture_path(name: String, alpha: bool=false) -> String:
+	return "user://mods/textures/"+name+(".alpha.png" if alpha else ".png")
 
-static func original_texture_path(content_root: String, resource: String) -> String:
-	return content_root.path_join(resource)+".png"
+static func original_texture_path(content_root: String, resource: String, alpha: bool=false) -> String:
+	return content_root.path_join(resource)+(".alpha.png" if alpha else ".png")
 
-static func texture_status(content_root: String, atlas: Dictionary) -> Dictionary:
-	"""What stands for the atlas now: the replacement's path and size when
-	one is in place, else the original's."""
-	var original := original_texture_path(content_root,atlas.resource)
-	var replacement := texture_path(atlas.resource)
+static func texture_status(content_root: String, atlas: Dictionary, alpha: bool=false) -> Dictionary:
+	"""What stands for the atlas, or its cut-out variant, now: the
+	replacement's path and size when one is in place, else the original's.
+	A cut-out variant with no file of its own shares the opaque
+	replacement, and says so."""
+	var original := original_texture_path(content_root,atlas.resource,alpha)
+	var replacement := texture_path(atlas.resource,alpha)
 	var shown := replacement if not replacement.is_empty() else original
 	var size := Vector2i.ZERO
 	var img := Image.load_from_file(shown) if FileAccess.file_exists(shown) else null
 	if img!=null: size=Vector2i(img.get_width(),img.get_height())
-	return {"replaced":not replacement.is_empty(),"path":shown,"original":original,"size":size,"image":img}
+	return {"replaced":not replacement.is_empty(),"own":alpha and not replacement.is_empty() and replacement.get_file().ends_with(".alpha.png"),"path":shown,"original":original,"size":size,"image":img}
 
-static func install_texture(name: String, source: String) -> String:
-	"""Copies a PNG into the user mods folder as the atlas. Returns the
-	trouble, or nothing when it is in place."""
+static func install_texture(name: String, source: String, alpha: bool=false) -> String:
+	"""Copies a PNG into the user mods folder as the atlas, or as its
+	cut-out variant. Returns the trouble, or nothing when it is in place."""
 	if not FileAccess.file_exists(source): return "There is no file at "+source+"."
 	var img := Image.load_from_file(source)
 	if img==null: return "That file is not an image the engine can read. Use a PNG."
 	if img.get_width()<8 or img.get_height()<8: return "That image is too small to be an atlas."
-	var target := user_texture_path(name)
+	var target := user_texture_path(name,alpha)
 	DirAccess.make_dir_recursive_absolute(target.get_base_dir())
 	if img.save_png(target)!=OK: return "Could not write into the mods folder."
 	return ""
 
-static func remove_texture(name: String) -> bool:
+static func remove_texture(name: String, alpha: bool=false) -> bool:
 	"""Takes the replacement away, wherever the game found it, so the
-	original stands again."""
-	var found := texture_path("data/textures/"+name+".bmp")
+	original stands again. Removing the opaque atlas takes its cut-out
+	variant with it unless that has a file of its own."""
+	var found := find("textures/"+name+(".alpha.png" if alpha else ".png"))
 	if found.is_empty(): return false
 	return DirAccess.remove_absolute(found)==OK
