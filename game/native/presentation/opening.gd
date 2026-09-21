@@ -6,7 +6,9 @@ extends Control
 ## cards are the imported strings and the imported logo. It can be skipped.
 signal finished
 const Library = preload("res://scripts/model_library.gd")
-const DURATION := 70.0
+## The original runs 69 s; the last leg to the hull is timed by its length,
+## at the pace of the legs before it, so the sequence may run a little over.
+var duration := 69.0
 ## Card start and end, in seconds, and the string of each (bd.a in ad.a);
 ## the third card is the logo (bd.a(true)) rather than a line.
 const CARDS := [[4.0,9.0,622],[14.0,19.0,623],[24.0,29.0,-1],[34.0,39.0,624],[44.0,51.0,625],[56.0,61.0,626],[65.0,69.0,627]]
@@ -20,9 +22,10 @@ const MUSIC_AT := 8.75
 const MARKS := [[5.0,Vector3(1500,50,0),-90.0],[20.0,Vector3(1200,50,0),-44.0],[30.0,Vector3(200,0,0),0.0],[40.0,Vector3(0,-30,-200),0.0],[55.0,Vector3(300,0,0),0.0],[65.0,Vector3(300,0,-500),0.0]]
 ## The last seconds bring the camera to the submarine at its berth, which
 ## may lie on the far side of the station from the path's last mark: the
-## way there goes round the station, not through it, and the chase camera
-## takes over only once the shot is already beside the hull.
-const HANDOVER_FROM := 68.0
+## way there passes over the station, at the pace of the legs before, and
+## the chase camera takes over only once the shot is beside the hull.
+const LEG_SPEED := 90.0
+var handover_from := 67.0
 var marks: Array = []
 var hull := Vector3.ZERO
 var view
@@ -63,22 +66,24 @@ func begin(owner_view, owner_audio, owner_session, logo_texture: Texture2D) -> v
 		var box: AABB=station.transform*station.solid_bounds()
 		bounds=box if first else bounds.merge(box);first=false
 	focus=bounds.get_center() if not first else Vector3.ZERO
-	var clearance: float=(bounds.size.length()*.5 if not first else 150.0)*1.6
+	var top: float=(bounds.end.y-focus.y if not first else 80.0)+70.0
 	hull=Library.point(view.world.region.player.pose.origin)
 	marks=MARKS.duplicate(true)
-	# The final approach: out from the last mark to a point beside the hull
-	# on its side away from the station, by way of a mark half-way round at
-	# a radius that clears every module.
+	# The final approach: from the last mark to a point beside the hull, by
+	# way of a mark above the station, so the leg clears every module.
 	var outward: Vector3=hull-focus;outward.y=0
 	if outward.length_squared()<1.0:outward=Vector3.RIGHT
-	var from: Vector3=marks[-1][1];from.y=0
-	var turn: float=from.signed_angle_to(outward,Vector3.UP)
-	var midway: Vector3=from.normalized().rotated(Vector3.UP,turn*.5)*maxf(clearance,maxf(from.length(),outward.length()))+Vector3.UP*20.0
-	# Abeam of the hull, on the side the sweep arrives from and a little
+	var from: Vector3=marks[-1][1]
+	var turn: float=Vector3(from.x,0,from.z).signed_angle_to(outward,Vector3.UP)
+	# Abeam of the hull, on the side the leg arrives from and a little
 	# astern, so the step to the chase camera behind it crosses no hull.
 	var abeam: Vector3=outward.cross(Vector3.UP).normalized()*(55.0 if turn>=0 else -55.0)
 	var beside: Vector3=outward+abeam-outward.normalized()*20.0+Vector3.UP*18.0
-	marks.append([67.5,midway,0.0]);marks.append([69.5,beside,0.0])
+	var midway: Vector3=from.lerp(beside,.5);midway.y=maxf(midway.y,top)
+	var leg: float=maxf(5.0,(from.distance_to(midway)+midway.distance_to(beside))/LEG_SPEED)
+	var start: float=float(marks[-1][0])
+	marks.append([start+leg*.5,midway,0.0]);marks.append([start+leg,beside,0.0])
+	duration=start+leg+.5;handover_from=duration-2.0
 	elapsed=0.0;pings_played=0;active=true
 	view.cinematic_override=true;view.cinematic_blend=0.0;view.cinematic_transform=shot(0.0)
 	caption.text="";logo.hide();show()
@@ -90,7 +95,7 @@ func advance(delta: float) -> void:
 		dive_audio.cue("sonar");pings_played+=1
 	if elapsed>=MUSIC_AT:dive_audio.opening_music=true
 	view.cinematic_transform=shot(elapsed)
-	view.cinematic_blend=smoothstep(HANDOVER_FROM,DURATION,elapsed)
+	view.cinematic_blend=smoothstep(handover_from,duration,elapsed)
 	var line := "";var show_logo := false;var strength := 0.0
 	for card in CARDS:
 		if elapsed<card[0] or elapsed>=card[1]:continue
@@ -100,7 +105,7 @@ func advance(delta: float) -> void:
 		else:line=session.text(int(card[2]))
 	caption.text=line;caption.modulate=Color(1,1,1,strength)
 	logo.visible=show_logo;logo.modulate=Color(1,1,1,strength)
-	if elapsed>=DURATION:finish()
+	if elapsed>=duration:finish()
 
 func shot(at: float) -> Transform3D:
 	"""The camera at a moment of the path: a smooth curve through the marks
@@ -115,13 +120,16 @@ func shot(at: float) -> Transform3D:
 	var position: Vector3=focus+p1.cubic_interpolate(p2,p0,p3,weight)
 	var pitch: float=lerpf(float(marks[segment][2]),float(marks[segment+1][2]),smoothstep(0.0,1.0,weight))
 	# The shot watches the station until its last leg, then the submarine.
-	var subject: Vector3=focus.lerp(hull,smoothstep(float(MARKS[-1][0]),HANDOVER_FROM,at))
+	var subject: Vector3=focus.lerp(hull,smoothstep(float(MARKS[-1][0]),handover_from,at))
 	var forward: Vector3=(subject-position)
 	forward.y=0
 	if forward.length_squared()<1e-4:forward=Vector3.FORWARD
 	forward=forward.normalized()
 	var right: Vector3=forward.cross(Vector3.UP).normalized()
 	var aimed: Vector3=forward.rotated(right,deg_to_rad(pitch))
+	# Past the original's last mark the shot looks down on the station it
+	# crosses and then at the hull, instead of holding the horizon.
+	if at>float(MARKS[-1][0]) and subject.distance_squared_to(position)>1.0:aimed=(subject-position).normalized()
 	# Straight down has no horizon to keep level: hold the level frame's right.
 	return Transform3D(Basis.looking_at(aimed,Vector3.UP if absf(aimed.y)<.999 else right.cross(aimed)),position)
 
