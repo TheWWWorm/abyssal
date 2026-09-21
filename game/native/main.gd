@@ -60,6 +60,10 @@ var loading_spinner: Label
 var loading_tip: Label
 ## The menu entry a modal was opened from, for a pad to come back to.
 var modal_origin: Control=null
+## The Mods page: its picker, the atlas a chosen PNG is for, and its last word.
+var images := preload("res://native/platform/image_file.gd").new()
+var mods_target := ""
+var mods_notice := ""
 var load_path := ""
 
 func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
@@ -122,6 +126,11 @@ func _ready() -> void:
 	title_menu.tools_requested.connect(choose_content)
 	title_menu.quit_requested.connect(func(): get_tree().quit())
 	title_menu.help_requested.connect(show_help)
+	title_menu.mods_requested.connect(show_mods)
+	add_child(images)
+	images.chosen.connect(install_texture)
+	images.failed.connect(func(message):mods_notice=message;show_mods())
+	images.delivered.connect(func(message):mods_notice=message;show_mods())
 	ui.add_child(panel)
 	panel.add_theme_stylebox_override("panel",style(Color("091720f5"),Color("254451")))
 	var scroll := ScrollContainer.new()
@@ -543,6 +552,80 @@ func show_help(topic: int=-1) -> void:
 			box.remove_child(entry);last.add_child(entry);entry.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scrim.show();modal.show();layout_ui()
 	(first if first!=null else back).grab_focus.call_deferred()
+
+func show_mods() -> void:
+	"""Mods · Textures: the three atlases the game is drawn with, what stands
+	for each now, and the ways to see it, replace it, or have the original
+	back. A replacement is a PNG of any size in the original's layout."""
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
+	box.add_child(label("MODS · TEXTURES",24,Color("8bd6ee")))
+	var Mods=preload("res://native/presentation/mods.gd")
+	if not ready_for_preview:
+		box.add_child(label("Import your DEEP JAR first; the textures come from it.",15))
+		var only := button("Back",close_modal,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
+	var intro := label("The whole game is drawn from three atlases. A PNG of any size stands in for one - keep the original's layout, since every model addresses it by the original's texels. Changes show at once.",13,Color("a2c3d3"))
+	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=560;box.add_child(intro)
+	var first: Button=null
+	for atlas in Mods.ATLASES:
+		var status: Dictionary=Mods.texture_status(content.root,atlas)
+		var card := PanelContainer.new();card.add_theme_stylebox_override("panel",style(Color("0b1b22aa"),Color("2f4d57")));box.add_child(card)
+		var row := HBoxContainer.new();row.add_theme_constant_override("separation",12);card.add_child(row)
+		var thumb := TextureRect.new();thumb.custom_minimum_size=Vector2(72,72);thumb.expand_mode=TextureRect.EXPAND_IGNORE_SIZE
+		thumb.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;thumb.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;row.add_child(thumb)
+		if status.image!=null:thumb.texture=ImageTexture.create_from_image(status.image)
+		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",2);row.add_child(words)
+		words.add_child(label("%s · %s.png"%[atlas.title,atlas.name],16))
+		# A wrapping label in a row must be given its width, or it reports a
+		# column of single letters as its height and the page grows to fit.
+		var about := label(atlas.about,12,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;about.custom_minimum_size.x=470;words.add_child(about)
+		var standing := "Replaced · %d×%d"%[status.size.x,status.size.y] if status.replaced else "Original · %d×%d"%[status.size.x,status.size.y]
+		words.add_child(label(standing,12,Color("d7c399") if status.replaced else Color("89a6a6")))
+		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",6);words.add_child(actions)
+		var view := button("View",func():show_texture(atlas,status),actions);view.custom_minimum_size.y=30;view.add_theme_font_size_override("font_size",14)
+		if first==null:first=view
+		var replace := button("Replace…",func():mods_target=atlas.name;mods_notice="";images.choose(),actions);replace.custom_minimum_size.y=30;replace.add_theme_font_size_override("font_size",14)
+		replace.disabled=not images.available()
+		var restore := button("Restore original",func():
+			mods_notice=("The original %s stands again."%atlas.name) if Mods.remove_texture(atlas.name) else "Could not remove the replacement."
+			apply_textures();show_mods(),actions)
+		restore.custom_minimum_size.y=30;restore.add_theme_font_size_override("font_size",14);restore.disabled=not status.replaced
+		var copy := button("Copy original out…",func():mods_notice="";images.export_png(atlas.name+".png",status.original),actions)
+		copy.custom_minimum_size.y=30;copy.add_theme_font_size_override("font_size",14);copy.disabled=not images.available()
+	var folders := HBoxContainer.new();folders.add_theme_constant_override("separation",8);box.add_child(folders)
+	if not OS.has_feature("android") and not OS.has_feature("web"):
+		var mods_dir := ProjectSettings.globalize_path(Mods.user_texture_path("deep").get_base_dir())
+		button("Open mods folder",func():DirAccess.make_dir_recursive_absolute(mods_dir);OS.shell_open(mods_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button("Open original textures",func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/textures"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var back := button("Back",close_modal,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	if not mods_notice.is_empty():
+		var note := label(mods_notice,13,Color("d7c399"));note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;note.custom_minimum_size.x=560;box.add_child(note)
+	scrim.show();modal.show();layout_ui()
+	(first if first!=null else back).grab_focus.call_deferred()
+
+func show_texture(atlas: Dictionary, status: Dictionary) -> void:
+	"""One atlas at the page's full size, texel for texel."""
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
+	box.add_child(label("%s · %s.png · %d×%d"%[atlas.title.to_upper(),atlas.name,status.size.x,status.size.y],18,Color("8bd6ee")))
+	var big := TextureRect.new();big.size_flags_vertical=Control.SIZE_EXPAND_FILL;big.custom_minimum_size=Vector2(560,420)
+	big.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;big.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;big.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
+	if status.image!=null:big.texture=ImageTexture.create_from_image(status.image)
+	box.add_child(big)
+	var back := button("Back",show_mods,box)
+	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
+
+func install_texture(path: String) -> void:
+	var Mods=preload("res://native/presentation/mods.gd")
+	var trouble: String=Mods.install_texture(mods_target,path) if not mods_target.is_empty() else "Choose an atlas first."
+	if path.begins_with("user://") or path.begins_with(OS.get_cache_dir()):DirAccess.remove_absolute(path)
+	mods_notice=trouble if not trouble.is_empty() else "%s.png replaced. It applies to the next dive and the station behind this menu."%mods_target
+	if trouble.is_empty():apply_textures()
+	show_mods()
+
+func apply_textures() -> void:
+	title_dock.view.library.reload_textures()
 
 func focus_title() -> void:
 	if not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus.call_deferred()

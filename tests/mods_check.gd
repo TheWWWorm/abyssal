@@ -31,6 +31,21 @@ func run():
 	var material: ShaderMaterial=modded.affine_material("data/textures/deep.bmp",0,false,true,false)
 	expect(material.get_shader_parameter("texture_size")==original,"Materials receive the original texel count, not the replacement's pixel count")
 	expect(modded.texture("data/textures/deep.bmp",true).get_width()==int(original.x)*2,"The cut-out variant uses the replacement's own alpha")
+	# The Mods page: a library already drawing takes a replacement up on
+	# reload, reports it, and gives the original back when it is removed.
+	plain.reload_textures()
+	expect(atlas.get_width()==int(original.x)*2,"Reloading textures swaps the replacement into the texture the materials hold")
+	var status: Dictionary=Mods.texture_status(content.root,Mods.ATLASES[0])
+	expect(status.replaced and status.size==Vector2i(int(original.x)*2,int(original.y)*2) and status.image!=null,"The atlas status reports the replacement and its size")
+	expect(Mods.remove_texture("deep") and Mods.texture_path("data/textures/deep.bmp").is_empty(),"Restoring the original removes the replacement file")
+	plain.reload_textures()
+	expect(atlas.get_width()==int(original.x),"After the restore the texture is the original again")
+	expect(not Mods.texture_status(content.root,Mods.ATLASES[0]).replaced,"The status reports the original")
+	expect(Mods.install_texture("skybox",ProjectSettings.globalize_path(folder.path_join("nothing.png")))!="","Installing what is not an image is refused")
+	var sample := Image.create(16,16,false,Image.FORMAT_RGBA8);sample.fill(Color(0,1,0,1))
+	expect(sample.save_png(ProjectSettings.globalize_path(folder.path_join("sample.png")))==OK,"Sample written")
+	expect(Mods.install_texture("skybox",ProjectSettings.globalize_path(folder.path_join("sample.png")))=="" and FileAccess.file_exists(Mods.user_texture_path("skybox")),"Installing a PNG places it in the user mods folder")
+	DirAccess.remove_absolute(Mods.user_texture_path("skybox"))
 	# A glTF hull: a box, off-centre and twice too long, with a looping animation.
 	var scene := Node3D.new();scene.name="Hull"
 	var body := MeshInstance3D.new();var box := BoxMesh.new();box.size=Vector3(2,1,8);body.mesh=box;body.position=Vector3(5,0,0);body.name="Body";scene.add_child(body)

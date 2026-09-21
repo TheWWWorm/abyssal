@@ -333,6 +333,10 @@ func check_dock_navigation(game) -> void:
  identity=game.column.find_child("StationIdentity",true,false)
  expect(identity.find_children("*","Label",true,false)[0].text==("Colonists" if owner else "Rebels"),"Dock ownership follows campaign control")
  game.session.campaign.rebel_stations[game.session.station_id]=owner
+ # The yard stocks nought to three hulls by the session's draw; the dealer's
+ # showroom is what is under test, so make sure there is a hull to show.
+ var yard: Dictionary=game.session.stations[game.session.station_id]
+ while yard.ships.is_empty(): yard.ships=game.session.economy.generate_ships(yard)
  game.show_hangar();game.show_market("ships")
  for i in 5:await process_frame
  var preview=game.column.find_child("ShipPreview",true,false)

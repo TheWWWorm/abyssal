@@ -6,6 +6,7 @@ var root := ""
 var models: Dictionary = {}
 var meshes: Dictionary = {}
 var textures: Dictionary = {}
+var texture_resources: Dictionary = {}
 var texture_sizes: Dictionary = {}
 var surface_maps: Dictionary = {}
 var shaders: Dictionary = {}
@@ -48,7 +49,24 @@ func texture(resource: String, alpha: bool = false) -> Texture2D:
 		img.convert(Image.FORMAT_RGBA8)
 		img.generate_mipmaps()
 		textures[path] = ImageTexture.create_from_image(img)
+		texture_resources[path]=[resource,alpha]
 	return textures[path]
+
+func reload_textures() -> void:
+	"""Reads every atlas again, replacement or original, into the textures
+	the materials already hold, so a mod added or removed shows at once."""
+	for path in textures.keys():
+		var entry: Array=texture_resources.get(path,[])
+		if entry.is_empty(): continue
+		var resource: String=entry[0]
+		var img := Image.load_from_file(path)
+		if img==null: continue
+		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
+		if not replacement.is_empty():
+			var own := Image.load_from_file(replacement)
+			if own!=null: img=own
+		img.convert(Image.FORMAT_RGBA8);img.generate_mipmaps()
+		textures[path].set_image(img)
 
 func texture_size(resource: String, alpha: bool = false) -> Vector2:
 	"""The imported atlas's size in texels, which is what the geometry's

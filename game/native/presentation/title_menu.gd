@@ -6,6 +6,7 @@ signal settings_requested
 signal tools_requested
 signal quit_requested
 signal help_requested
+signal mods_requested
 var continue_button: Button
 var new_button: Button
 var status: Label
@@ -39,6 +40,7 @@ func _ready() -> void:
 	new_button=entry("Start new game",func():started.emit())
 	continue_button=entry("Load game",func():continued.emit())
 	entry("Options",func():settings_requested.emit())
+	entry("Mods",func():mods_requested.emit())
 	entry("Help",func():help_requested.emit())
 	if not OS.has_feature("web"):entry("Exit",func():quit_requested.emit())
 	status=caption("Choose your DEEP JAR to begin.",15,Color("a2c3d3"));status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT

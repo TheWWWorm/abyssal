@@ -361,7 +361,9 @@ func information_card(title: String) -> VBoxContainer:
 	var panel := PanelContainer.new(); column.add_child(panel)
 	var style := StyleBoxFlat.new(); style.bg_color=Color("081c2188"); style.border_color=Color("566c60")
 	if golden(): style.bg_color=Color("2a220e88");style.border_color=Color("c9a44f")
-	style.border_width_left=2;style.border_width_bottom=1
+	# A whole frame: the open top and right of the earlier accent read as a
+	# card cut off by the page's edge.
+	style.set_border_width_all(1);style.border_width_left=2
 	style.content_margin_left=12; style.content_margin_right=12; style.content_margin_top=8; style.content_margin_bottom=8
 	panel.add_theme_stylebox_override("panel",style)
 	var body := VBoxContainer.new(); body.add_theme_constant_override("separation",8); panel.add_child(body)
