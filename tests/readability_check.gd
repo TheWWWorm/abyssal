@@ -31,6 +31,14 @@ func run():
   if creature.constrained or not creature.health.enabled:continue
   if Vector3(creature.pose.origin[0]-far_player[0],creature.pose.origin[1]-far_player[1],creature.pose.origin[2]-far_player[2]).length()<=30500:near+=1
  expect(near==region.creatures.size(),"Creatures left behind reappear three hundred metres from the camera")
+ # They are brought in out of the haze, not switched on: fresh on arrival,
+ # and the view's coverage of them climbs from nothing over a couple of seconds.
+ expect(region.creatures.all(func(c):return c.fresh or c.constrained or not c.health.enabled),"A creature set down anew is marked fresh for the view")
+ app.world.previous_render_poses.clear();app.view._process(0.1)
+ var revealing: int=region.creatures.filter(func(c):return app.view.objects.has(c.get_instance_id()) and app.view.objects[c.get_instance_id()].reveal<1.0 and app.view.objects[c.get_instance_id()].visual.stream_visibility<1.0).size()
+ expect(revealing>=region.creatures.size()/2 and not region.creatures.any(func(c):return c.fresh),"The view fades a fresh creature in and takes the mark")
+ for i in 30:app.view._process(0.1)
+ expect(region.creatures.all(func(c):return not app.view.objects.has(c.get_instance_id()) or app.view.objects[c.get_instance_id()].visual.stream_visibility>=1.0),"Three seconds on, every creature is whole")
  var trail=load("res://native/simulation/bubble_trail.gd").new();trail.advance([0,0,0],120,null);trail.advance([0,0,0],120,null)
  expect(trail.position[0][1]<0,"Bubbles rise in the simulation coordinate system")
  var player=app.world.region.player

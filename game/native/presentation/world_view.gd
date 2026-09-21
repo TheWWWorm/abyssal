@@ -6,6 +6,8 @@ const DETAIL_RELEASE_DISTANCE := 2600.0
 const STREAM_RELEASE_DISTANCE := 10500.0
 const GATE_EFFECT_BOOST := 2.6
 const STREAM_FADE_SECONDS := 1.2
+## A creature set down anew comes in out of the haze over this long.
+const CREATURE_FADE_SECONDS := 2.5
 
 static func far_visibility(distance: float) -> float:
 	return 1.0-smoothstep(7000.0,9600.0,distance)
@@ -163,6 +165,11 @@ func rebuild() -> void:
 		if visual==null: continue
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine; pose.origin=part.origin; pose.set_euler(0,part.yaw,0)
 		visual.transform=Model.station_transform(pose.godot_transform())
+		# A bridge's end cap lies exactly in the wall it meets, and station
+		# faces are drawn from both sides, so the two fought for the pixels
+		# along the joint. Drawn a hair short (about a centimetre an end) the
+		# cap sits just inside the wall instead.
+		if int(part.model_id) in [3301,3302,3310]:visual.transform=visual.transform.scaled_local(Vector3.ONE*0.9997)
 		visual.configure_station(part)
 		station_nodes.append(visual)
 		add_station_collision(visual)
@@ -338,7 +345,7 @@ func _process(delta: float) -> void:
 			if objects.has(id): release_object(objects[id]); objects.erase(id)
 			var visual=model(actor.model_id)
 			if visual==null: continue
-			objects[id]={"visual":visual,"model_id":actor.model_id,"secondary":null,"secondary_id":-1,"lamps":[]}
+			objects[id]={"visual":visual,"model_id":actor.model_id,"secondary":null,"secondary_id":-1,"lamps":[],"reveal":0.0 if actor.is_creature else 1.0}
 			# Headlights belong to vessels under way: a mine, a capsule, or the
 			# wreck a ship becomes has nobody aboard to switch them on.
 			if not actor.is_creature and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter"):
@@ -353,6 +360,14 @@ func _process(delta: float) -> void:
 		node.apply_actor_animation(actor)
 		node.visible=actor.health.enabled or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
 		for lamp in objects[id].lamps:lamp.visible=actor.health.enabled and actor.state<3
+		if actor.is_creature:
+			# Newly set down, or new to the view, a creature is brought in out
+			# of the haze the way a streamed station is, not switched on.
+			if actor.fresh:objects[id].reveal=0.0;actor.fresh=false
+			if objects[id].reveal<1.0:
+				objects[id].reveal=minf(1.0,objects[id].reveal+delta/CREATURE_FADE_SECONDS)
+				node.set_stream_visibility(smoothstep(0.0,1.0,objects[id].reveal))
+				if objects[id].secondary!=null:objects[id].secondary.set_stream_visibility(smoothstep(0.0,1.0,objects[id].reveal))
 		var pose: Transform3D = world.render_pose(actor)
 		if actor.is_creature and not actor.render_tilt.all(func(v):return v==0):
 			pose.basis=pose.basis*Basis.from_euler(Vector3(actor.render_tilt[0],actor.render_tilt[1],actor.render_tilt[2])*TAU/4096.0,EULER_ORDER_XYZ)

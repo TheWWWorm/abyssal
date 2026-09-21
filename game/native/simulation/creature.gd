@@ -14,6 +14,11 @@ const Health = preload("res://native/simulation/health.gd")
 const LEAVE_DISTANCE := 40000
 const RETURN_DISTANCE := 30000
 ## A carcass rises a third of a unit a millisecond.
+## Set when the creature has just been set down somewhere new; the view
+## takes it as the cue to bring the body in out of the haze.
+var fresh := true
+## Species whose model is authored belly up; see animate.
+const KEEL_UP := [4426,4436,4438]
 const CARCASS_RISE := 3
 var pose := Transform.new()
 var turn := Transform.new()
@@ -154,25 +159,24 @@ func keep_upright() -> void:
 	# pitches through the vertical comes out swimming on its back until it
 	# happens to pitch through again. A fish is kept belly down here: its
 	# heading is its own, its roll is not.
+	# Any roll at all is taken out, not only a full inversion: a fish on
+	# its side is no better than one on its back.
 	var heading: Vector3=Math.vector(pose.forward)
-	if absf(heading.normalized().y)>.98 or Math.vector(pose.up).y>=0:return
+	if absf(heading.normalized().y)>.98:return
 	pose.face(pose.forward)
 
-func reappear(rng,camera_origin: Array,ahead: Array=[]) -> void:
+func reappear(rng,camera_origin: Array,_ahead: Array=[]) -> void:
 	# Set down three hundred metres from the camera, on a bearing that keeps
 	# nearer the camera's level than the vertical, heading somewhere within
-	# a hundred and fifty metres of it. Given the way the camera looks, the
-	# bearing is drawn again while it falls in front of it, so a creature
-	# does not appear in plain view.
-	var bearing: Array=[0,0,0]
-	for _try in 8:
-		bearing=[-2048+rng.next_int(4096),-2048+rng.next_int(4096),-2048+rng.next_int(4096)]
-		bearing[1]>>=1
-		bearing=Math.normalize_vector(bearing)
-		if ahead.is_empty() or Math.vector(bearing).normalized().dot(Math.vector(ahead).normalized())<.35:break
+	# a hundred and fifty metres of it, as af does: in front as readily as
+	# behind, so a traveller sees the water ahead fill. The view brings a
+	# creature so set down in out of the haze rather than all at once.
+	var bearing: Array=[-2048+rng.next_int(4096),-2048+rng.next_int(4096),-2048+rng.next_int(4096)]
+	bearing[1]>>=1
+	bearing=Math.normalize_vector(bearing)
 	pose.origin=Math.added(Math.scaled(bearing,RETURN_DISTANCE),camera_origin)
 	pose.face(Math.normalize_vector([-15000+rng.next_int(30000)-bearing[0],-15000+rng.next_int(30000)-bearing[1],-15000+rng.next_int(30000)-bearing[2]]))
-	release();previous_hull=health.hull
+	release();previous_hull=health.hull;fresh=true
 
 func animate(_delta_ms: int=0) -> void:
 	# The phone game's own life for each species (af.a): a body scale that
@@ -197,6 +201,10 @@ func animate(_delta_ms: int=0) -> void:
 		4423:render_tilt[1]=swing*316.0/4096.0
 		4427,4432,4436:render_tilt[0]=swing*158.0/4096.0
 		4430,4434,4440:render_tilt[1]=-swing*316.0/4096.0
+	# Three models are built the other way up from the rest (the turtle's
+	# shell, the jellyfish's bell and the shrimp's back all lie on the side
+	# the others keep their bellies); they are turned over to be drawn.
+	if model_id in KEEL_UP:render_tilt[2]+=2048.0
 	if secondary_model>=0:
 		var fin:=Transform.new();fin.math.sine_table=pose.math.sine_table
 		fin.set_euler(roundi(render_tilt[0]),roundi(render_tilt[1]),roundi(render_tilt[2]));secondary_pose.compose_rotation(fin)

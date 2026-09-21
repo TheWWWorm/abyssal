@@ -516,7 +516,11 @@ func run():
   expect(visual.last_pattern==pattern,"Station emblem/configuration does not cycle")
   # Every module is drawn turned half a turn about its socket axis: the
   # phone game's berth deck lies under the opening, ours read as a roof.
-  expect(is_equal_approx(visual.transform.basis.y.dot(Vector3.DOWN),1.0) and is_equal_approx(visual.transform.basis.z.y,0.0),"Station module %d is turned half a turn about its socket axis"%int(visual.record.id))
+  # Bridges are drawn a hair short, so their basis is scaled; the turn is read from its orthonormal part.
+  var turn: Basis=visual.transform.basis.orthonormalized()
+  expect(is_equal_approx(turn.y.dot(Vector3.DOWN),1.0) and is_equal_approx(turn.z.y,0.0),"Station module %d is turned half a turn about its socket axis"%int(visual.record.id))
+  if int(visual.record.id) in [3301,3302,3310]:expect(visual.transform.basis.get_scale().is_equal_approx(Vector3.ONE*0.9997),"A bridge module is drawn a hair short so its caps sit inside the walls they meet")
+  else:expect(visual.transform.basis.get_scale().is_equal_approx(Vector3.ONE),"Other modules are drawn at their size")
  var rolled=Body.new();rolled.configure({"id":0,"percent":50,"tech":10},true,app.world.region.sine,content.data.station_geometry)
  var hangar_box=content.data.station_geometry.get("3308",{"center":[0,0,0]})
  # The root hangar is yawed half a turn as well: its box centre ends up at
