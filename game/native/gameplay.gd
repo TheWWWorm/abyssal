@@ -159,9 +159,10 @@ var save_files := preload("res://native/platform/save_file.gd").new()
 # A settings row that rebuilds its page hands its own key back here, so focus
 # returns to the row the player just changed instead of the top of the list.
 var focus_option := ""
-## The phone game's one-time hints (br/ch, the ap flags): each is said once
-## a run, by M.A.I., the first time its moment comes.
-var hints_said: Dictionary={}
+## The phone game's one-time hints (br/ch, the ap flags). Their history is in
+## the expedition save; this preference can suppress both those messages and
+## the always-on control reminder without hiding objectives or action prompts.
+var gameplay_hints := true
 var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
 var controls_section := ""
@@ -250,6 +251,7 @@ func _ready() -> void:
 	motion_steering=bool(config.get_value("input","motion",false))
 	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
 	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
+	gameplay_hints=bool(config.get_value("interface","hints",true))
 	motion.notice.connect(notice)
 	if motion_steering: motion.enable()
 	touch.arrange()
@@ -605,7 +607,7 @@ func _process(delta: float) -> void:
 		instruments.visible=flight_visible
 		instruments.modulate.a=1;condition.modulate.a=1;bank_label.modulate.a=1
 		dashboard.visible=false
-		hud.visible=flight_visible;hints.visible=flight_visible;objective_label.visible=flight_visible
+		hud.visible=flight_visible;hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
 		hints.text="LMB guns · RMB hook · %s fire · %s destination · %s chart"%[OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map)]
 		if touch.enabled():hints.text=("Drag anywhere to look" if touch.drag_anywhere else ("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look")+(" · FULL for fullscreen" if touch.show_fullscreen else "")
 		elif controller.device>=0:hints.text=("Left stick strafe · right stick turn" if strafe_enabled() else "Left stick steer")+" · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu"
@@ -984,6 +986,7 @@ func show_controls(section: String="") -> void:
 		"bindings": controls_bindings()
 		"reference": controls_reference()
 		_:
+			option("Gameplay tips & control hints · "+("On" if gameplay_hints else "Off"),"hints",func():gameplay_hints=not gameplay_hints;save_settings();show_controls(""))
 			section_row("Steering · mouse, keys and stick","steering",func():show_controls("steering"))
 			section_row("Gamepad · "+("connected" if controller.device>=0 else "none connected"),"gamepad",func():show_controls("gamepad"))
 			section_row("Touch controls · "+["Auto","On","Off"][touch.mode],"touch",func():show_controls("touch"))
@@ -1188,6 +1191,7 @@ func save_settings() -> void:
 	config.set_value("input","motion_invert",invert_motion_pitch)
 	config.set_value("input","touch_layout",preload("res://native/input/touch_layout.gd").encode(touch.layout))
 	config.set_value("view","aspect_ratio",aspect_ratio)
+	config.set_value("interface","hints",gameplay_hints)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
 func set_graphics_mode(modern: bool) -> void:
@@ -1514,8 +1518,8 @@ func show_map(autopilot_only: bool=false) -> void:
 	open_page("Ocean atlas","map")
 	# The chart's own hint (ch: 359), once, the first time it is opened with
 	# a task on the board.
-	if not hints_said.has("map") and (session.campaign.primary.kind>=0 or session.campaign.secondary.kind>=0):
-		hints_said["map"]=true;notice(session.text(359))
+	if gameplay_hints and not session.hints_said.has("map") and (session.campaign.primary.kind>=0 or session.campaign.secondary.kind>=0):
+		session.hints_said["map"]=true;notice(session.text(359))
 	var root_column := column
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",20); column.add_child(row)
 	var chart := VBoxContainer.new(); chart.add_theme_constant_override("separation",8); chart.size_flags_horizontal=Control.SIZE_EXPAND_FILL; chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; row.add_child(chart)
@@ -1848,8 +1852,8 @@ func show_destinations() -> void:
 	if world.autopilot:button("Disengage autopilot",func():world.cancel_autopilot("Manual control");close_page(),actions)
 	label("%s: 1× / 2× in flight · up to 16× on autopilot"%OS.get_keycode_string(key_bindings.time),12)
 func say_hint(key: String,text: String) -> bool:
-	if hints_said.has(key) or text.is_empty():return false
-	hints_said[key]=true
+	if not gameplay_hints or session.hints_said.has(key) or text.is_empty():return false
+	session.hints_said[key]=true
 	show_dialogue([{"speaker":"M.A.I.","portrait":[-1],"text":text}],close_page)
 	return true
 func check_flight_hints() -> void:

@@ -143,6 +143,19 @@ func run():
  pilot.targets=[far,target];pilot.choose_target(40)
  expect(pilot.target==target,"AI takes the first live target within notice")
  target.health.hull=0;target.health.enabled=false;pilot.choose_target(40);expect(pilot.target==null or pilot.target!=target,"AI drops defeated targets")
+ # A course only a fraction off the bow used to alternate by a whole turn
+ # step: normalising the tiny heading error magnified it, then the next tick
+ # corrected the overshoot in the other direction.
+ var cruiser:=NPC.new();cruiser.configure(0,1,false,[0,0,0],data,10,Session.new().rng)
+ cruiser.health.configure(100,0,0);cruiser.activate();cruiser.pose.face([0,0,4096])
+ cruiser.route=preload("res://native/simulation/route.gd").new();cruiser.route.configure([1000,0,1000000])
+ cruiser.advance(40)
+ var previous_heading: Array=cruiser.pose.forward.duplicate();var heading_jump:=0
+ for _tick in 12:
+  cruiser.advance(40)
+  heading_jump=maxi(heading_jump,preload("res://native/simulation/fixed_math.gd").length_of(preload("res://native/simulation/fixed_math.gd").subtracted(cruiser.pose.forward,previous_heading)))
+  previous_heading=cruiser.pose.forward.duplicate()
+ expect(heading_jump<=2,"AI holds a nearly aligned course without alternating steering steps (%d)"%heading_jump)
  pilot.targets=[];pilot.target=null;shot.targets=[]
  # The job board as the phone game posts it: one to eight offers, kinds
  # by the station's side, fees on the fifty with a deposit, and never a

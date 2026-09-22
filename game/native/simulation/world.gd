@@ -120,7 +120,9 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 	if autopilot and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("boost",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot("Manual control")
 	for action in ["fire","guns","hook"]:
 		if input.get(action,false):weapon_pending[action]=true
-	if region.danger(): speed=mini(speed,2)
+	# Danger only changes accelerated time. At the ordinary 1x/2x rates there
+	# is nothing to clamp, so do not rescan every nearby actor every frame.
+	if speed>2 and region.danger(): speed=2
 	# Bound wall-time debt after OS stalls, not simulation delta; no giant steps.
 	accumulator+=minf(real_seconds,0.25)*1000.0
 	while accumulator>=STEP_MS:
@@ -150,7 +152,7 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 				accumulator=0; speed=1; return
 			if autopilot: update_autopilot()
 			else: explore()
-			if region.danger():speed=mini(speed,2)
+			if speed>2 and region.danger():speed=2
 			if substeps>speed:break
 func encounter_navigation_point():
 	if region==null or (region.success==null and region.failure==null): return null
@@ -368,6 +370,10 @@ func nearest_safe_gate() -> int:
 	return best
 func reset_gates() -> void:
 	previous_render_poses.clear(); mouse_pending=Vector2.ZERO
+	# A docked departure creates a fresh, level player while simulation time is
+	# paused for the hangar shot. Do not keep interpolating from the bank held
+	# on approach, or the new hull appears to leave at that old angle.
+	previous_render_bank=region.player.visual_bank if region!=null else 0
 	stream_destination=-1; gate_time=[0,0]; gate_closing=[0,0]
 func at_gate(index: int) -> bool:
 	if region==null or session.docked: return false

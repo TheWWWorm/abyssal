@@ -84,10 +84,7 @@ func configure(id: int,team: int,enemy: bool,location: Array,data: Dictionary,ch
 
 static func within(a: Array,b: Array,distance: int) -> bool:
 	# Reach is a cube, as the phone game measures it.
-	for axis in 3:
-		var difference: int=a[axis]-b[axis]
-		if difference>=distance or difference<=-distance:return false
-	return true
+	return absi(a[0]-b[0])<distance and absi(a[1]-b[1])<distance and absi(a[2]-b[2])<distance
 
 func dormant() -> void:state=5;health.enabled=false
 func activate() -> void:state=1;health.enabled=true
@@ -200,9 +197,19 @@ func advance(delta_ms: int) -> void:
 					for weapon in weapons:weapon.request_fire(pose,delta_ms)
 				else:target_lock=false
 			if not straight:
-				var change: Array=Math.normalize_vector(Math.subtracted(desired,pose.forward))
-				change=Math.scaled(change,int(Math.f32(float(delta_ms)*turn_speed)))
-				pose.face(Math.normalize_vector(Math.added(pose.forward,change)))
+				var change: Array=Math.subtracted(desired,pose.forward)
+				var turn_amount: int=int(Math.f32(float(delta_ms)*turn_speed))
+				# Normalising a correction smaller than one steering step magnified
+				# fixed-point noise into a full step. A ship almost on course would
+				# therefore overshoot left and right forever. Take the exact desired
+				# heading once it is inside the next step; only larger corrections
+				# need the fixed-rate turn.
+				if Math.length_of(change)<=turn_amount:
+					pose.face(desired)
+				else:
+					change=Math.normalize_vector(change)
+					change=Math.scaled(change,turn_amount)
+					pose.face(Math.normalize_vector(Math.added(pose.forward,change)))
 			pose.advance(int(Math.f32(float(delta_ms)*speed)))
 		3:
 			collision_enabled=false

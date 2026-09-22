@@ -479,13 +479,15 @@ func refresh_face() -> void:
 	if is_instance_valid(face_preview): face_preview.texture=face_art.portrait(face_layers)
 
 func show_loading(text: String, chapter: int=1) -> void:
-	modal.hide();scrim.show();loading_caption.text=text;loading_tip.text=loading_hint(chapter);loading.show();layout_ui()
+	modal.hide();scrim.show();loading_caption.text=text;loading_tip.text=loading_hint(chapter);loading_tip.visible=not loading_tip.text.is_empty();loading.show();layout_ui()
 	title_menu.focus_behavior_recursive=Control.FOCUS_BEHAVIOR_DISABLED
 
 func loading_hint(chapter: int) -> String:
 	"""One of the game's seventeen tips (cr.a): before the twelfth chapter
 	the first four, about production and trade, are held back."""
 	if not ready_for_preview or content.data.is_empty():return ""
+	var config:=ConfigFile.new();config.load(settings_path)
+	if not bool(config.get_value("interface","hints",true)):return ""
 	var tips: Array=range(146,163)
 	var first: int=4 if chapter<12 else 0
 	var line: String=content.text(int(tips[first+randi()%(tips.size()-first)]))
@@ -730,6 +732,9 @@ func show_settings() -> void:
 			elif item[2]=="effects":title_dock.dive_audio.effects_gain=value;title_dock.dive_audio.apply_levels())
 	var invert := CheckButton.new();invert.text="Invert vertical mouse";invert.button_pressed=bool(config.get_value("keys","invert_mouse",false));box.add_child(invert)
 	invert.toggled.connect(func(value): set_preference("keys","invert_mouse",value))
+	var hints := CheckButton.new();hints.text="Gameplay tips and control hints";hints.button_pressed=bool(config.get_value("interface","hints",true));box.add_child(hints)
+	hints.tooltip_text="Show loading tips, one-time M.A.I. guidance and the flight control reminder."
+	hints.toggled.connect(func(value): set_preference("interface","hints",value))
 	button("Toggle fullscreen  ·  F11",func(): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN),box)
 	var back := button("Back",close_modal,box)
 	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()

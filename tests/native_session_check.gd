@@ -15,6 +15,7 @@ func _initialize() -> void:
 	var saves := preload("res://native/simulation/save_store.gd").new()
 	session.prepare_station(0)
 	session.register_catch(0,8)
+	session.hints_said={"dock":true,"gate":true}
 	var encoded: Dictionary = JSON.parse_string(JSON.stringify(saves.capture(session)))
 	var restored = saves.restore(data,encoded)
 	assert(restored!=null,saves.failure)
@@ -22,6 +23,10 @@ func _initialize() -> void:
 	for key in encoded:
 		if actual[key]!=encoded[key]: print("DIFF ",key," actual ",actual[key]," expected ",encoded[key])
 	assert(actual==encoded,"Native save round trip")
+	assert(restored.hints_said==session.hints_said,"One-time hint history survives a checkpoint round trip")
+	var legacy: Dictionary=encoded.duplicate(true);legacy.erase("hints_said");legacy.elapsed_ms=30000
+	var migrated=saves.restore(data,legacy)
+	assert(migrated!=null and migrated.hints_said.has("dock"),"An established old checkpoint does not restart the docking tutorial")
 	var credits_before: int=restored.credits
 	restored.arrive()
 	assert(restored.ship.cargo_used==0,"Colonist docking takes all cargo")

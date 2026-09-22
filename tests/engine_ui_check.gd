@@ -35,6 +35,13 @@ func run():
   app.title_menu.toggle_help();app.show_settings();await process_frame;await process_frame
   expect(root.get_visible_rect().encloses(app.modal.get_global_rect()),"Options fit %s"%dimensions)
   app.close_modal()
+ app.show_settings();await process_frame
+ var title_hints=app.modal.find_children("*","CheckButton",true,false).filter(func(node):return node.text=="Gameplay tips and control hints")
+ expect(title_hints.size()==1 and title_hints[0].button_pressed,"Title options expose enabled gameplay hints")
+ title_hints[0].set_pressed_no_signal(false);title_hints[0].toggled.emit(false)
+ var title_config:=ConfigFile.new();title_config.load(app.settings_path)
+ expect(not bool(title_config.get_value("interface","hints",true)) and app.loading_hint(1).is_empty(),"Turning hints off at the title also removes loading tips")
+ title_hints[0].set_pressed_no_signal(true);title_hints[0].toggled.emit(true);app.close_modal()
  root.size=Vector2i(1280,720);app.show_start();await process_frame
  expect(app.face_preview.texture!=null,"Portrait creator reads local JAR art")
  app.close_modal();app.launch_game(false,"Engine test");await process_frame;await process_frame
@@ -143,6 +150,7 @@ func run():
  await check_save_feedback(game)
  await check_confirmations(game)
  await check_option_focus(game)
+ await check_gameplay_hints(game)
  check_settings_sanitizing(game)
  check_display_ratios(game)
  check_damage_bearings(game)
@@ -371,8 +379,12 @@ func check_departure(game) -> void:
  expect(receipt!=null and receipt.text.contains("Fish") and receipt.text.contains(str(payment)),"Sale receipt is part of the dock UI, not a flight toast")
  game.show_hangar();game.show_station()
  expect(game.column.find_child("CargoReceipt",true,false)!=null,"Sale receipt remains after returning from another dock service")
+ # Preserve a visible approach bank in the interpolation state. Departure
+ # replaces the flight actor, and must replace this old rendered angle too.
+ game.world.region.player.visual_bank=384;game.world.previous_render_bank=384
  game.session.docked=true;game.depart()
  expect(game.page=="departure" and not game.session.docked,"Depart starts an exterior sequence before the briefing")
+ expect(game.world.region.player.visual_bank==0 and game.world.previous_render_bank==0,"Departure does not retain the angled docking approach")
  expect(game.view.departure_hangar!=null and game.view.departure_hangar.is_hangar(),"Departure selects the station's hangar")
  expect(game.view.departure_frame.basis.y.dot(Vector3.UP)>.99,"The departure shot keeps the station's upright frame, so its camera sits above the berth")
  game.view.place_departure(.1);game.view._process(.016);game.abyss._process(.016)
@@ -456,6 +468,27 @@ func check_option_focus(game) -> void:
  expect(game.controls_section=="steering","A setting rebuilds its own section rather than dropping to the section list")
  row=named_button(game,"Invert vertical mouse");row.pressed.emit();await process_frame;await process_frame
  expect(game.invert_mouse==before,"Toggling back restores the original setting")
+ game.close_page()
+
+func check_gameplay_hints(game) -> void:
+ game.close_page();game.gameplay_hints=true
+ game.session.hints_said.erase("regression_hint")
+ expect(game.say_hint("regression_hint","One-time guidance"),"An enabled unseen hint is shown")
+ expect(game.session.hints_said.has("regression_hint") and game.page=="dialogue","Showing a hint records it in the expedition")
+ game.close_page()
+ expect(not game.say_hint("regression_hint","One-time guidance"),"A recorded hint is not repeated in the same expedition")
+ game.session.hints_said.erase("disabled_hint");game.gameplay_hints=false
+ expect(not game.say_hint("disabled_hint","Suppressed guidance") and not game.session.hints_said.has("disabled_hint"),"Disabled hints neither interrupt play nor consume unseen guidance")
+ game.hints.show();game.session.docked=false;game._process(0)
+ expect(not game.hints.visible,"Disabling hints hides the flight control reminder")
+ game.save_settings()
+ var config:=ConfigFile.new();config.load(game.settings_path)
+ expect(not bool(config.get_value("interface","hints",true)),"The in-game hint preference is saved")
+ game.show_controls("");await process_frame;await process_frame
+ var toggle:=named_button(game,"Gameplay tips & control hints")
+ expect(toggle!=null and toggle.text.ends_with("Off"),"Controls expose the gameplay hint switch")
+ toggle.pressed.emit();await process_frame;await process_frame
+ expect(game.gameplay_hints,"The in-game switch can restore hints")
  game.close_page()
 
 func check_settings_sanitizing(game) -> void:

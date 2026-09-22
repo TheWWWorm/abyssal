@@ -44,6 +44,7 @@ static func mission_state(mission) -> Dictionary:
 static func capture(session) -> Dictionary:
 	var result := fields(session,SESSION_FIELDS)
 	result.face_layers=session.face_layers.duplicate()
+	result.hints_said=session.hints_said.duplicate()
 	result.schema=2; result.random_engine="java-lcg"; result.jar_sha256=session.data.jar_sha256
 	result.medals=session.medals.state(); result.pending_bounty=session.pending_bounty
 	# Store the native 64-bit PRNG as decimal text, avoiding JSON number round trips.
@@ -102,9 +103,21 @@ func restore(data: Dictionary, value: Dictionary):
 		station.generated=true; station.equipment=saved.equipment.map(func(item): return load_gear(session,item))
 		station.cargo=load_cargo(session,saved.cargo); station.ships=saved.ships.map(func(item): return load_ship(session,item))
 		station.missions=saved.missions.map(load_mission)
+	if value.has("hints_said"):
+		session.hints_said=value.hints_said.duplicate()
+	elif session.elapsed_ms>20000:
+		# Saves made before hint history existed have already spent long enough
+		# underway to know the basic dock and gate lessons. Do not restart those
+		# two tutorials after an engine update.
+		session.hints_said.dock=true
+		if session.campaign.chapter>2:session.hints_said.gate=true
 	return session
 
 func validate(value: Dictionary, data: Dictionary) -> bool:
+	if value.has("hints_said"):
+		if value.hints_said is not Dictionary or value.hints_said.size()>256:return false
+		for key in value.hints_said:
+			if key is not String or key.length()>64 or value.hints_said[key] is not bool:return false
 	if value.has("face_layers"):
 		if value.face_layers is not Array or value.face_layers.size()!=6: return false
 		for layer in value.face_layers:

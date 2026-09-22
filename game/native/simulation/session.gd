@@ -35,9 +35,14 @@ var last_arrival_ms := 0
 var pending_cargo_payment := 0
 var notices: Array = []
 var cargo_receipt := ""
+## One-time M.A.I. guidance already shown during this expedition. This belongs
+## to the checkpoint rather than the view, so restarting the game cannot make
+## old tutorial messages begin again.
+var hints_said: Dictionary = {}
 
 func new_game(owner_data: Dictionary, player_name: String, random_seed: int) -> void:
  data=owner_data; name=player_name; credits=15000; elapsed_ms=0
+ hints_said={}
  medals=preload("res://native/simulation/medals.gd").new(); pending_bounty=0
  counters={"e":0,"f":0,"g":0,"h":0,"i":0,"j":0,"k":1,"l":15,"m":0,"n":0,"o":0,"p":0,"q":0,"r":0,"s":0,"t":22500,"u":22500}
  rng.seed_from(random_seed)
