@@ -52,6 +52,55 @@ func light_frame(viewport: SubViewport) -> Image:
  for i in 3:await process_frame
  await RenderingServer.frame_post_draw
  return viewport.get_texture().get_image()
+func check_sprite_lamp_occlusion() -> void:
+ if DisplayServer.get_name()=="headless":return
+ var viewport:=SubViewport.new();viewport.size=Vector2i(256,256);viewport.own_world_3d=true
+ viewport.positional_shadow_atlas_size=2048
+ viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
+ var camera:=Camera3D.new();camera.position=Vector3(0,0,16);camera.projection=Camera3D.PROJECTION_ORTHOGONAL;camera.size=20;viewport.add_child(camera)
+ var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env
+ env.background_mode=Environment.BG_COLOR;env.background_color=Color.BLACK
+ env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;env.ambient_light_color=Color.WHITE;env.ambient_light_energy=.02;viewport.add_child(environment)
+ var wall:=MeshInstance3D.new();var quad:=QuadMesh.new();quad.size=Vector2(20,20);wall.mesh=quad;viewport.add_child(wall)
+ var paint:=StandardMaterial3D.new();paint.albedo_color=Color.WHITE;wall.material_override=paint
+ var library=load("res://scripts/model_library.gd").new()
+ var rig:=Node3D.new();viewport.add_child(rig)
+ var point: Node3D=library.add_lamp(rig,{"centre":Vector3.ZERO,"radius":5.0,"tint":Color(1,.25,.25),"halo":false,"shadow":true})
+ point.position.z=8
+ var lamp:=point.get_node("Light") as OmniLight3D
+ expect(lamp.shadow_enabled,"Station sprite lamps cast shadows onto the walls they can actually reach")
+ var lit:=await light_frame(viewport)
+ var blocker:=MeshInstance3D.new();var box:=BoxMesh.new();box.size=Vector3(10,10,1)
+ blocker.mesh=box;blocker.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+ blocker.position.z=4;viewport.add_child(blocker)
+ var blocked:=await light_frame(viewport)
+ expect(lit.get_pixel(128,128).r>blocked.get_pixel(128,128).r+.1,"A wall behind a station lamp occluder stays dark through the blink")
+ viewport.queue_free();await process_frame
+
+func check_lure_halo_projection() -> void:
+ if DisplayServer.get_name()=="headless":return
+ var viewport:=SubViewport.new();viewport.size=Vector2i(512,256);viewport.own_world_3d=true
+ viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
+ var camera:=Camera3D.new();camera.fov=70;viewport.add_child(camera)
+ var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env
+ env.background_mode=Environment.BG_COLOR;env.background_color=Color.BLACK;viewport.add_child(environment)
+ var library=load("res://scripts/model_library.gd").new()
+ var rig:=Node3D.new();viewport.add_child(rig)
+ var point: Node3D=library.add_lamp(rig,{"centre":Vector3.ZERO,"radius":2.0,"tint":Color(.35,.65,1),"halo":true})
+ point.get_node("Light").hide()
+ for x in [-5.0,5.0]:
+  point.position=Vector3(x,0,-10)
+  var frame:=await light_frame(viewport);var brightest:=Vector2i.ZERO;var power:=0.0
+  for y in range(64,192):
+   for column in range(40,472):
+    var pixel:=frame.get_pixel(column,y)
+    var strength: float=pixel.r+pixel.g+pixel.b
+    if strength>power:power=strength;brightest=Vector2i(column,y)
+  var projected: Vector2=camera.unproject_position(point.global_position)
+  # Several saturated core pixels can tie; their first pixel is within six
+  # pixels of the true centre. A camera-facing lift displaced it much farther.
+  expect(power>0.1 and Vector2(brightest).distance_to(projected)<6.0,"The anglerfish halo core stays on its light from an off-axis view (%s versus %s)"%[str(brightest),str(projected)])
+ viewport.queue_free();await process_frame
 func hangar_pixel(rendered: Image,camera: Camera3D,model,aperture: AABB,at: Vector2) -> Color:
  var local: Vector3=aperture.position+aperture.size*Vector3(at.x,at.y,0)
  var pixel: Vector2=camera.unproject_position(model.transform*local)
@@ -446,6 +495,10 @@ func check_depth_lighting() -> void:
 func run():
  check_imported_material_hints()
  check_depth_lighting()
+ await check_sprite_lamp_occlusion()
+ await check_lure_halo_projection()
+ if "--light-fixes-only" in OS.get_cmdline_user_args():
+  print("LIGHT_FIXES %d failures"%failures);quit(1 if failures else 0);return
  await check_station_filtering()
  await check_headlight_surfaces()
  await check_blend_distance()
@@ -767,7 +820,7 @@ func check_lamp_points(app,view) -> void:
  # sprite faces are the same patch, so it lights up too.
  var library=view.library
  var engine_lamps: Array=library.lamps_for("data/v3d/station_engine.mbac",0,"data/textures/deep.bmp")
- expect(engine_lamps.size()==1 and engine_lamps[0].tint.r>engine_lamps[0].tint.b and absf(engine_lamps[0].radius-5.0)<.01 and not engine_lamps[0].halo,"The station engine's crossed red sprite is one five-metre lamp, kept as a sprite (%s)"%str(engine_lamps))
+ expect(engine_lamps.size()==1 and engine_lamps[0].tint.r>engine_lamps[0].tint.b and absf(engine_lamps[0].radius-5.0)<.01 and not engine_lamps[0].halo and engine_lamps[0].shadow,"The station engine's crossed red sprite is one shadowed five-metre lamp, kept as a sprite (%s)"%str(engine_lamps))
  var hangar_lamps: Array=library.lamps_for("data/v3d/station_hangar_ve.mbac",0,"data/textures/deep.bmp")
  var bones: Array=hangar_lamps.map(func(l):return int(l.bone));bones.sort()
  expect(hangar_lamps.size()==6 and hangar_lamps.all(func(l):return l.tint.b>l.tint.r) and bones==[1,2,3,4,5,6],"The hangar's six berth lamps, one per bone, are blue lights (%s)"%str(bones))

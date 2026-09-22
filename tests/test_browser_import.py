@@ -3,8 +3,22 @@ import hashlib, io, json, pathlib, struct, sys, tempfile, unittest, zipfile
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
 from import_jar import bitmap, decode, pack, read_entry, model_format_problem
+from extract_data import has_converted_resource
 
 class BrowserImportTests(unittest.TestCase):
+    def test_registered_bmp_uses_converted_png(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder)
+            texture=root/'data/textures/fx.bmp.png'
+            texture.parent.mkdir(parents=True)
+            texture.write_bytes(b'converted image')
+            self.assertTrue(has_converted_resource(root,'data/textures/fx.bmp'))
+            self.assertFalse(has_converted_resource(root,'data/textures/missing.bmp'))
+            self.assertFalse(has_converted_resource(root,'data/v3d/missing.mbac'))
+            texture.with_suffix('').write_bytes(b'original bitmap')
+            texture.unlink()
+            self.assertTrue(has_converted_resource(root,'data/textures/fx.bmp'))
+
     def test_bits_cross_bytes_and_signed(self):
         r=Reader(bytes([0xF5,0x37]));self.assertEqual(r.bits(4),5);self.assertEqual(r.bits(8,True),127);self.assertEqual(r.bits(4),3)
         with self.assertRaises(ValueError):r.bits(1)

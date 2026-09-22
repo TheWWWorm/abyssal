@@ -47,6 +47,12 @@ def extract(jar,root,digest=None):
     except (OSError,ValueError,KeyError,IndexError,TypeError,AttributeError) as error:
         raise DataError(UNMATCHED+f'{type(error).__name__}: {error}') from error
 
+def has_converted_resource(root,name):
+    """BMP atlases are stored as PNGs by the portable importer. The native
+    converter also keeps the original BMP, so accept either output layout."""
+    path=root/name
+    return path.is_file() or (name.endswith('.bmp') and (root/(name+'.png')).is_file())
+
 def read_profile(jar,root,digest=None):
     root=pathlib.Path(root);tables=table_rows(root)
     with zipfile.ZipFile(jar) as archive:
@@ -94,7 +100,7 @@ def read_profile(jar,root,digest=None):
     for model in models:
         model['textures']=[textures[model['texture_id']]]
         for name in [model['model'],*model['textures']]:
-            if not (root/name).is_file():raise DataError('Missing registered resource: '+name)
+            if not has_converted_resource(root,name):raise DataError('Missing registered resource: '+name)
     (root/'resource_registry.json').write_text(json.dumps(models,separators=(',',':')))
     (root/'bindings.json').write_text(json.dumps({r['model']:r['textures'] for r in models},separators=(',',':')))
     geometry={}

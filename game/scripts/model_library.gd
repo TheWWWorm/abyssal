@@ -214,7 +214,7 @@ func mesh_for(resource: String, pattern: int, atlas: String = "") -> Array:
 			var slot := str([tint,bone,centre.snapped(Vector3.ONE*0.05)])
 			if not lamp_index.has(slot):
 				lamp_index[slot]=lamps.size()
-				lamps.append({"centre":centre,"radius":0.0,"tint":tint,"bone":bone,"halo":bool(sheet.halo)})
+				lamps.append({"centre":centre,"radius":0.0,"tint":tint,"bone":bone,"halo":bool(sheet.halo),"shadow":resource.get_file().begins_with("station_")})
 			var entry: Dictionary=lamps[lamp_index[slot]]
 			entry.radius=maxf(entry.radius,box.size[box.size.max_axis_index()]*.5)
 			# A sprite that becomes a point leaves the mesh; the others stay.
@@ -289,7 +289,7 @@ func figure(call: Dictionary) -> Node3D:
 	return node
 
 func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
-	"""One of the original's lamp sprites as a light: an unshadowed point
+	"""One of the original's lamp sprites as a light: a point
 	light at the sprite's centre that reaches a few sprite-widths and lights
 	whatever the lamp is near, and, for a lure drawn as a point, a halo
 	billboard the size of the sprite in its place."""
@@ -305,7 +305,11 @@ func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
 	var light := OmniLight3D.new();light.name="Light";holder.add_child(light)
 	light.light_color=lamp.tint;light.light_energy=LAMP_ENERGY;light.light_size=0.0
 	light.omni_range=clampf(lamp.radius*10.0,15.0,90.0);light.omni_attenuation=1.0
-	light.shadow_enabled=false;light.light_volumetric_fog_energy=.6
+	# Station lamps must stop at the surrounding geometry. An unshadowed
+	# blinking lamp recoloured walls behind unrelated modules. Mines and
+	# moving creature lures retain their cheaper unshadowed point lights.
+	light.shadow_enabled=bool(lamp.get("shadow",false));light.shadow_bias=.08;light.shadow_normal_bias=.6
+	light.light_volumetric_fog_energy=.6
 	light.distance_fade_enabled=true;light.distance_fade_begin=420;light.distance_fade_length=180
 	holder.position=lamp.centre
 	return holder

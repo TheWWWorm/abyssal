@@ -32,5 +32,11 @@ Path('/ready.abyss').write_bytes(pack('/content'))`);
       AbyssalNative.chunk(btoa(binary));
     }
     AbyssalNative.complete();
-  } catch(error) { AbyssalNative.failed(String(error.message||error)); }
+  } catch(error) {
+    console.error('Local JAR import failed:', error);
+    // Pyodide includes a full Python traceback in the message. The title
+    // screen has room for its final cause, while logcat keeps the traceback.
+    const reason = String(error.message||error).trim().split(/\r?\n/).pop();
+    AbyssalNative.failed(reason || 'Import failed.');
+  }
 })();
