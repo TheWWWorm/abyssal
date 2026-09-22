@@ -93,7 +93,9 @@ public final class AbyssalImporter extends GodotPlugin {
         getActivity().runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("application/json");
+            // A generic type keeps the suggested .abyssave name; the Files app
+            // would append .json to a name whose extension it cannot match.
+            intent.setType("application/octet-stream");
             intent.putExtra(Intent.EXTRA_TITLE, name);
             try { getActivity().startActivityForResult(intent, SAVE_WRITE); }
             catch (Exception e) { pendingSave = null; emitSignal("save_failed", "No file picker is available: " + e.getMessage()); }

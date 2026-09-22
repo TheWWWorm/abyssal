@@ -18,8 +18,9 @@ func _ready() -> void:
 	if OS.has_feature("android") and Engine.has_singleton("AbyssalImporter"):
 		var plugin: Object = Engine.get_singleton("AbyssalImporter")
 		# Older installs predate the save transfer methods; the menu hides the
-		# actions rather than calling into a plugin that cannot answer.
-		if plugin.has_method("choose_save") and plugin.has_method("export_save"):
+		# actions rather than calling into a plugin that cannot answer. Probe the
+		# signals: has_method() cannot see methods a JNISingleton registers.
+		if plugin.has_signal("save_selected") and plugin.has_signal("save_exported"):
 			android=plugin
 			android.connect("save_selected",func(path):
 				chosen.emit(path)

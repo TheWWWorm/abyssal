@@ -1100,6 +1100,10 @@ func show_transfer() -> void:
 	open_page("Transfer expedition","transfer")
 	label("Move this expedition between your devices. An export carries the saved expedition only \u2014 never imported game content, which each device imports from its own JAR.",16)
 	label("An export can only be loaded by a copy that imported the same game content.",15).modulate=Color("9dc9bd")
+	if not save_files.available():
+		label("This build cannot open a file picker on this device, so expeditions cannot be moved here.",15).modulate=Color("d7c399")
+		back_row(show_system if session.docked else show_pause)
+		return
 	var exportable: bool=FileAccess.file_exists(save_path)
 	var export_button := button("Export expedition\u2026",func():
 		var record: Dictionary=transfer.collect(content.data,save_path)
