@@ -1,33 +1,36 @@
-# Platform support
+# Abyssal Engine 1.2.4 — platform support
 
-## What was actually run
+The gameplay and rendering checks ran on Linux x86-64 with Godot 4.7 and
+a locally imported compatible DEEP JAR. Game content is not included in the
+packages.
 
-Checks were run on Linux x86-64 with Godot 4.7.stable, headless on the OpenGL
-compatibility renderer, and by rendered captures read back from a real GPU
-(RTX 3090) on the Vulkan Forward+ renderer, using a locally imported DEEP content
-cache.
+## Validation
 
-- Engine regression suite: **14 of 14 checks passed** headless on OpenGL
-  (`tools/check.py --compatibility`), including a new check that the
-  anglerfish's lure lamp sits on the bent rod tip while the head swings, and
-  returns to its rest when the bend is cleared.
-- Python packaging, importer and distribution tests: **36 of 36 passed**.
-- The anglerfish was captured swimming from above, twelve frames over three
-  seconds with the head bent up to eleven degrees, the lure's halo on the rod
-  tip in every frame; the lamp's position was also logged against the bend
-  each ten frames (up to 0.94 m of sideways travel at the full bend, matching
-  the shader's turn of the tip).
-- The 1.2.2 build was played by the requester, whose report of the lure
-  hanging beside the tip is the fix in this build.
-- Windows, macOS, Linux x86-64, Linux ARM64, Web and Android packages all exported.
-- The Android APK is signed with the same release key as every build since
-  preview.2 and carries version code 27, so it updates earlier builds in place.
+- All 15 engine regression suites passed headless, including 185 gameplay
+  assertions, 50 coordinate assertions, 765 mission assertions across all
+  48 story chapters, sustained travel, STREAM transfers, terrain and UI.
+- Coordinate checks cover capsule ascent, sinking wrecks, floating fish,
+  mine bobbing, formations, reinforcement routes, finale motion and camera
+  placement. Towing, salvage limits, projectile direction and copied native
+  routes are covered as well.
+- Both hangars were checked with crisp and smoothed textures, classic and
+  enhanced rendering, and closed, partially open and fully open doors.
+  The 32 focused rendering assertions passed on OpenGL Compatibility and
+  Vulkan Forward+ on an NVIDIA RTX 3090.
+- The updated STREAM test passed on OpenGL Compatibility, including the
+  visible portal orientation and the actual arrival heading.
 
-## What was not validated
+## Scope and limitations
 
-- **The Android package was not installed or run**: the build host has no
-  `/dev/kvm` and its emulator no GPU. The Mobile renderer's handling of the new
-  per-instance shader uniform (the bent head) and of a dozen unshadowed omni
-  lights on a hangar was not seen on a device.
-- Windows, macOS, Linux ARM64 and browser packages were exported but not launched.
-  The browser's WebGL 2 renderer was not exercised with the per-instance uniform.
+Windows, macOS, Linux ARM64 and Android gameplay were not run on their target
+systems for this release. Cross-platform export and archive checks do not
+establish device performance or full-game compatibility. Windows and macOS
+packages are unsigned, and macOS is not notarized.
+
+The broader OpenGL rendering suite still has eight headlight assertions
+that also fail in the previous source, along with shader-instance-buffer
+exhaustion in its large test scene. The focused door and gate rendering
+checks pass without those errors.
+
+Android uses version code 28 and the existing release signing key, allowing
+in-place updates that preserve imported content and saves.
