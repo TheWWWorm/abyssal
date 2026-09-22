@@ -18,6 +18,7 @@ def main():
         "content_pack_check.gd":portable,
         'native_session_check.gd':cache/'native-data.json',
         'modern_gameplay_check.gd':cache/'native-data.json',
+        'native_coordinates_check.gd':cache/'native-data.json',
         'provenance_rules_check.gd':cache/'native-data.json',
         'native_travel_check.gd':cache/'native-data.json',
         'native_open_world_mission_check.gd':cache/'native-data.json',

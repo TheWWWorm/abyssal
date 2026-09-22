@@ -1,10 +1,16 @@
 extends RefCounted
 ## Ordered waypoints with a spherical arrival radius.
+const Math=preload("res://native/simulation/fixed_math.gd")
 var points: Array = []
 var reached: Array = []
 var index := 0
 var loop := false
 var previous_position = null
+
+func configure_source(coordinates: Array, repeating: bool = false) -> void:
+	var converted: Array=[]
+	for i in range(0,coordinates.size(),3):converted.append_array(Math.from_source(coordinates.slice(i,i+3)))
+	configure(converted,repeating)
 
 func configure(coordinates: Array, repeating: bool = false) -> void:
 	points=[]; index=0; loop=repeating; previous_position=null

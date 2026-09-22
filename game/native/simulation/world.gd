@@ -293,7 +293,6 @@ func dispose() -> void:
 
 func attach_geography() -> void:
 	geography=preload("res://native/simulation/geography.gd").new(); geography.configure(self)
-	region.player.depth_direction=1
 	region.player.smooth_steering=smooth_steering
 	keep_wildlife_outside_station()
 	for hook in region.fishing:
@@ -403,7 +402,7 @@ func stream_transfer() -> bool:
 	var arrival_gate: int=region.gate_index(1)
 	departure_gate=arrival_gate
 	region.player.pose.origin=region.gates[arrival_gate].duplicate()
-	region.player.pose.set_euler(0,(300 if session.stations[target].tech>4 else -300)*(arrival_gate+1)+2048,0)
+	region.player.pose.set_euler(0,region.gate_yaw(arrival_gate),0)
 	region.player.depth=session.stations[target].depth
 	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0
 	message="S.T.R.E.A.M. arrival · "+session.stations[target].name

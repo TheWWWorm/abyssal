@@ -51,7 +51,7 @@ static func instruction(mission) -> String:
 		9: return "Clear the debris at the mission waypoint."
 		10: return "Destroy the mines at the mission waypoint."
 		6: return "Protect the marked creatures and defeat their attackers."
-		11: return "Protect the rescue capsules from attackers."
+		11: return "Protect the supply capsules from attackers."
 		12: return "Destroy the marked capsules."
 		13,14: return "Bring the required cargo to "+mission.destination_name+" and dock."
 		15: return "Complete station contracts. Accept them from the dock’s Contracts menu."

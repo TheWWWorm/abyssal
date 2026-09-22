@@ -9,7 +9,8 @@ var rock_normal := Vector3.ZERO
 var seafloor_enabled := false
 # Keep the source encounter volume navigable. Ordinary actor spawns span
 # +/-300 m vertically and scripted routes extend about 3 km from a station.
-# Capsules cycle down the central 750 m shaft at every rescue location.
+# The central shaft retains extra clearance beneath each station; export
+# capsules travel upward into open water.
 const ENCOUNTER_RADIUS := 3500.0
 const ENCOUNTER_FLOOR := 480.0
 const CAPSULE_RADIUS := 180.0

@@ -2,8 +2,8 @@ extends "res://native/simulation/npc.gd"
 ## The water's other things, as the phone game keeps them: mines (d) that
 ## bob at their moorings and arm when a ship comes within thirty metres,
 ## going off two seconds later; debris (ci) of random size and set; supply
-## capsules (df) that fall through the water and are dropped in again from
-## the top once they are past its floor; and freighters (cf), long hulls
+## capsules (df) that rise toward the surface and launch again from the
+## station once they leave the encounter; and freighters (cf), long hulls
 ## that wake when anyone comes within five hundred metres and blow up in a
 ## staggered chain when they die.
 var kind := "debris"
@@ -21,7 +21,7 @@ const BOB_RISE := 632
 const MINE_TRIGGER := 3000
 const MINE_FUSE := 2000
 const MINE_BLAST := 25
-const CAPSULE_FLOOR := 75000
+const CAPSULE_CEILING := -75000
 
 func configure_special(type_name: String,id: int,enemy: bool,location: Array,data: Dictionary,source_rng) -> void:
 	kind=type_name;model_id=id;original_model_id=id;hostile=enemy;rng=source_rng
@@ -32,12 +32,11 @@ func configure_special(type_name: String,id: int,enemy: bool,location: Array,dat
 			var size: int=4096+rng.next_int(8096);render_scale.fill(size)
 			pose.set_euler(location[0],location[1],location[2])
 		"capsule":
-			# Dropped from anywhere above the floor, twice life size, nose down;
-			# its resting mark, thirty metres below the drop, is where it
-			# starts again each time.
-			origin[1]+=3000
-			pose.origin[1]=rng.next_int(CAPSULE_FLOOR);render_scale.fill(8192)
-			pose.set_euler(-1024,0,0)
+			# The original's +Y is up; here +Y is depth. Export capsules
+			# start along the ascent, nose up, and relaunch above the station.
+			origin[1]-=3000
+			pose.origin[1]=-rng.next_int(-CAPSULE_CEILING);render_scale.fill(8192)
+			pose.set_euler(1024,0,0)
 		"mine":
 			state=5;animation_range=[0,0];mooring=location.duplicate()
 
@@ -77,9 +76,9 @@ func advance_capsule(delta_ms: int) -> void:
 		health.enabled=false;state=3;events.append("capsule_destroyed")
 	match state:
 		0:
-			# Falling ever faster, until the floor, then dropped in again.
-			pose.origin[1]+=delta_ms+acceleration;acceleration+=1
-			if pose.origin[1]>CAPSULE_FLOOR:reset_capsule()
+			# Accelerate toward shallower water, then launch the next capsule.
+			pose.origin[1]-=delta_ms+acceleration;acceleration+=1
+			if pose.origin[1]<CAPSULE_CEILING:reset_capsule()
 		3:
 			if not has_explosion or explosion_ms>explosion_duration:state=4
 			else:explosion_ms+=delta_ms
@@ -118,17 +117,17 @@ func advance_mine(delta_ms: int) -> void:
 	timer+=delta_ms
 	if not mooring.is_empty():
 		pose.origin[0]=mooring[0];pose.origin[2]=mooring[2]
-		pose.origin[1]=mooring[1]+roundi(BOB_RISE*(1.0-cos(timer*TAU/4096.0)))
+		pose.origin[1]=mooring[1]-roundi(BOB_RISE*(1.0-cos(timer*TAU/4096.0)))
 	match state:
 		0:state=5
 		5:health.hull=health.max_hull
 		1:
 			# Armed: it spins a full turn over its two-second fuse.
-			timer+=delta_ms;mine_yaw+=delta_ms<<1;pose.set_euler(0,mine_yaw,0)
+			timer+=delta_ms;mine_yaw+=delta_ms<<1;pose.set_euler(0,-mine_yaw,0)
 			if timer>MINE_FUSE:detonate()
 		999:
 			for axis in 3:render_scale[axis]=Math.product(render_scale[axis],2048)
-			mine_yaw+=delta_ms<<1;pose.set_euler(0,mine_yaw,0)
+			mine_yaw+=delta_ms<<1;pose.set_euler(0,-mine_yaw,0)
 			if not has_explosion or explosion_ms>explosion_duration:state=4;health.hull=0
 			else:explosion_ms+=delta_ms
 		3:

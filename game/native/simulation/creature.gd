@@ -73,10 +73,10 @@ func configure(id: int,row: Array,rng,sine: Array,center: Array=[0,0,0]) -> void
 	if center==[0,0,0]:
 		# Anywhere in the six hundred metre cube about the region's centre,
 		# heading anywhere.
-		pose.face(Math.normalize_vector([-4096+rng.next_int(8192),-4096+rng.next_int(8192),-4096+rng.next_int(8192)]))
-		pose.origin=[-30000+rng.next_int(59000),-30000+rng.next_int(59000),-30000+rng.next_int(59000)]
+		pose.face(Math.from_source(Math.normalize_vector([-4096+rng.next_int(8192),-4096+rng.next_int(8192),-4096+rng.next_int(8192)])))
+		pose.origin=Math.from_source([-30000+rng.next_int(59000),-30000+rng.next_int(59000),-30000+rng.next_int(59000)])
 	else:
-		pose.origin=[center[0]-8000+rng.next_int(16000),center[1]-8000+rng.next_int(16000),center[2]-8000+rng.next_int(16000)]
+		pose.origin=Math.added(center,Math.from_source([-8000+rng.next_int(16000),-8000+rng.next_int(16000),-8000+rng.next_int(16000)]))
 	if id in [4424,4427,4430,4432,4434,4440,4436,4438]:secondary_model=id+1
 	secondary_pose=pose.copy_pose();release()
 
@@ -146,7 +146,7 @@ func advance(delta_ms: int,rng,camera_origin: Array,ahead: Array=[]) -> void:
 			render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096];render_tilt=[0.0,0.0,0.0]
 		return
 	if state==4:
-		if not hooked:pose.origin[1]+=delta_ms/CARCASS_RISE
+		if not hooked:pose.origin[1]-=delta_ms/CARCASS_RISE
 		secondary_pose=pose.copy_pose()
 		if Math.length_of(Math.subtracted(camera_origin,pose.origin))>LEAVE_DISTANCE:health.enabled=false
 		return
@@ -177,9 +177,9 @@ func reappear(rng,camera_origin: Array,_ahead: Array=[]) -> void:
 	# creature so set down in out of the haze rather than all at once.
 	var bearing: Array=[-2048+rng.next_int(4096),-2048+rng.next_int(4096),-2048+rng.next_int(4096)]
 	bearing[1]>>=1
-	bearing=Math.normalize_vector(bearing)
+	bearing=Math.from_source(Math.normalize_vector(bearing))
 	pose.origin=Math.added(Math.scaled(bearing,RETURN_DISTANCE),camera_origin)
-	pose.face(Math.normalize_vector([-15000+rng.next_int(30000)-bearing[0],-15000+rng.next_int(30000)-bearing[1],-15000+rng.next_int(30000)-bearing[2]]))
+	pose.face(Math.normalize_vector(Math.subtracted(Math.from_source([-15000+rng.next_int(30000),-15000+rng.next_int(30000),-15000+rng.next_int(30000)]),bearing)))
 	release();previous_hull=health.hull;fresh=true
 
 func animate(_delta_ms: int=0) -> void:

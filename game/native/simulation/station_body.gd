@@ -18,7 +18,7 @@ func configure(station: Dictionary,colonist: bool,sine: Array,geometry: Dictiona
   # each part's yaw reversed to match. Left as it was, every station stood
   # on its head, caps swapped, and its branches grew out of the wrong side
   # of the hangar compared with the phone game.
-  part.origin[0]=-int(part.origin[0]);part.origin[1]=-int(part.origin[1])
+  part.origin=Math.from_source(part.origin)
   part.yaw=(4096-int(part.yaw))%4096
   var box: Dictionary=geometry.get(str(part.model_id),{"center":[0,0,0],"extent":[4000,4000,4000]})
   var rotation:=Basis(Vector3.UP,part.yaw*TAU/4096.0)

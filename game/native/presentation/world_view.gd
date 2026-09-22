@@ -181,7 +181,7 @@ func rebuild() -> void:
 		var visual=model(15)
 		if visual==null: continue
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine
-		pose.origin=world.region.gates[i]; pose.set_euler(0,(300 if world.session.stations[world.session.station_id].tech>4 else -300)*(i+1)+2048,0)
+		pose.origin=world.region.gates[i]; pose.set_euler(0,world.region.gate_yaw(i),0)
 		visual.transform=pose.godot_transform(); gate_nodes.append(visual)
 		visual.set_meta("gate_rest",visual.transform);visual.set_meta("gate_roll",0.0)
 		build_gate_field(visual)

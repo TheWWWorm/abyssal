@@ -560,7 +560,9 @@ void vertex() {
 			# Enhanced lighting uses the geometric normal even for sheared poses.
 			code += "if(abs(determinant(mat3(bone)))>0.000001){n=transpose(inverse(mat3(bone)))*NORMAL;}\n"
 		code += "NORMAL=length(n)>0.00001?normalize(n):vec3(0.0,1.0,0.0); architecture_position=VERTEX; architecture_normal=NORMAL; }\nvoid fragment(){\n"
-		code += "bool door_panel=hangar_door && UV.x>49.0 && UV.x<60.0 && UV.y>99.0 && UV.y<108.0; if(door_panel && hangar_open>0.0 && abs(UV.x-54.5)<5.6*hangar_open){discard;} vec2 surface_uv=UV; if(door_panel){surface_uv.x-=sign(UV.x-54.5)*5.5*hangar_open;}\n"
+		# Both imported hangars map U along the door's height and V across
+		# its width. Slide sideways, keeping the painted frame outside the cut.
+		code += "bool door_panel=hangar_door && UV.x>49.5 && UV.x<59.5 && UV.y>98.5 && UV.y<108.5; if(door_panel && hangar_open>0.0 && abs(UV.y-103.5)<5.0*hangar_open){discard;} vec2 surface_uv=UV; if(door_panel){surface_uv.y-=sign(UV.y-103.5)*5.0*hangar_open;}\n"
 		if sky_pass == 0:
 			# Dither keeps opaque depth ordering; imported alpha/additive faces fade too.
 			code += "if(portal_clip_enabled && dot(portal_clip_plane,INV_VIEW_MATRIX*vec4(VERTEX,1.0))<0.0){discard;}\n"
@@ -572,7 +574,10 @@ void vertex() {
 			code += "discard;\n"
 		# Perspective interpolation can turn a constant integer U=4 into 3.999999.
 		# Stabilize the source's integer texel convention at sub-texel precision.
-		var coords := "(surface_uv+vec2(0.5))/texture_size" if (enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(0.0001))+vec2(0.5))/texture_size"
+		# The door's end coordinates name the centers of its border texels.
+		# Rounding there keeps both edges visible in crisp mode, centered on
+		# the same aperture as the filtered texture and the departure path.
+		var coords := "(surface_uv+vec2(0.5))/texture_size" if (enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(hangar_door?0.5:0.0001))+vec2(0.5))/texture_size"
 		code += "vec4 color="+("texture(albedo,%s)" % coords if resource != "" else "vec4(OUTPUT_IS_SRGB?COLOR.rgb:to_linear(COLOR.rgb),COLOR.a)")+";\n"
 		if alpha:
 			# The phone keys palette index 0 on these polygons, and that entry is

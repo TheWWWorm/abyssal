@@ -209,8 +209,8 @@ func advance(delta_ms: int) -> void:
 			if not has_explosion or explosion_ms>explosion_duration:state=4
 		4:
 			if capturable and health.enabled:
-				if not towing:pose.origin[1]-=delta_ms/2
-				if pose.origin[1]<origin[1]-WRECK_SINK:escaped=true;health.enabled=false
+				if not towing:pose.origin[1]+=delta_ms/2
+				if pose.origin[1]>origin[1]+WRECK_SINK:escaped=true;health.enabled=false
 			else:health.enabled=false
 	if collision_enabled:
 		for volume in obstacle_groups:

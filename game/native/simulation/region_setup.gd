@@ -3,9 +3,9 @@ extends RefCounted
 ## fills it: twenty creatures of the local habitat (forty-nine in the algae
 ## chapter), the station's own ships on their rounds, a chance of pirates in
 ## the later chapters, and the encounter of the chapter or the contract in
-## hand, each with its own layout, numbers and objective. Positions are the
-## game's units about the station's centre; every draw is from the session's
-## own random stream, in the order the original makes them.
+## hand, each with its own layout, numbers and objective. Actor factories
+## take native positions about the station; authored marks and routes are
+## converted at their call sites. Draws keep the source random-stream order.
 const Math=preload("res://native/simulation/fixed_math.gd")
 const NPC=preload("res://native/simulation/npc.gd")
 const Special=preload("res://native/simulation/special_actor.gd")
@@ -27,13 +27,15 @@ func ship_ids() -> Array:return data.constants.ah["e:[S"]
 func random_ship() -> int:return int(ship_ids()[roll(ship_ids().size()-1)])
 func path(points: Array,repeating: bool=false):
 	var result:=Route.new();result.configure(points,repeating);return result
+func source_path(points: Array,repeating: bool=false):
+	var result:=Route.new();result.configure_source(points,repeating);return result
 func path_copy(source):
 	var copy:=Route.new();copy.configure(source.points.reduce(func(flat,point):return flat+point,[]),source.loop);return copy
 func goal(name: String,count: int=0,target_species: int=-1):return Goal.new().configure(name,[],count,target_species)
 func scatter(center: Array,spread: int) -> Array:
 	var result: Array=[]
-	for axis in 3:result.append(center[axis]+roll(spread)-spread/2)
-	return result
+	for axis in 3:result.append(roll(spread)-spread/2)
+	return Math.added(center,Math.from_source(result))
 
 func fish(species: int,center: Array=[0,0,0]):
 	var actor:=Creature.new()
@@ -65,10 +67,10 @@ func special(kind: String,id: int,hostile: bool,center: Array=[0,0,0],team: int=
 		"capsule":actor.health.configure(32 if r.mission.kind==12 else 65,0,0)
 		"freighter":
 			actor.faction=team
-			var shape:=Shape.new();shape.origin=location.duplicate();shape.offset=[0,300,0];shape.half_size=[4000,4000,15000];actor.shapes=[shape]
+			var shape:=Shape.new();shape.origin=location.duplicate();shape.offset=Math.from_source([0,300,0]);shape.half_size=[4000,4000,15000];actor.shapes=[shape]
 			# Six bursts along the hull, one to two seconds apart (ao(6,0)).
 			actor.explosion_delays=[0]
-			actor.explosion_offsets=[[360,186,-3370],[-844,-507,880],[-449,437,-983],[880,-275,-983],[360,186,4243],[0,0,0]]
+			actor.explosion_offsets=[[360,186,-3370],[-844,-507,880],[-449,437,-983],[880,-275,-983],[360,186,4243],[0,0,0]].map(func(offset):return Math.from_source(offset))
 			for _burst in 5:actor.explosion_delays.append(actor.explosion_delays[-1]+roll(1000)+1000)
 			actor.explosion_duration=actor.explosion_delays[-1]+1000
 	return actor
@@ -91,7 +93,7 @@ func friends(count: int,center: Array=[0,0,0],id: int=-1,team: int=1) -> void:
 func wandering_route(count: int):
 	var coordinates: Array=[]
 	for _i in count:coordinates.append_array([60000+roll(40000),0,60000+roll(40000)])
-	return path(coordinates)
+	return source_path(coordinates)
 
 func gate_approach(divisor: int) -> Array:
 	var gate: Array=r.gates[1]
@@ -150,7 +152,7 @@ func contract() -> void:
 	match m.kind:
 		0:
 			# Wanted: one hardened ship, waiting four to twelve hundred metres out.
-			r.route=path([(40000+roll(80000))*(1 if roll(2)==0 else -1),0,(40000+roll(80000))*(1 if roll(2)==0 else -1)])
+			r.route=source_path([(40000+roll(80000))*(1 if roll(2)==0 else -1),0,(40000+roll(80000))*(1 if roll(2)==0 else -1)])
 			enemies(1,r.route.points[0],-1,2,true);r.enemies[0].health.configure(300+m.difficulty*s.counters.k,0,0);r.success=goal("enemy_dead",0)
 		1,2,3:
 			# Recovery, rescue and pirate hunts: a gang along a wandering route;
@@ -164,24 +166,24 @@ func contract() -> void:
 			else:r.enemies[-1].protect(true);r.success=goal("enemy_rescued",count-1);r.failure=goal("enemy_escaped",count-1)
 		4:
 			# Escort: five freighters under way, raiders along their track.
-			var track=path([10000,0,100000,10000,0,150000,10000,0,200000])
+			var track=source_path([10000,0,100000,10000,0,150000,10000,0,200000])
 			for _i in 2+int(4*difficulty):enemies(1,track.points[roll(3)],random_ship(),1 if m.sponsor_faction==0 else 0,true)
 			for mark in [[5500,-300,20000],[14500,3000,17000],[4000,-2000,12000],[17000,-6000,10000],[11000,7000,8000]]:
-				var freighter=special("freighter",11,false,[0,0,0],m.sponsor_faction);freighter.set_position(mark);freighter.moving=true
+				var freighter=special("freighter",11,false,[0,0,0],m.sponsor_faction);freighter.set_position(Math.from_source(mark));freighter.moving=true
 				freighter.health.configure(100+s.counters.k*2+s.campaign.chapter*2,0,0);r.friends.append(freighter)
 			r.success=goal("no_enemies");r.failure=goal("no_friends")
 		5:
 			# Intercept: a convoy of two or three freighters at the second mark, with its guard.
-			r.route=path([-2500+roll(5000),-2500+roll(5000),80000+roll(30000),-2500+roll(5000),-2500+roll(5000),120000+roll(30000)])
+			r.route=source_path([-2500+roll(5000),-2500+roll(5000),80000+roll(30000),-2500+roll(5000),-2500+roll(5000),120000+roll(30000)])
 			var count: int=2+roll(2)
 			for _i in count:
 				var freighter=special("freighter",11,true,r.route.points[1],1 if m.sponsor_faction==0 else 0);freighter.dormant();r.enemies.append(freighter)
-				freighter.set_position(Math.added(r.route.points[1],[-10000+roll(20000),-10000+roll(20000),-10000+roll(20000)]))
+				freighter.set_position(scatter(r.route.points[1],20000))
 			for _i in 2+int(2*difficulty):enemies(1,r.route.points[roll(2)],random_ship(),1 if m.sponsor_faction==0 else 0,true)
 			r.success=goal("first_enemies_dead",count)
 		6:
 			# Defend fishes: the school swims its course; hunters lie along it.
-			var track=path([20000,0,-40000,20000,0,40000,20000,0,90000]);guarded_school(track.points[0],track)
+			var track=source_path([20000,0,-40000,20000,0,40000,20000,0,90000]);guarded_school(track.points[0],track)
 			for _i in 2+int(4*difficulty):enemies(1,track.points[1+roll(2)],random_ship(),0,true)
 			r.success=goal("no_enemies");r.failure=goal("school_losses",m.total-m.minimum)
 		7:
@@ -192,7 +194,7 @@ func contract() -> void:
 		9,10:
 			# Junk removal, on the clock, and the minefield: a field two to
 			# six hundred metres out, with a guard.
-			var center:=[-20000+roll(40000),0,20000+roll(40000)]
+			var center:=Math.from_source([-20000+roll(40000),0,20000+roll(40000)])
 			var count: int=15+int(15*difficulty) if m.kind==9 else 15+roll(11)
 			for _i in count:r.enemies.append(hazard(9996 if m.kind==9 else 13,center))
 			enemies(int(2*difficulty) if m.kind==9 else 1,[0,0,0] if m.kind==9 else center,-1 if m.kind==9 else 1)
@@ -221,12 +223,12 @@ func story() -> void:
 			for _i in m.total:r.friends.append(special("capsule",9994,false,[0,0,0],3))
 			r.failure=goal("capsules_destroyed",m.minimum);r.success=goal("no_enemies")
 		19:
-			var track=path([-20000,0,-40000,-20000,0,30000,-20000,0,100000,-20000,0,130000]);guarded_school(track.points[1],track)
+			var track=source_path([-20000,0,-40000,-20000,0,30000,-20000,0,100000,-20000,0,130000]);guarded_school(track.points[1],track)
 			for i in 3:enemies(1,track.points[2 if i==0 else 3],-1,0,true)
 			friends(3,track.points[0],19,0);r.success=goal("no_enemies");r.failure=goal("school_losses",m.total-m.minimum)
 		21:
 			# The companion waits short of the far gate; three pirates at the mark.
-			r.route=path([0,0,200000]);friends(1,[0,0,0],5)
+			r.route=source_path([0,0,200000]);friends(1,[0,0,0],5)
 			roll(1400);roll(1400)
 			r.friends[0].health.set_hull(9999999);r.friends[0].route=path_copy(r.route)
 			r.friends[0].set_position(Math.added(gate_approach(12288),[0,0,-10000]));r.friends[0].dormant()
@@ -234,58 +236,58 @@ func story() -> void:
 		23:
 			# Seventeen mines and a guard of three at (800, 1200) m; the original
 			# lays an eighteenth and replaces it with a ship, and counts to eighteen.
-			for _i in 17:r.enemies.append(hazard(13,[80000,0,120000]))
-			hazard(13,[80000,0,120000])
-			enemies(3,[80000,0,120000]);r.success=goal("first_enemies_dead",18)
+			for _i in 17:r.enemies.append(hazard(13,Math.from_source([80000,0,120000])))
+			hazard(13,Math.from_source([80000,0,120000]))
+			enemies(3,Math.from_source([80000,0,120000]));r.success=goal("first_enemies_dead",18)
 		25:
 			for i in 3:
-				friends(1,[0,0,0],5 if i==0 else 2);r.friends[-1].set_position(Math.added(r.player.pose.origin,[[800,340,700],[-1000,-130,-500],[-30,-300,-100]][i]));r.friends[-1].health.configure(32000,0,0)
-			r.friends[0].route=path([-200000,0,-200000])
-			for i in 6:enemies(1,[0,0,0],-1,0);r.enemies[-1].set_position([-40000+i*2000,-6000+i*2000,10000+i*2000])
+				friends(1,[0,0,0],5 if i==0 else 2);r.friends[-1].set_position(Math.added(r.player.pose.origin,Math.from_source([[800,340,700],[-1000,-130,-500],[-30,-300,-100]][i])));r.friends[-1].health.configure(32000,0,0)
+			r.friends[0].route=source_path([-200000,0,-200000])
+			for i in 6:enemies(1,[0,0,0],-1,0);r.enemies[-1].set_position(Math.from_source([-40000+i*2000,-6000+i*2000,10000+i*2000]))
 			r.success=goal("no_enemies")
 		27:
-			r.route=path([120000,0,130000]);enemies(1,r.route.points[0],5,1,true)
+			r.route=source_path([120000,0,130000]);enemies(1,r.route.points[0],5,1,true)
 			r.enemies[0].health.configure(r.enemies[0].health.max_hull*5,0,0);r.enemies[0].set_speed(5);r.enemies[0].protect(true)
 			r.success=goal("enemy_rescued",0);r.failure=goal("enemy_escaped",0)
 		29:
-			var track=path([-30000,0,30000,-30000,0,130000,-30000,0,200000]);var id:=random_ship()
+			var track=source_path([-30000,0,30000,-30000,0,130000,-30000,0,200000]);var id:=random_ship()
 			for i in 5:enemies(1,track.points[0 if i<2 else (1 if i<3 else 2)],id,0,true)
 			for mark in [[-37500,-1300,20000],[-22500,4000,17000],[-31000,-3000,13000],[-20000,-7000,10000],[-29000,8000,8000]]:
-				var freighter=special("freighter",11,false,[0,0,0],1);freighter.set_position(mark);freighter.moving=true;freighter.activate()
+				var freighter=special("freighter",11,false,[0,0,0],1);freighter.set_position(Math.from_source(mark));freighter.moving=true;freighter.activate()
 				freighter.health.configure(150+s.counters.k*5,0,0);r.friends.append(freighter)
 			r.success=goal("no_enemies");r.failure=goal("no_friends")
 		31:
-			r.route=path([-160000,0,30000]);enemies(4,r.route.points[0],-1,0,true)
+			r.route=source_path([-160000,0,30000]);enemies(4,r.route.points[0],-1,0,true)
 			for actor in r.enemies:actor.protect(true)
 			friends(2)
-			for i in 2:r.friends[i].set_position(Math.added(r.player.pose.origin,[400,40,400] if i==0 else [-300,-30,-300]));r.friends[i].health.configure(32000,0,0)
+			for i in 2:r.friends[i].set_position(Math.added(r.player.pose.origin,Math.from_source([400,40,400] if i==0 else [-300,-30,-300])));r.friends[i].health.configure(32000,0,0)
 			for actor in r.friends:actor.route=path_copy(r.route)
 			r.success=goal("all_rescued");r.failure=goal("any_escaped")
 		35:
-			r.route=path([20000,0,120000])
+			r.route=source_path([20000,0,120000])
 			for i in 3:enemies(1,r.route.points[0],10 if i==0 else 0,2,true)
 			r.enemies[0].health.configure(r.enemies[0].health.max_hull*5,0,0);r.enemies[0].set_speed(5);r.success=goal("enemy_dead",0)
 		42:
-			r.route=path([170000,0,0,240000,0,0])
+			r.route=source_path([170000,0,0,240000,0,0])
 			for i in 6:enemies(1,r.route.points[0 if i<3 else 1],-1,2,true)
 			r.success=goal("no_enemies")
 		43:
-			r.school_route=path([150000,0,0,0,0,0])
+			r.school_route=source_path([150000,0,0,0,0,0])
 			enemies(8,[0,0,0],-1,0);friends(2)
 			for _i in 5:
-				friends(1,[150000,0,0],19,3);r.friends[-1].dormant();r.friends[-1].route=path([150000,0,0,0,0,0])
+				friends(1,Math.from_source([150000,0,0]),19,3);r.friends[-1].dormant();r.friends[-1].route=source_path([150000,0,0,0,0,0])
 			r.success=goal("no_enemies")
 		45,47:
 			var chapter: int=s.campaign.chapter
 			for i in (4 if chapter==45 else 5):
 				friends(1)
 				if i<2:r.friends[-1].health.set_hull(32000)
-				if chapter==45:r.friends[-1].set_position(Math.added(gate_approach(28672),[-3000+roll(6000),-3000+roll(6000),-3000+roll(6000)]))
+				if chapter==45:r.friends[-1].set_position(scatter(gate_approach(28672),6000))
 			if chapter==45:
-				r.school_route=path([0,-60000,0,0,0,0])
-				for _i in 3:friends(1,[0,-60000,0],19,3);r.friends[-1].route=path([0,-60000,0,0,0,0])
+				r.school_route=source_path([0,-60000,0,0,0,0])
+				for _i in 3:friends(1,r.school_route.points[0],19,3);r.friends[-1].route=path_copy(r.school_route)
 			for _i in 5:
-				var freighter=special("freighter",11,true,[0,0,0],0);freighter.set_position([10000+roll(20000),-10000+roll(20000),10000+roll(20000)]);r.enemies.append(freighter)
+				var freighter=special("freighter",11,true,[0,0,0],0);freighter.set_position(Math.from_source([10000+roll(20000),-10000+roll(20000),10000+roll(20000)]));r.enemies.append(freighter)
 				if chapter==45:freighter.health.set_hull(freighter.health.hull*2)
 			enemies(7 if chapter==45 else 3,[0,0,0],-1,0)
 			if chapter==47:

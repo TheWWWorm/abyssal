@@ -22,6 +22,56 @@ func light_frame(viewport: SubViewport) -> Image:
  for i in 3:await process_frame
  await RenderingServer.frame_post_draw
  return viewport.get_texture().get_image()
+func hangar_pixel(rendered: Image,camera: Camera3D,model,aperture: AABB,at: Vector2) -> Color:
+ var local: Vector3=aperture.position+aperture.size*Vector3(at.x,at.y,0)
+ var pixel: Vector2=camera.unproject_position(model.transform*local)
+ return rendered.get_pixel(roundi(pixel.x),roundi(pixel.y))
+func check_hangar_doors(content) -> void:
+ if DisplayServer.get_name()=="headless":return
+ var viewport:=SubViewport.new();viewport.size=Vector2i(1000,600);viewport.own_world_3d=true
+ viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
+ var camera:=Camera3D.new();camera.projection=Camera3D.PROJECTION_ORTHOGONAL;camera.size=70;viewport.add_child(camera)
+ var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env
+ env.background_mode=Environment.BG_COLOR;env.background_color=Color("17394a")
+ env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;env.ambient_light_color=Color.WHITE;env.ambient_light_energy=1.0;viewport.add_child(environment)
+ var Model=load("res://native/presentation/model.gd")
+ for id in [3307,3308]:
+  for modern in [false,true]:
+   var model=Model.new();model.modern_graphics=modern;viewport.add_child(model)
+   model.configure(content.root,content.registry.filter(func(entry):return int(entry.id)==id)[0]);model.transform=Model.STATION_ROLL
+   var aperture: AABB=model.hangar_aperture();var center: Vector3=model.transform*aperture.get_center()
+   camera.position=center+Vector3(0,0,100);camera.look_at(center)
+   for smoothing in [false,true]:
+    model.library.station_smoothing=smoothing;model.refresh_station_filtering()
+    var mesh: MeshInstance3D=model.figure.get_node("Mesh")
+    var door: ShaderMaterial
+    for surface in mesh.mesh.get_surface_count():
+     var material: ShaderMaterial=mesh.get_surface_override_material(surface)
+     material.set_shader_parameter("distance_haze",0.0);material.set_shader_parameter("ocean_strength",0.0)
+     if material.get_shader_parameter("hangar_door"):door=material
+    model.set_hangar_open(0)
+    var rendered:=await light_frame(viewport)
+    # Read the imported dark opening along both axes. Equal margins catch
+    # a half-texel shift even though the model's geometric bounds agree.
+    for axis in 2:
+     var low:=1.0;var high:=0.0
+     for step in range(1,200):
+      var at:=Vector2(.5,.5);at[axis]=float(step)/200.0
+      if hangar_pixel(rendered,camera,model,aperture,at).r<.03:
+       low=minf(low,at[axis]);high=maxf(high,at[axis])
+     expect(high>low and absf(low+high-1.0)<.02,"Hangar %d opening is centered on axis %d with lighting %s / smoothing %s"%[id,axis,modern,smoothing])
+    # A solid test panel makes the opening direction unambiguous while
+    # exercising the imported door's UV orientation and actual shader.
+    var original=door.get_shader_parameter("albedo")
+    var white:=Image.create(128,128,false,Image.FORMAT_RGBA8);white.fill(Color.WHITE)
+    door.set_shader_parameter("albedo",ImageTexture.create_from_image(white));model.set_hangar_open(.5)
+    rendered=await light_frame(viewport)
+    expect(hangar_pixel(rendered,camera,model,aperture,Vector2(.5,.25)).r<.03 and hangar_pixel(rendered,camera,model,aperture,Vector2(.2,.5)).r>.2,"Hangar %d opens sideways through its full height"%id)
+    model.set_hangar_open(1);rendered=await light_frame(viewport)
+    expect(hangar_pixel(rendered,camera,model,aperture,Vector2(.1,.5)).r<.03 and hangar_pixel(rendered,camera,model,aperture,Vector2(.99,.5)).r>.2,"Hangar %d opens across the berth while preserving its jamb"%id)
+    model.set_hangar_open(0);door.set_shader_parameter("albedo",original)
+   model.queue_free();await process_frame
+ viewport.queue_free();await process_frame
 func check_station_filtering() -> void:
  if DisplayServer.get_name()=="headless":return
  var viewport:=SubViewport.new();viewport.size=Vector2i(128,128);viewport.own_world_3d=true
@@ -376,6 +426,7 @@ func run():
  var args := OS.get_cmdline_user_args()
  var content=load("res://native/content.gd").new()
  if not content.load_cache(args[0]):quit(1);return
+ await check_hangar_doors(content)
  var config:=ConfigFile.new();config.set_value("input","touch",1);config.save("user://stream-check.cfg")
  var app=load("res://native/gameplay.gd").new();app.content=content;app.settings_path="user://stream-check.cfg";app.save_path="user://stream-check.json";root.add_child(app)
  await process_frame

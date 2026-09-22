@@ -89,15 +89,26 @@ func run():
  c.hook.advance(40)
  expect(c.fish.health.enabled and c.fish.capturable and not c.hook.hooked,"Full hold preserves the catch and releases safely")
  c.world.dispose()
- # Capsules fall through the water and are dropped in again from the top.
- var drop=fish_fixture();drop.hook.detach(false)
- var capsule=preload("res://native/simulation/special_actor.gd").new()
- capsule.configure_special("capsule",9994,false,[0,0,0],data,drop.world.session.rng)
- capsule.health.configure(30,0,0);var start_y: int=capsule.pose.origin[1]
- capsule.advance(40);expect(capsule.pose.origin[1]>start_y and not capsule.capturable,"A capsule sinks and cannot be hooked")
- capsule.pose.origin[1]=capsule.CAPSULE_FLOOR+1;capsule.advance(40)
- expect(capsule.pose.origin[1]==capsule.origin[1] and capsule.state==0,"Past the floor a capsule starts again from its drop")
- drop.world.dispose()
+ # Cho's export capsules carry goods toward the surface. The simulation's
+ # positive Y is depth, so both placement and travel must use negative Y.
+ var export_world=fixture(10);var exports: Array=export_world.region.friends.filter(func(actor):return actor.get("kind")=="capsule")
+ expect(exports.size()==export_world.region.mission.total,"The Cho mission launches its full export-capsule stream")
+ for capsule in exports:
+  expect(capsule.pose.origin[1]<=0 and capsule.pose.origin[1]>-75000,"Export capsules start above their station")
+  capsule.pose.origin[1]=-10000
+  var start: Vector3=capsule.pose.godot_transform().origin
+  capsule.advance(40)
+  expect(capsule.pose.godot_transform().origin.y>start.y and not capsule.capturable,"An export capsule rises in the rendered world and cannot be hooked")
+  expect(capsule.pose.forward[1]<0,"An ascending capsule points toward shallower water")
+  capsule.pose.origin[1]=-75001;capsule.advance(40)
+  expect(capsule.pose.origin==[0,-3000,0] and capsule.state==0 and capsule.health.enabled,"Past the ascent limit the next capsule launches above the station")
+  expect(capsule.events.is_empty(),"An intact capsule leaving the encounter does not count as a loss")
+ # Recycling must not bypass the mission's destruction counter or failure.
+ var losses: int=export_world.region.mission.minimum
+ for index in losses:exports[index].health.hull=0
+ export_world.region.step(40)
+ expect(export_world.region.special_destroyed==losses and export_world.region.failed,"Destroyed export capsules still trigger the Cho loss limit")
+ export_world.dispose()
  # Swept hits catch a small target between frame endpoints, and a full pool
  # cannot consume cooldown or report a fictitious launch.
  var target:=NPC.new();target.health.configure(30,0,0);target.pose.origin=[0,0,2000];target.radius=100

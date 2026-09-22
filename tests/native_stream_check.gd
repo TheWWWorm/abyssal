@@ -59,6 +59,8 @@ func checks() -> void:
 	expect(world.stream_transfer(),"Ready exit gate transfers to the selected station")
 	expect(owner.station_id==target and not owner.docked and owner.entered_gate,"Transfer arrives in flight in the destination region")
 	expect(world.region.player.pose.origin==world.region.gates[1] and world.region.player.depth==owner.stations[target].depth,"Arrival uses the source entry gate and correct depth")
+	var arrival: Transform3D=world.region.player.pose.godot_transform()
+	expect((-arrival.basis.z).dot(-arrival.origin.normalized())>.999,"The arriving ship points through the gate toward its station")
 	expect(world.region.player.health.hull==31 and world.region.player.health.shield==7 and world.region.player.health.armor==11,"Transfer preserves all damage layers")
 	expect(world.region.player.boost_timer==-4321 and world.region.loadout.all_weapons()[0].elapsed==234,"Transfer preserves live flight cooldowns")
 	expect(owner.medals.pirates==3 and owner.medals.catches==4 and owner.credits==credits,"Transfer neither settles nor resets the expedition")
@@ -115,6 +117,8 @@ func checks() -> void:
 	expect(app.page.is_empty() and app.world.stream_destination==target,"Atlas button starts the actual gate approach")
 	app.view._process(0.04)
 	expect(app.view.gate_nodes.filter(func(node):return node.visible).size()==1 and app.view.gate_nodes[0].record.id==15,"Nearby STREAM pair displays one imported portal")
+	var portal: Transform3D=app.view.gate_nodes[0].transform
+	expect((-portal.basis.z).dot(-portal.origin.normalized())>.999,"The visible portal faces its station in the same frame as arriving ships")
 	app.world.region.player.pose.origin=app.world.region.gates[0].duplicate(); app.world.update_gates(640); app.view._process(0.04)
 	expect(app.view.gate_nodes[0].sampled_frame==app.world.gate_frame(0),"Gate model follows simulation opening state")
 	app.update_markers()

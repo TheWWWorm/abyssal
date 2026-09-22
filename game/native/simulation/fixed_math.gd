@@ -22,5 +22,10 @@ static func normalize_vector(value: Array) -> Array:return array(vector(value).n
 static func scaled(value: Array,factor: int) -> Array:return array(vector(value)*factor/4096.0)
 static func added(a: Array,b: Array) -> Array:return [a[0]+b[0],a[1]+b[1],a[2]+b[2]]
 static func subtracted(a: Array,b: Array) -> Array:return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]
+static func from_source(value: Array) -> Array:
+ # Authored world positions, offsets and directions: the source has +Y up
+ # and the opposite X axis. Native +Y is depth; +Z remains forward.
+ # Model-local mesh vertices and native flight vectors have their own frame.
+ return [-value[0],-value[1],value[2]]
 static func depth_percent(depth: int) -> int:return clampi(roundi((depth-15000)/150.0),0,100)
 static func depth_from_percent(percent: int) -> int:return 15000+percent*150

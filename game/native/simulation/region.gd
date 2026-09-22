@@ -63,7 +63,7 @@ func configure(owner_session) -> void:
 	for i in [1,2]:
 		var transform=preload("res://native/simulation/ship_transform.gd").new(); transform.math.sine_table=sine
 		var yaw: int = (300 if record.tech>4 else -300)*i
-		transform.set_euler(0,yaw,0); gates.append(transform.rotate_direction([0,0,(90000 if i==1 else 110000)+yaw*3]))
+		transform.set_euler(0,-yaw,0); gates.append(transform.rotate_direction([0,0,(90000 if i==1 else 110000)+yaw*3]))
 	# A nearby arrival/departure pair shares one physical portal. Keep the two
 	# logical slots for transit compatibility, but use one stable world position.
 	consolidate_gates()
@@ -111,6 +111,10 @@ func consolidate_gates() -> void:
 
 func gate_index(index: int) -> int:
 	return 0 if index==1 and gates[0]==gates[1] else index
+
+func gate_yaw(index: int) -> int:
+	# The station, the gate and an arriving ship share the converted yaw.
+	return 2048-(300 if session.stations[session.station_id].tech>4 else -300)*(gate_index(index)+1)
 
 func configure_npc_weapons(actors: Array,hostile: bool) -> void:
 	# One pool of shots for all the pirates and one for all the friends, as
@@ -292,26 +296,26 @@ func advance_finale(delta_ms: int) -> void:
 			escort.targets=[];escort.weapons=[];escort.route=Route.new();escort.route.configure([0,0,0])
 		cinematic_camera=Math.added(actor.pose.origin,[0,0,-4000]);cinematic_target="capsule";finale_stage=2
 	elif timeline[10].fired and finale_stage==2:
-		cinematic_camera=[15000,8000,28000];cinematic_target="station";finale_stage=3
+		cinematic_camera=Math.from_source([15000,8000,28000]);cinematic_target="station";finale_stage=3
 	elif finale_stage==2 and actor.route.complete():
 		actor.set_position([0,0,0]);actor.dormant();actor.health.set_hull(0)
 		for escort in friends:
-			escort.route=Route.new();escort.route.configure([40000,0,0,36000,-3000,4000],true)
-		finale_player_route=Route.new();finale_player_route.configure([42000,-2000,3000,30000,-1000,-5000],true)
+			escort.route=Route.new();escort.route.configure_source([40000,0,0,36000,-3000,4000],true)
+		finale_player_route=Route.new();finale_player_route.configure_source([42000,-2000,3000,30000,-1000,-5000],true)
 		player.autopilot_target=finale_player_route.points[-1]
 	if finale_stage==3:
 		finale_motion+=delta_ms/4
-		finale_station_offset[1]+=delta_ms*2+finale_motion
+		finale_station_offset[1]-=delta_ms*2+finale_motion
 		if timeline[12].acknowledged:
-			player.pose.origin=[44000,-5000,1000];cinematic_camera=[33000,-4000,2000];cinematic_target="player";finale_stage=4
+			player.pose.origin=Math.from_source([44000,-5000,1000]);cinematic_camera=Math.from_source([33000,-4000,2000]);cinematic_target="player";finale_stage=4
 	if finale_stage==4 and timeline[15].acknowledged:
-		cinematic_camera=Math.added(friends[0].pose.origin,[5000,-2000,0]);cinematic_target="friend0";finale_stage=5
+		cinematic_camera=Math.added(friends[0].pose.origin,Math.from_source([5000,-2000,0]));cinematic_target="friend0";finale_stage=5
 	if finale_stage==5 and timeline[17].acknowledged:
-		cinematic_camera=Math.added(friends[1].pose.origin,[-5000,2000,0]);cinematic_target="friend1";finale_stage=6
+		cinematic_camera=Math.added(friends[1].pose.origin,Math.from_source([-5000,2000,0]));cinematic_target="friend1";finale_stage=6
 	if finale_stage==6 and timeline[19].acknowledged:
-		cinematic_camera=Math.added(friends[1].pose.origin,[0,1000,8000]);cinematic_target="friend1";finale_stage=7
+		cinematic_camera=Math.added(friends[1].pose.origin,Math.from_source([0,1000,8000]));cinematic_target="friend1";finale_stage=7
 	if finale_stage==7 and timeline[24].acknowledged:
-		player.pose.origin=[44000,-5000,1000];cinematic_camera=[];cinematic_target="";finale_stage=8
+		player.pose.origin=Math.from_source([44000,-5000,1000]);cinematic_camera=[];cinematic_target="";finale_stage=8
 		events.append({"kind":"credits"})
 func acknowledge_credits() -> void:
 	if finale_stage!=8:return
