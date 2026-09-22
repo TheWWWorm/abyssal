@@ -18,6 +18,36 @@ func check_imported_material_hints() -> void:
   for x in 32:
    var c:=map.get_pixel(x,y)
    expect(c.g>=.47 and c.g<=.83,"Derived hull roughness stays in the restrained paint/metal range")
+
+func check_hull_orientation(content) -> void:
+ var Model=load("res://native/presentation/model.gd")
+ var Library=load("res://scripts/model_library.gd")
+ var upright:=Transform3D(Basis(Vector3(0,0,1),PI),Vector3.ZERO)
+ for id in range(12):
+  var entries: Array=content.registry.filter(func(entry):return int(entry.id)==id)
+  expect(entries.size()==1,"Hull %d has one imported model"%id)
+  if entries.is_empty():continue
+  var model=Model.new();model.library.root=content.root;model.record=entries[0];model.source=model.library.data(entries[0].model);model.animation=[]
+  var posed: Array=model.sample_bones(0);var authored: Array=[]
+  for i in model.source.bones.size():
+   var bone: Dictionary=model.source.bones[i];var transform: Array=bone.matrix.duplicate();var parent:=int(bone.parent)
+   if parent>=0:transform=Model.multiply(authored[parent],transform)
+   authored.append(transform)
+   expect(Library.matrix(posed[i]).is_equal_approx(upright*Library.matrix(transform)),"Hull %d bone %d inherits one dorsal-up half-turn"%[id,i])
+  model.free()
+ # A neighboring imported actor proves the correction remains confined to
+ # vessels; changing the global source conversion would turn this model too.
+ var controls: Array=content.registry.filter(func(entry):return int(entry.id)==13)
+ expect(controls.size()==1,"Orientation control model is present")
+ if not controls.is_empty():
+  var control=Model.new();control.library.root=content.root;control.record=controls[0];control.source=control.library.data(controls[0].model);control.animation=[]
+  var posed: Array=control.sample_bones(0);var authored: Array=[]
+  for i in control.source.bones.size():
+   var bone: Dictionary=control.source.bones[i];var transform: Array=bone.matrix.duplicate();var parent:=int(bone.parent)
+   if parent>=0:transform=Model.multiply(authored[parent],transform)
+   authored.append(transform)
+   expect(Library.matrix(posed[i]).is_equal_approx(Library.matrix(transform)),"Non-hull bone %d keeps its authored frame"%i)
+  control.free()
 func light_frame(viewport: SubViewport) -> Image:
  for i in 3:await process_frame
  await RenderingServer.frame_post_draw
@@ -426,6 +456,7 @@ func run():
  var args := OS.get_cmdline_user_args()
  var content=load("res://native/content.gd").new()
  if not content.load_cache(args[0]):quit(1);return
+ check_hull_orientation(content)
  await check_hangar_doors(content)
  var config:=ConfigFile.new();config.set_value("input","touch",1);config.save("user://stream-check.cfg")
  var app=load("res://native/gameplay.gd").new();app.content=content;app.settings_path="user://stream-check.cfg";app.save_path="user://stream-check.json";root.add_child(app)

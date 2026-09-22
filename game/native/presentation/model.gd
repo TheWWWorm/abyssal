@@ -14,6 +14,15 @@ const Mods = preload("res://native/presentation/mods.gd")
 const STATION_ROLL := Transform3D(Basis(Vector3(0,0,1),PI),Vector3.ZERO)
 static func station_transform(pose: Transform3D) -> Transform3D:
 	return pose*STATION_ROLL
+
+## The imported vessel meshes use the opposite dorsal direction from the
+## actor frame. Turn every independent hull root half a turn about the travel
+## axis before its animation is composed; child bones then inherit the turn
+## once. Keeping this in the bone pose makes the rendered mesh, bounds, lamps,
+## headlights and replacement fitting agree in every view of the vessel.
+const HULL_ROLL_SOURCE := [-1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,1.0,0.0]
+static func is_hull_id(id: int) -> bool:
+	return id>=0 and id<12
 var library := Library.new()
 var clock := Clock.new()
 var source: Dictionary = {}
@@ -194,12 +203,14 @@ func apply_hangar_open() -> void:
 func sample_bones(sample: int) -> Array:
 	var matrices: Array = []
 	var action: Array = []
+	var hull:=is_hull_id(int(record.id))
 	if not animation.is_empty(): action=animation[0].matrices[clampi(sample,0,int(animation[0].last_frame))]
 	for i in source.bones.size():
 		var bone: Dictionary = source.bones[i]
 		var parent := int(bone.parent)
 		var mat: Array = bone.matrix.duplicate()
 		if parent>=0: mat=multiply(matrices[parent],mat)
+		elif hull: mat=multiply(HULL_ROLL_SOURCE,mat)
 		if machinery and i==2:
 			# The owner's engine resource rotates this local Y bone; its three
 			# blades repeat every 120 degrees. Two-degree samples avoid stepping
@@ -238,7 +249,8 @@ func refresh() -> void:
 	posed_boost=effect_boost
 	machinery_sample=motion
 	sampled_frame=sample
-	var bone_key: String = str(record.model)+":"+str(sample)+":"+str(machinery_sample)
+	var hull:=is_hull_id(int(record.id))
+	var bone_key: String = str(record.model)+":"+str(sample)+":"+str(machinery_sample)+":"+str(hull)
 	if not library.native_bones_cache.has(bone_key):
 		if library.native_bones_cache.size()>=1024: library.native_bones_cache.erase(library.native_bones_cache.keys()[0])
 		library.native_bones_cache[bone_key]=sample_bones(sample)
@@ -254,7 +266,7 @@ func refresh() -> void:
 	call.pixelated_station=int(record.id)>=3300 and int(record.id)<3400 and not library.station_smoothing
 	call.smoothed_station=int(record.id)>=3300 and int(record.id)<3400 and library.station_smoothing
 	call.station_coating=modern_graphics and int(record.id)>=3300 and int(record.id)<3400
-	call.hull_coating=modern_graphics and (call.station_coating or int(record.id)>=0 and int(record.id)<12)
+	call.hull_coating=modern_graphics and (call.station_coating or hull)
 	call.bioluminescence=.38 if modern_graphics and int(record.id)==4426 else 0.0
 	call.distance_haze=0.0015 if int(record.id)>=3300 and int(record.id)<3400 else 0.00032
 	# Ship glow geometry was a lighting approximation. Modern flight supplies
@@ -263,7 +275,7 @@ func refresh() -> void:
 	# cut ran to 20 and took the mine, the torpedo and the S.T.R.E.A.M. gate with
 	# it, whose additive geometry is not a lighting stand-in: on the gate it is
 	# the flare in the aperture and the trails that stream off the arms.
-	call.source_glow_visible=not (modern_graphics and int(record.id)>=0 and int(record.id)<12)
+	call.source_glow_visible=not (modern_graphics and hull)
 	call.effect_boost=effect_boost
 	call.native_pose_key=str([record.id,sample,machinery_sample,pattern,material_look,modern_graphics,library.station_smoothing,library.ocean_strength,library.effect_glow,effect_boost])
 	if figure==null or pattern!=last_pattern:
