@@ -60,7 +60,7 @@ func configure(owner_session) -> void:
 	player.health.hull=session.hull; player.health.shield=session.shield; player.health.armor=session.armor
 	station.configure(record,session.is_colonist_station(),sine,session.data.get("station_geometry",{}))
 	player.collision_groups=[[station]]
-	gates=gate_positions(record,sine)
+	gates=session.world_layout.clear_gates(session,record,gate_positions(record,sine),sine)
 	var setup := Setup.new(); setup.configure(self); setup.populate()
 	if mission.story:
 		for record_event in session.data.timelines.get(str(session.campaign.chapter),[]): timeline.append(Timeline.new().configure(record_event))
@@ -121,8 +121,9 @@ func gate_index(index: int) -> int:
 	return 0 if index==1 and gates[0]==gates[1] else index
 
 func gate_yaw(index: int) -> int:
-	# The station, the gate and an arriving ship share the converted yaw.
-	return gate_yaw_for(session.stations[session.station_id],gate_index(index))
+	# A relocated gate and its arriving ship still face the owning station.
+	var point: Array=gates[gate_index(index)]
+	return posmod(roundi(atan2(-float(point[0]),-float(point[2]))*4096.0/TAU),4096)
 
 static func gate_yaw_for(station: Dictionary,index: int) -> int:
 	return 2048-(300 if station.tech>4 else -300)*(index+1)

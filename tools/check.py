@@ -20,6 +20,8 @@ def main():
         'native_session_check.gd':cache/'native-data.json',
         'modern_gameplay_check.gd':cache/'native-data.json',
         'native_coordinates_check.gd':cache/'native-data.json',
+        'gate_clearance_check.gd':cache/'native-data.json',
+        'world_spacing_check.gd':cache,
         'provenance_rules_check.gd':cache/'native-data.json',
         'native_travel_check.gd':cache/'native-data.json',
         'native_open_world_mission_check.gd':cache/'native-data.json',
@@ -27,6 +29,7 @@ def main():
         'native_terrain_check.gd':cache,
         'engine_ui_check.gd':cache,
         'engine_stream_check.gd':cache,
+        'station_shadow_check.gd':cache,
         'mods_check.gd':cache,
     }
     failures=[]

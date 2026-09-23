@@ -99,6 +99,8 @@ func set_stream_visibility(value: float) -> void:
 
 func apply_stream_visibility() -> void:
 	if figure==null:return
+	var shadow := figure.get_node_or_null("StationShadow")
+	if shadow!=null:shadow.set_coverage("stream_visibility",stream_visibility)
 	var mesh := figure.get_node("Mesh") as MeshInstance3D
 	# Keep pose-cache materials immutable. Only fading instances own overrides.
 	for index in mesh.mesh.get_surface_count():
@@ -196,6 +198,8 @@ func set_hangar_open(value: float) -> void:
 	hangar_open=clampf(value,0,1);apply_hangar_open()
 func apply_hangar_open() -> void:
 	if figure==null or not is_hangar():return
+	var shadow := figure.get_node_or_null("StationShadow")
+	if shadow!=null:shadow.set_coverage("hangar_open",hangar_open)
 	var mesh:=figure.get_node("Mesh") as MeshInstance3D
 	for i in mesh.mesh.get_surface_count():
 		var material:=mesh.get_surface_override_material(i) as ShaderMaterial
@@ -332,6 +336,8 @@ func release_mesh() -> void:
 	for variant in pattern_figures.values():
 		var mesh := variant.get_node("Mesh") as MeshInstance3D
 		mesh.mesh=null
+		var shadow := variant.get_node_or_null("StationShadow") as MeshInstance3D
+		if shadow!=null:shadow.mesh=null
 func _exit_tree() -> void:
 	# Reparenting a station during region promotion also exits the tree.
 	# Detach GPU resources only when the model or its owner is being deleted.

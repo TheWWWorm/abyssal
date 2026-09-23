@@ -18,7 +18,8 @@ func traveler(station_id: int=0, armour: int=-1):
 			if item!=null and item.kind==4: session.ship.remove(item)
 		session.ship.equip(session.make_equipment(armour))
 	session.campaign.primary.kind=-1; session.prepare_station(station_id)
-	var world := World.new(); world.configure(session); world.depart(); clear_ambient(world)
+	# Retain the compact atlas for the fixed-duration multi-leg regression.
+	var world := World.new();world.spacing_meters=400;world.configure(session);world.depart();clear_ambient(world)
 	return world
 func _initialize() -> void:
 	data=JSON.parse_string(FileAccess.get_file_as_string(OS.get_cmdline_user_args()[0]))

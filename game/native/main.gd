@@ -171,6 +171,7 @@ func _ready() -> void:
 		var behavior := Control.FOCUS_BEHAVIOR_DISABLED if modal.visible else Control.FOCUS_BEHAVIOR_INHERITED
 		title_menu.focus_behavior_recursive=behavior;panel.focus_behavior_recursive=behavior)
 	modal.add_theme_stylebox_override("panel",style(Color("07151df5"),Color("409bbd")))
+	modal.minimum_size_changed.connect(func():layout_ui.call_deferred())
 	modal.hide()
 	ui.add_child(loading);loading.add_theme_stylebox_override("panel",style(Color("07151df5"),Color("409bbd")));loading.hide()
 	var loading_row := HBoxContainer.new();loading_row.add_theme_constant_override("separation",18);loading.add_child(loading_row)
@@ -700,9 +701,13 @@ func set_preference(section: String, key: String, value: Variant) -> void:
 
 func show_settings() -> void:
 	for child in modal.get_children(): modal.remove_child(child);child.queue_free()
-	var box := VBoxContainer.new();box.add_theme_constant_override("separation",14);modal.add_child(box)
-	box.add_child(label("EXPEDITION SETTINGS",26,Color("8bd6ee")))
-	box.add_child(label("Changes are saved for your next dive.",14,Color("89a6a6")))
+	var shell:=VBoxContainer.new();shell.add_theme_constant_override("separation",14);modal.add_child(shell)
+	shell.add_child(label("EXPEDITION SETTINGS",26,Color("8bd6ee")))
+	shell.add_child(label("Changes are saved for your next dive.",14,Color("89a6a6")))
+	var scroll:=ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
+	var box:=VBoxContainer.new();box.add_theme_constant_override("separation",14);box.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(box)
+	button("World spacing",show_world_settings,box)
 	var config := ConfigFile.new();config.load(settings_path)
 	var modern := bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true)))
 	var mode := button("Lighting · "+("ENHANCED LIGHTING" if modern else "CLASSIC LIGHTING")+"  ⇄",func():
@@ -736,8 +741,23 @@ func show_settings() -> void:
 	hints.tooltip_text="Show loading tips, one-time M.A.I. guidance and the flight control reminder."
 	hints.toggled.connect(func(value): set_preference("interface","hints",value))
 	button("Toggle fullscreen  ·  F11",func(): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN),box)
-	var back := button("Back",close_modal,box)
+	var back := button("Back",close_modal,shell)
 	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
+
+func show_world_settings() -> void:
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box:=VBoxContainer.new();box.add_theme_constant_override("separation",18);modal.add_child(box)
+	box.add_child(label("WORLD SPACING",26,Color("8bd6ee")))
+	var config:=ConfigFile.new();config.load(settings_path)
+	var spacing:=preload("res://native/simulation/world_spacing.gd").new();spacing.read_config(config)
+	var controls:=preload("res://native/presentation/world_settings.gd").new();controls.configure(spacing);box.add_child(controls)
+	controls.changed.connect(func():
+		var saved:=ConfigFile.new();saved.load(settings_path);spacing.write_config(saved)
+		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
+		if saved.save(settings_path)!=OK:status.text="Could not save settings. Check your user folder.")
+	box.add_child(label("Changes are saved for your next dive.",14,Color("89a6a6")))
+	button("Back",show_settings,box)
+	scrim.show();modal.show();layout_ui();controls.selector.grab_focus.call_deferred()
 
 func launch_game(resume: bool=false, player_name: String="Diver", path: String="") -> void:
 	if not ready_for_preview or launching: return

@@ -60,11 +60,11 @@ func _draw() -> void:
 	var encounter = world.encounter_navigation_point()
 	if encounter!=null:
 		var anchor: Array=world.station_origin(session.station_id)
-		var waypoint := point(float(anchor[0]+encounter[0])/world.MAP_SCALE,float(anchor[2]+encounter[2])/world.MAP_SCALE)
+		var waypoint := point(float(anchor[0]+encounter[0])/world.map_scale(),float(anchor[2]+encounter[2])/world.map_scale())
 		draw_arc(waypoint,6,0,TAU,16,Color("91e4d4"),2,true)
 		draw_string(ThemeDB.fallback_font,waypoint+Vector2(12,20),"Local encounter",HORIZONTAL_ALIGNMENT_LEFT,-1,13,Color("91e4d4"))
 	var position: Array = world.global_position()
-	var p := point(float(position[0])/world.MAP_SCALE,float(position[2])/world.MAP_SCALE)
+	var p := point(float(position[0])/world.map_scale(),float(position[2])/world.map_scale())
 	if world.autopilot and world.destination>=0:
 		var target: Dictionary = session.stations[world.destination]
 		draw_dashed_line(p,point(target.x,target.y),Color("97e4d3"),2,6)

@@ -9,6 +9,8 @@ const Random = preload("res://native/simulation/java_random.gd")
 const Campaign = preload("res://native/simulation/campaign.gd")
 const Economy = preload("res://native/simulation/economy.gd")
 const Mission = preload("res://native/simulation/mission.gd")
+const WorldLayout = preload("res://native/simulation/world_layout.gd")
+var world_layout := WorldLayout.new()
 var data: Dictionary = {}
 var face_layers: Array = [85,65,75,16,43,-1]
 var name := "Player"
@@ -42,6 +44,7 @@ var hints_said: Dictionary = {}
 
 func new_game(owner_data: Dictionary, player_name: String, random_seed: int) -> void:
  data=owner_data; name=player_name; credits=15000; elapsed_ms=0
+ world_layout=WorldLayout.new()
  hints_said={}
  medals=preload("res://native/simulation/medals.gd").new(); pending_bounty=0
  counters={"e":0,"f":0,"g":0,"h":0,"i":0,"j":0,"k":1,"l":15,"m":0,"n":0,"o":0,"p":0,"q":0,"r":0,"s":0,"t":22500,"u":22500}

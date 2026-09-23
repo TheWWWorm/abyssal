@@ -14,7 +14,7 @@ func checks() -> void:
 	owner.campaign.primary.kind=-1; owner.prepare_station(0)
 	var world=World.new(); world.configure(owner); world.depart()
 	var base: float = world.stream_range()
-	expect(is_equal_approx(base*400,6666.6666667),"Base STREAM radius is one sixth of the 40 km atlas")
+	expect(is_equal_approx(world.map_kilometers(base),10.0),"Medium short spacing gives a 10 km base STREAM radius")
 	var reachable: Array = []
 	for engine in [-1,29,30,31]:
 		if engine>=0: owner.ship.equip(owner.make_equipment(engine))

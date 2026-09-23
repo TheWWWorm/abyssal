@@ -54,6 +54,8 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 		session.prepare_station(session.station_id)
 	session.docked=true
 	var config := ConfigFile.new();config.load(settings_path)
+	var spacing:=preload("res://native/simulation/world_spacing.gd").new();spacing.read_config(config)
+	world.spacing_meters=spacing.meters()
 	view.modern_graphics=bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true)))
 	view.set_station_smoothing(bool(config.get_value("graphics","station_smoothing",false)))
 	world.configure(session);world.build_docked_view();abyss.world=world

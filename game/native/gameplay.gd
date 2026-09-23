@@ -8,6 +8,7 @@ const Model = preload("res://native/presentation/model.gd")
 const Map = preload("res://native/presentation/overworld_map.gd")
 const Scanner = preload("res://native/presentation/scanner.gd")
 const ContactMarker = preload("res://native/presentation/contact_marker.gd")
+const RangeText = preload("res://native/presentation/range_text.gd")
 const EquipmentInfo = preload("res://native/presentation/equipment_info.gd")
 const Library = preload("res://scripts/model_library.gd")
 var content
@@ -174,6 +175,7 @@ const TravelFade = preload("res://native/presentation/travel_fade.gd")
 const Display = preload("res://native/presentation/display_settings.gd")
 var aspect_ratio := "auto"
 var settings_path := "user://native/settings.cfg"
+var world_spacing := preload("res://native/simulation/world_spacing.gd").new()
 func _ready() -> void:
 	original_ui_size=get_window().content_scale_size
 	get_window().size_changed.connect(update_render_resolution)
@@ -254,6 +256,7 @@ func _ready() -> void:
 	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
 	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
 	gameplay_hints=bool(config.get_value("interface","hints",true))
+	world_spacing.read_config(config);world.spacing_meters=world_spacing.meters()
 	motion.notice.connect(notice)
 	if motion_steering: motion.enable()
 	touch.arrange()
@@ -880,6 +883,7 @@ func show_pause() -> void:
 	freeze.tooltip_text="Hold the dive still and look around it." if not freeze.disabled else "Available while diving."
 	button("Controls",show_controls)
 	button("Graphics",show_graphics)
+	button("World spacing",show_world_settings)
 	button("Help",show_help)
 	button("Transfer expedition",show_transfer)
 	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
@@ -1190,6 +1194,7 @@ func setting_keycode(config: ConfigFile, key: String, fallback: int) -> int:
 	return code if code>0 and not OS.get_keycode_string(code).is_empty() else fallback
 func save_settings() -> void:
 	var config := ConfigFile.new(); config.load(settings_path)
+	world_spacing.write_config(config)
 	for key in key_bindings: config.set_value("keys",key,key_bindings[key])
 	for key in graphics: config.set_value("graphics",key,graphics[key])
 	config.set_value("input","touch",touch.mode);config.set_value("input","deadzone",controller.deadzone);config.set_value("input","invert_gamepad",controller.invert)
@@ -1315,6 +1320,7 @@ func show_system() -> void:
 	button("Save game",show_save_slots)
 	button("Controls",show_controls)
 	button("Graphics & audio",show_graphics)
+	button("World spacing",show_world_settings)
 	button("Help",show_help)
 	button("Transfer expedition",show_transfer)
 	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
@@ -1323,6 +1329,19 @@ func show_system() -> void:
 	button("Main menu",func(): confirm("Main menu",
 		"Your expedition is saved at this station first.",
 		"Return to main menu",return_to_menu,show_system))
+func show_world_settings() -> void:
+	open_page("World spacing","world_settings")
+	var settings:=preload("res://native/presentation/world_settings.gd").new()
+	settings.configure(world_spacing);column.add_child(settings)
+	var active:=label("",16)
+	var refresh:=func():
+		active.text="Current dive: %s per map unit."%RangeText.format_distance(session.world_layout.spacing_meters)
+		if world_spacing.meters()!=session.world_layout.spacing_meters:
+			active.text+="\nNext departure: %s per map unit."%RangeText.format_distance(world_spacing.meters())
+	refresh.call()
+	label("Changes apply on your next departure or when you load an expedition.",15)
+	settings.changed.connect(func():world.spacing_meters=world_spacing.meters();save_settings();refresh.call())
+	back_row(show_system if session.docked else show_pause)
 func back_row(action: Callable) -> void:
 	"""Where a page used to end in its own Back row, the header's BACK, Esc and
 	the pad's B now take that way instead; one way back per page."""
@@ -1336,7 +1355,7 @@ func dock_back() -> void:
 	if page=="market":
 		if market_category in ["ships","equipment","manufacture"]:show_hangar();return
 		if market_category=="missions":show_station_missions();return
-	if page in ["graphics","controls","save_slots","help"]:show_system();return
+	if page in ["graphics","controls","world_settings","save_slots","help"]:show_system();return
 	if page=="journal":show_station_missions();return
 	if page in ["ship_status","profile"]:show_station_status();return
 	show_station()
@@ -1644,7 +1663,7 @@ func select_station(id: int) -> void:
 	var station: Dictionary = session.stations[id]
 	map_info.text="%s\nDepth %d · Tech %d\n%s"%[station.name,station.depth,station.tech,"Discovered" if session.discovered[id] else "Unexplored"]
 	var denial: String = world.stream_denial(id)
-	map_info.text+="\nS.T.R.E.A.M. %.1f / %.1f km"%[world.stream_distance(id)*0.4,world.stream_range()*0.4]
+	map_info.text+="\nS.T.R.E.A.M. %.1f / %.1f km"%[world.map_kilometers(world.stream_distance(id)),world.map_kilometers(world.stream_range())]
 	var status := "Ready · transfer at the gate"
 	if not denial.is_empty():
 		status="Current area" if id==session.station_id else "Needs longer-range engine" if world.stream_distance(id)>=world.stream_range() else "Needs pressure protection" if station.depth<session.ship.minimum_depth or station.depth>session.ship.maximum_depth else "Locked by the current mission"
@@ -1782,7 +1801,7 @@ func update_markers() -> void:
 			marker_by_contact[target.key]=available.pop_back()
 		var i: int = marker_by_contact[target.key]
 		markers[i].set_symbol(direction)
-		markers[i].display(target.name+" · ","%.0f m"%(snappedf(distance,5.0) if distance>=50 else distance),detail,target.color,float(target.hull) if on_screen else -1.0)
+		markers[i].display(target.name+" · ",RangeText.format_distance(distance),detail,target.color,float(target.hull) if on_screen else -1.0)
 		if enemy and not on_screen:markers[i].track_enemy(screen,18,true)
 		screen+=Vector2(24,12) if on_screen and enemy else Vector2(14,10) if on_screen else Vector2.ZERO
 		screen.x=clampf(screen.x,12,maxf(12,ui.size.x-markers[i].size.x-12))
@@ -2003,7 +2022,7 @@ func show_stream_menu() -> void:
 		for child in habitat_rows.get_children(): habitat_rows.remove_child(child); child.queue_free()
 		info.text="%s\nTec Level: %d\nDepth: %d\n\nDISTANCE  %.1f km\nREACH  %.1f km\n\n%s"%[
 			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",station.tech,station.depth,
-			world.stream_distance(id)*.4,world.stream_range()*.4,"Exit ready" if denial.is_empty() else denial]
+			world.map_kilometers(world.stream_distance(id)),world.map_kilometers(world.stream_range()),"Exit ready" if denial.is_empty() else denial]
 		confirm.disabled=not denial.is_empty()
 		if stream_species: info.text="";show_habitat(id,habitat_rows)
 	chart.selected.connect(select)

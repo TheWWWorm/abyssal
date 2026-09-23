@@ -15,6 +15,7 @@ static func far_visibility(distance: float) -> float:
 	return 1.0-smoothstep(7000.0,9600.0,distance)
 
 const Model = preload("res://native/presentation/model.gd")
+const StationShadow = preload("res://native/presentation/station_shadow.gd")
 const Abyss = preload("res://native/presentation/abyss.gd")
 const Library = preload("res://scripts/model_library.gd")
 var world
@@ -39,6 +40,7 @@ var gate_nodes: Array = []
 var registry: Dictionary = {}
 var modern_graphics := true
 var revision := -1
+var rendered_map_scale := 0
 var rendered_station := -1
 var rendered_anchor := Vector3.ZERO
 var rendered_modern := true
@@ -121,7 +123,7 @@ func refresh_station_filtering(parent: Node) -> void:
 
 func rebuild() -> void:
 	clear_player_clip()
-	var keep_scene := revision>=0 and rendered_modern==modern_graphics and rendered_pack==pack.enabled
+	var keep_scene: bool=revision>=0 and rendered_modern==modern_graphics and rendered_pack==pack.enabled and rendered_map_scale==world.map_scale()
 	var keep_player: bool=keep_scene and player_model!=null and int(player_model.record.id)==world.session.ship.id
 	combat.reset(keep_player and not world.session.docked)
 	previous_particle_fraction=world.accumulator
@@ -206,6 +208,7 @@ func rebuild() -> void:
 	previous_time=world.region.elapsed_ms
 	rendered_station=world.session.station_id;rendered_anchor=world.geography.anchor
 	rendered_modern=modern_graphics;rendered_pack=pack.enabled
+	rendered_map_scale=world.map_scale()
 	revision=world.revision
 	if not keep_scene: bake_shaders()
 
@@ -270,7 +273,6 @@ func _process(delta: float) -> void:
 	var region=world.region
 	camera.fov=lerpf(camera.fov,70.0 if region.player.boost_active and not region.cinematic() else 65.0,1-exp(-delta*5))
 	neighbor_clock+=delta
-	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
 	shade_actor_beams()
 	var ms: int = maxi(0,region.elapsed_ms-previous_time)
 	previous_time=region.elapsed_ms
@@ -304,7 +306,9 @@ func _process(delta: float) -> void:
 			"friend1": target=Library.point(region.friends[1].pose.origin)
 		if camera.global_position.distance_squared_to(target)>0.01: camera.look_at(target,Vector3.UP)
 	for i in station_nodes.size():
-		station_nodes[i].position=Library.point(preload("res://native/simulation/fixed_math.gd").added(region.station.parts[i].origin,region.finale_station_offset))
+		var position: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(region.station.parts[i].origin,region.finale_station_offset))
+		# Avoid propagating a stationary pose through meshes, lights and bodies.
+		if station_nodes[i].position!=position:station_nodes[i].position=position
 		animate_model(station_nodes[i],delta,1.0)
 	for i in gate_nodes.size():
 		if not gate_nodes[i].visible:continue
@@ -390,6 +394,9 @@ func _process(delta: float) -> void:
 	# been, and hands back to it by its blend, so the chase is where it lands.
 	if cinematic_override:camera.global_transform=cinematic_transform.interpolate_with(camera.global_transform,cinematic_blend)
 	previous_camera_mode=camera_mode
+	# Region entry rebases local coordinates. Measure streaming distances only
+	# after the camera has moved into the new frame, including transit shots.
+	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
 	var frustum: Array[Plane] = camera.get_frustum()
 	for actor in region.creatures+region.enemies+region.friends:
 		var id: int = actor.get_instance_id()
@@ -657,7 +664,9 @@ func add_station_collision(visual: Node3D) -> void:
 	var geometry: Node3D=visual.replacement if visual.replacement!=null else visual.figure
 	if geometry==null:return
 	for mesh in preload("res://native/presentation/replacement_geometry.gd").all_meshes(geometry):
-		mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		if mesh is StationShadow:continue
+		if not mesh.get_parent().has_node("StationShadow"):
+			mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		
 		var body := StaticBody3D.new(); body.collision_layer=2; body.collision_mask=0
 		var shape := CollisionShape3D.new(); shape.shape=mesh.mesh.create_trimesh_shape();shape.shape.backface_collision=true

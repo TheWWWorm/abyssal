@@ -150,6 +150,8 @@ The title menu stands in front of the station your expedition is at - the one yo
 
 The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible in flight, and quest destinations get gold labels and off-screen direction markers.
 
+**World spacing**, in title settings, the pause menu and the dock's System menu, sets horizontal distance per map unit: Short (400 m), Medium short (600 m, the default), Normal (1 km), High (2 km), Original (18.85 km) or Custom (at least 400 m). Actual distances follow the stations' map positions; this value is not a minimum gap between stations. Original uses the original game's 18.85 km distance conversion. Changes apply on the next departure or when loading an expedition. Ship and station sizes, depths, contracts and which destinations S.T.R.E.A.M. can reach stay the same. Target labels use metres below 1,000 m and kilometres from 1,000 m onward.
+
 Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its − and + steps, or press **Max** for as much as the purse, the hold and the station's shelf allow, then Buy or Sell in one press. Each button offers only what it can actually move, and reports what it actually moved.
 
 Going into a gate is flown from the cockpit. Coming out is shown from outside: the submarine leaves the far aperture at full ahead, easing back to the speed you were flying as the camera hands back. You always come out on the side the region is on, heading in towards it, whichever side you entered from. Steering stays yours throughout.
@@ -233,7 +235,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.0.0**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.2.12**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

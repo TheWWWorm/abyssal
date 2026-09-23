@@ -516,7 +516,8 @@ func run():
  if not content.load_cache(args[0]):quit(1);return
  check_hull_orientation(content)
  await check_hangar_doors(content)
- var config:=ConfigFile.new();config.set_value("input","touch",1);config.save("user://stream-check.cfg")
+ # The dense atlas deliberately exercises more than four streamed stations.
+ var config:=ConfigFile.new();config.set_value("input","touch",1);config.set_value("world","spacing_preset",0);config.save("user://stream-check.cfg")
  var app=load("res://native/gameplay.gd").new();app.content=content;app.settings_path="user://stream-check.cfg";app.save_path="user://stream-check.json";root.add_child(app)
  await process_frame
  app.set_process(false);app.view.set_process(false);app.close_page();app.view._process(0)

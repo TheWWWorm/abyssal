@@ -6,6 +6,10 @@ var tint := Color.WHITE
 var font: Font
 var advances := {}
 const FONT_SIZE := 13
+static func format_distance(meters: float) -> String:
+	if meters>=1000.0:return "%.2f km"%(meters/1000.0)
+	# Preserve steady five-metre steps nearby without rounding up to 1000 m.
+	return "%.0f m"%minf(999,snappedf(meters,5.0) if meters>=50 else meters)
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	font=get_theme_font("font","Label")

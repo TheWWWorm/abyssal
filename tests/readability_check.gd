@@ -233,7 +233,7 @@ func check_helm_response(TestPlayer,stats,sine: Array) -> void:
  leaning.steer(1,0,40);leaning.advance(40)
  expect(leaning.bank==40,"The lean builds a unit a millisecond (%d)"%leaning.bank)
  for i in 20:leaning.steer(1,0,40);leaning.advance(40)
- expect(leaning.bank==384 and leaning.visual_bank==-384,"The lean holds at 384 while the helm is over (%d)"%leaning.bank)
+ expect(leaning.bank==384 and leaning.visual_bank==384,"The lean holds at 384 while the helm is over (%d)"%leaning.bank)
  leaning.advance(40)
  expect(leaning.bank==376,"The hull comes back upright at a fifth of the rate (%d)"%leaning.bank)
  for i in 46:leaning.advance(40)

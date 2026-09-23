@@ -28,6 +28,7 @@ func _initialize():call_deferred("run")
 func run():
  data=JSON.parse_string(FileAccess.get_file_as_string(OS.get_cmdline_user_args()[0]))
  check_vertical_motion()
+ check_turn_bank()
  check_touch_horizon_assist()
  check_formations()
  check_gates()
@@ -79,6 +80,29 @@ func check_vertical_motion() -> void:
   var pose:=Pose.new();pose.set_euler(pitch,300,0)
   var weapon=preload("res://native/simulation/weapon.gd").new();weapon.configure(1,1,3000,100,10,[0,0,0]);weapon.request_fire(pose,40)
   expect(Library.point(weapon.velocities[0]).normalized().dot(-pose.godot_transform().basis.z)>.999,"Shots follow the rendered bow at pitch %d"%pitch)
+ region.dispose()
+
+func check_turn_bank() -> void:
+ var region=fixture(1)
+ for smooth in [false,true]:
+  for mode in ["helm","mouse","strafe"]:
+   for direction in [-1,1]:
+    var pilot:=Player.new();pilot.configure(region.session.ship,22500,data.constants.dt["a:[S"])
+    pilot.smooth_steering=smooth;pilot.throttle=0;pilot.set_throttle(0)
+    pilot.pose.set_euler(0,700,0)
+    var before: Basis=pilot.pose.godot_transform().basis
+    for tick in 12:
+     if mode=="helm":pilot.steer(direction,0,40)
+     elif mode=="mouse":pilot.mouse_steer(direction*40,0)
+     else:pilot.set_strafe(direction)
+     pilot.advance(40)
+    var bank_pose:=Pose.new();bank_pose.set_euler(0,0,pilot.visual_bank)
+    var flight: Basis=pilot.pose.godot_transform().basis
+    var hull: Basis=flight*bank_pose.godot_transform().basis
+    expect(hull.x.dot(flight.y)*direction<-.05,"Rendered %s bank lowers the inside edge for direction %d, smooth=%s"%[mode,direction,smooth])
+    expect(absf(flight.x.y)<.001,"Cosmetic %s bank leaves flight and aiming level"%mode)
+    if mode=="strafe":expect(flight.z.dot(before.z)>.999,"Strafe banking preserves heading")
+    else:expect((-flight.z).dot(before.x)*direction>.01,"The hull banks toward its actual %s turn"%mode)
  region.dispose()
 
 func check_touch_horizon_assist() -> void:

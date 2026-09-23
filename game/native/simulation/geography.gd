@@ -16,7 +16,10 @@ const ENCOUNTER_FLOOR := 480.0
 const CAPSULE_RADIUS := 180.0
 const CAPSULE_FLOOR := 900.0
 func configure(world) -> void:
-	for station in world.session.stations: stations.append(Vector3(station.x*400,-station.depth*0.08, -station.y*400))
+	stations.clear();height_cache.clear();prop_cache.clear()
+	for station in world.session.stations:
+		var origin: Array=world.station_origin(station.id)
+		stations.append(Vector3(origin[0],-origin[1],-origin[2])*0.01)
 	var p: Array = world.station_origin(world.session.station_id)
 	anchor=Vector3(p[0],-p[1],-p[2])*0.01
 func base_height(key: Vector2i) -> float:

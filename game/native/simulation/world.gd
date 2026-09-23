@@ -5,10 +5,10 @@ const Math = preload("res://native/simulation/fixed_math.gd")
 const StationBody = preload("res://native/simulation/station_body.gd")
 const CollisionShape = preload("res://native/simulation/collision_shape.gd")
 const STEP_MS := 40
-const MAP_SCALE := 40000
+const Spacing = preload("res://native/simulation/world_spacing.gd")
 const SPEEDS := [1,2,4,8,16]
 const COURSE_LOOKAHEAD := 60000.0
-const REGION_APPROACH_DISTANCE := 60000.0 # Activate encounters before reaching station walls.
+const REGION_APPROACH_DISTANCE := preload("res://native/simulation/world_layout.gd").REGION_APPROACH_DISTANCE
 var session
 var region
 ## The berth's own random sequence; see advance_docked.
@@ -49,19 +49,27 @@ var previous_render_poses := {}
 var previous_render_bank := 0
 ## The helm setting outlives any one region's player; see player.gd.
 var smooth_steering := false
+## Apply at a new dive, never by moving stations around an active submarine.
+var spacing_meters := Spacing.DEFAULT_METERS
 func configure(owner_session) -> void:
 	session=owner_session
+	session.world_layout.spacing_meters=spacing_meters
+func map_scale() -> int:
+	return session.world_layout.spacing_meters*100
+func map_kilometers(units: float) -> float:
+	return units*session.world_layout.spacing_meters/1000.0
 func set_smooth_steering(value: bool) -> void:
 	smooth_steering=value
 	if region!=null:region.player.smooth_steering=value
 func station_origin(id: int) -> Array:
-	var station: Dictionary = session.stations[id]
-	return [station.x*MAP_SCALE,station.depth*8,station.y*MAP_SCALE]
+	return session.world_layout.station_origin(session.stations[id])
 func global_position() -> Array:
 	return Math.added(station_origin(session.station_id),region.player.pose.origin) if region!=null else station_origin(session.station_id)
 func depart() -> bool:
 	if not session.depart(): message=session.text(session.depart_denial()); return false
 	if region!=null: region.dispose()
+	session.world_layout.spacing_meters=spacing_meters
+	obstacle_bodies.clear();previous_render_poses.clear()
 	region=Region.new(); region.configure(session); physical_neighbors.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography(); revision+=1; accumulator=0;weapon_pending.clear(); cancel_autopilot(); reset_gates()
 	# The departure berth is on the near side: face away from the station.
 	region.player.pose.face(Math.normalize_vector(region.player.pose.origin))

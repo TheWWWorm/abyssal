@@ -98,7 +98,8 @@ func run():
    expect(game.view.revision==revision and game.view.station_nodes[0]==station,"Filtering leaves the ocean scene and station identity intact")
    expect(station.figure.get_node("Mesh")==station_mesh and station_mesh.mesh==geometry,"Station filtering preserves mesh nodes and geometry")
    expect(collision_bodies.all(func(body):return is_instance_valid(body) and body.get_parent()==station_mesh),"Filtering preserves the attached station ray collision bodies")
-   expect(station_mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED,"Filtering retains double-sided station shadows")
+   var shadow: MeshInstance3D=station.figure.get_node_or_null("StationShadow")
+   expect((shadow!=null and shadow.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY and station_mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF) if modern else station_mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED,"Filtering preserves the active station shadow caster")
    expect(neighbor.stream_visibility==.35 and neighbor.get_parent()==neighbor_root,"Filtering preserves a streamed station's fade and parent")
    for visual in [station,neighbor]:
     var mesh: MeshInstance3D=visual.figure.get_node("Mesh")

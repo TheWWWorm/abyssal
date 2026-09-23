@@ -140,7 +140,9 @@ func advance(delta_ms: int) -> void:
  # A gentle seven-degree lean follows lateral thrust and settles after release.
  # Only the rendered hull banks; flight, aiming and collision keep the same pose.
  strafe_bank=lerpf(strafe_bank,strafe_input*80.0,1-exp(-delta_ms*.007))
- visual_bank=-bank+roundi(strafe_bank)
+ # The render conversion reverses the roll axis: positive local bank
+ # lowers the right side in a right turn, matching the strafe lean.
+ visual_bank=bank+roundi(strafe_bank)
  yaw_input=0;pitch_input=0;strafe_input=0
  depth=maxi(500,station_depth+roundi(pose.origin[1]/8.0))
  if stats.shield>0 and stats.shield_interval>0 and depth>=stats.minimum_depth:

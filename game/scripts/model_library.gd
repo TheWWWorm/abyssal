@@ -5,6 +5,8 @@ const UNIT := 0.01
 var root := ""
 var models: Dictionary = {}
 var meshes: Dictionary = {}
+var station_shadow_meshes: Dictionary = {}
+var station_shadow_shaders: Dictionary = {}
 var textures: Dictionary = {}
 var texture_resources: Dictionary = {}
 var texture_sizes: Dictionary = {}
@@ -282,6 +284,10 @@ func figure(call: Dictionary) -> Node3D:
 	if not mesh_data[1].is_empty() and mesh_data[1].all(func(g): return int(g.blend) in [4,6]):
 		instance.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	apply_figure_materials(node,call)
+	if bool(call.get("station_coating",false)):
+		var shadow := preload("res://native/presentation/station_shadow.gd").new()
+		node.add_child(shadow);shadow.configure(self,call,mesh_data)
+		instance.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if sky_pass_for_call(call)==0 and bool(call.get("source_glow_visible",true)) and call.effect.get("transparency",true):
 		var points: Array=[]
 		for lamp in mesh_data[2]:points.append({"node":add_lamp(node,lamp),"lamp":lamp})
@@ -379,6 +385,8 @@ func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 		mat.set_shader_parameter("hangar_door",g.get("door",false))
 		instance.set_surface_override_material(i, mat)
 	node.set_meta("station_smoothing",station_smoothing)
+	var shadow := node.get_node_or_null("StationShadow")
+	if shadow!=null:shadow.set_coverage("smoothed",bool(call.get("smoothed_station",false)))
 
 static func call_atlas(call: Dictionary) -> String:
 	var textures: Array=call.get("textures",[])
@@ -396,6 +404,8 @@ func pose(node: Node3D, call: Dictionary) -> void:
 		transforms.append(matrix(values))
 	while transforms.size() < 64:
 		transforms.append(Transform3D.IDENTITY)
+	var shadow := node.get_node_or_null("StationShadow")
+	if shadow!=null:shadow.pose(transforms)
 	# The lamps ride their own bone, as the sprites did, and a station's
 	# animation blinks its lamps by shrinking their bones to nothing: a lamp
 	# whose bone is shrunk away is dark, light and all.
