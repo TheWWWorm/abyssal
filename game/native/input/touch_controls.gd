@@ -5,6 +5,12 @@ var mode := 0 # Auto, On, Off
 # Shared across the title/gameplay scene change; a pad used in menus also wins
 # over touchscreen availability when the dive starts.
 static var last_input := ""
+## Safari can send compatibility mouse events from a finger with an ordinary
+## mouse device ID, including motion between touchstart and touchend. Keep the
+## gesture's ownership through those events and its delayed click after lift.
+static var touch_contacts := {}
+static var last_touch_ms := -1000000
+const TOUCH_MOUSE_GRACE_MS := 750
 var drag_anywhere := false
 const Layout = preload("res://native/input/touch_layout.gd")
 ## Player placements, as offsets from the standard composition. Empty means the
@@ -39,19 +45,30 @@ func _ready() -> void:
 func enabled() -> bool:
 	return mode==1 or (mode==0 and (last_input=="touch" or (last_input.is_empty() and DisplayServer.is_touchscreen_available())))
 static func record_input(event: InputEvent, deadzone: float=.18) -> void:
-	# Godot generates mouse events for touch taps. They are still touch input.
-	if event.device==InputEvent.DEVICE_ID_EMULATION:return
-	if (event is InputEventScreenTouch and event.pressed and not event.canceled) or event is InputEventScreenDrag:
-		last_input="touch"
+	if event is InputEventScreenTouch:
+		last_touch_ms=Time.get_ticks_msec()
+		if event.pressed and not event.canceled:
+			touch_contacts[event.index]=true;last_input="touch"
+		else:touch_contacts.erase(event.index)
+	elif event is InputEventScreenDrag:
+		last_touch_ms=Time.get_ticks_msec()
+		touch_contacts[event.index]=true;last_input="touch"
 	elif event is InputEventKey and event.pressed and not event.echo:
 		last_input="keyboard"
 	elif (event is InputEventMouseButton and event.pressed) or (event is InputEventMouseMotion and not event.relative.is_zero_approx()):
-		last_input="mouse"
+		# A browser's synthetic mouse event need not use Godot's emulation ID.
+		# The short grace also covers WebKit's click after touchend. A physical
+		# mouse can still take over after the touch gesture is finished.
+		if event.device!=InputEvent.DEVICE_ID_EMULATION and touch_contacts.is_empty() and Time.get_ticks_msec()-last_touch_ms>TOUCH_MOUSE_GRACE_MS:
+			last_input="mouse"
 	elif event is InputEventJoypadButton and event.pressed:
 		last_input="gamepad"
 	elif event is InputEventJoypadMotion:
 		var strength: float = event.axis_value if event.axis in [JOY_AXIS_TRIGGER_LEFT,JOY_AXIS_TRIGGER_RIGHT] else absf(event.axis_value)
 		if strength>maxf(deadzone,.25):last_input="gamepad"
+static func release_contacts() -> void:
+	# A backgrounded browser can omit the final touchend/touchcancel event.
+	touch_contacts.clear()
 func update_input(event: InputEvent, deadzone: float=.18) -> void:
 	var before := enabled()
 	record_input(event,deadzone)

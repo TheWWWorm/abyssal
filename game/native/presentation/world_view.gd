@@ -6,6 +6,8 @@ const DETAIL_RELEASE_DISTANCE := 2600.0
 const STREAM_RELEASE_DISTANCE := 10500.0
 const GATE_EFFECT_BOOST := 2.6
 const STREAM_FADE_SECONDS := 1.2
+const RETIRED_GATE_HOLD_SECONDS := 3.0
+const RETIRED_GATE_FADE_SECONDS := 1.2
 ## A creature set down anew comes in out of the haze over this long.
 const CREATURE_FADE_SECONDS := 2.5
 
@@ -20,6 +22,10 @@ var content
 var camera: Camera3D
 const CAMERA_NAMES := ["Chase","Front","Starboard","Port"]
 var camera_mode := 0
+## A thumb can hold yaw and pitch together long enough to accumulate a large
+## simulation roll. Keep the touch chase view level during ordinary steering;
+## the hull still banks and the actual flight pose is unchanged.
+var stabilize_touch_horizon := false
 var previous_camera_mode := -1
 # Free look: the chase camera swung around the hull by the mouse while a
 # modifier is held (yaw, pitch in radians), easing back when it is released.
@@ -137,7 +143,7 @@ func rebuild() -> void:
 						node.get_meta("gate_light").light_energy=0.0
 				else:node.queue_free()
 			gate_nodes=[]
-			neighbors[rendered_station]={"root":old_root,"detail":true,"age":STREAM_FADE_SECONDS}
+			neighbors[rendered_station]={"root":old_root,"detail":true,"age":STREAM_FADE_SECONDS,"gate_age":0.0}
 			station_nodes=[]
 			if neighbors.has(world.session.station_id):
 				var incoming: Dictionary=neighbors[world.session.station_id]
@@ -236,6 +242,24 @@ func bake_shaders() -> void:
 	pool.instance_count=1;instanced.multimesh=pool;instanced.custom_aabb=AABB(Vector3.ONE*-50,Vector3.ONE*100);oven.add_child(instanced)
 	oven_frames=3
 
+static func touch_chase_basis(ship_basis: Basis) -> Basis:
+	var ship := ship_basis.orthonormalized()
+	var aft := ship.z.normalized()
+	var upright := Vector3.UP-aft*Vector3.UP.dot(aft)
+	if upright.length_squared()<0.0001:return ship
+	var up := upright.normalized()
+	var right := up.cross(aft).normalized()
+	var level := Basis(right,aft.cross(right),aft)
+	# World-up has no useful projection at the poles. Give the ship frame back
+	# smoothly before a vertical loop can reverse the projected up direction.
+	var amount := 1.0-smoothstep(0.65,0.90,absf(aft.y))
+	return ship.slerp(level,amount).orthonormalized()
+
+static func gate_idle_transform(rest: Transform3D, units: float) -> Transform3D:
+	# The JAR's gate spins around source +Z. Source-to-Godot conjugation turns
+	# that into local -Z; the triangle's normal stays on its resting axis.
+	return Transform3D(rest.basis*Basis(Vector3.FORWARD,units*TAU/4096.0),rest.origin)
+
 func _process(delta: float) -> void:
 	if oven!=null:
 		oven_frames-=1
@@ -262,10 +286,7 @@ func _process(delta: float) -> void:
 	var camera_scale: float=clampf(player_model.solid_bounds().size.x/24.0,.48,1.25) if player_model!=null else 1.0
 	var camera_frame := player_pose
 	if camera_mode==0:
-		# Follow the simulation attitude through the poles. Reconstructing right
-		# from world-up reverses it past 90 degrees and instantly flips the view.
-		# Cosmetic steering bank remains confined to the model, not the camera.
-		camera_frame.basis=player_pose.basis.orthonormalized()
+		camera_frame.basis=touch_chase_basis(player_pose.basis) if stabilize_touch_horizon else player_pose.basis.orthonormalized()
 		if player_model!=null:camera_frame.origin=player_model.global_transform*player_model.solid_bounds().get_center()
 	if not look_held: look_offset=look_offset.lerp(Vector2.ZERO,1-exp(-delta*7))
 	if look_offset.length_squared()>1e-6:
@@ -293,7 +314,7 @@ func _process(delta: float) -> void:
 			var roll: float=fmod(float(gate_nodes[i].get_meta("gate_roll",0.0))+delta*512.0,4096.0)
 			gate_nodes[i].set_meta("gate_roll",roll)
 			var rest: Transform3D=gate_nodes[i].get_meta("gate_rest",gate_nodes[i].transform)
-			gate_nodes[i].transform=Transform3D(rest.basis*Basis(Vector3(0,0,1),roll*TAU/4096.0),rest.origin)
+			gate_nodes[i].transform=gate_idle_transform(rest,roll)
 		if gate_nodes[i].has_meta("gate_surface"):
 			var distance: float=player_pose.origin.distance_to(gate_nodes[i].position)
 			var opening := maxf(clampf(float(world.gate_frame(i))/20.0,0,1),clampf(1.0-distance/550.0,0,1)*.65)
@@ -314,12 +335,21 @@ func _process(delta: float) -> void:
 			var roll: float=fmod(float(node.get_meta("gate_roll",0.0))+delta*512.0,4096.0)
 			node.set_meta("gate_roll",roll)
 			var rest: Transform3D=node.get_meta("gate_rest",node.transform)
-			node.transform=Transform3D(rest.basis*Basis(Vector3(0,0,1),roll*TAU/4096.0),rest.origin)
+			node.transform=gate_idle_transform(rest,roll)
 			node.advance(ms)
 	for neighbor in neighbors.values():
 		neighbor.age=minf(STREAM_FADE_SECONDS,neighbor.age+delta)
+		if neighbor.has("gate_age"):neighbor.gate_age+=delta
 		for part in neighbor.root.get_children():
-			if part is Model:part.set_stream_visibility(smoothstep(0.0,STREAM_FADE_SECONDS,neighbor.age))
+			if not part is Model:continue
+			if part.has_meta("neighbor_gate"):
+				# Keep the gate just crossed through the handoff, then retire it
+				# once the new region owns transit. Otherwise visited stations can
+				# leave a growing set of obsolete portals around the player.
+				var remaining: float=1.0-smoothstep(RETIRED_GATE_HOLD_SECONDS,RETIRED_GATE_HOLD_SECONDS+RETIRED_GATE_FADE_SECONDS,neighbor.gate_age)
+				part.set_stream_visibility(remaining)
+				if remaining<=0.0:part.queue_free()
+			else:part.set_stream_visibility(smoothstep(0.0,STREAM_FADE_SECONDS,neighbor.age))
 		if not neighbor.detail:continue
 		for part in neighbor.root.get_children():
 			if part is Model:
@@ -547,17 +577,10 @@ func stream_neighbors() -> void:
 				add_station_collision(visual)
 				if int(part.model_id)>=3300:add_station_lights(visual)
 			visual.configure_station(part)
-		var gates: Array=preload("res://native/simulation/region.gd").gate_positions(world.session.stations[id],world.region.sine)
-		for i in gates.size():
-			if i==1 and gates[i]==gates[0]:continue
-			var portal=model(15,32,root,true)
-			if portal==null:continue
-			var pose=preload("res://native/simulation/ship_transform.gd").new()
-			pose.math.sine_table=world.region.sine;pose.origin=gates[i]
-			pose.set_euler(0,preload("res://native/simulation/region.gd").gate_yaw_for(world.session.stations[id],i),0)
-			portal.transform=pose.godot_transform()
-			portal.set_meta("neighbor_gate",id);portal.set_meta("gate_rest",portal.transform);portal.set_meta("gate_roll",0.0)
-			portal.set_stream_visibility(0.0)
+		# Nearby stations are landmarks, not active transit destinations. Their
+		# gates used to pop in and out at the station stream boundary, sometimes
+		# putting several portals beside one station. Only the current region's
+		# gate (and the one retained briefly through a transfer) is drawn.
 		if neighbors.has(id):neighbors[id].root.queue_free()
 		neighbors[id]={"root":root,"detail":detailed,"age":0.0}
 		break

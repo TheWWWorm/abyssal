@@ -31,6 +31,10 @@ Path('/ready.abyss').write_bytes(pack('/content'))`);
     postMessage({type:'complete',buffer:result.buffer},[result.buffer]);
   } catch(error) {
     console.error('Local JAR import failed:',error);
-    postMessage({type:'error',message:String(error.message||error)});
+    // Pyodide includes a full Python traceback in error.message. The title
+    // has room for a short cause; the full diagnostic remains in the console.
+    const lines=String(error.message||error).trim().split('\n').filter(Boolean);
+    const detail=lines[lines.length-1];
+    postMessage({type:'error',message:detail||'Content import failed.'});
   }
 };

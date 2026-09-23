@@ -304,7 +304,12 @@ func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
 		holder.add_child(halo)
 	var light := OmniLight3D.new();light.name="Light";holder.add_child(light)
 	light.light_color=lamp.tint;light.light_energy=LAMP_ENERGY;light.light_size=0.0
-	light.omni_range=clampf(lamp.radius*10.0,15.0,90.0);light.omni_attenuation=1.0
+	# The hangar's animated berth lamps blink at their fixtures. A broad point
+	# light reached the adjoining modules, making unrelated roofs pulse with
+	# each frame of the berth animation despite the shadow map. Keep the glow
+	# local while the imported sprite still shows at its authored size.
+	light.omni_range=clampf(lamp.radius*(3.0 if lamp.get("shadow",false) else 10.0),8.0 if lamp.get("shadow",false) else 15.0,20.0 if lamp.get("shadow",false) else 90.0)
+	light.omni_attenuation=1.0
 	# Station lamps must stop at the surrounding geometry. An unshadowed
 	# blinking lamp recoloured walls behind unrelated modules. Mines and
 	# moving creature lures retain their cheaper unshadowed point lights.

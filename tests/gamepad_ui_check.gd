@@ -21,8 +21,16 @@ func screen_touch(down: bool, point: Vector2) -> void:
  var event:=InputEventScreenTouch.new();event.index=0;event.position=point;event.pressed=down
  Input.parse_input_event(event)
  await process_frame
+func screen_drag(point: Vector2, relative: Vector2) -> void:
+ var event:=InputEventScreenDrag.new();event.index=0;event.position=point;event.relative=relative
+ Input.parse_input_event(event)
+ await process_frame
 func mouse_motion(relative: Vector2, device: int=0) -> void:
  var event:=InputEventMouseMotion.new();event.relative=relative;event.device=device
+ Input.parse_input_event(event)
+ await process_frame
+func mouse_click(down: bool, device: int=0) -> void:
+ var event:=InputEventMouseButton.new();event.button_index=MOUSE_BUTTON_LEFT;event.pressed=down;event.device=device
  Input.parse_input_event(event)
  await process_frame
 func keyboard(down: bool) -> void:
@@ -139,6 +147,13 @@ func run() -> void:
  expect(not game.strafe_enabled(),"Auto steering switches back to touch turning")
  await mouse_motion(Vector2(8,3),InputEvent.DEVICE_ID_EMULATION)
  expect(game.touch.visible and game.touch.engaged,"Touch-generated mouse motion cannot hide or release the pad")
+ # WebKit can report the same compatibility events as an ordinary mouse. The
+ # stick must retain its finger and its drag must steer the hull, not the mouse.
+ await mouse_motion(Vector2(80,40));await mouse_click(true);await mouse_click(false)
+ await screen_drag(point+Vector2(56,-28),Vector2(56,-28))
+ var touch_helm: Dictionary=game.flight_input()
+ expect(game.touch.visible and game.touch.engaged and game.touch.fingers.get(0)=="steer","Safari-style mouse events preserve the held joystick")
+ expect(touch_helm.yaw>0 and touch_helm.pitch>0 and touch_helm.mouse_x==0 and touch_helm.mouse_y==0,"A touch drag steers without tumbling the camera through mouse motion")
  await tilt(JOY_AXIS_LEFT_X,.12)
  expect(game.touch.visible,"Controller drift does not steal touch input")
  await tilt(JOY_AXIS_TRIGGER_LEFT,-1)
@@ -157,6 +172,10 @@ func run() -> void:
  await keyboard(false);await screen_touch(true,point);await screen_touch(false,point)
  await mouse_motion(Vector2.ZERO)
  expect(game.touch.visible,"Stationary mouse events leave touch active")
+ await mouse_motion(Vector2(6,2))
+ expect(game.touch.visible,"Delayed compatibility motion after lift leaves touch active")
+ var Touch=preload("res://native/input/touch_controls.gd")
+ Touch.last_touch_ms=Time.get_ticks_msec()-Touch.TOUCH_MOUSE_GRACE_MS-1
  await mouse_motion(Vector2(6,2))
  expect(not game.touch.visible,"Physical mouse motion hides the touch pad")
  await screen_touch(true,point);await screen_touch(false,point)

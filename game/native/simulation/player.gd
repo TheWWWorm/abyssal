@@ -35,6 +35,10 @@ var steering_quiet_ms := 0
 ## the steering upgrades mean something to a mouse pilot. Direct restores the
 ## original response.
 var smooth_steering := false
+## Touch steering combines yaw and pitch under one thumb. Level the actual
+## flight frame while the helm is held so those rotations do not build an
+## unintended roll that the chase camera or other players can see.
+var touch_horizon_assist := false
 ## Time for the helm to close about two thirds of the gap to its input.
 const STEER_RESPONSE_MS := 150.0
 const MOUSE_RESPONSE_MS := 80.0
@@ -124,7 +128,7 @@ func advance(delta_ms: int) -> void:
   apply_mouse(delta_ms)
  if yaw_level!=0 or pitch_level!=0:steering_quiet_ms=0
  else:steering_quiet_ms=mini(1000,steering_quiet_ms+delta_ms)
- if steering_quiet_ms>=600:pose.auto_level(delta_ms)
+ if touch_horizon_assist or steering_quiet_ms>=600:pose.auto_level(delta_ms)
  pose.advance(roundi(delta_ms*speed_factor*throttle/100.0))
  if strafe_input!=0:pose.strafe(roundi(strafe_input*delta_ms*speed_factor*STRAFE_RATE))
  # bb: the hull leans into a turn a unit a millisecond, to 384 (about

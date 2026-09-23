@@ -553,6 +553,8 @@ func flight_hint() -> String:
 	return "%s · %s fire · %s pilot · %s map · %s dock · Esc menu"%[steering,OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map),OS.get_keycode_string(key_bindings.dock)]
 func _process(delta: float) -> void:
 	if session==null: return
+	view.stabilize_touch_horizon=touch.enabled()
+	if world.region!=null:world.region.player.touch_horizon_assist=touch.enabled()
 	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:release_flight_mouse()
 	view.look_held=free_look_held() and mouse_steering_enabled()
 	watch_browser_capture()
@@ -582,16 +584,19 @@ func _process(delta: float) -> void:
 	if session.docked and page not in ["departure","transit","opening"]: world.advance_docked(minf(delta,.1))
 	if page.is_empty() and not session.docked:
 		world.advance(delta,flight_input(delta))
-		collect_damage_bearings();check_hull_buzz()
-		consume_events()
-		if page.is_empty():
-			flight_ms+=int(delta*1000)
-			check_stream_proximity()
-			if page.is_empty():check_flight_hints()
-			if stream_exit_active:
-				var exit_local: Vector3=stream_exit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
-				if absf(exit_local.z)>view.player_model.solid_bounds().size.length():
-					stream_exit_active=false;view.clear_player_clip()
+		if session.docked: finish_docking()
+		else:
+			collect_damage_bearings();check_hull_buzz()
+			consume_events()
+			if page.is_empty():
+				flight_ms+=int(delta*1000)
+				check_stream_proximity()
+				if page.is_empty():check_flight_hints()
+				if stream_exit_active:
+					var exit_local: Vector3=stream_exit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
+					if absf(exit_local.z)>view.player_model.solid_bounds().size.length():
+						stream_exit_active=false;view.clear_player_clip()
+	elif session.docked and page.is_empty(): finish_docking()
 	elif session.docked and page=="station": check_station_progress()
 	if world.region!=null:
 		var r=world.region
@@ -775,12 +780,14 @@ func controller_connection(device: int, connected: bool) -> void:
 		if session!=null and page.is_empty():show_pause()
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_APPLICATION_PAUSED]:
-		controller.reset();touch.reset();mouse_steer=Vector2.ZERO
+		controller.reset();touch.reset();touch.release_contacts();mouse_steer=Vector2.ZERO
 		if session!=null and page.is_empty():show_pause()
 	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null:touch_action("menu")
 func _input(event: InputEvent) -> void:
 	var was_touch := touch.enabled()
 	touch.update_input(event,controller.deadzone)
+	view.stabilize_touch_horizon=touch.enabled()
+	if world.region!=null:world.region.player.touch_horizon_assist=touch.enabled()
 	if was_touch!=touch.enabled():
 		mouse_steer=Vector2.ZERO
 		if touch.enabled():release_flight_mouse()
@@ -848,7 +855,7 @@ func perform(action: String) -> void:
 		"dock":
 			if world.at_gate(0):
 				show_stream_menu()
-			elif world.dock(): clear_notices(); show_station(); save_game(false)
+			elif world.dock(): finish_docking()
 		"map": show_map()
 		"autopilot":
 			auto_fire=false
@@ -857,6 +864,10 @@ func perform(action: String) -> void:
 		"lights":
 			if modern_graphics:graphics.headlights=not graphics.headlights;abyss.set_headlights(graphics.headlights);save_settings()
 			else:notice("Headlights are available in New graphics mode.")
+func finish_docking() -> void:
+	clear_notices()
+	show_station()
+	save_game(false)
 func show_pause() -> void:
 	open_page("Dive paused","pause")
 	button("Resume",close_page)

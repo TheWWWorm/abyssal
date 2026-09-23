@@ -1,4 +1,5 @@
 extends SceneTree
+const Model = preload("res://native/presentation/model.gd")
 var failures := 0
 func expect(ok: bool, why: String) -> void:
  if not ok:failures+=1;push_error(why)
@@ -20,7 +21,6 @@ func check_imported_material_hints() -> void:
    expect(c.g>=.47 and c.g<=.83,"Derived hull roughness stays in the restrained paint/metal range")
 
 func check_hull_orientation(content) -> void:
- var Model=load("res://native/presentation/model.gd")
  var Library=load("res://scripts/model_library.gd")
  var upright:=Transform3D(Basis(Vector3(0,0,1),PI),Vector3.ZERO)
  for id in range(12):
@@ -75,6 +75,11 @@ func check_sprite_lamp_occlusion() -> void:
  blocker.position.z=4;viewport.add_child(blocker)
  var blocked:=await light_frame(viewport)
  expect(lit.get_pixel(128,128).r>blocked.get_pixel(128,128).r+.1,"A wall behind a station lamp occluder stays dark through the blink")
+ blocker.hide();wall.position.z=-24
+ var distant_lit:=await light_frame(viewport)
+ lamp.hide()
+ var distant_dark:=await light_frame(viewport)
+ expect(absf(distant_lit.get_pixel(128,128).r-distant_dark.get_pixel(128,128).r)<.01,"A berth lamp cannot flash a separate module thirty metres away")
  viewport.queue_free();await process_frame
 
 func check_lure_halo_projection() -> void:
@@ -684,6 +689,8 @@ func run():
   expect(amount<=previous and amount>=0,"Distance fade is monotonic");previous=amount
  for i in 30:view.stream_neighbors();await process_frame
  expect(view.neighbors.size()>4,"Open-world station coverage preserved")
+ expect(view.gate_nodes.filter(func(gate):return gate.visible).size()==1,"The current station has one visible physical gate")
+ expect(view.neighbors.values().all(func(neighbor):return neighbor.root.get_children().all(func(part):return not part is Model or int(part.record.id)!=15)),"Streamed landmark stations do not add transient duplicate gates")
  var distant: int=-1
  for id in view.neighbors:
   if not view.neighbors[id].detail:distant=id;break
@@ -699,7 +706,6 @@ func run():
  view._process(.7)
  for model in node.get_children():
   expect(model.stream_visibility==1,"Station fade completes")
-  if int(model.record.id)==15:continue # Gates animate; station modules do not.
   var frame: int=model.sampled_frame;var pattern: int=model.last_pattern
   model.advance(12000)
   expect(model.sampled_frame==frame and model.last_pattern==pattern,"Streamed station configuration does not cycle")
@@ -753,6 +759,7 @@ func run():
  app.world.enter_region(destination);view.rebuild()
  expect(view.station_nodes[0]==incoming,"Incoming station promotes existing meshes")
  expect(view.neighbors[old_station].root.get_child(0)==old_main,"Departing station retains existing meshes")
+ expect(view.neighbors[old_station].root.get_children().filter(func(part):return part is Model and int(part.record.id)==15).size()==1,"The gate just crossed remains visible with the departing station")
  expect(view.player_model==old_player and view.combat.player_wake.size()==wake_count,"Region entry preserves player mesh and wake")
  for id in retained:
   expect(view.neighbors[id].root==retained[id].node and view.neighbors[id].age==retained[id].age,"Neighbor retains its mesh and fade state")
@@ -760,6 +767,13 @@ func run():
  var light_count: int=view.station_nodes[0].find_children("*","Light3D",true,false).size()
  view.rebuild()
  expect(view.station_nodes[0]==incoming and incoming.find_children("*","Light3D",true,false).size()==light_count,"Repeated rebuild does not duplicate lights or geometry")
+ # Exercise the handoff lifetime separately from distance-based station unload.
+ view.neighbor_clock=-1000.0
+ view._process(view.RETIRED_GATE_HOLD_SECONDS*.5)
+ expect(view.neighbors[old_station].root.get_children().any(func(part):return part is Model and int(part.record.id)==15 and part.stream_visibility==1.0),"The departing gate survives the region handoff")
+ view._process(view.RETIRED_GATE_HOLD_SECONDS+view.RETIRED_GATE_FADE_SECONDS)
+ await process_frame
+ expect(view.neighbors[old_station].root.get_children().all(func(part):return not part is Model or int(part.record.id)!=15),"A retired gate cannot linger beside later stations")
  view.modern_graphics=not view.modern_graphics;view.rebuild()
  expect(view.station_nodes[0]!=incoming,"Changing rendering mode still rebuilds materials")
  player_mesh=view.player_model.figure.get_node("Mesh")

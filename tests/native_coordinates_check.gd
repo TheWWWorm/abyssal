@@ -28,6 +28,7 @@ func _initialize():call_deferred("run")
 func run():
  data=JSON.parse_string(FileAccess.get_file_as_string(OS.get_cmdline_user_args()[0]))
  check_vertical_motion()
+ check_touch_horizon_assist()
  check_formations()
  check_gates()
  check_finale()
@@ -78,6 +79,25 @@ func check_vertical_motion() -> void:
   var pose:=Pose.new();pose.set_euler(pitch,300,0)
   var weapon=preload("res://native/simulation/weapon.gd").new();weapon.configure(1,1,3000,100,10,[0,0,0]);weapon.request_fire(pose,40)
   expect(Library.point(weapon.velocities[0]).normalized().dot(-pose.godot_transform().basis.z)>.999,"Shots follow the rendered bow at pitch %d"%pitch)
+ region.dispose()
+
+func check_touch_horizon_assist() -> void:
+ var region=fixture(1)
+ var free:=Player.new();var assisted:=Player.new()
+ for pilot in [free,assisted]:
+  pilot.configure(region.session.ship,22500,data.constants.dt["a:[S"])
+  pilot.set_throttle(0);pilot.throttle=0
+ assisted.touch_horizon_assist=true
+ for i in 100:
+  free.steer(1.0,0.625,16);assisted.steer(1.0,0.625,16)
+  free.advance(16);assisted.advance(16)
+ var free_frame: Basis=free.pose.godot_transform().basis
+ var touch_frame: Basis=assisted.pose.godot_transform().basis
+ var free_up: Vector3=(Vector3.UP-free_frame.z*Vector3.UP.dot(free_frame.z)).normalized()
+ var touch_up: Vector3=(Vector3.UP-touch_frame.z*Vector3.UP.dot(touch_frame.z)).normalized()
+ var free_roll: float=rad_to_deg(acos(clampf(free_frame.y.dot(free_up),-1.0,1.0)))
+ var touch_roll: float=rad_to_deg(acos(clampf(touch_frame.y.dot(touch_up),-1.0,1.0)))
+ expect(free_roll>12.0 and touch_roll<5.0,"A held diagonal thumb stick no longer rolls the submarine and scene far off level")
  region.dispose()
 
 func check_formations() -> void:

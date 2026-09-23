@@ -13,16 +13,17 @@ var filtered := Vector2.ZERO
 var calibrated := false
 var callback: JavaScriptObject
 var available := true
+var screen_angle := NAN
 
 func enable() -> void:
 	"""Browsers only hand out motion after a permission prompt, and that prompt
 	only opens from a user gesture, which is why this runs when the setting is
 	switched on rather than at startup."""
-	calibrated=false; filtered=Vector2.ZERO
+	calibrated=false; filtered=Vector2.ZERO; screen_angle=NAN
 	if not OS.has_feature("web"): return
 	if callback==null: callback=JavaScriptBridge.create_callback(permission_result)
 	JavaScriptBridge.eval("""
-window.abyssalMotion = window.abyssalMotion || {x:0,y:0,z:0,time:0};
+window.abyssalMotion = window.abyssalMotion || {x:0,y:0,z:0,angle:0,time:0};
 window.abyssalEnableMotion = async function(done) {
  try {
   if (!window.DeviceMotionEvent) { done('This browser reports no motion sensor.'); return; }
@@ -30,26 +31,19 @@ window.abyssalEnableMotion = async function(done) {
    done('Motion sensor permission was refused.'); return;
   }
   if (!window.abyssalMotionListening) {
-   // WebKit reports accelerationIncludingGravity as gravity itself and every
-   // other browser as the equal and opposite reaction, so one of the two
-   // steered backwards. Normalising to gravity pointing down leaves pitch
-   // alone: flipping the whole vector only shifts the pitch term by PI, and
-   // that cancels against the neutral. Only left and right ever read reversed.
-   const webkit = /iP(hone|ad|od)/.test(navigator.userAgent)
-    || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform || ''));
-   const down = webkit ? 1 : -1;
    window.addEventListener('devicemotion', e => {
     const g = e.accelerationIncludingGravity;
-    if (!g || g.x === null || g.y === null || g.z === null) return;
-    // The screen's up axis is the device's +Y at angle 0 and its +X at 90, so
-    // rotating by the reported angle reads the same held any way up.
-    const o = screen.orientation;
-    const a = (o ? o.angle : (window.orientation || 0)) * Math.PI / 180;
-    const cos = Math.cos(a), sin = Math.sin(a);
+    if (!g || ![g.x,g.y,g.z].every(Number.isFinite)) return;
+    // On iPhone, window.orientation tracks the visible page even when
+    // screen.orientation exists but still reports the portrait value.
+    const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
+     || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform || ''));
+    const legacy = Number(window.orientation);
+    const modern = Number(screen.orientation ? screen.orientation.angle : NaN);
+    const angle = ios && Number.isFinite(legacy) ? legacy
+     : Number.isFinite(modern) ? modern : Number.isFinite(legacy) ? legacy : 0;
     window.abyssalMotion = {
-     x: down * (g.x * cos - g.y * sin),
-     y: down * (g.x * sin + g.y * cos),
-     z: -down * g.z,
+     x:g.x, y:g.y, z:g.z, angle,
      time: performance.now()
     };
    });
@@ -70,15 +64,34 @@ func reading() -> Vector3:
 	if OS.has_feature("web"):
 		# A stale sample is worse than none: a sensor that stopped reporting would
 		# otherwise hold the submarine in whatever turn it last saw.
-		var raw: Variant = JavaScriptBridge.eval("window.abyssalMotion && performance.now()-window.abyssalMotion.time < 1000 ? JSON.stringify([window.abyssalMotion.x,window.abyssalMotion.y,window.abyssalMotion.z]) : null")
+		var raw: Variant = JavaScriptBridge.eval("window.abyssalMotion && performance.now()-window.abyssalMotion.time < 1000 ? JSON.stringify([window.abyssalMotion.x,window.abyssalMotion.y,window.abyssalMotion.z,window.abyssalMotion.angle]) : null")
 		if raw is String:
 			var values: Variant = JSON.parse_string(str(raw))
-			if values is Array and values.size()==3: return Vector3(values[0],values[1],values[2])
+			if values is Array and values.size()==4 and values.all(func(value):return value is float or value is int):
+				var acceleration := Vector3(values[0],values[1],values[2])
+				var angle := float(values[3])
+				if acceleration.is_finite() and is_finite(angle):
+					if is_finite(screen_angle) and absf(wrapf(angle-screen_angle,-180.0,180.0))>1.0:
+						calibrated=false;filtered=Vector2.ZERO
+					screen_angle=angle
+					return screen_gravity(acceleration,angle)
+		# Safari suspends sensor events with the page. Centre on the next fresh
+		# sample so resuming in a different grip cannot kick the helm sideways.
+		calibrated=false;filtered=Vector2.ZERO
 		return Vector3.ZERO
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		var gravity := Input.get_gravity()
 		return gravity if gravity.length_squared()>REST else Input.get_accelerometer()
 	return Vector3.ZERO
+
+static func screen_gravity(acceleration: Vector3, angle_degrees: float) -> Vector3:
+	# DeviceMotion's accelerationIncludingGravity is proper acceleration,
+	# opposite physical gravity, in portrait device axes. Rotate it into the
+	# visible screen before turning it into the gravity vector used by angles().
+	var angle := deg_to_rad(angle_degrees)
+	var c := cos(angle);var s := sin(angle)
+	return Vector3(-acceleration.x*c+acceleration.y*s,
+		-acceleration.x*s-acceleration.y*c,-acceleration.z)
 
 static func angles(gravity: Vector3) -> Vector2:
 	"""Screen-space gravity points down at rest, so the vertical term reads zero

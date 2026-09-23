@@ -32,6 +32,10 @@ func _ready() -> void:
 	add_child(camera);camera.current=true;camera.fov=65;camera.near=0.5;camera.far=View.DRAW_DISTANCE
 	# The art direction reads the expedition once there is one (load_content).
 	abyss.camera=camera;abyss.view=view;add_child(abyss)
+	# Before a JAR is imported there is no submarine or station to mount these
+	# on. The Abyss rig otherwise draws its two default headlight cones alone
+	# against the empty title background.
+	abyss.set_headlights(false);abyss.set_headlight_beams(false)
 	environment=abyss.environment;sky_environment=abyss.environment.environment
 	# No station yet: the sky shader has nothing to sit behind, so hold the field.
 	abyss.environment.environment=dock_environment

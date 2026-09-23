@@ -160,6 +160,8 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 				accumulator=0; speed=1; return
 			if autopilot: update_autopilot()
 			else: explore()
+			if session.docked:
+				accumulator=0; return
 			if speed>2 and region.danger():speed=2
 			if substeps>speed:break
 func encounter_navigation_point():

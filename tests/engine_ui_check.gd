@@ -14,6 +14,7 @@ func run():
  root.add_child(app);await process_frame;await process_frame
  expect(app.content.root.is_empty() and app.title_menu.new_button.disabled,"Empty engine never reads a parent JAR or starts without content")
  expect(not app.title_menu.logo.visible,"Original logo is absent before import")
+ expect(app.title_dock.abyss.lamps.all(func(lamp):return not lamp.visible) and app.title_dock.abyss.beams.all(func(beam):return not beam.visible),"The empty title has no orphaned submarine headlights or beam cones")
  app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
  expect(app.title_menu.continue_button.disabled,"No checkpoint disables load")
@@ -160,6 +161,7 @@ func run():
  await check_trade_quantity(game)
  await check_travel_fade(game)
  check_motion_steering()
+ check_touch_chase_and_gate_axis()
  check_free_look(game)
  check_gate_effects(game)
  await check_dock_notices(game)
@@ -275,6 +277,16 @@ func check_dock_notices(game) -> void:
  game.notice("Berth secured")
  game.notice("Saved")
  expect(game.message.text=="Saved" and game.pending_notices.is_empty(),"A message while docked answers the press that caused it")
+ game.session.docked=false;game.clear_notices();game.close_page()
+ game.world.enter_region(0);game.view.rebuild()
+ game.world.region.events=[];game.world.region.active_transmission=null
+ game.world.region.player.pose.origin=berth.duplicate()
+ expect(game.world.route_to(game.session.station_id),"Station autopilot engages from the docking approach")
+ var arrival_time: int=game.world.region.elapsed_ms
+ game._process(.25);await process_frame
+ expect(game.session.docked and not game.world.autopilot,"Autopilot reaches the berth and disengages")
+ expect(game.world.region.elapsed_ms-arrival_time==game.world.STEP_MS,"The simulator stops advancing in the frame where autopilot docks")
+ expect(game.page=="station" and game.overlay.visible and game.column.find_children("*","Button",true,false).any(func(button):return button.text=="DEPART >"),"Autopilot docking opens the station services instead of leaving only the exterior view")
  game.session.docked=false;game.clear_notices();game.close_page()
 
 func check_free_look(game) -> void:
@@ -715,6 +727,13 @@ func check_motion_steering() -> void:
  # None of this can be held in a hand here, so the arithmetic is what gets checked.
  var Motion=load("res://native/input/motion_steering.gd")
  var tilt=Motion.new()
+ for reading in [
+  Motion.screen_gravity(Vector3(0,9.8,0),0),
+  Motion.screen_gravity(Vector3(9.8,0,0),90),
+  Motion.screen_gravity(Vector3(-9.8,0,0),-90)]:
+  expect(reading.distance_to(Vector3(0,-9.8,0))<.01,"Portrait and both iPhone landscape orientations share screen-space neutral")
+ expect(Motion.angles(Motion.screen_gravity(Vector3(9,-4,0),90)).x<0,"Landscape-left sensor roll steers left")
+ expect(Motion.angles(Motion.screen_gravity(Vector3(-9,4,0),-90)).x<0,"Landscape-right sensor roll steers left")
  expect(Motion.angles(Vector3(0,-9.8,0)).is_zero_approx(),"A device held level reads as centred")
  expect(Motion.angles(Vector3(-4,-9,0)).x<0,"Rolling left steers left, like a stick pushed left")
  expect(tilt.sample(Vector3.ZERO,.1,.5)==Vector2.ZERO,"A sensor with nothing to say steers nothing")
@@ -727,3 +746,26 @@ func check_motion_steering() -> void:
  expect(absf(deflection.x)<=1.0 and absf(deflection.y)<=1.0,"Deflection stays inside the range a stick reports")
  tilt.filtered=Vector2.ZERO
  expect(tilt.sample(Vector3(0,-9.8,0).rotated(Vector3(0,0,1),deg_to_rad(1.0)),.05,.5).is_zero_approx(),"A wobble smaller than the deadband is a hand, not an instruction")
+
+func check_touch_chase_and_gate_axis() -> void:
+ var View=load("res://native/presentation/world_view.gd")
+ var ship=load("res://native/simulation/ship_transform.gd").new()
+ # Sustained diagonal thumb input adds genuine simulation roll even without
+ # gyro. The touch camera should preserve heading and pitch without passing
+ # that roll to every station and gate in the picture.
+ for i in 100:
+  ship.rotate_local("yaw",8);ship.rotate_local("pitch",5)
+ var hull: Basis=ship.godot_transform().basis
+ var chase: Basis=View.touch_chase_basis(hull)
+ var up: Vector3=(Vector3.UP-hull.z*Vector3.UP.dot(hull.z)).normalized()
+ expect(hull.y.dot(up)<.9,"Diagonal steering reproduces the large flight camera roll")
+ expect(chase.y.dot(up)>.999 and chase.z.dot(hull.z)>.999,"Touch chase preserves the horizon and travel direction during diagonal steering")
+ for angle in [deg_to_rad(80),deg_to_rad(90),deg_to_rad(100)]:
+  var loop: Basis=Basis(Vector3.RIGHT,angle)
+  var frame: Basis=View.touch_chase_basis(loop)
+  expect(frame.is_finite() and absf(frame.determinant()-1.0)<.001 and frame.z.dot(loop.z)>.999,"Touch chase remains a valid frame through a vertical loop")
+ var rest:=Transform3D(Basis(Vector3.UP,deg_to_rad(42)),Vector3(12,3,-5))
+ var spun: Transform3D=View.gate_idle_transform(rest,512)
+ var relative: Basis=rest.basis.inverse()*spun.basis
+ expect(spun.origin==rest.origin and relative.z.dot(Vector3.BACK)>.999,"The gate spins in its own plane without orbiting or tumbling")
+ expect(relative.x.y<0,"Gate idle spin follows the imported source's positive Z rotation after axis conversion")
