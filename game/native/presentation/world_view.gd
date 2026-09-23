@@ -123,16 +123,27 @@ func rebuild() -> void:
 		var shift: Vector3=rendered_anchor-world.geography.anchor
 		for entry in neighbors.values():entry.root.position+=shift
 		if rendered_station!=world.session.station_id:
-			# Transfer the old local station into the streamed set, retaining its
-			# meshes and opacity. Do not clear the entire ocean on region entry.
+			# Keep both the old station and its gate at their world positions.
+			# Region entry changes the active gate, but a portal already in view
+			# must not vanish and reappear on the other side of the station.
 			var old_root:=Node3D.new();add_child(old_root);old_root.position=shift
 			for node in station_nodes:node.reparent(old_root,false)
+			for node in gate_nodes:
+				if node.visible:
+					node.reparent(old_root,false);node.set_meta("neighbor_gate",rendered_station)
+					node.clock.frame=0;node.refresh()
+					if node.has_meta("gate_surface"):
+						node.get_meta("gate_surface").set_shader_parameter("opening",0.0)
+						node.get_meta("gate_light").light_energy=0.0
+				else:node.queue_free()
+			gate_nodes=[]
 			neighbors[rendered_station]={"root":old_root,"detail":true,"age":STREAM_FADE_SECONDS}
 			station_nodes=[]
 			if neighbors.has(world.session.station_id):
 				var incoming: Dictionary=neighbors[world.session.station_id]
 				for node in incoming.root.get_children():
 					if not node is Model:continue
+					if int(node.record.id)==15:node.queue_free();continue
 					node.reparent(self,false);node.set_stream_visibility(1.0);station_nodes.append(node)
 					node.set_full_detail(true)
 					if not incoming.detail:
@@ -297,6 +308,14 @@ func _process(delta: float) -> void:
 			# built once per key and cached under it.
 			gate_nodes[i].effect_boost=snappedf(opening,.1)*GATE_EFFECT_BOOST
 		gate_nodes[i].clock.frame=world.gate_frame(i); gate_nodes[i].refresh()
+	for neighbor in neighbors.values():
+		for node in neighbor.root.get_children():
+			if not node is Model or not node.has_meta("neighbor_gate"):continue
+			var roll: float=fmod(float(node.get_meta("gate_roll",0.0))+delta*512.0,4096.0)
+			node.set_meta("gate_roll",roll)
+			var rest: Transform3D=node.get_meta("gate_rest",node.transform)
+			node.transform=Transform3D(rest.basis*Basis(Vector3(0,0,1),roll*TAU/4096.0),rest.origin)
+			node.advance(ms)
 	for neighbor in neighbors.values():
 		neighbor.age=minf(STREAM_FADE_SECONDS,neighbor.age+delta)
 		for part in neighbor.root.get_children():
@@ -500,6 +519,7 @@ func stream_neighbors() -> void:
 			# Retain the same imported mesh and animation on both sides of the band.
 			# Only lighting/collision changes; no silhouette or material swap.
 			for visual in neighbors[id].root.get_children():
+				if visual is Model and int(visual.record.id)==15:continue
 				if detailed:
 					visual.set_full_detail(true)
 					add_station_collision(visual)
@@ -527,6 +547,17 @@ func stream_neighbors() -> void:
 				add_station_collision(visual)
 				if int(part.model_id)>=3300:add_station_lights(visual)
 			visual.configure_station(part)
+		var gates: Array=preload("res://native/simulation/region.gd").gate_positions(world.session.stations[id],world.region.sine)
+		for i in gates.size():
+			if i==1 and gates[i]==gates[0]:continue
+			var portal=model(15,32,root,true)
+			if portal==null:continue
+			var pose=preload("res://native/simulation/ship_transform.gd").new()
+			pose.math.sine_table=world.region.sine;pose.origin=gates[i]
+			pose.set_euler(0,preload("res://native/simulation/region.gd").gate_yaw_for(world.session.stations[id],i),0)
+			portal.transform=pose.godot_transform()
+			portal.set_meta("neighbor_gate",id);portal.set_meta("gate_rest",portal.transform);portal.set_meta("gate_roll",0.0)
+			portal.set_stream_visibility(0.0)
 		if neighbors.has(id):neighbors[id].root.queue_free()
 		neighbors[id]={"root":root,"detail":detailed,"age":0.0}
 		break

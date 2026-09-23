@@ -53,6 +53,14 @@ func check_vertical_motion() -> void:
  wreck.advance(2)
  expect(wreck.escaped and not wreck.health.enabled,"A wreck escapes only after sinking past its recovery limit")
  var fish:=Creature.new();fish.configure(4422,data.tables.creatures[0],session.rng,data.constants.dt["a:[S"]);fish.pose.origin=[0,0,0]
+ fish.speed=fish.cruise_speed()*5.0;fish.release()
+ expect(is_equal_approx(fish.speed,fish.cruise_speed()),"A released fish returns to cruising speed after a struggle")
+ fish.pose.origin=[0,0,41000];fish.pose.set_euler(0,0,0);fish.fresh=false
+ fish.advance(40,session.rng,[0,0,0],[0,0,4096])
+ expect(fish.pose.origin[2]>40000 and not fish.fresh,"A fish still ahead of the camera does not jump to a random spawn")
+ fish.pose.origin=[0,0,-41000];fish.advance(40,session.rng,[0,0,0],[0,0,4096])
+ expect(fish.fresh and preload("res://native/simulation/fixed_math.gd").length_of(fish.pose.origin)<=30100,"A fish that leaves behind the camera recycles into the far water")
+ fish.pose.origin=[0,0,0]
  fish.health.hull=0;fish.advance(40,session.rng,[0,0,0]);at=fish.pose.godot_transform().origin
  fish.advance(60,session.rng,[0,0,0])
  expect(fish.state==4 and fish.meat and fish.pose.godot_transform().origin.y>at.y,"A dead fish floats upward as collectible meat")

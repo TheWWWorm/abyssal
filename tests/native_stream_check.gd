@@ -134,6 +134,12 @@ func checks() -> void:
 		for _i in 4: await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(OS.get_cmdline_user_args()[2]+"-gate.png")
+	var old_station: int=app.session.station_id
+	var old_gate_world: Vector3=app.view.gate_nodes[0].global_position+app.world.geography.anchor
+	app.world.enter_region(target);app.view._process(0.04)
+	var former: Array=app.view.neighbors[old_station].root.get_children().filter(func(node):return node.has_meta("neighbor_gate"))
+	expect(former.size()==1 and (former[0].global_position+app.world.geography.anchor).distance_to(old_gate_world)<0.1,"Crossing a region boundary leaves the previous gate at its world position")
+	expect((app.view.gate_nodes[0].global_position+app.world.geography.anchor).distance_to(old_gate_world)>100.0,"The new station has a separate physical gate")
 	app.queue_free(); await process_frame
 	print("NATIVE_STREAM ",failures," failures · reachable stations ",reachable)
 	quit(1 if failures else 0)

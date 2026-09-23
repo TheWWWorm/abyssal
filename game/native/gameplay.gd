@@ -4,6 +4,7 @@ const World = preload("res://native/simulation/world.gd")
 const Save = preload("res://native/simulation/save_store.gd")
 const Economy = preload("res://native/simulation/economy.gd")
 const View = preload("res://native/presentation/world_view.gd")
+const Model = preload("res://native/presentation/model.gd")
 const Map = preload("res://native/presentation/overworld_map.gd")
 const Scanner = preload("res://native/presentation/scanner.gd")
 const ContactMarker = preload("res://native/presentation/contact_marker.gd")
@@ -44,6 +45,7 @@ var dock_prompt := Label.new()
 var dock_caption := Label.new()
 var market_selection := 0
 var market_page := 0
+var equipment_tab := 0
 ## How many tonnes one press of Buy or Sell moves. Kept between rows so a run of
 ## identical trades is set up once rather than once per commodity.
 var market_quantity := 1
@@ -925,7 +927,7 @@ func show_ship_status() -> void:
 	var identity:=HBoxContainer.new();identity.name="CurrentShip";identity.add_theme_constant_override("separation",18);column.add_child(identity)
 	art_image(imported_art.item(ship.id,"ships"),identity,96)
 	label(content.ship_name(ship.id),22,identity)
-	label("Hull capacity %d · Shield %d · Armor %d\nProtection limits %d–%d · Cargo %d / %d"%[ship.hull,ship.shield,ship.armor,ship.minimum_depth,ship.maximum_depth,ship.cargo_used,ship.capacity()],16)
+	label("Hull capacity %d · Shield %d · Armor %d\nProtection limits %d–%d · Cargo %d / %d t · Equipment %d / %d slots"%[ship.hull,ship.shield,ship.armor,ship.minimum_depth,ship.maximum_depth,ship.cargo_used,ship.capacity(),ship.equipment.filter(func(item):return item!=null).size(),ship.slots],16)
 	if not session.docked and world.region!=null:
 		var health=world.region.player.health
 		label("Current condition · Hull %d · Shield %d · Armor %d"%[health.hull,health.shield,health.armor],16)
@@ -1480,6 +1482,14 @@ func show_market(kind: String) -> void:
 	var station: Dictionary = session.stations[session.station_id]
 	match kind:
 		"equipment":
+			var tabs := HBoxContainer.new();tabs.name="EquipmentTabs";tabs.add_theme_constant_override("separation",8);column.add_child(tabs)
+			for index in 2:
+				var tab := button("SHOP" if index==0 else "SHIP EQUIPMENT",func():
+					equipment_tab=index;market_selection=0;market_page=0;show_market("equipment"),tabs)
+				tab.name="ShopTab" if index==0 else "ShipEquipmentTab"
+				tab.toggle_mode=true
+				tab.button_pressed=equipment_tab==index
+				tab.add_theme_color_override("font_color",Color("f3d49b") if equipment_tab==index else Color("c5e1e8"))
 			equipment_browser(station)
 		"ships":
 			equipment_browser(station,true)
@@ -1690,10 +1700,15 @@ func update_markers() -> void:
 	focused_contact=focus_creature()
 	var radar: int = session.ship.passive_radar
 	var targets: Array = station_contacts()
-	var gate_name: String = "S.T.R.E.A.M. > "+session.stations[world.stream_destination].name if world.stream_destination>=0 else "S.T.R.E.A.M. gate"
+	var gate_name: String = "S.T.R.E.A.M. > "+session.stations[world.stream_destination].name if world.stream_destination>=0 else "S.T.R.E.A.M. · "+session.stations[session.station_id].name
 	if world.at_gate(world.departure_gate):
 		gate_name="S.T.R.E.A.M. · "+("Transit control" if world.stream_destination>=0 else "Choose destination") if world.gate_time[world.departure_gate]>=world.GATE_OPEN_MS else "S.T.R.E.A.M. · Opening" if world.region.success==null and world.region.failure==null and not world.tutorial_travel_locked() else "S.T.R.E.A.M. · Locked"
 	targets.append({"key":"stream","p":region.gates[world.departure_gate],"name":gate_name,"color":Color("bdabf2"),"edge":world.stream_destination>=0,"hull":-1.0})
+	for id in view.neighbors:
+		for visual in view.neighbors[id].root.get_children():
+			if not visual is Model or not visual.has_meta("neighbor_gate"):continue
+			if visual.global_position.distance_to(preload("res://scripts/model_library.gd").point(region.player.pose.origin))>2500.0:continue
+			targets.append({"key":"stream:"+str(id),"p":[0,0,0],"position":visual.global_position,"name":"S.T.R.E.A.M. · "+session.stations[id].name,"color":Color("ac9ac9"),"edge":true,"hull":-1.0})
 	if world.autopilot and world.local_target!=null and world.stream_destination<0:
 		targets.append({"key":"waypoint","p":world.local_target,"name":session.stations[world.destination].name if world.destination>=0 else "Autopilot","color":Color("e5ce86"),"edge":true,"hull":-1.0})
 	elif world.encounter_navigation_point()!=null: targets.append({"key":"waypoint","p":world.encounter_navigation_point(),"name":"Encounter waypoint","color":Color("e5ce86"),"edge":radar>0,"hull":-1.0})
@@ -2074,17 +2089,21 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 	var kind := "ships" if ships else "equipment"
 	if ships:
 		for item in station.ships: entries.append({"item":item,"buy":true})
-	else:
+	elif equipment_tab==0:
 		for item in station.equipment: entries.append({"item":item,"buy":true})
+	else:
 		for item in session.ship.equipment:
 			if item!=null: entries.append({"item":item,"buy":false})
-	if entries.is_empty(): label("No stock available at this station.");return
+	if not ships:
+		var used: int=session.ship.equipment.filter(func(item):return item!=null).size()
+		label("%s  ·  %d / %d EQUIPMENT SLOTS  ·  CARGO %d / %d t"%[content.ship_name(session.ship.id).to_upper(),used,session.ship.slots,session.ship.cargo_used,session.ship.capacity()],13).modulate=Color("93b5aa")
+	if entries.is_empty(): label("No ships available at this station." if ships else "No equipment for sale at this station." if equipment_tab==0 else "No equipment installed. Choose Shop to fit a system.");return
 	market_selection=clampi(market_selection,0,entries.size()-1)
-	label(("YOUR SHIP  /  "+content.ship_name(session.ship.id)) if ships else "EQUIPMENT SHOP  /  %d OF %d SLOTS USED"%[session.ship.equipment.filter(func(eq):return eq!=null).size(),session.ship.slots],12).modulate=Color("93b5aa")
+	if ships:label("YOUR SHIP  /  "+content.ship_name(session.ship.id),12).modulate=Color("93b5aa")
 	var row := HBoxContainer.new();row.add_theme_constant_override("separation",20);column.add_child(row)
 	var list := VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",3);row.add_child(list)
 	var headings := HBoxContainer.new();list.add_child(headings)
-	label("SHIPS FOR SALE" if ships else "SHOP STOCK / INSTALLED",11,headings).modulate=Color("b49a70")
+	label("SHIPS FOR SALE" if ships else "SHOP STOCK" if equipment_tab==0 else "INSTALLED SYSTEMS",11,headings).modulate=Color("b49a70")
 	var value_heading := label("VALUE",11,headings);value_heading.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value_heading.modulate=Color("b49a70")
 	var page_size := clampi(int((ui.size.y-270)/(68 if ships else 58)),3,8)
 	market_page=clampi(market_page,0,(entries.size()-1)/page_size)

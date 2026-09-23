@@ -37,6 +37,50 @@ func _initialize() -> void:
 	manual.fly_to_gate(0);manual.update_gates(1000)
 	expect(manual.gate_time[0]>=manual.GATE_OPEN_MS,"Explicit gate navigation opens the intended gate")
 	manual.dispose()
+	var docking=traveler()
+	var berth: Array=[]
+	for x in [-14000,-7000,0,7000,14000]:
+		for z in [-14000,-7000,0,7000,14000]:
+			if docking.region.station.can_dock([x,0,z]):berth=[x,0,z];break
+		if not berth.is_empty():break
+	expect(not berth.is_empty(),"Station has a clear docking point")
+	if not berth.is_empty():
+		docking.region.player.pose.origin=berth
+		expect(docking.route_to(docking.session.station_id),"Autopilot can target the current station")
+		docking.update_autopilot()
+		expect(docking.session.docked and not docking.autopilot,"Autopilot docks automatically when the berth is in range")
+	docking.dispose()
+	var collision=traveler()
+	var actor=preload("res://native/simulation/npc.gd").new()
+	actor.health.configure(100,0,0);actor.model_id=0;actor.radius=2000;actor.pose.origin=[0,0,70000]
+	collision.region.friends.append(actor)
+	collision.region.player.pose.origin=[0,0,60000];collision.update_collision_bodies()
+	expect(not actor.shapes.is_empty(),"A live ship receives a hull collider")
+	collision.region.player.pose.origin=[0,0,80000];collision.resolve_body_contact([0,0,60000])
+	expect(collision.region.player.pose.origin==[0,0,60000] and collision.region.player.contact,"A fast step cannot cross a friendly ship")
+	var neighbor_id:=1
+	var anchor: Array=collision.station_origin(collision.session.station_id)
+	var neighbor_origin: Array=collision.station_origin(neighbor_id)
+	collision.region.player.pose.origin=[neighbor_origin[0]-anchor[0],neighbor_origin[1]-anchor[1],neighbor_origin[2]-anchor[2]+10000]
+	collision.update_collision_bodies()
+	expect(collision.physical_neighbors.has(neighbor_id) and collision.active_collision_bodies.has(collision.physical_neighbors[neighbor_id]),"A streamed neighboring station has simulation collision")
+	if collision.physical_neighbors.has(neighbor_id):
+		var shape=collision.physical_neighbors[neighbor_id].shapes[0]
+		var center: Array=[shape.origin[0]+shape.offset[0],shape.origin[1]+shape.offset[1],shape.origin[2]+shape.offset[2]]
+		expect(collision.collides_station(center),"Shots hit the neighboring station's modules")
+		var approach: Array=[center[0]+shape.half_size[0]+collision.region.player.radius+2000,center[1],center[2]]
+		var crossing: Array=[center[0]-shape.half_size[0]-collision.region.player.radius-2000,center[1],center[2]]
+		collision.region.player.pose.origin=crossing
+		collision.resolve_body_contact(approach)
+		expect(collision.region.player.pose.origin!=crossing and collision.region.player.contact,"A fast step cannot cross a neighboring station")
+	var wall=preload("res://native/simulation/collision_shape.gd").new()
+	wall.half_size=[1000,1000,1000]
+	collision.region.station.shapes=[wall]
+	var fish=collision.region.creatures[0];fish.constrained=false;fish.towing=false;fish.stationary=false
+	fish.pose.origin=[0,0,0];collision.region.creatures=[fish]
+	collision.keep_wildlife_outside_station([[3000,0,0]])
+	expect(fish.pose.origin==[3000,0,0],"A fish fleeing into a station wall stays at its last free position")
+	collision.dispose()
 	var navigation=preload("res://native/simulation/station_navigation.gd")
 	var obstruction:=AABB(Vector3(40000,-4000,-10000),Vector3(20000,8000,20000))
 	var detour: Array=navigation.cruise_detour(Vector3.ZERO,Vector3(100000,0,0),[obstruction],-20000,20000)
@@ -101,7 +145,12 @@ func _initialize() -> void:
 	var journey=traveler(); journey.region.player.health.hull=31; journey.session.hull=31
 	journey.session.campaign.secondary.jump_limit=10; journey.session.campaign.secondary.jumps=0
 	var total_ms := 0
+	var departures := 0
 	for destination in [113,134,0]:
+		if journey.session.docked:
+			expect(journey.depart(),"Docked route can depart for the next leg")
+			departures+=1;clear_ambient(journey)
+			journey.region.player.health.hull=31;journey.session.hull=31
 		expect(journey.route_to(destination),"Multi-leg route is inside pressure protection")
 		var start: int = journey.session.elapsed_ms
 		journey.speed=16
@@ -111,10 +160,10 @@ func _initialize() -> void:
 		expect(journey.session.station_id==destination and not journey.autopilot,"Continuous route reaches station "+str(destination))
 		expect(journey.region.player.health.hull<=31 and journey.region.player.health.hull>0,"Travel preserves damage and remains survivable")
 		expect(journey.session.elapsed_ms>start,"Each leg consumes simulation time")
-		expect(journey.session.campaign.secondary.jumps==0,"Region entries do not charge extra departures")
+		expect(journey.session.campaign.secondary.jumps==departures,"Region entries do not charge extra departures")
 		total_ms=journey.session.elapsed_ms; clear_ambient(journey)
 	expect(total_ms>120000,"Multi-leg journey covers more than two simulated minutes")
-	expect(journey.dock(),"Multi-leg arrival permits docking")
+	expect(journey.session.docked,"Multi-leg autopilot finishes in the berth")
 	var arrived: int = journey.session.elapsed_ms; journey.advance(0.24)
 	expect(journey.session.elapsed_ms==arrived,"Docked journey freezes mission clocks")
 	journey.dispose()

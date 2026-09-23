@@ -2,6 +2,8 @@ extends RefCounted
 ## Modernization: continuous world coordinates and safe, fixed-step time warp.
 const Region = preload("res://native/simulation/region.gd")
 const Math = preload("res://native/simulation/fixed_math.gd")
+const StationBody = preload("res://native/simulation/station_body.gd")
+const CollisionShape = preload("res://native/simulation/collision_shape.gd")
 const STEP_MS := 40
 const MAP_SCALE := 40000
 const SPEEDS := [1,2,4,8,16]
@@ -27,6 +29,10 @@ var autopilot := false
 var encounter_autopilot := false
 var gate_navigation := false
 var obstacle_bodies := {}
+var physical_neighbors := {}
+var active_collision_bodies: Array = []
+var collision_scan_origin: Array = []
+var nearby_station_ids: Array = []
 var passage_check := Callable()
 var avoidance_path: Array = []
 var approach_path: Array = []
@@ -56,7 +62,7 @@ func global_position() -> Array:
 func depart() -> bool:
 	if not session.depart(): message=session.text(session.depart_denial()); return false
 	if region!=null: region.dispose()
-	region=Region.new(); region.configure(session); attach_geography(); revision+=1; accumulator=0;weapon_pending.clear(); cancel_autopilot(); reset_gates()
+	region=Region.new(); region.configure(session); physical_neighbors.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography(); revision+=1; accumulator=0;weapon_pending.clear(); cancel_autopilot(); reset_gates()
 	# The departure berth is on the near side: face away from the station.
 	region.player.pose.face(Math.normalize_vector(region.player.pose.origin))
 	return true
@@ -139,9 +145,11 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 			weapon_pending.clear()
 			tick_input.mouse_x=mouse_pending.x; tick_input.mouse_y=mouse_pending.y; mouse_pending=Vector2.ZERO
 			var before_step: Array=region.player.pose.origin.duplicate()
+			var wildlife_before: Array=region.creatures.map(func(actor):return actor.pose.origin.duplicate())
+			update_collision_bodies()
 			region.step(STEP_MS,tick_input)
-			resolve_station_contact(before_step)
-			keep_wildlife_outside_station()
+			resolve_body_contact(before_step)
+			keep_wildlife_outside_station(wildlife_before)
 			update_gates(STEP_MS)
 			var previous_revision := revision
 			if passage_check.is_valid():passage_check.call()
@@ -191,9 +199,14 @@ func update_autopilot() -> void:
 	var distance: float = Vector3(difference[0],difference[1],difference[2]).length()
 	if distance<25000: speed=1
 	var dockable: bool = destination==session.station_id and region.station.can_dock(region.player.pose.origin)
-	# Mission predicates use a strict 20 m waypoint cube. Stopping at 120 m
-	# left the player outside the trigger, so its radio/script never ran.
-	var arrival_distance := 1800.0 if destination<0 else 12000.0
+	if dockable:
+		if dock(): message="Docked · "+session.stations[session.station_id].name
+		else: cancel_autopilot(message)
+		return
+	# Patrol waypoints use a strict 20 m trigger. Once the route ends, hand
+	# control back within weapon range of the live encounter target instead of
+	# trying to drive through its now-solid hull.
+	var arrival_distance := 20000.0 if encounter_autopilot and region.route.current()==null else 1800.0 if destination<0 else 12000.0
 	if distance>arrival_distance and not dockable:
 		update_approach(); avoid_cruise_stations(); return
 	var arriving := destination
@@ -270,7 +283,7 @@ func enter_region(id: int) -> void:
 	region.loadout.selected=bank
 	var equipped: Array = region.loadout.all_weapons()
 	for i in mini(equipped.size(),cooldowns.size()): equipped[i].elapsed=cooldowns[i]
-	attach_geography()
+	physical_neighbors.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography()
 	region.player.depth=session.stations[id].depth+(int(pose.origin[1])>>3)
 	revision+=1; speed=1; reset_gates()
 	message="Entered "+session.stations[id].name
@@ -301,7 +314,7 @@ func attach_geography() -> void:
 		hook.capture_distance=1400; hook.tow_speed=24
 	# The playable ocean is bottomless. Pressure protection limits descent;
 	# no generated ground surface or invisible ground collider interrupts it.
-	for weapon in region.weapons+region.loadout.all_weapons(): weapon.terrain_collision=func(p): return region.station.contains(p)
+	for weapon in region.weapons+region.loadout.all_weapons(): weapon.terrain_collision=func(p): return collides_station(p)
 
 func build_docked_view() -> void:
 	var state: int = session.rng.state
@@ -324,8 +337,9 @@ func advance_docked(real_seconds: float) -> void:
 			previous_render_poses.clear()
 			for actor in region.enemies+region.friends+region.creatures:
 				previous_render_poses[actor.get_instance_id()]=actor.pose.godot_transform()
+		var wildlife_before: Array=region.creatures.map(func(actor):return actor.pose.origin.duplicate())
 		region.step_ambient(STEP_MS,ambient_rng)
-		keep_wildlife_outside_station()
+		keep_wildlife_outside_station(wildlife_before)
 
 # bp's range is a fraction of its map width, multiplied by be.p. The square
 # continuous-world atlas uses the same 1/6 base radius and engine percentage,
@@ -425,11 +439,20 @@ func render_pose(actor) -> Transform3D:
 		return Transform3D(Basis(previous.basis.x.lerp(current.basis.x,weight),previous.basis.y.lerp(current.basis.y,weight),previous.basis.z.lerp(current.basis.z,weight)),previous.origin.lerp(current.origin,weight))
 	return previous.interpolate_with(current,weight)
 
-func keep_wildlife_outside_station() -> void:
+func keep_wildlife_outside_station(previous_positions: Array=[]) -> void:
 	# The phone game allowed background fauna to spawn inside station volumes.
 	# With solid buildings and occluded weapons, that makes a catch unreachable.
-	for actor in region.creatures:
+	for index in region.creatures.size():
+		var actor=region.creatures[index]
 		if not actor.health.enabled or actor.constrained or actor.towing or not region.station.contains(actor.pose.origin): continue
+		if index<previous_positions.size() and not region.station.contains(previous_positions[index]):
+			# A fish that swims into a wall, often while fleeing a shot, turns
+			# away at its last free point instead of snapping across a module.
+			var away: Array=region.station.avoidance_normal(actor.pose.origin)
+			actor.pose.origin=previous_positions[index]
+			if not actor.stationary:actor.pose.face(away)
+			actor.secondary_pose=actor.pose.copy_pose()
+			continue
 		var best: Array=[];var distance := INF
 		for shape in region.station.shapes:
 			for axis in [0,2]:
@@ -442,22 +465,88 @@ func keep_wildlife_outside_station() -> void:
 			if not actor.stationary: actor.pose.face(Math.normalize_vector(Math.subtracted(best,actor.pose.origin)))
 			actor.pose.origin=best;actor.secondary_pose=actor.pose.copy_pose()
 
-func resolve_station_contact(previous: Array) -> void:
-	if region.cinematic() or not region.station.contains(region.player.pose.origin): return
-	if not region.station.contains(previous):
-		# Keep the hull outside the wall. The next tick can still turn freely,
-		# even at zero throttle, rather than becoming trapped in avoidance.
-		region.player.pose.origin=previous;region.player.contact=true
-		return
-	var best: Array=[];var distance := INF
-	for shape in region.station.shapes:
-		for axis in [0,2]:
-			for side in [-1,1]:
-				var candidate: Array=previous.duplicate()
-				candidate[axis]=shape.origin[axis]+shape.offset[axis]+side*(shape.half_size[axis]+region.player.radius+100)
-				var amount: int=absi(candidate[axis]-previous[axis])
-				if amount<distance and not region.station.contains(candidate):best=candidate;distance=amount
-	if not best.is_empty():region.player.pose.origin=best
+func update_collision_bodies() -> void:
+	active_collision_bodies=[region.station]
+	var player_global: Array=global_position()
+	var anchor: Array=station_origin(session.station_id)
+	if collision_scan_origin.is_empty() or Math.vector(Math.subtracted(player_global,collision_scan_origin)).length_squared()>5000.0*5000.0:
+		collision_scan_origin=player_global
+		nearby_station_ids=[]
+		for station in session.stations:
+			if station.id==session.station_id:continue
+			if Math.vector(Math.subtracted(station_origin(station.id),player_global)).length_squared()<300000.0*300000.0:
+				nearby_station_ids.append(station.id)
+	for id in nearby_station_ids:
+		if not physical_neighbors.has(id):
+			var station: Dictionary=session.stations[id]
+			var body=StationBody.new()
+			body.configure(station,session.is_colonist_station(id),region.sine,session.data.get("station_geometry",{}))
+			var offset: Array=Math.subtracted(station_origin(id),anchor)
+			for shape in body.shapes:shape.origin=Math.added(shape.origin,offset)
+			physical_neighbors[id]=body
+		var neighbor=physical_neighbors[id]
+		var delta: Array=Math.subtracted(station_origin(id),player_global)
+		if Vector3(delta[0],delta[1],delta[2]).length()<neighbor.extent+40000:
+			active_collision_bodies.append(neighbor)
+	for actor in region.enemies+region.friends:
+		if not actor.collision_enabled or not actor.health.enabled or actor.health.hull<=0:continue
+		if actor.shapes.is_empty() and (actor.model_id<12 or actor.model_id==19):
+			var shape:=CollisionShape.new()
+			shape.origin=actor.pose.origin.duplicate()
+			shape.half_size=[actor.radius,actor.radius,actor.radius]
+			actor.shapes=[shape]
+		if not actor.shapes.is_empty():active_collision_bodies.append(actor)
+	region.player.collision_groups=[active_collision_bodies]
+
+func collides_station(point: Array) -> bool:
+	if region.station.contains(point):return true
+	for body in active_collision_bodies:
+		if body==region.station or not body is StationBody:continue
+		if body.contains(point):return true
+	return false
+
+func collision_shapes() -> Array:
+	var result: Array=[]
+	for body in active_collision_bodies:
+		if body!=region.station and body is not StationBody and (not body.collision_enabled or not body.health.enabled or body.health.hull<=0):continue
+		result.append_array(body.shapes)
+	return result
+
+func expanded_box(shape, radius: int) -> AABB:
+	var center: Vector3=Math.vector(shape.origin)+Math.vector(shape.offset)
+	var half: Vector3=Math.vector(shape.half_size)+Vector3.ONE*radius
+	return AABB(center-half,half*2.0)
+
+func inside_any_body(point: Vector3, shapes: Array) -> bool:
+	for shape in shapes:
+		if expanded_box(shape,region.player.radius).has_point(point):return true
+	return false
+
+func resolve_body_contact(previous: Array) -> void:
+	if region.cinematic():return
+	var shapes: Array=collision_shapes()
+	var start: Vector3=Math.vector(previous)
+	var finish: Vector3=Math.vector(region.player.pose.origin)
+	for shape in shapes:
+		var box: AABB=expanded_box(shape,region.player.radius)
+		if box.has_point(start):
+			if not box.has_point(finish):continue
+			var center: Vector3=box.get_center();var half: Vector3=box.size*0.5
+			var best: Vector3=finish;var distance:=INF
+			for axis in 3:
+				for side in [-1.0,1.0]:
+					var candidate: Vector3=finish
+					candidate[axis]=center[axis]+side*(half[axis]+2.0)
+					var travel: float=finish.distance_squared_to(candidate)
+					if travel<distance and not inside_any_body(candidate,shapes):best=candidate;distance=travel
+			if distance<INF:region.player.pose.origin=Math.array(best)
+			region.player.contact=true
+			return
+		if box.has_point(finish) or box.intersects_segment(start,finish)!=null:
+			# Revert the entire fixed step, including a fast crossing whose
+			# endpoints lie on opposite sides of a thin hull or station wall.
+			region.player.pose.origin=previous;region.player.contact=true
+			return
 
 func avoid_cruise_stations() -> void:
 	if region.player.autopilot_target==null:return

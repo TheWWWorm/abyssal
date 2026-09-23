@@ -85,7 +85,7 @@ func cruise_speed() -> float:
 
 func release() -> void:
 	struggle_remaining=0 if stationary else struggle_total
-	struggle_time=0;fleeing=false;hooked=false
+	struggle_time=0;fleeing=false;hooked=false;speed=cruise_speed()
 
 func hook(slow_percent: int) -> void:
 	# On the line the creature runs, slowed by the harpoon's paralysis.
@@ -123,7 +123,7 @@ func advance(delta_ms: int,rng,camera_origin: Array,ahead: Array=[]) -> void:
 		# A fleeing creature gathers speed, and for the first two seconds of
 		# each bout of struggle turns the way it last chose; then it spends
 		# a second of its strength and picks a new turn.
-		speed=Math.f32(speed+0.01)
+		speed=minf(Math.f32(speed+0.01),Math.f32(cruise_speed()*1.6))
 		struggle_time+=delta_ms
 		movement=int(Math.f32(float(delta_ms)*speed))
 		if struggle_time<2000:pose.compose_rotation(turn)
@@ -155,7 +155,12 @@ func advance(delta_ms: int,rng,camera_origin: Array,ahead: Array=[]) -> void:
 		phase=(phase+delta_ms)&0xFFF
 		keep_upright()
 	animate(delta_ms)
-	if not constrained and Math.length_of(Math.subtracted(camera_origin,pose.origin))>LEAVE_DISTANCE:
+	# Recycle only after the creature has gone behind the camera. A wounded
+	# fish can outrun the 400 m pool while still in view; moving it to a new
+	# random bearing at that point looks like a teleport in the middle of a hit.
+	var offset: Vector3=Math.vector(Math.subtracted(pose.origin,camera_origin))
+	var behind: bool=ahead.is_empty() or offset.dot(Math.vector(ahead))<0.0
+	if not constrained and offset.length()>LEAVE_DISTANCE and behind:
 		reappear(rng,camera_origin,ahead)
 
 func keep_upright() -> void:

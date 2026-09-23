@@ -121,6 +121,17 @@ func run():
  # are what is under test, so make sure there is a line to show and buy.
  var holding: Dictionary=app.session.stations[app.session.station_id]
  while app.economy.market(holding).is_empty(): holding.cargo=app.economy.generate_goods(holding)
+ app.show_ship_status();await settle()
+ expect(app.column.find_children("*","Label",true,false).any(func(item):return item.text.contains("Equipment") and item.text.contains("slots") and item.text.contains("Cargo")),"Ship and Cargo page shows equipment slots alongside cargo capacity")
+ app.show_market("equipment");await settle()
+ var tabs=app.column.find_child("EquipmentTabs",true,false)
+ expect(tabs!=null and tabs.get_child_count()==2,"Equipment store offers Shop and Ship equipment tabs")
+ expect(app.column.find_children("*","Label",true,false).any(func(item):return item.text.contains("EQUIPMENT SLOTS")),"Equipment store shows fitted and total ship slots")
+ expect(app.column.find_children("*","Label",true,false).any(func(item):return item.text=="SHOP STOCK"),"Shop tab lists station stock")
+ tabs.get_node("ShipEquipmentTab").pressed.emit();await settle()
+ expect(app.equipment_tab==1 and app.column.find_children("*","Label",true,false).any(func(item):return item.text=="INSTALLED SYSTEMS"),"Ship equipment tab lists fitted systems separately")
+ app.column.find_child("ShopTab",true,false).pressed.emit();await settle()
+ expect(app.equipment_tab==0,"Shop tab returns to station stock")
  for mode in [2,1]:
   app.touch.mode=mode
   app.show_station();await settle()

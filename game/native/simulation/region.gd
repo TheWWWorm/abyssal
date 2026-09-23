@@ -60,13 +60,7 @@ func configure(owner_session) -> void:
 	player.health.hull=session.hull; player.health.shield=session.shield; player.health.armor=session.armor
 	station.configure(record,session.is_colonist_station(),sine,session.data.get("station_geometry",{}))
 	player.collision_groups=[[station]]
-	for i in [1,2]:
-		var transform=preload("res://native/simulation/ship_transform.gd").new(); transform.math.sine_table=sine
-		var yaw: int = (300 if record.tech>4 else -300)*i
-		transform.set_euler(0,-yaw,0); gates.append(transform.rotate_direction([0,0,(90000 if i==1 else 110000)+yaw*3]))
-	# A nearby arrival/departure pair shares one physical portal. Keep the two
-	# logical slots for transit compatibility, but use one stable world position.
-	consolidate_gates()
+	gates=gate_positions(record,sine)
 	var setup := Setup.new(); setup.configure(self); setup.populate()
 	if mission.story:
 		for record_event in session.data.timelines.get(str(session.campaign.chapter),[]): timeline.append(Timeline.new().configure(record_event))
@@ -103,18 +97,35 @@ func configure(owner_session) -> void:
 	configure_npc_weapons(friends,false)
 	recount()
 	for entry in timeline:entry.poll(self)
+static func gate_positions(station: Dictionary,sine_table: Array) -> Array:
+	var result: Array=[]
+	for i in [1,2]:
+		var transform=preload("res://native/simulation/ship_transform.gd").new();transform.math.sine_table=sine_table
+		var yaw: int=(300 if station.tech>4 else -300)*i
+		transform.set_euler(0,-yaw,0);result.append(transform.rotate_direction([0,0,(90000 if i==1 else 110000)+yaw*3]))
+	consolidate_gate_pair(result)
+	return result
+
 func consolidate_gates() -> void:
-	if gates.size()<2:return
-	var a: Array=gates[0];var b: Array=gates[1]
+	consolidate_gate_pair(gates)
+
+static func consolidate_gate_pair(pair: Array) -> void:
+	if pair.size()<2:return
+	# A nearby arrival/departure pair shares one physical portal. Keep the two
+	# logical slots for transit compatibility, but use one stable world position.
+	var a: Array=pair[0];var b: Array=pair[1]
 	if Vector3(a[0]-b[0],a[1]-b[1],a[2]-b[2]).length()<=60000.0:
-		gates[1]=gates[0].duplicate()
+		pair[1]=pair[0].duplicate()
 
 func gate_index(index: int) -> int:
 	return 0 if index==1 and gates[0]==gates[1] else index
 
 func gate_yaw(index: int) -> int:
 	# The station, the gate and an arriving ship share the converted yaw.
-	return 2048-(300 if session.stations[session.station_id].tech>4 else -300)*(gate_index(index)+1)
+	return gate_yaw_for(session.stations[session.station_id],gate_index(index))
+
+static func gate_yaw_for(station: Dictionary,index: int) -> int:
+	return 2048-(300 if station.tech>4 else -300)*(index+1)
 
 func configure_npc_weapons(actors: Array,hostile: bool) -> void:
 	# One pool of shots for all the pirates and one for all the friends, as

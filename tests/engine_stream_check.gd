@@ -699,6 +699,7 @@ func run():
  view._process(.7)
  for model in node.get_children():
   expect(model.stream_visibility==1,"Station fade completes")
+  if int(model.record.id)==15:continue # Gates animate; station modules do not.
   var frame: int=model.sampled_frame;var pattern: int=model.last_pattern
   model.advance(12000)
   expect(model.sampled_frame==frame and model.last_pattern==pattern,"Streamed station configuration does not cycle")
