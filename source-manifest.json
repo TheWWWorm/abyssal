@@ -141,6 +141,7 @@
     "tests/engine_stream_check.gd",
     "tests/engine_ui_check.gd",
     "tests/gamepad_ui_check.gd",
+    "tests/model_deformation_check.gd",
     "tests/modern_gameplay_check.gd",
     "tests/mods_check.gd",
     "tests/native_coordinates_check.gd",

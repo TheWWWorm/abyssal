@@ -12,6 +12,7 @@ def main():
     portable=pathlib.Path(temporary.name)/"private.abyss"
     pack(cache,portable)
     cases={
+        "model_deformation_check.gd":cache,
         "platform_input_check.gd":cache,
         "gamepad_ui_check.gd":cache,
         "readability_check.gd":cache,

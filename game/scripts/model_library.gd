@@ -442,14 +442,18 @@ static func pose_copy(material: ShaderMaterial) -> ShaderMaterial:
 	a station part first posed while its station was fading in was cached
 	half dithered, and every part sharing the pose then flickered into a
 	see-through box whenever its animation reached that frame."""
-	while material.has_meta("stream_original") or material.has_meta("portal_original"):
-		material=material.get_meta("stream_original") if material.has_meta("stream_original") else material.get_meta("portal_original")
+	while material.has_meta("stream_original") or material.has_meta("portal_original") or material.has_meta("hinge_original"):
+		if material.has_meta("stream_original"):material=material.get_meta("stream_original")
+		elif material.has_meta("portal_original"):material=material.get_meta("portal_original")
+		else:material=material.get_meta("hinge_original")
 	var copy := material.duplicate() as ShaderMaterial
-	for name in ["stream_original","portal_original","hangar_instance"]:
+	for name in ["stream_original","portal_original","hangar_instance","hinge_original"]:
 		if copy.has_meta(name): copy.remove_meta(name)
 	copy.set_shader_parameter("stream_visibility",1.0)
 	copy.set_shader_parameter("portal_clip_enabled",false)
 	copy.set_shader_parameter("hangar_open",0.0)
+	copy.set_shader_parameter("hinge_bend",0.0)
+	copy.set_shader_parameter("hinge_axis",1)
 	return copy
 
 func pose_bounds(resource: String, transforms: Array[Transform3D]) -> AABB:
@@ -516,9 +520,9 @@ uniform mat4 source_bones[64];
 // A creature's second part bends at its join with the body instead of
 // turning whole: the angle, its axis (0 pitch, 1 yaw) and how far from
 // the join the bend reaches before the part is carried rigidly.
-instance uniform float hinge_bend = 0.0;
-instance uniform int hinge_axis = 1;
-instance uniform float hinge_reach = 1.5;
+uniform float hinge_bend = 0.0;
+uniform int hinge_axis = 1;
+const float hinge_reach = 1.5;
 uniform vec2 texture_size = vec2(1.0);
 uniform float source_ambient = 1.0;
 uniform float source_intensity = 0.0;
@@ -732,6 +736,8 @@ if(replacement_enabled && architecture_enabled){
 		shaders[key] = shader
 	var mat := ShaderMaterial.new()
 	mat.shader = shaders[key]
+	mat.set_shader_parameter("hinge_bend",0.0)
+	mat.set_shader_parameter("hinge_axis",1)
 	if resource != "":
 		var tex := texture(resource,alpha)
 		mat.set_shader_parameter("albedo",tex)

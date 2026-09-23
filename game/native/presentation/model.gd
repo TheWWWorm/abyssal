@@ -62,23 +62,40 @@ var portal_materials := {}
 
 var hinge_axis := 1
 var hinge_bend := 0.0
+var hinge_materials: Dictionary = {}
 
 func set_hinge(axis: int, bend: float) -> void:
 	"""Bends this part at its join with the body by a Godot-space angle
-	about its local X (pitch) or Y (yaw), per instance, so the shared pose
-	materials stay untouched."""
+	about its local X (pitch) or Y (yaw). Only a bending model owns these
+	material overrides; the shared poses and rigid models stay undeformed."""
 	hinge_axis=axis;hinge_bend=bend;apply_hinge()
 
 func apply_hinge() -> void:
 	if figure==null:return
 	var mesh := figure.get_node("Mesh") as MeshInstance3D
-	mesh.set_instance_shader_parameter("hinge_axis",hinge_axis)
-	mesh.set_instance_shader_parameter("hinge_bend",hinge_bend)
+	# Instance uniforms reserve global-buffer slots even for rigid models and
+	# hidden warmup/animation variants. Mobile WebGL can exhaust that buffer;
+	# an invalid offset can read ocean lighting as a bend. Ordinary uniforms
+	# on model-owned materials keep deformation out of that shared buffer.
+	for index in mesh.mesh.get_surface_count():
+		var material := mesh.get_surface_override_material(index) as ShaderMaterial
+		if material==null:continue
+		if not material.has_meta("hinge_original"):
+			if hinge_bend==0.0:continue
+			var key := material.get_instance_id()
+			if not hinge_materials.has(key):
+				if hinge_materials.size()>=128:hinge_materials.clear()
+				var own := material.duplicate() as ShaderMaterial
+				own.set_meta("hinge_original",material);hinge_materials[key]=own
+			material=hinge_materials[key];mesh.set_surface_override_material(index,material)
+		material.set_shader_parameter("hinge_axis",hinge_axis)
+		material.set_shader_parameter("hinge_bend",hinge_bend)
 	Library.set_lamp_hinge(figure,hinge_axis,hinge_bend)
 
 func set_stream_visibility(value: float) -> void:
 	stream_visibility=clampf(value,0.0,1.0)
 	apply_stream_visibility()
+	apply_hinge()
 
 func apply_stream_visibility() -> void:
 	if figure==null:return

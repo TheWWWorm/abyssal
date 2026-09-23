@@ -1,25 +1,24 @@
-# Abyssal Engine 1.2.10 — platform support
+# Abyssal Engine 1.2.11 — browser build
 
 Game content is not included. Import a compatible DEEP JAR that you supply.
 
 ## Validation
 
-- The 15 engine regression suites passed on Linux x86-64 with Godot 4.7 and
-  locally supplied compatible content. They cover docking presentation, gate
-  streaming and rotation, station lighting, touch input and flight attitude,
-  travel, missions, collision, menus, and imported content.
-- All 37 Python source and packaging tests passed.
-- The Linux x86-64 release export launched with locally prepared content for
-  120 headless frames.
+- All 16 headless engine regression suites passed on Linux x86-64 with Godot
+  4.7 and locally supplied compatible content.
+- Rendered model deformation and gate rotation checks passed on OpenGL and
+  Vulkan. The 300-model stress check passed on OpenGL, Chromium WebGL and
+  Linux WebKit WebGL, including a constrained shader buffer in the browsers.
+- All five publication tests passed, along with source allowlist and
+  provenance validation.
 
 ## Scope and limitations
 
-The iPhone browser and Android sensor behavior were checked through simulated
-input and coordinate tests; a physical iPhone was not available for this build.
-Windows, macOS, Linux ARM64, Android and Web gameplay were not run on their
-target systems. Export and archive checks establish that the packages were
-produced, not that those targets have been validated in play. Windows and
-macOS packages are unsigned, and macOS is not notarized.
+A physical iPhone was not available. Linux WebKit checks do not establish
+compatibility with iOS Safari or its Metal backend. Linux WebKit reports
+framebuffer blit warnings on both this build and the previous build; the
+targeted geometry checks pass.
 
-Android uses version code 34 and the existing release signing key for in-place
-updates that preserve imported content and saves.
+Eight existing OpenGL headlight smoothness and saturation checks fail on both
+this build and unchanged 1.2.10 source. This browser update addresses model
+deformation; it does not include native platform packages.
