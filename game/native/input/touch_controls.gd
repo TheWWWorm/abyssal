@@ -12,12 +12,26 @@ static var touch_contacts := {}
 static var last_touch_ms := -1000000
 const TOUCH_MOUSE_GRACE_MS := 750
 var drag_anywhere := false
+## The stick stays where it is placed instead of coming to the thumb; a touch
+## must then land on it to steer.
+var fixed_stick := false
+## A look drag swings the camera round the submarine. It stays swung after the
+## finger lifts, until the stick is touched again or ORBIT_HOLD_MS pass.
+const ORBIT_HOLD_MS := 4000
+var orbit_hold := false
+var look_released_ms := 0
 const Layout = preload("res://native/input/touch_layout.gd")
 ## Player placements, as offsets from the standard composition. Empty means the
 ## arrangement below is used exactly as designed.
 var layout := {}
 ## Draws every control regardless of finger state, for the placement editor.
-var layout_preview := false
+## The editor shows the standard positions, so leaving it puts the harpoon back
+## in the guns' place on a ship without guns.
+var layout_preview := false:
+	set(value):
+		layout_preview=value
+		if not weapon_home.is_empty(): place_throttle()
+		queue_redraw()
 var unit := 1.0
 var active := false
 var fingers := {}
@@ -53,6 +67,8 @@ var weapon_home := {}
 var time_speed := 1
 ## The compact depth gauge's column, under the pause and map buttons.
 var depth_rect := Rect2()
+## Height of the depth gauge's two-line label (flight_instruments.gd).
+const DEPTH_LABEL := 50.0
 const HOLD := ["guns","hook","boost","throttle"]
 const ROUND := ["menu","map","time","autopilot","dock","boost","hook","guns"]
 const LABELS := {"guns":"GUNS","hook":"HOOK","boost":"BOOST","throttle":"THROTTLE","dock":"DOCK","map":"MAP","autopilot":"ROUTE","time":"TIME","menu":"PAUSE"}
@@ -97,7 +113,13 @@ func update_input(event: InputEvent, deadzone: float=.18) -> void:
 	if before!=enabled():
 		reset();refresh_visibility()
 func reset() -> void:
-	fingers.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;queue_redraw()
+	fingers.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;orbit_hold=false;queue_redraw()
+func orbit_held() -> bool:
+	"""Whether the camera should stay where a look drag swung it."""
+	if "look" in fingers.values(): return true
+	return orbit_hold and Time.get_ticks_msec()-look_released_ms<ORBIT_HOLD_MS
+func on_stick(point: Vector2) -> bool:
+	return point.distance_to(stick_home)<=stick_radius*1.15
 func set_active(value: bool) -> void:
 	if active!=value:reset()
 	active=value;refresh_visibility()
@@ -106,29 +128,26 @@ func refresh_visibility() -> void:
 	them from steering, so previewing counts as a reason to be on screen."""
 	visible=(active or layout_preview) and enabled()
 func safe_rect() -> Rect2:
-	"""Keep controls clear of notches and rounded corners when the platform reports them."""
-	var full := Rect2(Vector2.ZERO,size)
-	var window := DisplayServer.window_get_size()
-	if window.x<=0 or window.y<=0: return full
-	var area := DisplayServer.get_display_safe_area()
-	if area.size.x<=0 or area.size.y<=0: return full
-	if area.position==Vector2i.ZERO and area.size==window: return full
-	var scale := Vector2(size.x/float(window.x),size.y/float(window.y))
-	var mapped := Rect2(Vector2(area.position)*scale,Vector2(area.size)*scale).intersection(full)
-	return mapped if mapped.size.x>size.x*.5 and mapped.size.y>size.y*.5 else full
+	"""The interface this overlay sits in is already inset from notches and
+	rounded corners (see safe_margins.gd), so the whole of it is usable."""
+	return Rect2(Vector2.ZERO,size)
 func round_zone(center: Vector2, radius: float) -> Rect2:
 	return Rect2(center-Vector2.ONE*radius,Vector2.ONE*radius*2)
 func arrange() -> void:
 	reset();zones.clear()
 	# UI uses a landscape logical canvas. Leave an inset for rounded display edges.
-	var s:=minf(size.x/1280.0,size.y/720.0)
+	# Scaled by the long and short sides, so a phone turned upright keeps
+	# controls of the size they have held landscape.
+	var s:=minf(maxf(size.x,size.y)/1280.0,minf(size.x,size.y)/720.0)
 	var safe:=safe_rect()
 	var left:=safe.position.x;var right:=safe.end.x;var top:=safe.position.y;var bottom:=safe.end.y
 	# Pause and map in the top right corner, away from where thumbs rest.
 	zones.menu=round_zone(Vector2(right-58*s,top+50*s),34*s)
 	zones.map=round_zone(Vector2(right-146*s,top+50*s),34*s)
 	# The depth gauge hangs under them; docking appears below it when possible.
-	depth_rect=Rect2(Vector2(right-52*s,top+146*s),Vector2(12*s,250*s))
+	# Its DEPTH label is 50 units tall at every scale, so the gauge starts
+	# that far plus a clear gap below the buttons' rims.
+	depth_rect=Rect2(Vector2(right-52*s,top+(50+34+24)*s+DEPTH_LABEL),Vector2(12*s,250*s))
 	# Docking comes up in from the edge, above the weapons, where it is seen.
 	zones.dock=round_zone(Vector2(right-300*s,bottom-300*s),46*s)
 	# Route and time stack above the stick, within reach of the left thumb.
@@ -143,7 +162,13 @@ func arrange() -> void:
 	stick_radius=104.0*s
 	stick_home=Vector2(left+150*s,bottom-150*s)
 	stick_center=stick_home
-	zones.boost=round_zone(Vector2(stick_home.x+stick_radius+80*s,bottom-100*s),44*s)
+	# Level with the harpoon, so the two small buttons read as one row.
+	zones.boost=round_zone(Vector2(stick_home.x+stick_radius+80*s,zones.hook.get_center().y),44*s)
+	if size.y>size.x:
+		# Held upright there is no width for a row: the harpoon goes above the
+		# guns and their throttle arc, the booster above the stick's right.
+		zones.hook=round_zone(zones.guns.get_center()+Vector2(0,-196*s),44*s)
+		zones.boost=round_zone(stick_home+Vector2(stick_radius*.8,-stick_radius-62*s),44*s)
 	var reach:=top+104*s
 	steer_region=Rect2(Vector2(left,reach),Vector2(safe.size.x*.46,bottom-reach))
 	unit=s
@@ -167,7 +192,7 @@ func apply_layout(s: float) -> void:
 	cluster_top=zones.throttle.position.y
 	# The band between the left and right thumb controls stays free for the HUD.
 	free_left=safe_rect().position.x+28.0*s if drag_anywhere else maxf(stick_home.x+stick_radius,zones.boost.end.x)+12*s
-	free_right=zones.hook.position.x-12*s
+	free_right=minf(zones.hook.position.x,zones.throttle.position.x)-12*s
 func harpoon_in_guns_place() -> bool:
 	return not has_guns and has_hook and not layout_preview
 func place_throttle() -> void:
@@ -218,6 +243,10 @@ func handle(event: InputEvent) -> bool:
 	if event is InputEventScreenTouch and event.pressed:
 		update_input(event)
 	if not active or not enabled():return false
+	# Fingers arrive in screen coordinates; the overlay can be inset from the
+	# screen's edges.
+	if event is InputEventScreenTouch or event is InputEventScreenDrag:
+		event=event.duplicate();event.position=get_global_transform_with_canvas().affine_inverse()*event.position
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			var key:=button_at(event.position)
@@ -225,16 +254,21 @@ func handle(event: InputEvent) -> bool:
 				fingers[event.index]=key
 				if key=="throttle":slide(event.position)
 				queue_redraw();return true
-			if not drag_anywhere and key.is_empty() and "steer" not in fingers.values() and steer_region.has_point(event.position):
+			var reach: bool=on_stick(event.position) if fixed_stick else steer_region.has_point(event.position)
+			if not drag_anywhere and key.is_empty() and "steer" not in fingers.values() and reach:
 				fingers[event.index]="steer";engaged=true
-				stick_center=clamp_stick(event.position);steer=Vector2.ZERO
+				# Taking the stick again after a look brings the camera back.
+				if "look" not in fingers.values(): orbit_hold=false
+				stick_center=stick_home if fixed_stick else clamp_stick(event.position);steer=Vector2.ZERO
+				if fixed_stick: move_stick(event.position)
 				queue_redraw();return true
 			if key.is_empty() and "look" not in fingers.values():
 				# Anywhere else is a free look surface, so the view is not stick-bound.
-				fingers[event.index]="look";return true
+				fingers[event.index]="look";orbit_hold=true;return true
 		elif fingers.has(event.index):
 			var key: String=fingers[event.index];fingers.erase(event.index)
 			if key=="steer":steer=Vector2.ZERO;engaged=false;stick_center=stick_home
+			elif key=="look":look_released_ms=Time.get_ticks_msec()
 			elif key!="look" and key not in HOLD and not event.canceled and shown(key) and button_at(event.position)==key:action.emit(key)
 			queue_redraw();return true
 	if event is InputEventScreenDrag and fingers.has(event.index):

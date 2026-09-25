@@ -39,7 +39,30 @@ func run() -> void:
  for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2560,1080)]:
   touch.size=dimensions;touch.arrange()
   for name in touch.zones:expect(Rect2(Vector2.ZERO,dimensions).encloses(touch.zones[name]),"Touch target fits: "+name)
+ # Held upright (iPhone ratio), every control fits and none sits on another.
+ touch.size=Vector2(589,1280);touch.arrange()
+ var crowded: Array=[]
+ for a in touch.ROUND:
+  for b in touch.ROUND:
+   if a<b and touch.zones[a].get_center().distance_to(touch.zones[b].get_center())<(touch.zones[a].size.x+touch.zones[b].size.x)*.5:crowded.append(a+"/"+b)
+  if not Rect2(Vector2.ZERO,touch.size).encloses(touch.zones[a]):crowded.append(a+" off screen")
+ var arc_zone: Rect2=touch.zones.throttle
+ if arc_zone.get_center().distance_to(touch.zones.hook.get_center())<touch.arc_radius(arc_zone)+touch.zones.hook.size.x*.5+8:crowded.append("hook/throttle")
+ expect(crowded.is_empty(),"Upright controls stay apart: %s"%[crowded])
+ expect(is_equal_approx(touch.unit,minf(1280/1280.0,589/720.0)),"Upright controls keep their landscape size")
+ # Every size, landscape phones inside their notch margins included: round
+ # controls keep a clear gap, and the depth label clears the top buttons.
+ for dimensions in [Vector2(800,600),Vector2(1280,720),Vector2(1140,589),Vector2(2400,1080),Vector2(589,1184)]:
+  touch.size=dimensions;touch.arrange()
+  var tight: Array=[]
+  for a in touch.ROUND:
+   for b in touch.ROUND:
+    if a<b and touch.zones[a].get_center().distance_to(touch.zones[b].get_center())<(touch.zones[a].size.x+touch.zones[b].size.x)*.5+12*touch.unit:tight.append(a+"/"+b)
+  var label_top: float=touch.depth_rect.position.y-touch.DEPTH_LABEL
+  if label_top<touch.zones.menu.end.y+12*touch.unit:tight.append("depth label/pause")
+  expect(tight.is_empty(),"Controls keep clear of each other at %s: %s"%[dimensions,tight])
  touch.size=Vector2(1280,720);touch.arrange()
+ expect(is_equal_approx(touch.zones.boost.get_center().y,touch.zones.hook.get_center().y),"Booster and harpoon sit level")
  expect(not touch.zones.has("full") and not touch.zones.has("camera"),"View and fullscreen live in the pause menu, not on the flight overlay")
  # The dock button only answers while there is something to dock with.
  touch.dock_ready=false
@@ -88,7 +111,36 @@ func run() -> void:
  expect(touch.snapshot().look==Vector2.ZERO,"Look delta is consumed once per frame")
  expect(touch.snapshot().yaw>0,"Looking around does not disturb the steering stick")
  finger(touch,3,free,false)
+ expect(touch.orbit_held(),"The camera stays swung after the look finger lifts")
  finger(touch,0,landing,false);expect(touch.steer==Vector2.ZERO and touch.stick_center.is_equal_approx(touch.stick_home),"Releasing the stick returns it home")
+ expect(touch.orbit_held(),"Letting go of the stick does not bring the camera back")
+ finger(touch,0,landing,true);finger(touch,0,landing,false)
+ expect(not touch.orbit_held(),"Touching the stick again brings the camera back")
+ finger(touch,3,free,true);finger(touch,3,free,false);touch.look_released_ms-=touch.ORBIT_HOLD_MS+1
+ expect(not touch.orbit_held(),"The camera comes back by itself after a few seconds")
+ touch.snapshot()
+ # A fixed stick stays put; a touch has to land on it to steer.
+ touch.fixed_stick=true
+ finger(touch,0,landing,true)
+ expect(touch.fingers[0]=="look","A fixed stick does not come to a thumb that lands elsewhere")
+ finger(touch,0,landing,false);touch.snapshot()
+ finger(touch,0,touch.stick_home+Vector2(30,0),true)
+ expect(touch.engaged and touch.stick_center==touch.stick_home and touch.snapshot().yaw>0,"A thumb on the fixed stick steers from where it stands")
+ finger(touch,0,touch.stick_home,false);touch.fixed_stick=false
+ # The overlay can be inset from the screen's edges (a phone's notch margin):
+ # fingers arrive in screen coordinates and must still find their buttons.
+ touch.position=Vector2(70,0)
+ finger(touch,6,touch.zones.guns.get_center()+Vector2(70,0),true)
+ expect(touch.fingers.get(6,"")=="guns","An inset overlay maps screen touches onto its buttons")
+ finger(touch,6,touch.zones.guns.get_center()+Vector2(70,0),false);touch.position=Vector2.ZERO
+ var margins=preload("res://native/platform/safe_margins.gd")
+ var landscape: Dictionary=margins.margins(Vector2(1280,589),Vector2i(2000,920),true)
+ expect(landscape.side>=60 and landscape.top==0,"A widescreen phone held landscape keeps the interface off both side edges")
+ var standing: Dictionary=margins.margins(Vector2(589,1280),Vector2i(920,2000),true)
+ expect(standing.side==0 and standing.top>=50 and standing.bottom>0,"Held upright the interface keeps clear of the notch and the home indicator")
+ expect(margins.margins(Vector2(1280,720),Vector2i(1920,1080),true).side==0 and margins.margins(Vector2(1280,589),Vector2i(2000,920),false).side==0,"16:9 screens and desktops keep the full width")
+ var display=preload("res://native/presentation/display_settings.gd")
+ expect(display.framed_fov(65,Vector2(1280,720))==65 and display.framed_fov(65,Vector2(589,1280))>85,"Held upright the camera widens its view rather than cutting the sides to a slit")
  touch.set_active(false);expect(touch.fingers.is_empty() and touch.steer==Vector2.ZERO and touch.look==Vector2.ZERO,"Opening a menu releases all touch inputs")
  touch.drag_anywhere=true;touch.arrange();touch.set_active(true)
  finger(touch,0,touch.stick_home,true)
@@ -142,7 +194,26 @@ func run() -> void:
  game.touch.drag_anywhere=true;game.save_settings()
  var touch_config:=ConfigFile.new();touch_config.load(game.settings_path)
  expect(bool(touch_config.get_value("input","touch_drag_anywhere",false)),"Whole-screen touch look is saved")
- game.touch.drag_anywhere=false;game.save_settings()
+ game.touch.drag_anywhere=false;game.touch.fixed_stick=true;game.save_settings()
+ touch_config.load(game.settings_path)
+ expect(bool(touch_config.get_value("input","touch_fixed_stick",false)),"The fixed-stick choice is saved")
+ game.touch.fixed_stick=false;game.save_settings()
+ # With a stick to steer by, a drag swings the camera instead of the helm.
+ game.touch.reset();game.touch.look=Vector2(120,0)
+ var orbit: Dictionary=game.flight_input()
+ expect(game.view.look_offset.x<0 and is_zero_approx(orbit.mouse_x),"A touch drag orbits the camera without steering")
+ game.view.look_offset=Vector2.ZERO
+ # The vertical inversion reaches the touch stick, not only the drag.
+ game.touch.steer=Vector2(0,-1)
+ var upright: float=game.flight_input().pitch
+ game.invert_mouse=true
+ var inverted: float=game.flight_input().pitch
+ expect(upright>0 and inverted<0,"Inverted vertical steering reverses the touch stick")
+ game.invert_mouse=false;game.touch.reset()
+ game.show_controls("")
+ var control_rows: Array=game.column.find_children("*","Button",true,false).map(func(button):return button.text)
+ expect("Touch controls" in control_rows,"The controls list names the touch section without its mode")
+ game.close_page()
  # The overlay's view and fullscreen switches moved into the pause menu.
  game.show_pause()
  var pause_rows: Array=game.column.find_children("*","Button",true,false).map(func(button):return button.text)
@@ -286,8 +357,12 @@ func check_touch_placement(game) -> void:
  var lift:=InputEventScreenTouch.new();lift.index=0;lift.pressed=false;lift.position=shove.position
  editor.drag_panel(lift)
  expect(editor.panel_finger<0,"Releasing ends the panel drag")
+ touch.has_guns=false;touch.place_throttle()
+ expect(touch.zones.hook!=touch.weapon_home.guns,"The editor shows the harpoon at its own place")
  editor.queue_free();await process_frame
  expect(not touch.layout_preview,"Leaving the editor stops previewing idle controls")
+ expect(touch.zones.hook==touch.weapon_home.guns,"Leaving the editor puts a gunless ship's harpoon back in the guns' place")
+ touch.has_guns=true;touch.place_throttle()
  touch.layout={};touch.arrange();touch.set_active(false)
 
 func pointer(game, pressed: bool, at: Vector2, moving: bool=false) -> void:

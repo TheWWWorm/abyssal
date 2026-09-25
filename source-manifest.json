@@ -29,6 +29,7 @@
     "game/native/platform/content_pack.gd",
     "game/native/platform/file_access.gd",
     "game/native/platform/image_file.gd",
+    "game/native/platform/safe_margins.gd",
     "game/native/platform/save_file.gd",
     "game/native/presentation/abyss.gd",
     "game/native/presentation/abyss_sky.gdshader",

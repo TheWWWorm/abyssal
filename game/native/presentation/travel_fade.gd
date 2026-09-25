@@ -17,6 +17,9 @@ static func uncover(parent: Control, seconds: float=UNCOVER) -> void:
 	node.z_index=60
 	parent.add_child(node)
 	node.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Reach past an interface inset from a phone's notch to the screen's edges.
+	node.offset_left=-parent.offset_left;node.offset_right=-parent.offset_right
+	node.offset_top=-parent.offset_top;node.offset_bottom=-parent.offset_bottom
 	node.lift(seconds)
 
 func lift(seconds: float) -> void:

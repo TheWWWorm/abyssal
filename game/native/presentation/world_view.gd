@@ -275,7 +275,8 @@ func _process(delta: float) -> void:
 	preload("res://native/presentation/replacement_geometry.gd").collect_ready()
 	if revision!=world.revision: rebuild()
 	var region=world.region
-	camera.fov=lerpf(camera.fov,70.0 if region.player.boost_active and not region.cinematic() else 65.0,1-exp(-delta*5))
+	var framed: float=preload("res://native/presentation/display_settings.gd").framed_fov(70.0 if region.player.boost_active and not region.cinematic() else 65.0,camera.get_viewport().get_visible_rect().size)
+	camera.fov=lerpf(camera.fov,framed,1-exp(-delta*5))
 	neighbor_clock+=delta
 	shade_actor_beams()
 	var ms: int = maxi(0,region.elapsed_ms-previous_time)

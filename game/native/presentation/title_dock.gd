@@ -102,6 +102,7 @@ func set_audio_enabled(value: bool) -> void:
 	dive_audio.set_enabled(value)
 
 func _process(delta: float) -> void:
+	camera.fov=preload("res://native/presentation/display_settings.gd").framed_fov(65,get_viewport().get_visible_rect().size)
 	if not built or world.region==null:return
 	# The station's own clocks: the hangar doors, the rotor and the caps run
 	# as they do in the dive; nothing else here is simulated.

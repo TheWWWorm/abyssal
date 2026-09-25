@@ -192,6 +192,7 @@ var freeze_view
 var layout_editor
 const TravelFade = preload("res://native/presentation/travel_fade.gd")
 const Display = preload("res://native/presentation/display_settings.gd")
+const SafeMargins = preload("res://native/platform/safe_margins.gd")
 var aspect_ratio := "auto"
 var settings_path := "user://native/settings.cfg"
 var world_spacing := preload("res://native/simulation/world_spacing.gd").new()
@@ -268,6 +269,7 @@ func _ready() -> void:
 		dive_audio.apply_levels()
 	touch.mode=setting_index(config,"input","touch",0,2)
 	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
+	touch.fixed_stick=bool(config.get_value("input","touch_fixed_stick",false))
 	controller.deadzone=setting_number(config,"input","deadzone",.18,.05,.45)
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
 	vibration=bool(config.get_value("input","vibration",true))
@@ -593,7 +595,7 @@ func _process(delta: float) -> void:
 	view.stabilize_touch_horizon=touch.enabled()
 	if world.region!=null:world.region.player.touch_horizon_assist=touch.enabled()
 	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:release_flight_mouse()
-	view.look_held=free_look_held() and mouse_steering_enabled()
+	view.look_held=(free_look_held() and mouse_steering_enabled()) or (touch.enabled() and not touch.drag_anywhere and touch.orbit_held())
 	watch_browser_capture()
 	if autopilot_pressed_at>=0 and not autopilot_hold_used and Time.get_ticks_msec()-autopilot_pressed_at>=450:
 		autopilot_hold_used=true;autonavigate_objective()
@@ -637,7 +639,7 @@ func _process(delta: float) -> void:
 	elif session.docked and page=="station": check_station_progress()
 	if world.region!=null:
 		var r=world.region
-		dock_caption.visible=session.docked and page!="dialogue"
+		dock_caption.visible=session.docked and page!="dialogue" and not overlay.visible
 		dock_caption.text=session.stations[session.station_id].name.to_upper()+" STATION\nBERTH SECURED  /  EXTERIOR VIEW"
 		dock_prompt.visible=page.is_empty() and not session.docked and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000)
 		dock_prompt.text=("[ %s ]  Dock at %s"%[control_name("dock"),session.stations[session.station_id].name]) if r.station.can_dock(r.player.pose.origin) else "[ %s ]  Dock · approach within 150 m"%control_name("dock")
@@ -752,7 +754,15 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	weapon_presses.clear()
 	var boost := Input.is_physical_key_pressed(key_bindings.boost)
 	var pad:=controller.snapshot();var screen:=touch.snapshot()
-	mouse_delta+=screen.look*touch_look_sensitivity*Vector2(1,1 if invert_mouse else -1)
+	if touch.drag_anywhere: mouse_delta+=screen.look*touch_look_sensitivity*Vector2(1,1 if invert_mouse else -1)
+	elif screen.look!=Vector2.ZERO:
+		# With a stick to steer by, a drag swings the camera round the hull
+		# instead of fighting the stick for the helm. A drag across the
+		# screen's height turns the view half way round.
+		var rate: float=PI/maxf(1.0,ui.size.y)*touch_look_sensitivity
+		view.turn_look(-screen.look*rate*Vector2(1,-1 if invert_mouse else 1))
+	# The vertical inversion covers the stick too, not only the drag.
+	if invert_mouse: screen.pitch=-screen.pitch
 	horizontal=clampf(horizontal+pad.yaw+screen.yaw,-1,1)
 	var strafe := 0.0
 	var yaw := clampf(pad.look.x,-1,1)
@@ -1119,7 +1129,7 @@ func show_controls(section: String="") -> void:
 			option("Gameplay tips & control hints · "+("On" if gameplay_hints else "Off"),"hints",func():gameplay_hints=not gameplay_hints;save_settings();show_controls(""))
 			section_row("Steering · mouse, keys and stick","steering",func():show_controls("steering"))
 			section_row("Gamepad · "+("connected" if controller.device>=0 else "none connected"),"gamepad",func():show_controls("gamepad"))
-			section_row("Touch controls · "+["Auto","On","Off"][touch.mode],"touch",func():show_controls("touch"))
+			section_row("Touch controls","touch",func():show_controls("touch"))
 			section_row("Key bindings","bindings",func():show_controls("bindings"))
 			section_row("Control reference","reference",func():show_controls("reference"))
 	if section.is_empty(): back_row(show_system if session.docked else show_pause)
@@ -1156,7 +1166,7 @@ func controls_steering() -> void:
 	label("Smooth eases the submarine into and out of every turn and holds the mouse to three times the hull's own steering rate, so steering upgrades count. Direct is the original's instant response, with the mouse turning one step per pixel.",16)
 	option("Left/right keys and stick · "+["Auto · strafe unless on touch","Always strafe","Always turn"][strafe_mode],"strafe",func():strafe_mode=(strafe_mode+1)%3;save_settings();show_controls("steering"))
 	slider_setting("Mouse sensitivity",0.2,2.0,mouse_sensitivity,func(value): mouse_sensitivity=value; save_settings())
-	option("Invert vertical mouse · "+("On" if invert_mouse else "Off"),"invert_mouse",func(): invert_mouse=not invert_mouse; save_settings(); show_controls("steering"))
+	option("Invert vertical mouse and touch · "+("On" if invert_mouse else "Off"),"invert_mouse",func(): invert_mouse=not invert_mouse; save_settings(); show_controls("steering"))
 	label("Tilt steering uses the device's motion sensor. Desktop machines have none.",16)
 	option("Steer by tilting · "+("On" if motion_steering else "Off"),"motion",func():
 		motion_steering=not motion_steering
@@ -1186,8 +1196,10 @@ func controls_touch() -> void:
 	placement.disabled=not touch.enabled()
 	placement.tooltip_text="Move and resize the on-screen controls." if touch.enabled() else "Turn touch controls on first."
 	option("Touch look area · "+("Whole screen" if touch.drag_anywhere else "Outside analog area"),"touch_area",func():touch.drag_anywhere=not touch.drag_anywhere;touch.arrange();save_settings();show_controls("touch"))
+	option("Steering stick · "+("Fixed in place" if touch.fixed_stick else "Moves to thumb"),"touch_stick",func():touch.fixed_stick=not touch.fixed_stick;touch.reset();save_settings();show_controls("touch"))
+	option("Invert vertical steering · "+("On" if invert_mouse else "Off"),"touch_invert",func(): invert_mouse=not invert_mouse; save_settings(); show_controls("touch"))
 	slider_setting("Touch look sensitivity",0.2,2.0,touch_look_sensitivity,func(value): touch_look_sensitivity=value; save_settings())
-	label("Whole screen lets you drag to look in the analog area too, using Touch look sensitivity. Otherwise the left thumb places a steering stick. Hold speed/guns/hook/boost; tap the top row for travel and menus.",16)
+	label("Outside analog area: the left thumb steers with a stick and a drag elsewhere swings the camera round the submarine. The camera comes back when the stick is touched again or after a few seconds. Whole screen: a drag anywhere steers, using Touch look sensitivity. Hold guns/hook/boost and slide the throttle arc; tap the top row for travel and menus.",16)
 func controls_bindings() -> void:
 	var travel_keys:=HBoxContainer.new();column.add_child(travel_keys)
 	for action in ["autopilot","time"]:button(("Autopilot (tap / hold)" if action=="autopilot" else "Time acceleration")+" · "+OS.get_keycode_string(key_bindings[action]),func():binding_action=action;notice("Press a key for "+action),travel_keys)
@@ -1321,6 +1333,7 @@ func save_settings() -> void:
 	config.set_value("keys","mouse_sensitivity",mouse_sensitivity); config.set_value("keys","invert_mouse",invert_mouse)
 	config.set_value("input","touch_look",touch_look_sensitivity)
 	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
+	config.set_value("input","touch_fixed_stick",touch.fixed_stick)
 	config.set_value("input","strafe",strafe_mode)
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
@@ -1956,7 +1969,7 @@ func focus_creature() -> int:
 		if not actor.health.enabled or actor.subdued:continue
 		var point: Vector3=world.render_pose(actor).origin
 		if camera.is_position_behind(point) or point.distance_to(camera.global_position)>650:continue
-		var offset:=camera.unproject_position(point)-ui.size*.5
+		var offset:=camera.unproject_position(point)-ui.position-ui.size*.5
 		var distance:=offset.length()
 		var id: int=actor.get_instance_id()
 		if distance>radius*(1.35 if id==focused_contact else 1.0):continue
@@ -2047,7 +2060,7 @@ func update_markers() -> void:
 		var distance: float = position.distance_to(preload("res://scripts/model_library.gd").point(region.player.pose.origin))
 		var camera_space: Vector3 = camera.global_transform.affine_inverse()*position
 		# Perspective projection is undefined exactly on the camera plane.
-		var screen: Vector2 = ui.size/2+Vector2(camera_space.x,-camera_space.y).normalized()*ui.size.length()*2 if absf(camera_space.z)<0.001 else camera.unproject_position(position)
+		var screen: Vector2 = ui.size/2+Vector2(camera_space.x,-camera_space.y).normalized()*ui.size.length()*2 if absf(camera_space.z)<0.001 else camera.unproject_position(position)-ui.position
 		var behind: bool = camera.is_position_behind(position)
 		var reverse_edge: bool=behind and absf(camera_space.z)>=.001
 		var enemy: bool=target.get("role","")=="enemy" and not target.get("recoverable",false)
@@ -2102,7 +2115,7 @@ func update_markers() -> void:
 			var radius:=18.0
 			if on_screen and view.objects.has(target.key):
 				var extent: float=view.objects[target.key].visual.solid_bounds().size.length()*.3
-				radius=clampf(anchor.distance_to(camera.unproject_position(position+camera.global_basis.x*extent)),12,65)
+				radius=clampf(anchor.distance_to(camera.unproject_position(position+camera.global_basis.x*extent)-ui.position),12,65)
 			markers[i].track_enemy(anchor,radius,not on_screen,not overlap)
 	for unused in markers.size():
 		if not shown.has(unused): markers[unused].hide()
@@ -2258,11 +2271,24 @@ func update_render_resolution() -> void:
 	if pixels.x<=0 or pixels.y<=0: return
 	var virtual_width := 1280 if touch.enabled() else clampi(pixels.x,1280,1920)
 	var virtual_size := Vector2i(virtual_width,roundi(virtual_width*float(pixels.y)/pixels.x))
+	# Held upright, the long side is 1280 as it is held landscape, so every
+	# control and line of text keeps its size on the same phone.
+	if touch.enabled() and pixels.y>pixels.x: virtual_size=Vector2i(roundi(1280.0*pixels.x/pixels.y),1280)
 	Display.apply(get_window(),aspect_ratio,virtual_size)
+	apply_side_margins()
 	var budget: float = [1920.0*1080.0,2560.0*1440.0,999999999.0][clampi(render_quality,0,2)]
 	get_viewport().scaling_3d_scale=clampf(sqrt(budget/maxf(1,pixels.x*pixels.y)),0.35,1.0) if modern_graphics else 1.0
 	get_viewport().scaling_3d_mode=Viewport.SCALING_3D_MODE_FSR if RenderingServer.get_current_rendering_method()=="forward_plus" else Viewport.SCALING_3D_MODE_BILINEAR
 	get_viewport().use_taa=modern_graphics and temporal_aa
+func apply_side_margins() -> void:
+	"""Insets the interface from a phone's notch and rounded corners on both
+	sides; the 3D view behind it still fills the screen."""
+	var margin: Dictionary=SafeMargins.margins(get_viewport().get_visible_rect().size,get_window().size,touch.enabled())
+	if ui.offset_left!=margin.side or ui.offset_right!=-margin.side or ui.offset_top!=margin.top or ui.offset_bottom!=-margin.bottom:
+		ui.offset_left=margin.side;ui.offset_right=-margin.side;ui.offset_top=margin.top;ui.offset_bottom=-margin.bottom
+	# The pressure tint covers the whole picture, not only the inset interface.
+	pressure_overlay.offset_left=-margin.side;pressure_overlay.offset_right=margin.side
+	pressure_overlay.offset_top=-margin.top;pressure_overlay.offset_bottom=margin.bottom
 func volume_slider(title: String, value: float, changed: Callable) -> void:
 	label(title,16)
 	var slider := HSlider.new(); slider.min_value=0; slider.max_value=1; slider.step=0.05; slider.value=value

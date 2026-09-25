@@ -202,6 +202,7 @@ func _ready() -> void:
 	# through their own pickers.
 	if not OS.has_feature("web") and not OS.has_feature("android"): get_window().files_dropped.connect(dropped_files)
 	ui.resized.connect(layout_ui)
+	get_window().size_changed.connect(apply_side_margins);apply_side_margins()
 	layout_ui()
 	var args := OS.get_cmdline_user_args()
 	var config := ConfigFile.new();config.load(settings_path)
@@ -265,6 +266,10 @@ func import_pack(path: String) -> void:
 	if cache.is_empty():status.text=pack_importer.failure;return
 	selected_jar="";open_cache(cache)
 
+func apply_side_margins() -> void:
+	# The title menus keep clear of a phone's notch as the flight interface does.
+	var margin: Dictionary=preload("res://native/platform/safe_margins.gd").margins(get_viewport().get_visible_rect().size,get_window().size,DisplayServer.is_touchscreen_available())
+	ui.offset_left=margin.side;ui.offset_right=-margin.side;ui.offset_top=margin.top;ui.offset_bottom=-margin.bottom
 func layout_ui() -> void:
 	panel.position=Vector2(24,24)
 	panel.size=Vector2(minf(350,ui.size.x-48),maxf(200,ui.size.y-48))
