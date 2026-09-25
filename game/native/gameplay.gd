@@ -6,9 +6,15 @@ const Economy = preload("res://native/simulation/economy.gd")
 const View = preload("res://native/presentation/world_view.gd")
 const Model = preload("res://native/presentation/model.gd")
 const Map = preload("res://native/presentation/overworld_map.gd")
+const DepthSlice = preload("res://native/presentation/depth_slice.gd")
+## The original's chart cursor: a circle a twelfth of the ocean across. The
+## side view shows what lies inside it.
+const ZONE_RADIUS := 100.0/12.0
 const Scanner = preload("res://native/presentation/scanner.gd")
 const ContactMarker = preload("res://native/presentation/contact_marker.gd")
 const RangeText = preload("res://native/presentation/range_text.gd")
+const Spacing = preload("res://native/simulation/world_spacing.gd")
+const Region = preload("res://native/simulation/region.gd")
 const EquipmentInfo = preload("res://native/presentation/equipment_info.gd")
 const Library = preload("res://scripts/model_library.gd")
 var content
@@ -120,10 +126,16 @@ var pending_notices: Array[String] = []
 var graphics := {"audio":true,"materials":true,"headlights":true,"beams":true,"volumetric":true,"detail":true,"station_smoothing":false,"depth_limits":false}
 var binding_action := ""
 var map_widget
-var map_info: Label
+var map_info: RichTextLabel
+var map_title: Label
+var map_slice
+var map_showcase: VBoxContainer
 var map_picker: OptionButton
 var map_destination := 0
+## The atlas zone was moved off the chosen station and nothing is chosen.
+var map_unchosen := false
 var stream_button: Button
+var map_route_button: Button
 var pending_start := false
 var continue_save := false
 var player_name := "Diver"
@@ -257,6 +269,7 @@ func _ready() -> void:
 	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
 	gameplay_hints=bool(config.get_value("interface","hints",true))
 	world_spacing.read_config(config);world.spacing_meters=world_spacing.meters()
+	Region.split_gates=bool(config.get_value("world","split_gates",true))
 	motion.notice.connect(notice)
 	if motion_steering: motion.enable()
 	touch.arrange()
@@ -300,11 +313,13 @@ func layout() -> void:
 		overlay.size=Vector2(minf(660,ui.size.x-64),minf(300,ui.size.y-100)); overlay.position=(ui.size-overlay.size)*.5
 	elif page=="station":
 		overlay.size=Vector2(minf(410,ui.size.x-48),minf(maxf(560,column.get_combined_minimum_size().y+120),ui.size.y-48));overlay.position=Vector2(24,ui.size.y-overlay.size.y-24)
-	elif page in ["stream","transit"]:
+	elif page in ["map","stream"]:
+		overlay.size=Vector2(minf(1600,ui.size.x-48),ui.size.y-48);overlay.position=(ui.size-overlay.size)*.5
+	elif page=="transit":
 		overlay.size=Vector2(minf(760,ui.size.x-80),minf(520,ui.size.y-100));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="market" and market_category in ["equipment","ships","trade","manufacture"]:
 		overlay.size=Vector2(minf(ui.size.x-48,1160),minf(ui.size.y-48,maxf(400,column.get_combined_minimum_size().y+116)));overlay.position=(ui.size-overlay.size)*.5
-	elif page in ["map","market","contracts","cargo","market_equipment","market_goods","equipment","ships","factory"]:
+	elif page in ["market","contracts","cargo","market_equipment","market_goods","equipment","ships","factory"]:
 		overlay.size=Vector2(minf(1000,ui.size.x-64),ui.size.y-64);overlay.position=(ui.size-overlay.size)*.5
 	else:
 		overlay.position=Vector2(maxf(160,ui.size.x-minf(740,ui.size.x-190)-22),140);overlay.size=Vector2(minf(740,ui.size.x-190),maxf(260,ui.size.y-304))
@@ -324,7 +339,6 @@ func layout() -> void:
 	crosshair.position=(ui.size*0.5-Vector2(12,12)).floor()
 	dock_prompt.position=Vector2(ui.size.x*.5-250,ui.size.y*.5+48);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
-	if page=="map" and is_instance_valid(map_widget): fit_map()
 func place_message() -> void:
 	"""The notice sits above everything, so an open menu has to be given room
 	rather than drawn through: a confirmation landing on a menu row reads as a
@@ -342,6 +356,9 @@ func place_message() -> void:
 		# otherwise along the panel's own bottom edge, where it covers the key
 		# legend rather than a row the player is reading.
 		var y := below if below+height<=ui.size.y-12 else (above if above>=12 else overlay.position.y+overlay.size.y-height-6)
+		# The charts fill the screen and keep their actions along the bottom,
+		# so their notices cover the page title instead.
+		if page in ["map","stream"] and below+height>ui.size.y-12: y=overlay.position.y+6
 		message.position=Vector2(clampf((overlay.position.x+overlay.size.x*.5)-width*.5,12,maxf(12,ui.size.x-width-12)),y)
 	else:
 		message.position=Vector2(middle,ui.size.y-180)
@@ -417,7 +434,7 @@ func open_page(title: String, id: String) -> void:
 	var header := HBoxContainer.new();shell.add_child(header)
 	var heading := label(title.to_upper(),24,header);heading.add_theme_color_override("font_color",Color("d7c399"))
 	var condensed := SystemFont.new();condensed.font_names=PackedStringArray(["Nimbus Sans Narrow","Liberation Sans Narrow"]);heading.add_theme_font_override("font",condensed)
-	if id not in ["station","dialogue","failure","transit"]:
+	if id not in ["station","dialogue","failure","transit","map","stream"]:
 		var back := button("CLOSE" if id=="destinations" else "BACK",dock_back,header)
 		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.custom_minimum_size=Vector2(90,32)
 	var scroll := ScrollContainer.new();sheet_scroll=scroll;scroll.follow_focus=true; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
@@ -436,7 +453,7 @@ func fit_sheets() -> void:
 	await get_tree().process_frame
 	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
 	if not is_instance_valid(column) or not overlay.visible:return
-	if page in ["station","destinations","controls"] or (page=="market" and market_category in ["equipment","ships","trade","manufacture"]):return
+	if page in ["station","destinations","controls","map","stream"] or (page=="market" and market_category in ["equipment","ships","trade","manufacture"]):return
 	for child in column.get_children():child.show()
 	await get_tree().process_frame
 	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
@@ -635,7 +652,9 @@ func _process(delta: float) -> void:
 		objective_label.text=objective_hud(objective)
 		if r.cinematic(): objective_label.text=session.title(objective)+"\nFinal sequence · Esc pauses"
 		if auto_fire: objective_label.text+="\nAUTO FIRE · "+OS.get_keycode_string(key_bindings.auto_fire)+" to stop"
-		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around()
+		# The way out of a gate is a camera shot, not the chase view: its centre
+		# is not where the guns point, so the reticle waits for the hand-back.
+		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text="AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED"%[world.speed,OS.get_keycode_string(key_bindings.time)]
 		travel_status.visible=flight_visible and world.autopilot
@@ -883,7 +902,7 @@ func show_pause() -> void:
 	freeze.tooltip_text="Hold the dive still and look around it." if not freeze.disabled else "Available while diving."
 	button("Controls",show_controls)
 	button("Graphics",show_graphics)
-	button("World spacing",show_world_settings)
+	button("World",show_world_settings)
 	button("Help",show_help)
 	button("Transfer expedition",show_transfer)
 	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
@@ -906,6 +925,7 @@ func show_journal() -> void:
 		if mission.kind in [15,16,18,19,21] and description.strip_edges().ends_with(":") and description.contains("\n\n"):
 			description=description.substr(0,description.rfind("\n\n"))
 		label(description,16,card)
+		target_line(mission,card)
 		if not progress.is_empty(): label(progress,16,card).modulate=Color("98d4c6")
 		var requirements: String = info.requirements(mission)
 		if not requirements.is_empty(): label(requirements,16,card)
@@ -923,6 +943,16 @@ func show_journal() -> void:
 			"Abandon contract",func(): session.abandon_contract(); show_journal(),show_journal),card)
 	label("Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d"%[session.counters.k,session.counters.m,session.counters.h,session.counters.f],16)
 	back_row(dock_back if session.docked else show_pause)
+func target_line(mission, parent: Node) -> void:
+	"""Names the creature a job is about, with its picture, since the job's own
+	text only says "fishes"."""
+	var info=preload("res://native/presentation/mission_info.gd")
+	var text: String=info.target(session,mission)
+	if text.is_empty():return
+	var line := HBoxContainer.new();line.add_theme_constant_override("separation",8);parent.add_child(line)
+	var icon := TextureRect.new();icon.texture=imported_art.item(info.target_species(mission));icon.custom_minimum_size=Vector2(34,28)
+	icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;line.add_child(icon)
+	label(text,16,line).modulate=Color("98d4c6")
 func autonavigate_from_journal(destination: int) -> void:
 	# Validate before leaving the berth; a denied route keeps the journal open.
 	var denial: String=world.route_denial(destination)
@@ -1195,6 +1225,7 @@ func setting_keycode(config: ConfigFile, key: String, fallback: int) -> int:
 func save_settings() -> void:
 	var config := ConfigFile.new(); config.load(settings_path)
 	world_spacing.write_config(config)
+	config.set_value("world","split_gates",Region.split_gates)
 	for key in key_bindings: config.set_value("keys",key,key_bindings[key])
 	for key in graphics: config.set_value("graphics",key,graphics[key])
 	config.set_value("input","touch",touch.mode);config.set_value("input","deadzone",controller.deadzone);config.set_value("input","invert_gamepad",controller.invert)
@@ -1320,7 +1351,7 @@ func show_system() -> void:
 	button("Save game",show_save_slots)
 	button("Controls",show_controls)
 	button("Graphics & audio",show_graphics)
-	button("World spacing",show_world_settings)
+	button("World",show_world_settings)
 	button("Help",show_help)
 	button("Transfer expedition",show_transfer)
 	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
@@ -1330,17 +1361,19 @@ func show_system() -> void:
 		"Your expedition is saved at this station first.",
 		"Return to main menu",return_to_menu,show_system))
 func show_world_settings() -> void:
-	open_page("World spacing","world_settings")
+	open_page("World","world_settings")
 	var settings:=preload("res://native/presentation/world_settings.gd").new()
 	settings.configure(world_spacing);column.add_child(settings)
 	var active:=label("",16)
 	var refresh:=func():
-		active.text="Current dive: %s per map unit."%RangeText.format_distance(session.world_layout.spacing_meters)
+		active.text="Current dive: %s grid squares."%Spacing.square_text(session.world_layout.spacing_meters)
 		if world_spacing.meters()!=session.world_layout.spacing_meters:
-			active.text+="\nNext departure: %s per map unit."%RangeText.format_distance(world_spacing.meters())
+			active.text+="\nNext departure: %s grid squares."%Spacing.square_text(world_spacing.meters())
 	refresh.call()
 	label("Changes apply on your next departure or when you load an expedition.",15)
 	settings.changed.connect(func():world.spacing_meters=world_spacing.meters();save_settings();refresh.call())
+	option(preload("res://native/presentation/world_settings.gd").gate_text(Region.split_gates),"split_gates",func():Region.split_gates=not Region.split_gates;save_settings();show_world_settings())
+	label("Gate changes apply from the next area you enter.",15)
 	back_row(show_system if session.docked else show_pause)
 func back_row(action: Callable) -> void:
 	"""Where a page used to end in its own Back row, the header's BACK, Esc and
@@ -1546,6 +1579,7 @@ func show_market(kind: String) -> void:
 					var grade: String=session.text(273 if rating<4 else 274 if rating<8 else 275)
 					label("%s: %s · %s: %d m · %s: %s"%[session.text(334),mission.destination_name,session.text(245),session.stations[mission.destination].depth,session.text(333),session.text(310) if journey==0 else "%d km"%journey],15,card)
 					label(("%s: %d"%[session.text(331),mission.jump_limit+1] if mission.jump_limit>=0 else "%s: %s"%[session.text(331),session.text(335)]) if mission.kind==8 else "%s: %s"%[session.text(39),grade],15,card)
+					target_line(mission,card)
 					for detail in [info.progress(session,mission),info.requirements(mission),info.deadline(mission)]:
 						if not detail.is_empty(): label(detail,16,card)
 					button("Accept · %d cr reward · %d cr deposit"%[mission.reward,mission.deposit],func():
@@ -1559,40 +1593,45 @@ func show_map(autopilot_only: bool=false) -> void:
 	if session.docked:
 		var denial: int = session.service_denial("map")
 		if denial>=0: notice(session.text(denial)); return
-	open_page("Ocean atlas","map")
+	open_page(chart_title(),"map")
 	# The chart's own hint (ch: 359), once, the first time it is opened with
 	# a task on the board.
 	if gameplay_hints and not session.hints_said.has("map") and (session.campaign.primary.kind>=0 or session.campaign.secondary.kind>=0):
-		session.hints_said["map"]=true;notice(session.text(359))
-	var root_column := column
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",20); column.add_child(row)
-	var chart := VBoxContainer.new(); chart.add_theme_constant_override("separation",8); chart.size_flags_horizontal=Control.SIZE_EXPAND_FILL; chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; row.add_child(chart)
-	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=map_destination; map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.custom_minimum_size=Vector2(340,360); chart.add_child(map_widget); map_widget.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; fit_map(); touch_scroll.gesture_control=map_widget
-	map_key(chart)
-	var side := VBoxContainer.new(); side.custom_minimum_size.x=240; side.add_theme_constant_override("separation",6); row.add_child(side); column=side
-	var search := LineEdit.new(); search.placeholder_text="Find a station…"; column.add_child(search)
-	map_info=label("",16); map_widget.selected.connect(select_station)
+		session.hints_said["map"]=true;notice(chart_hint())
+	var actions := station_chart(map_destination)
+	map_slice.selected.connect(select_station)
+	map_widget.zone_moved.connect(func(center,near):
+		var choice:=zone_choice(center,near,-1 if map_unchosen else map_destination)
+		if choice>=0:select_station(choice);return
+		map_unchosen=true;map_picker.select(-1);map_widget.selected_id=-1;map_widget.queue_redraw();map_slice.frame(center,ZONE_RADIUS,-1)
+		var prompt:=zone_prompt(center)
+		show_station_card(-1,prompt[1],prompt[0])
+		for node in [map_route_button,stream_button]:
+			if is_instance_valid(node):node.disabled=true)
+	var search := LineEdit.new(); search.placeholder_text="Find a station…"; search.custom_minimum_size.x=170; actions.add_child(search)
 	search.text_changed.connect(func(value): map_widget.filtered=value.to_lower(); map_widget.queue_redraw())
-	var picker := OptionButton.new(); map_picker=picker
+	var picker := OptionButton.new(); map_picker=picker; picker.custom_minimum_size.x=190
 	for station in session.stations: picker.add_item(station.name,station.id)
-	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); column.add_child(picker)
+	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); actions.add_child(picker)
+	species_toggle(actions,func():
+		if not map_unchosen:select_station(map_destination))
+	var gap := Control.new(); gap.size_flags_horizontal=Control.SIZE_EXPAND_FILL; actions.add_child(gap)
 	if world.encounter_navigation_point()!=null:
-		label("Local encounter active · follow its waypoint before travelling to the next story station.",14)
-		button("Navigate encounter waypoint",func():
+		bar_button("Encounter waypoint",func():
 			if session.docked:
 				depart()
 				if session.docked:return
 				if page=="departure":departure_route="encounter";return
-			world.navigate_encounter();close_page())
-	button("Set station autopilot",func():
+			world.navigate_encounter();close_page(),actions).tooltip_text="Local encounter active · follow its waypoint before travelling to the next story station."
+	map_route_button=bar_button("Set station autopilot",func():
 		if session.docked:
 			depart()
 			if session.docked: return
 			if page=="departure":departure_destination=map_destination;return
 		if world.route_to(map_destination):
 			if page!="dialogue": close_page()
-		else: notice(world.message))
-	stream_button=button("Plan S.T.R.E.A.M. transfer",func():
+		else: notice(world.message),actions)
+	stream_button=bar_button("Plan S.T.R.E.A.M. transfer",func():
 		var denial: String = world.stream_denial(map_destination)
 		if not denial.is_empty(): notice(denial); return
 		if session.docked:
@@ -1600,14 +1639,95 @@ func show_map(autopilot_only: bool=false) -> void:
 			if session.docked: return
 			if page=="departure":departure_destination=map_destination;departure_route="stream";return
 		if world.plan_stream(map_destination):
+			# A chart already shown at this gate must come up again for the
+			# new plan, even without leaving the gate first.
+			stream_prompted=false
 			if page!="dialogue": close_page()
-		else: notice(world.message))
+		else: notice(world.message),actions)
 	stream_button.visible=not atlas_autopilot_only
-	select_station(map_destination)
+	bar_button("Back",dock_back,actions)
 	back_row(show_station if session.docked else close_page)
-	label("Pinch / wheel to zoom\nTouch drag / right mouse to pan",14)
-	column=root_column
-func map_key(parent: Node) -> void:
+	map_unchosen=false
+	var start: Dictionary=session.stations[map_destination]
+	map_widget.place_lens(Vector2(start.x,start.y))
+	select_station(map_destination)
+func chart_hint() -> String:
+	"""The chart's hint (ch: 359) without its last instruction. On the phone
+	the depth map was a second screen behind the "Proceed" soft key (74);
+	here it is always beside the chart, so the paragraph that sends the
+	player looking for that key is left out, in whatever language it is in."""
+	var key: String=session.text(74)
+	var kept: PackedStringArray=[]
+	for paragraph in session.text(359).split("\n\n"):
+		if key.is_empty() or not paragraph.contains(key):kept.append(paragraph)
+	return "\n\n".join(kept)
+func chart_title() -> String:
+	"""Both chart pages carry the original's own heading."""
+	return "MAP  ·  DISCOVERED %d / %d"%[session.discovered.count(true),session.discovered.size()]
+func station_chart(selection: int) -> HFlowContainer:
+	"""The frame both chart pages share: the plan view on the left; on the
+	right the original's side view of the stations under the lens and a card
+	for the selected one, its figures beside the station itself; the key under
+	both; and the page's actions along the bottom, which it returns."""
+	column.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	# A wide phone leaves under six hundred rows for all of it.
+	var compact: bool=ui.size.y<700
+	var body := VBoxContainer.new(); body.size_flags_vertical=Control.SIZE_EXPAND_FILL; body.add_theme_constant_override("separation",10); column.add_child(body)
+	var top := HBoxContainer.new(); top.size_flags_vertical=Control.SIZE_EXPAND_FILL; top.add_theme_constant_override("separation",14); body.add_child(top)
+	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=selection; top.add_child(map_widget)
+	map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.size_flags_vertical=Control.SIZE_EXPAND_FILL; map_widget.size_flags_stretch_ratio=1.1
+	map_widget.custom_minimum_size=Vector2(300,200) # after its _ready, which sets its own
+	map_widget.lens_radius=ZONE_RADIUS;map_widget.focus_mode=Control.FOCUS_CLICK
+	touch_scroll.gesture_control=map_widget
+	var side := VBoxContainer.new(); side.size_flags_horizontal=Control.SIZE_EXPAND_FILL; side.add_theme_constant_override("separation",10); top.add_child(side)
+	map_slice=DepthSlice.new(); map_slice.world=world; map_slice.art=imported_art; map_slice.size_flags_vertical=Control.SIZE_EXPAND_FILL; side.add_child(map_slice)
+	if compact: map_slice.custom_minimum_size.y=96
+	# The side view and the station share the column evenly, so the station
+	# is shown at a size that reads rather than as a thumbnail.
+	var card := PanelContainer.new(); card.add_theme_stylebox_override("panel",chart_panel()); card.size_flags_vertical=Control.SIZE_EXPAND_FILL; side.add_child(card)
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",12); card.add_child(row)
+	var facts := VBoxContainer.new(); facts.custom_minimum_size.x=190 if compact else 230; facts.size_flags_horizontal=Control.SIZE_FILL; facts.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; facts.add_theme_constant_override("separation",2); row.add_child(facts)
+	map_title=label("",20 if compact else 24,facts); map_title.modulate=Color("eef6ff")
+	# Rich text, so a figure the ship cannot manage can be picked out in red.
+	map_info=RichTextLabel.new(); map_info.bbcode_enabled=true; map_info.fit_content=true; map_info.scroll_active=false; map_info.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	map_info.add_theme_font_size_override("normal_font_size",14 if compact else 15); map_info.add_theme_color_override("default_color",Color("b9d4f2")); map_info.mouse_filter=Control.MOUSE_FILTER_PASS; facts.add_child(map_info)
+	map_showcase=VBoxContainer.new(); map_showcase.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_showcase.custom_minimum_size.y=90 if compact else 120; row.add_child(map_showcase)
+	var key := PanelContainer.new(); key.add_theme_stylebox_override("panel",chart_panel()); body.add_child(key)
+	var flow := map_key(key)
+	map_widget.tooltip_text="Tap the chart to move the zone, then pick a station in the side view · pinch / wheel to zoom · drag / right mouse to pan"
+	if not compact:
+		var gestures := label(map_widget.tooltip_text,13,flow); gestures.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN; gestures.autowrap_mode=TextServer.AUTOWRAP_OFF; gestures.modulate=Color("7f96ad")
+	# A flow, so a narrow window wraps the actions onto a second row instead
+	# of pushing the whole chart off the side.
+	var actions := HFlowContainer.new(); actions.add_theme_constant_override("h_separation",10); actions.add_theme_constant_override("v_separation",8)
+	# The page's scroller clips at its own edge, and a focused control draws its
+	# outline outside its box: flush against the bottom, the picker's outline
+	# lost its lower edge.
+	var inset := MarginContainer.new(); body.add_child(inset); inset.add_child(actions)
+	for edge in ["margin_top","margin_bottom","margin_left","margin_right"]: inset.add_theme_constant_override(edge,4)
+	return actions
+func chart_panel() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new(); style.bg_color=Color("071631cc"); style.border_color=Color("2f6fa8"); style.set_border_width_all(1); style.set_content_margin_all(10)
+	return style
+func bar_button(text: String, action: Callable, parent: Node) -> Button:
+	var node := button(text,action,parent); node.size_flags_horizontal=Control.SIZE_SHRINK_END; node.alignment=HORIZONTAL_ALIGNMENT_CENTER
+	return node
+func species_toggle(parent: Node, refresh: Callable) -> Button:
+	"""Swaps the card between the station and the species living there, and
+	keeps the choice for the next chart."""
+	var toggle := bar_button("",func(): pass,parent)
+	toggle.text="Station" if stream_species else "Species"
+	toggle.pressed.connect(func(): stream_species=not stream_species; toggle.text="Station" if stream_species else "Species"; refresh.call())
+	return toggle
+func show_station_card(id: int, facts: String, empty_title := "No safe exits") -> void:
+	map_title.text=session.stations[id].name if id>=0 else empty_title
+	map_info.text=facts
+	for child in map_showcase.get_children(): map_showcase.remove_child(child); child.queue_free()
+	if id<0: return
+	if stream_species: show_habitat(id,map_showcase); return
+	var preview=preload("res://native/presentation/station_preview.gd").new(); map_showcase.add_child(preview)
+	preview.configure(view,world,id)
+func map_key(parent: Node) -> HFlowContainer:
 	"""Shows the markers rather than naming their colours, so the key is read by
 	comparing it with the chart instead of by translating it. The routes and the
 	waypoint are listed only while the chart is actually drawing them, which is
@@ -1624,7 +1744,9 @@ func map_key(parent: Node) -> void:
 			{"body":"ff8000","core":"ffff00","text":"Your station"},
 			{"body":"ff0000","core":"c00000","text":"Mission destination"},
 			{"kind":"arrow","text":"You"},
-			{"kind":"disc","text":"S.T.R.E.A.M. reach"}]
+			{"kind":"disc","text":"S.T.R.E.A.M. reach"},
+			{"kind":"zone","text":"Zone in the side view"}]
+	if session.trail.size()>1: entries.append({"kind":"trail","text":"Recent trips"})
 	if world.autopilot and world.destination>=0: entries.append({"kind":"dash","tint":"97e4d3","text":"Autopilot route"})
 	if world.stream_destination>=0: entries.append({"kind":"dash","tint":"bdabf2","text":"S.T.R.E.A.M. transfer"})
 	if world.encounter_navigation_point()!=null: entries.append({"kind":"ring","tint":"91e4d4","text":"Encounter waypoint"})
@@ -1632,10 +1754,11 @@ func map_key(parent: Node) -> void:
 		var item := HBoxContainer.new(); item.add_theme_constant_override("separation",6); flow.add_child(item)
 		item.add_child(map_marker(entry))
 		var text := label(entry.text,14,item); text.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN; text.autowrap_mode=TextServer.AUTOWRAP_OFF
+	return flow
 func map_marker(entry: Dictionary) -> Control:
 	var node := Control.new(); node.size_flags_vertical=Control.SIZE_SHRINK_CENTER
 	# A line needs a longer chip than a square does before it reads as dashed.
-	node.custom_minimum_size=Vector2(29,19) if entry.get("kind","")=="dash" else Vector2(19,19)
+	node.custom_minimum_size=Vector2(29,19) if entry.get("kind","") in ["dash","trail"] else Vector2(19,19)
 	node.draw.connect(func():
 		# Each mark sits on a chip of the chart's own field, so the key is read
 		# against the blue the chart is read against rather than the page's dark.
@@ -1646,8 +1769,14 @@ func map_marker(entry: Dictionary) -> Control:
 		if kind=="disc":
 			node.draw_circle(middle,8,Color("6e86ff4d"),true)
 			node.draw_arc(middle,8,0,TAU,24,Color("9fb4ff"),1.5,true)
+		elif kind=="zone":
+			node.draw_arc(middle,6,0,TAU,16,Color("75ebe8"),1.5,true)
+			for side in [Vector2.RIGHT,Vector2.DOWN,Vector2.LEFT,Vector2.UP]:node.draw_line(middle+side*6,middle+side*9,Color("75ebe8"),1.5)
 		elif kind=="ring":
 			node.draw_arc(middle,6,0,TAU,16,Color(entry.tint),2,true)
+		elif kind=="trail":
+			node.draw_line(middle+Vector2(-13,4),middle,Map.TRAIL[3],2,true)
+			node.draw_line(middle,middle+Vector2(13,-4),Map.TRAIL[0],2,true)
 		elif kind=="dash":
 			node.draw_dashed_line(middle+Vector2(-13,0),middle+Vector2(13,0),Color(entry.tint),2,4)
 		elif kind=="arrow":
@@ -1655,19 +1784,61 @@ func map_marker(entry: Dictionary) -> Control:
 		else:
 			Map.pixel_square(node,middle,11.0,3.0,Color(entry.body),Color(entry.core)))
 	return node
-func fit_map() -> void:
-	map_widget.custom_minimum_size=Vector2(340,clampf(ui.size.y-300,260,440))
+func zone_stations(center: Vector2) -> Array:
+	"""The stations inside the zone, west to east, as the side view lists them."""
+	var ids: Array=[]
+	for station in session.stations:
+		if Vector2(station.x,station.y).distance_to(center)<=ZONE_RADIUS:ids.append(station.id)
+	ids.sort_custom(func(a,b):return session.stations[a].x<session.stations[b].x or (session.stations[a].x==session.stations[b].x and a<b))
+	return ids
+func zone_choice(center: Vector2, near: int, current: int) -> int:
+	"""Which station stays chosen when the zone moves: the one tapped, else the
+	one already chosen if it is still inside. Nothing else is picked for the
+	player; the side view is where they choose."""
+	var ids:=zone_stations(center)
+	if near in ids:return near
+	if current in ids:return current
+	return -1
+func zone_prompt(center: Vector2) -> Array:
+	"""The card's title and text while the zone has no station chosen."""
+	if zone_stations(center).is_empty():return ["No stations here","Move the zone over a station, or pick one from the list."]
+	return ["Choose a station","Pick one of the stations in the side view."]
+func follow_zone(id: int) -> void:
+	"""A station chosen from the list is brought under the zone, so the side
+	view always shows the station the card describes."""
+	var station: Dictionary=session.stations[id]
+	var at:=Vector2(station.x,station.y)
+	if at.distance_to(map_widget.lens_center)>ZONE_RADIUS:map_widget.place_lens(at)
+	map_widget.selected_id=id;map_widget.queue_redraw()
+	map_slice.frame(map_widget.lens_center,ZONE_RADIUS,id if at.distance_to(map_widget.lens_center)<=ZONE_RADIUS else -1)
+func warn(text: String, bad: bool) -> String:
+	return "[color=#ff6b6b]%s[/color]"%text if bad else text
+func station_figures(id: int) -> Dictionary:
+	"""The depth and S.T.R.E.A.M. distance as the card shows them, each in red
+	when the ship cannot manage it. Being out of reach does not close a station
+	off, since the autopilot still goes anywhere, so there is no line saying so;
+	the red figure is the whole message."""
+	var station: Dictionary=session.stations[id]
+	var far: bool=world.stream_distance(id)>=world.stream_range()
+	var unsafe: bool=station.depth<session.ship.minimum_depth or station.depth>session.ship.maximum_depth
+	return {"far":far,"unsafe":unsafe,"depth":warn(str(station.depth),unsafe),"distance":warn("%.1f"%world.map_kilometers(world.stream_distance(id)),far)}
+func tech_text(id: int) -> String:
+	# The original reads the tech level only for a station already visited.
+	return str(session.stations[id].tech) if session.discovered[id] or id==session.station_id else "?"
 func select_station(id: int) -> void:
-	map_destination=id; map_widget.selected_id=id; map_widget.queue_redraw()
+	map_destination=id;map_unchosen=false
+	follow_zone(id)
 	map_picker.select(id)
-	var station: Dictionary = session.stations[id]
-	map_info.text="%s\nDepth %d · Tech %d\n%s"%[station.name,station.depth,station.tech,"Discovered" if session.discovered[id] else "Unexplored"]
+	if is_instance_valid(map_route_button):map_route_button.disabled=false
 	var denial: String = world.stream_denial(id)
-	map_info.text+="\nS.T.R.E.A.M. %.1f / %.1f km"%[world.map_kilometers(world.stream_distance(id)),world.map_kilometers(world.stream_range())]
+	var figures:=station_figures(id)
 	var status := "Ready · transfer at the gate"
-	if not denial.is_empty():
-		status="Current area" if id==session.station_id else "Needs longer-range engine" if world.stream_distance(id)>=world.stream_range() else "Needs pressure protection" if station.depth<session.ship.minimum_depth or station.depth>session.ship.maximum_depth else "Locked by the current mission"
-	map_info.text+="\n"+status
+	if id==session.station_id: status="Current area"
+	elif figures.far or figures.unsafe: status=""
+	elif not denial.is_empty(): status="Locked by the current mission"
+	show_station_card(id,"%s · %s\nTec Level: %s · Depth: %s\nS.T.R.E.A.M. %s / %.1f km%s"%[
+		"Rebels" if session.campaign.rebel_stations[id] else "Colonists","Discovered" if session.discovered[id] else "Unexplored",tech_text(id),figures.depth,
+		figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 	map_info.tooltip_text=denial
 	if is_instance_valid(stream_button): stream_button.tooltip_text=denial if not denial.is_empty() else "Autopilot to the gate, then confirm your exit in transit control."
 	if is_instance_valid(stream_button): stream_button.disabled=not denial.is_empty()
@@ -1677,7 +1848,7 @@ func contact_priority(target: Dictionary) -> int:
 	if typeof(target.key)==TYPE_INT:
 		if int(target.key)==focused_contact:return 0
 		return 3 if target.get("role","")=="enemy" else 4
-	return 1 if str(target.key) in ["waypoint","stream"] else 2
+	return 1 if str(target.key) in ["waypoint","stream","stream_in"] else 2
 
 func focus_creature() -> int:
 	# A sticky aim cone identifies one animal, rather than labelling every school.
@@ -1723,22 +1894,27 @@ func station_contacts() -> Array:
 	return result
 
 func update_markers() -> void:
-	if not page.is_empty() or world.region.cinematic():
+	if not page.is_empty() or world.region.cinematic() or view.transit_progress>=0:
 		for marker in markers: marker.hide()
 		return
 	var region=world.region
 	focused_contact=focus_creature()
 	var radar: int = session.ship.passive_radar
 	var targets: Array = station_contacts()
-	var gate_name: String = "S.T.R.E.A.M. > "+session.stations[world.stream_destination].name if world.stream_destination>=0 else "S.T.R.E.A.M. · "+session.stations[session.station_id].name
+	# With separate gates each tag says which way its gate goes.
+	var gate_title: String="S.T.R.E.A.M. OUT" if region.gate_index(1)==1 else "S.T.R.E.A.M."
+	var gate_name: String = gate_title+" > "+session.stations[world.stream_destination].name if world.stream_destination>=0 else gate_title+" · "+session.stations[session.station_id].name
 	if world.at_gate(world.departure_gate):
-		gate_name="S.T.R.E.A.M. · "+("Transit control" if world.stream_destination>=0 else "Choose destination") if world.gate_time[world.departure_gate]>=world.GATE_OPEN_MS else "S.T.R.E.A.M. · Opening" if world.region.success==null and world.region.failure==null and not world.tutorial_travel_locked() else "S.T.R.E.A.M. · Locked"
+		gate_name=gate_title+" · "+(("Transit control" if world.stream_destination>=0 else "Choose destination") if world.gate_time[world.departure_gate]>=world.GATE_OPEN_MS else "Opening" if world.region.success==null and world.region.failure==null and not world.tutorial_travel_locked() else "Locked")
 	targets.append({"key":"stream","p":region.gates[world.departure_gate],"name":gate_name,"color":Color("bdabf2"),"edge":world.stream_destination>=0,"hull":-1.0})
+	if region.gate_index(1)==1:
+		# The arrival gate is named too, so it is not taken for the way out.
+		targets.append({"key":"stream_in","p":region.gates[1],"name":"S.T.R.E.A.M. IN · "+session.stations[session.station_id].name,"color":Color("8f86b0"),"edge":false,"hull":-1.0})
 	for id in view.neighbors:
 		for visual in view.neighbors[id].root.get_children():
 			if not visual is Model or not visual.has_meta("neighbor_gate"):continue
 			if visual.global_position.distance_to(preload("res://scripts/model_library.gd").point(region.player.pose.origin))>2500.0:continue
-			targets.append({"key":"stream:"+str(id),"p":[0,0,0],"position":visual.global_position,"name":"S.T.R.E.A.M. · "+session.stations[id].name,"color":Color("ac9ac9"),"edge":true,"hull":-1.0})
+			targets.append({"key":"stream:"+str(id),"p":[0,0,0],"position":visual.global_position,"name":str(visual.get_meta("gate_title","S.T.R.E.A.M."))+" · "+session.stations[id].name,"color":Color("ac9ac9"),"edge":true,"hull":-1.0})
 	if world.autopilot and world.local_target!=null and world.stream_destination<0:
 		targets.append({"key":"waypoint","p":world.local_target,"name":session.stations[world.destination].name if world.destination>=0 else "Autopilot","color":Color("e5ce86"),"edge":true,"hull":-1.0})
 	elif world.encounter_navigation_point()!=null: targets.append({"key":"waypoint","p":world.encounter_navigation_point(),"name":"Encounter waypoint","color":Color("e5ce86"),"edge":radar>0,"hull":-1.0})
@@ -1858,6 +2034,8 @@ func objective_summary(mission) -> String:
 	var lines: Array[String]=[session.title(mission)]
 	var instruction: String=info.instruction(mission)
 	if not instruction.is_empty():lines.append(instruction)
+	var target: String=info.target(session,mission)
+	if not target.is_empty():lines.append(target)
 	var progress: String=info.progress(session,mission)
 	if not progress.is_empty():lines.append(progress)
 	if world.region!=null and world.region.mission==mission:
@@ -1976,56 +2154,55 @@ func show_stream_menu() -> void:
 	stream_prompted=true
 	if world.stream_destination>=0: stream_selection=world.stream_destination
 	# The chart stops the submarine, so what it was doing has to be remembered
-	# here or the far side hands back a dead stop. The page rebuilds itself on
-	# every mode switch; only the first open sees the real throttle. A notch is
-	# the floor because a crossing cannot put anyone down stationary.
+	# here or the far side hands back a dead stop. Only the first open sees
+	# the real throttle. A notch is the floor because a crossing cannot put
+	# anyone down stationary.
 	if page!="stream": stream_resume_throttle=maxi(world.region.player.throttle_target,25)
 	world.cancel_autopilot(); world.region.player.set_throttle(0)
-	var found: int=session.discovered.count(true)
-	open_page("MAP  ·  DISCOVERED %d / %d"%[found,session.discovered.size()],"stream")
+	open_page(chart_title(),"stream")
 	view.gate_preview=true
-	var row := HBoxContainer.new();row.add_theme_constant_override("separation",20);column.add_child(row)
-	var chart := Map.new();chart.world=world;chart.selected_id=stream_selection;row.add_child(chart)
-	chart.custom_minimum_size=Vector2(560,380);chart.size_flags_horizontal=Control.SIZE_EXPAND_FILL;chart.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
-	var detail := VBoxContainer.new();detail.custom_minimum_size.x=270;detail.size_flags_horizontal=Control.SIZE_SHRINK_END;detail.add_theme_constant_override("separation",6);row.add_child(detail)
 	var eligible: Array=[]
 	for station in session.stations:
 		if world.stream_denial(station.id).is_empty(): eligible.append(station.id)
 	if not stream_selection in eligible: stream_selection=eligible[0] if not eligible.is_empty() else -1
-	# The page scroller clips at its own edge and a focused control draws its
-	# outline outside its own box, so a picker sitting flush in the top corner
-	# loses two sides of that outline and reads as a half-drawn box.
-	var picker_inset := MarginContainer.new()
-	for edge in ["margin_top","margin_bottom","margin_left","margin_right"]: picker_inset.add_theme_constant_override(edge,4)
-	detail.add_child(picker_inset)
-	var options := OptionButton.new();options.custom_minimum_size.y=40;options.size_flags_horizontal=Control.SIZE_EXPAND_FILL;picker_inset.add_child(options)
+	var actions := station_chart(stream_selection)
+	var options := OptionButton.new();options.custom_minimum_size.x=210;actions.add_child(options)
 	for id in eligible: options.add_item(str(session.stations[id].name),id)
 	options.disabled=eligible.size()<2
-	var modes := HBoxContainer.new();modes.add_theme_constant_override("separation",8);detail.add_child(modes)
-	var navigate_mode := button("NAVIGATE",func(): stream_species=false; show_stream_menu(),modes)
-	var species_mode := button("SPECIES",func(): stream_species=true; show_stream_menu(),modes)
-	navigate_mode.disabled=not stream_species;species_mode.disabled=stream_species
-	var info := label("",16,detail)
-	var habitat_rows := VBoxContainer.new();habitat_rows.add_theme_constant_override("separation",2);detail.add_child(habitat_rows)
-	var confirm := button("INITIATE TRANSIT  >",begin_stream_transit,detail)
+	var species := species_toggle(actions,func(): pass)
+	var gap := Control.new(); gap.size_flags_horizontal=Control.SIZE_EXPAND_FILL; actions.add_child(gap)
+	var confirm := bar_button("INITIATE TRANSIT  >",begin_stream_transit,actions)
+	bar_button("Back",dock_back,actions)
+	# As on the original's gate chart, the zone moves only within the reach, so
+	# whatever it covers is a crossing this engine can make at least as far.
+	var home: Dictionary=session.stations[session.station_id]
+	map_widget.lens_limit=maxf(world.stream_range()-ZONE_RADIUS,0)
+	var first: Dictionary=session.stations[stream_selection] if stream_selection>=0 else home
+	map_widget.place_lens(Vector2(first.x,first.y))
 	var select := func(id):
-		stream_selection=id;chart.selected_id=id;chart.queue_redraw()
+		stream_selection=id
 		if id<0:
-			info.text="No safe exits in range. Upgrade the engine or pressure protection."
+			map_widget.selected_id=-1;map_widget.queue_redraw();map_slice.frame(map_widget.lens_center,ZONE_RADIUS,-1)
+			var prompt:=zone_prompt(map_widget.lens_center)
+			if eligible.is_empty():prompt=["No safe exits","No safe exits in range. Upgrade the engine or pressure protection."]
+			show_station_card(-1,prompt[1],prompt[0])
 			confirm.disabled=true;return
+		follow_zone(id)
 		var station: Dictionary=session.stations[id]
 		var index := options.get_item_index(id)
 		if index>=0: options.select(index)
 		var denial: String=world.stream_denial(id)
 		# The original reads out who holds the station, its tech level and its
 		# depth. The reach and distance are this engine's own, and matter here.
-		for child in habitat_rows.get_children(): habitat_rows.remove_child(child); child.queue_free()
-		info.text="%s\nTec Level: %d\nDepth: %d\n\nDISTANCE  %.1f km\nREACH  %.1f km\n\n%s"%[
-			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",station.tech,station.depth,
-			world.map_kilometers(world.stream_distance(id)),world.map_kilometers(world.stream_range()),"Exit ready" if denial.is_empty() else denial]
+		var figures:=station_figures(id)
+		var status: String="Exit ready" if denial.is_empty() else "" if figures.far or figures.unsafe else denial
+		show_station_card(id,"%s\nTec Level: %s · Depth: %s\nDistance %s km · reach %.1f km%s"%[
+			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",tech_text(id),figures.depth,
+			figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 		confirm.disabled=not denial.is_empty()
-		if stream_species: info.text="";show_habitat(id,habitat_rows)
-	chart.selected.connect(select)
+	species.pressed.connect(func(): select.call(stream_selection))
+	map_slice.selected.connect(select)
+	map_widget.zone_moved.connect(func(center,near):select.call(zone_choice(center,near,stream_selection)))
 	options.item_selected.connect(func(at): select.call(options.get_item_id(at)))
 	select.call(stream_selection)
 
@@ -2035,13 +2212,15 @@ func show_habitat(id: int, parent: Node) -> void:
 	constant weight; only the species half is meaningful to a reader."""
 	var habitat: Array = content.data.habitats[id] if id>=0 and id<content.data.habitats.size() else []
 	label("SPECIES FOUND HERE",13,parent).modulate=Color("93b5aa")
+	# Two columns, so the six fit beside the card's figures.
+	var grid := GridContainer.new();grid.columns=2;grid.add_theme_constant_override("h_separation",14);grid.add_theme_constant_override("v_separation",2);parent.add_child(grid)
 	var seen := {}
 	for index in range(0,habitat.size(),2):
 		var species := int(habitat[index])
 		if seen.has(species): continue
 		seen[species]=true
 		var known: bool = species<session.fish_found.size() and session.fish_found[species]
-		var line := HBoxContainer.new();line.add_theme_constant_override("separation",10);parent.add_child(line)
+		var line := HBoxContainer.new();line.add_theme_constant_override("separation",8);line.size_flags_horizontal=Control.SIZE_EXPAND_FILL;grid.add_child(line)
 		var icon := TextureRect.new();icon.texture=imported_art.item(species);icon.custom_minimum_size=Vector2(34,28)
 		icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		if not known: icon.modulate=Color(1,1,1,.3)
@@ -2050,7 +2229,6 @@ func show_habitat(id: int, parent: Node) -> void:
 		name_label.modulate=Color("d7edf1") if known else Color("6d8894")
 		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		if known: label("caught",12,line).modulate=Color("c9ae79")
-
 func begin_stream_transit() -> void:
 	"""Confirming a destination is the crossing. The original does not fly the
 	submarine into the aperture and wait: the chart closes, the far side is
@@ -2059,6 +2237,11 @@ func begin_stream_transit() -> void:
 	var denial: String=world.stream_denial(stream_selection)
 	if not denial.is_empty() or not world.at_gate(world.departure_gate):notice(denial);return
 	world.cancel_autopilot();world.gate_navigation=false;world.approach_planned=false;world.approach_path.clear()
+	# The chart can be opened (E) before the aperture has finished opening,
+	# and nothing advances while it is up, so the gate would stay part open
+	# and refuse the crossing however often it was confirmed. Confirming at
+	# the gate is the order to open it.
+	world.gate_time[world.departure_gate]=maxi(world.gate_time[world.departure_gate],world.GATE_OPEN_MS)
 	close_page()
 	# Every region sits on one side of its gate, so that is the side a submarine
 	# comes out on: just clear of the aperture, pointed at the station. Nothing

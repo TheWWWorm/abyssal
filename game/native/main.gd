@@ -42,6 +42,9 @@ var health_label: Label
 var trade_label: Label
 var credits := 1000
 var face_layers: Array = [85,65,75,16,43,-1]
+## The portrait pickers: every part of every set in the JAR's portrait table,
+## so a generated face can always be shown in them.
+const FACE_PARTS := [["Backdrop",0,[84,85,86,87]],["Face",1,[29,58,59,60,61,62,63,64,65,66,67,68,69,70,71,94]],["Suit",2,[28,74,75,76,77,78,79,80,81,82,83]],["Eyes",3,[9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,88]],["Hair",4,[-1,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,89,90,91,92,93]],["Accessory",5,[-1,0,1,2,3,4,5,6,7,8,72]]]
 var face_art := preload("res://native/presentation/imported_art.gd").new()
 var face_preview: TextureRect
 var capture_path := ""
@@ -266,7 +269,9 @@ func layout_ui() -> void:
 	panel.position=Vector2(24,24)
 	panel.size=Vector2(minf(350,ui.size.x-48),maxf(200,ui.size.y-48))
 	model_name.position=Vector2(410,ui.size.y-76)
-	modal.size=Vector2(minf(640,ui.size.x-48),minf(560,ui.size.y-40))
+	# The character screen needs more room than the other dialogs.
+	var wide: bool=modal.get_node_or_null("CharacterSheet")!=null
+	modal.size=Vector2(minf(900 if wide else 640,ui.size.x-48),minf(700 if wide else 560,ui.size.y-40))
 	modal.position=(ui.size-modal.size)*0.5
 	loading.size=loading.get_combined_minimum_size();loading.position=(ui.size-loading.size)*0.5
 
@@ -452,30 +457,63 @@ func close_modal() -> void:
 func _exit_tree() -> void:
 	if importer.is_started(): importer.wait_to_finish()
 
-func show_start() -> void:
+func show_start(player_name: String="Diver") -> void:
 	if not ready_for_preview: return
 	face_art.root=content.root
 	for child in modal.get_children(): modal.remove_child(child); child.queue_free()
-	var box := VBoxContainer.new();box.add_theme_constant_override("separation",12); modal.add_child(box)
-	box.add_child(label("CREATE YOUR DIVER",26,Color("8bd6ee")))
-	box.add_child(label("Choose your name and portrait for this expedition.",15))
+	var shell := VBoxContainer.new();shell.name="CharacterSheet";shell.add_theme_constant_override("separation",12); modal.add_child(shell)
+	shell.add_child(label("CREATE YOUR CHARACTER",26,Color("8bd6ee")))
+	shell.add_child(label("Choose your name and portrait for this expedition.",15))
+	# Scrolls only where a phone's height cannot hold it all.
+	var scroll:=ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
+	# Inset so a focused field's outline is not cut by the scroller's edge.
+	var inset:=MarginContainer.new();inset.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(inset)
+	for edge in ["margin_top","margin_bottom","margin_left","margin_right"]: inset.add_theme_constant_override(edge,4)
+	var box := VBoxContainer.new();box.size_flags_horizontal=Control.SIZE_EXPAND_FILL;box.add_theme_constant_override("separation",12);inset.add_child(box)
 	var row := HBoxContainer.new();row.add_theme_constant_override("separation",24);box.add_child(row)
-	face_preview=TextureRect.new();face_preview.custom_minimum_size=Vector2(160,160);face_preview.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;face_preview.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;face_preview.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;row.add_child(face_preview)
-	var choices := VBoxContainer.new();choices.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(choices)
-	var name_field := LineEdit.new(); name_field.placeholder_text="Your name"; name_field.text="Diver"; name_field.max_length=32;name_field.custom_minimum_size.y=40; choices.add_child(name_field)
-	var sets := [["Backdrop",0,range(84,88)],["Face",1,range(58,72)],["Suit",2,range(74,84)],["Eyes",3,range(9,28)],["Hair",4,[-1]+range(30,55)],["Accessory",5,[-1]+range(0,9)]]
-	for entry in sets:
-		var line := HBoxContainer.new();choices.add_child(line)
-		var caption := label(entry[0],14);caption.custom_minimum_size.x=85;line.add_child(caption)
-		var picker := OptionButton.new();picker.size_flags_horizontal=Control.SIZE_EXPAND_FILL;picker.custom_minimum_size.y=32;line.add_child(picker)
+	var portrait := VBoxContainer.new();portrait.add_theme_constant_override("separation",8);row.add_child(portrait)
+	face_preview=TextureRect.new();face_preview.custom_minimum_size=Vector2(160,160);face_preview.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;face_preview.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;face_preview.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;portrait.add_child(face_preview)
+	var choices := VBoxContainer.new();choices.size_flags_horizontal=Control.SIZE_EXPAND_FILL;choices.add_theme_constant_override("separation",8);row.add_child(choices)
+	var name_field := LineEdit.new(); name_field.placeholder_text="Your name"; name_field.text=player_name; name_field.max_length=32;name_field.custom_minimum_size.y=40; choices.add_child(name_field)
+	var random := button(content.text(302) if not content.text(302).is_empty() else "Generate face",func(): random_face();show_start(name_field.text),portrait)
+	random.alignment=HORIZONTAL_ALIGNMENT_CENTER
+	var grid := GridContainer.new();grid.columns=4;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);choices.add_child(grid)
+	for entry in FACE_PARTS:
+		var caption := label(entry[0],14);caption.custom_minimum_size.x=80;grid.add_child(caption)
+		var picker := OptionButton.new();picker.size_flags_horizontal=Control.SIZE_EXPAND_FILL;picker.custom_minimum_size=Vector2(150,32);grid.add_child(picker)
 		for i in entry[2].size(): picker.add_item("None" if entry[2][i]<0 else "%s %02d"%[entry[0],i+1])
 		picker.select(maxi(0,entry[2].find(face_layers[entry[1]])))
 		picker.item_selected.connect(func(index): face_layers[entry[1]]=entry[2][index]; refresh_face())
 	refresh_face()
-	box.add_child(label("Your previous checkpoint is kept as a backup.",12,Color("89a6a6")))
-	button("BEGIN EXPEDITION >",func(): launch_game(false,name_field.text.strip_edges()),box)
-	button("Back",close_modal,box)
+	box.add_child(label("WORLD SPACING",18,Color("8bd6ee")))
+	var config:=ConfigFile.new();config.load(settings_path)
+	var spacing:=preload("res://native/simulation/world_spacing.gd").new();spacing.read_config(config)
+	var controls:=preload("res://native/presentation/world_settings.gd").new();controls.configure(spacing);box.add_child(controls)
+	controls.changed.connect(func():
+		var saved:=ConfigFile.new();saved.load(settings_path);spacing.write_config(saved)
+		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
+		if saved.save(settings_path)!=OK:status.text="Could not save settings. Check your user folder.")
+	box.add_child(label("You can change this later under Options → World.",14,Color("89a6a6")))
+	shell.add_child(label("Your previous checkpoint is kept as a backup.",12,Color("89a6a6")))
+	button("BEGIN EXPEDITION >",func(): launch_game(false,name_field.text.strip_edges()),shell)
+	button("Back",close_modal,shell)
 	scrim.show(); modal.show();layout_ui();name_field.grab_focus.call_deferred()
+func random_face() -> void:
+	"""The original's "Generate face" (ch: 302). Every part comes from one
+	matched set of the JAR's portrait table, so a random face still hangs
+	together: the phone's own two sets, the second at its own odds, and the
+	third set its crew portraits draw on, offered here as well. The accessory
+	comes at the table's own odds; the chosen backdrop is kept."""
+	var parts: Dictionary=content.data.constants.ab
+	var table: Array=parts["a:[[[B"]
+	var category: int=2 if randi()%3==0 else (1 if randi()%100<int(parts["c:byte"]) else 0)
+	var pick:=func(layer: int) -> int:
+		var options: Array=table[layer][category]
+		return int(options[randi()%options.size()])
+	# The table's second layer is the suit and its third the face; this
+	# screen keeps them the other way round.
+	face_layers=[face_layers[0],pick.call(2),pick.call(1),pick.call(3),pick.call(4),pick.call(5) if randi()%100<int(parts["d:byte"]) else -1]
 func refresh_face() -> void:
 	if is_instance_valid(face_preview): face_preview.texture=face_art.portrait(face_layers)
 
@@ -707,7 +745,7 @@ func show_settings() -> void:
 	var scroll:=ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
 	var box:=VBoxContainer.new();box.add_theme_constant_override("separation",14);box.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(box)
-	button("World spacing",show_world_settings,box)
+	button("World",show_world_settings,box)
 	var config := ConfigFile.new();config.load(settings_path)
 	var modern := bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true)))
 	var mode := button("Lighting · "+("ENHANCED LIGHTING" if modern else "CLASSIC LIGHTING")+"  ⇄",func():
@@ -747,7 +785,7 @@ func show_settings() -> void:
 func show_world_settings() -> void:
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box:=VBoxContainer.new();box.add_theme_constant_override("separation",18);modal.add_child(box)
-	box.add_child(label("WORLD SPACING",26,Color("8bd6ee")))
+	box.add_child(label("WORLD",26,Color("8bd6ee")))
 	var config:=ConfigFile.new();config.load(settings_path)
 	var spacing:=preload("res://native/simulation/world_spacing.gd").new();spacing.read_config(config)
 	var controls:=preload("res://native/presentation/world_settings.gd").new();controls.configure(spacing);box.add_child(controls)
@@ -755,6 +793,8 @@ func show_world_settings() -> void:
 		var saved:=ConfigFile.new();saved.load(settings_path);spacing.write_config(saved)
 		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
 		if saved.save(settings_path)!=OK:status.text="Could not save settings. Check your user folder.")
+	var split:=bool(config.get_value("world","split_gates",true))
+	button(preload("res://native/presentation/world_settings.gd").gate_text(split),func():set_preference("world","split_gates",not split);show_world_settings(),box)
 	box.add_child(label("Changes are saved for your next dive.",14,Color("89a6a6")))
 	button("Back",show_settings,box)
 	scrim.show();modal.show();layout_ui();controls.selector.grab_focus.call_deferred()

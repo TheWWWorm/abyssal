@@ -136,9 +136,12 @@ func rebuild() -> void:
 			# must not vanish and reappear on the other side of the station.
 			var old_root:=Node3D.new();add_child(old_root);old_root.position=shift
 			for node in station_nodes:node.reparent(old_root,false)
-			for node in gate_nodes:
+			var separate: bool=gate_nodes.filter(func(node):return node.visible).size()>1
+			for slot in gate_nodes.size():
+				var node=gate_nodes[slot]
 				if node.visible:
 					node.reparent(old_root,false);node.set_meta("neighbor_gate",rendered_station)
+					node.set_meta("gate_title","S.T.R.E.A.M. "+("OUT" if slot==0 else "IN") if separate else "S.T.R.E.A.M.")
 					node.clock.frame=0;node.refresh()
 					if node.has_meta("gate_surface"):
 						node.get_meta("gate_surface").set_shader_parameter("opening",0.0)
@@ -325,6 +328,7 @@ func _process(delta: float) -> void:
 			gate_nodes[i].get_meta("gate_surface").set_shader_parameter("opening",opening)
 			gate_nodes[i].get_meta("gate_light").light_energy=opening*14.0
 			gate_nodes[i].get_meta("gate_field_mesh").scale=Vector3.ONE*(1.0+opening*.45)
+			place_gate_field(gate_nodes[i])
 			# The gate carries the original's own effects: a flare at the aperture
 			# and the trails that stream off the arms as they swing out. They are
 			# drawn at the level the rest of the game's effects are toned to, which
@@ -531,6 +535,21 @@ func build_gate_field(node: Node3D) -> void:
 	node.set_meta("gate_surface",material)
 	node.set_meta("gate_light",light)
 	node.set_meta("gate_field_mesh",surface)
+	place_gate_field(node)
+## How far in front of the root bone the gate's glow sits, in model units:
+## the frame's triangles are 866 deep about that bone, so their front face,
+## where the arms join, is 433 forward, and the glow clears it a little.
+const GATE_FIELD_FORWARD := 560
+static func place_gate_field(node) -> void:
+	"""Puts the aperture just in front of the frame. The frame's triangles hang
+	on the root bone, which the model sets 2048 units back along its axis; the
+	arms reach forward from there. At the model origin the glow floated out
+	among the arms; on the bone itself the frame cut through it."""
+	if node.current_bones.is_empty():return
+	var Library=preload("res://scripts/model_library.gd")
+	var front: Vector3=Library.matrix(node.current_bones[0])*Library.point([0,0,GATE_FIELD_FORWARD])
+	node.get_meta("gate_field_mesh").position=front
+	node.get_meta("gate_light").position=front
 func animate_model(node,delta: float,power: float,opening: float=0.0) -> void:
 	if node.replacement!=null and node.replacement.has_meta("motion"):
 		node.replacement.get_meta("motion").animate(delta,power,opening)

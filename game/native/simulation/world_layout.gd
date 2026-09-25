@@ -8,6 +8,8 @@ const REGION_APPROACH_DISTANCE := 60000.0
 ## Room for the 150 m activation area, hull, opening arms and both transit ends.
 const GATE_CLEARANCE := 18000.0
 const GATE_PASSAGE := 30000.0
+## Half the side of the cube a gate opens for (World.at_gate).
+const GATE_ACTIVATION := 15000.0
 var station_bounds := {}
 var spacing_meters := Spacing.DEFAULT_METERS:
 	set(value):
@@ -49,7 +51,7 @@ func clear_gates(session, station: Dictionary, gates: Array, sine: Array) -> Arr
 		if shared<index:
 			result.append(result[shared].duplicate())
 			continue
-		result.append(place_gate(Math.vector(gates[index]),anchor,station.id,obstacles))
+		result.append(place_gate(Math.vector(gates[index]),anchor,station.id,obstacles,result.map(func(gate):return Math.vector(gate))))
 	return result
 
 static func passage_clear(point: Vector3, anchor: Vector3, owner_id: int, obstacles: Array) -> bool:
@@ -68,8 +70,16 @@ static func passage_clear(point: Vector3, anchor: Vector3, owner_id: int, obstac
 			if box.grow(GATE_CLEARANCE).intersects_segment(start,finish)!=null:return false
 	return true
 
-static func place_gate(preferred: Vector3, anchor: Vector3, owner_id: int, obstacles: Array) -> Array:
-	if passage_clear(preferred,anchor,owner_id,obstacles):return Math.array(preferred)
+static func apart(point: Vector3, taken: Array) -> bool:
+	"""Whether a portal here keeps its activation cube out of the ones already
+	placed, so separate IN and OUT gates never open together."""
+	for other: Vector3 in taken:
+		var gap:=(point-other).abs()
+		if maxf(gap.x,maxf(gap.y,gap.z))<2*GATE_ACTIVATION:return false
+	return true
+
+static func place_gate(preferred: Vector3, anchor: Vector3, owner_id: int, obstacles: Array, taken: Array=[]) -> Array:
+	if apart(preferred,taken) and passage_clear(preferred,anchor,owner_id,obstacles):return Math.array(preferred)
 	# Keep the station's depth and usual gate radius. Try nearby headings
 	# first, then wider rings; no gameplay random draws or named exceptions.
 	var radius:=Vector2(preferred.x,preferred.z).length()
@@ -80,9 +90,10 @@ static func place_gate(preferred: Vector3, anchor: Vector3, owner_id: int, obsta
 			var angle:=heading+offset*TAU/32.0
 			var reach:=radius+ring*20000.0
 			var candidate:=Math.vector(Math.array(Vector3(sin(angle)*reach,preferred.y,cos(angle)*reach)))
-			if passage_clear(candidate,anchor,owner_id,obstacles):return Math.array(candidate)
+			if apart(candidate,taken) and passage_clear(candidate,anchor,owner_id,obstacles):return Math.array(candidate)
 	# Unusually crowded compatible maps still get a clear portal. A point
 	# beyond every station's bounds and activation volume has a safe passage.
 	var edge:=anchor.x
 	for entry in obstacles:edge=maxf(edge,maxf(entry.bounds.end.x,entry.origin.x+REGION_APPROACH_DISTANCE))
-	return Math.array(Vector3(edge-anchor.x+sqrt(3.0)*GATE_CLEARANCE+GATE_PASSAGE+100,preferred.y,preferred.z))
+	# A second portal there steps along the edge, clear of the first.
+	return Math.array(Vector3(edge-anchor.x+sqrt(3.0)*GATE_CLEARANCE+GATE_PASSAGE+100,preferred.y,preferred.z+taken.size()*2*(GATE_ACTIVATION+1)))

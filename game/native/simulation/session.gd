@@ -41,6 +41,10 @@ var cargo_receipt := ""
 ## to the checkpoint rather than the view, so restarting the game cannot make
 ## old tutorial messages begin again.
 var hints_said: Dictionary = {}
+## The last areas visited, oldest first, ending with this one: the chart
+## draws them as the original's fading line of recent trips.
+var trail: Array = []
+const TRAIL_LENGTH := 6
 
 func new_game(owner_data: Dictionary, player_name: String, random_seed: int) -> void:
  data=owner_data; name=player_name; credits=15000; elapsed_ms=0
@@ -52,7 +56,7 @@ func new_game(owner_data: Dictionary, player_name: String, random_seed: int) -> 
  discovered.resize(200); discovered.fill(false)
  fish_found.resize(data.constants.ah["b:[S"].size()); fish_found.fill(false)
  goods_found.resize(42); goods_found.fill(false)
- stations=[]; recent_stations=[]
+ stations=[]; recent_stations=[]; trail=[]
  for id in data.tables.stations.size():
   var row: Array = data.tables.stations[id]
   var percent := int(row[4])
@@ -108,6 +112,9 @@ func text(id: int, replacement: String = "") -> String:
 
 func prepare_station(id: int) -> void:
  station_id=id
+ if trail.is_empty() or trail.back()!=id:
+  trail.append(id)
+  if trail.size()>TRAIL_LENGTH:trail.pop_front()
  var station: Dictionary = stations[id]
  var economy := Economy.new(); economy.configure(self)
  if not id in recent_stations:

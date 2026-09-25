@@ -150,7 +150,9 @@ The title menu stands in front of the station your expedition is at - the one yo
 
 The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible in flight, and quest destinations get gold labels and off-screen direction markers.
 
-**World spacing**, in title settings, the pause menu and the dock's System menu, sets horizontal distance per map unit: Short (400 m), Medium short (600 m, the default), Normal (1 km), High (2 km), Original (18.85 km) or Custom (at least 400 m). Actual distances follow the stations' map positions; this value is not a minimum gap between stations. Original uses the original game's 18.85 km distance conversion. Changes apply on the next departure or when loading an expedition. Ship and station sizes, depths, contracts and which destinations S.T.R.E.A.M. can reach stay the same. Target labels use metres below 1,000 m and kilometres from 1,000 m onward.
+**World** settings, in title settings, the pause menu and the dock's System menu, hold the world spacing and the S.T.R.E.A.M. gates. **World spacing**, also on the new-game screen, sets how wide one square of the chart's grid is: Short (10 km), Medium short (15 km, the default), Normal (25 km), High (50 km), Original (471 km) or Custom (at least 10 km). A square is 25 map units, so these are 400 m, 600 m, 1 km, 2 km and 18.85 km per unit. Actual distances follow the stations' map positions; this value is not a minimum gap between stations. Original uses the original game's 18.85 km distance conversion. Changes apply on the next departure or when loading an expedition. Ship and station sizes, depths, contracts and which destinations S.T.R.E.A.M. can reach stay the same. Target labels use metres below 1,000 m and kilometres from 1,000 m onward.
+
+**S.T.R.E.A.M. gates** are separate by default, as in the original: a transfer comes out of the station's IN gate, which closes behind the ship, and the next transfer leaves from its OUT gate. The Shared option merges the two into one portal used both ways. Gate changes apply from the next area entered. The chart draws the last six areas visited as a fading line of recent trips.
 
 Trading moves an amount rather than a tonne at a time: set **AMOUNT** with its − and + steps, or press **Max** for as much as the purse, the hold and the station's shelf allow, then Buy or Sell in one press. Each button offers only what it can actually move, and reports what it actually moved.
 
@@ -235,7 +237,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.2.12**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.3.0**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

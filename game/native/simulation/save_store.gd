@@ -45,6 +45,7 @@ static func capture(session) -> Dictionary:
 	var result := fields(session,SESSION_FIELDS)
 	result.face_layers=session.face_layers.duplicate()
 	result.hints_said=session.hints_said.duplicate()
+	result.trail=session.trail.duplicate()
 	result.schema=2; result.random_engine="java-lcg"; result.jar_sha256=session.data.jar_sha256
 	result.medals=session.medals.state(); result.pending_bounty=session.pending_bounty
 	# Store the native 64-bit PRNG as decimal text, avoiding JSON number round trips.
@@ -87,6 +88,9 @@ func restore(data: Dictionary, value: Dictionary):
 	if not validate(value,data): failure="The native save is incomplete or invalid."; return null
 	var session := Session.new(); session.new_game(data,str(value.name),0)
 	restore_fields(session,value,SESSION_FIELDS)
+	# Optional, as saves from before it existed have none: those start the
+	# trail where the expedition stands.
+	session.trail=integral(value.trail) if value.has("trail") else [session.station_id]
 	if value.has("face_layers"): session.face_layers=integral(value.face_layers)
 	# Saves from the engine's own generator carry a state this one cannot
 	# continue; their value seeds the game's generator instead.
@@ -114,6 +118,10 @@ func restore(data: Dictionary, value: Dictionary):
 	return session
 
 func validate(value: Dictionary, data: Dictionary) -> bool:
+	if value.has("trail"):
+		if value.trail is not Array or value.trail.size()>6:return false
+		for id in value.trail:
+			if (id is not int and id is not float) or int(id)!=id or id<0 or id>=data.tables.stations.size():return false
 	if value.has("hints_said"):
 		if value.hints_said is not Dictionary or value.hints_said.size()>256:return false
 		for key in value.hints_said:

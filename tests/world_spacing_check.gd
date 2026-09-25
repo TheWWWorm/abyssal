@@ -96,14 +96,14 @@ func check_ui(cache: String) -> void:
 	app.open_cache(cache);app.show_world_settings();await process_frame;await process_frame
 	var controls=app.modal.find_child("WorldSpacingPreset",true,false).get_parent()
 	expect(controls.selector.get_selected_id()==Spacing.Preset.MEDIUM_SHORT,"Title settings initially select Medium short")
-	expect(controls.selector.item_count==6 and controls.selector.get_item_text(1)=="Medium short · 600 m","Medium short appears between Short and Normal")
-	select(controls.selector,Spacing.Preset.CUSTOM);controls.custom.value=3456
+	expect(controls.selector.item_count==6 and controls.selector.get_item_text(1)=="Medium short · 15 km squares","Medium short appears between Short and Normal")
+	select(controls.selector,Spacing.Preset.CUSTOM);controls.custom.value=86.4
 	select(controls.selector,Spacing.Preset.ORIGINAL);select(controls.selector,Spacing.Preset.CUSTOM)
-	expect(controls.custom.visible and controls.custom.value==3456,"Switching presets remembers the custom number")
-	controls.custom.get_line_edit().text="399";controls.custom.get_line_edit().text_submitted.emit("399")
+	expect(controls.custom.visible and is_equal_approx(controls.custom.value,86.4),"Switching presets remembers the custom number")
+	controls.custom.get_line_edit().text="9";controls.custom.get_line_edit().text_submitted.emit("9")
 	await process_frame;await process_frame
-	expect(controls.custom.value==400,"Typed values below Short are clamped to 400")
-	controls.custom.value=3456
+	expect(is_equal_approx(controls.custom.value,10) and controls.settings.custom_meters==400,"Typed squares below Short are clamped to 10 km (400 m per unit)")
+	controls.custom.value=86.4
 	for preset in Spacing.ORDER:
 		select(controls.selector,preset);await process_frame;await process_frame
 		expect(root.get_visible_rect().encloses(app.modal.get_global_rect()),"Spacing option %d fits the title screen: viewport %s, dialog %s"%[preset,root.get_visible_rect(),app.modal.get_global_rect()])
@@ -123,13 +123,13 @@ func check_ui(cache: String) -> void:
 	var position: Array=game.world.global_position();select(controls.selector,Spacing.Preset.HIGH)
 	expect(Save.capture(game.session)==checkpoint and game.world.global_position()==position,"Changing settings preserves the expedition and current position")
 	expect(game.world.session.world_layout.spacing_meters==600 and game.world.spacing_meters==2000,"High waits for the next departure")
-	expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains("Next departure: 2.00 km")),"Settings make pending changes visible in kilometres")
+	expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains("Next departure: 50 km grid squares")),"Settings make pending changes visible as grid squares")
 	game.reload_game()
 	game.view.rebuild()
 	expect(old_neighbors.all(func(node):return node.is_queued_for_deletion()),"Changing scale discards streamed station positions from the old dive")
 	expect(game.world.session.world_layout.spacing_meters==2000,"Checkpoint reload uses the saved spacing preference")
 	game.world.depart();game.show_map();await process_frame;game.select_station(1)
-	expect(game.map_info.text.contains("%.1f / %.1f km"%[game.world.map_kilometers(game.world.stream_distance(1)),game.world.map_kilometers(game.world.stream_range())]),"Map distance and reach match the active scale")
+	expect(game.map_info.get_parsed_text().contains("%.1f / %.1f km"%[game.world.map_kilometers(game.world.stream_distance(1)),game.world.map_kilometers(game.world.stream_range())]),"Map distance and reach match the active scale")
 	game.close_page()
 	var mission=game.session.campaign.primary;mission.kind=8;mission.completed=false;mission.failed=false;mission.destination=1;mission.destination_name=game.session.stations[1].name
 	var target: Array=Math.subtracted(game.world.station_origin(1),game.world.station_origin(game.session.station_id))

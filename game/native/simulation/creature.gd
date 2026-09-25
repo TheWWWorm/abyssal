@@ -195,7 +195,11 @@ func animate(_delta_ms: int=0) -> void:
 	render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096]
 	var s:=pose.math.sine(phase)
 	match model_id:
-		4422:render_scale=[4096,maxi(48,absi(s)/3)*signi(s if s!=0 else 1),4096]
+		# af beats the manta's height through sin/3, below nought as well: a
+		# mirror that on the phone went unseen, but here puts its underside
+		# on top for half of every beat, as if it had rolled over. The beat
+		# keeps its pace and depth, rising from flat and never turning over.
+		4422:render_scale=[4096,maxi(48,(4096+s)/6),4096]
 		4426:render_scale=[4096,4096+(pose.math.sine((phase<<1)&0xFFF)>>2),4096]
 		4442:render_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]
 		4424:secondary_scale=[4096,4096,4096+(pose.math.sine((phase<<2)&0xFFF)>>2)]

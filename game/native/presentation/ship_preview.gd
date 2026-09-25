@@ -20,8 +20,7 @@ func configure(content, id: int, modern: bool, library=null) -> void:
  var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env;viewport.add_child(environment)
  env.background_mode=Environment.BG_SKY
  var sky:=Sky.new();var water:=ShaderMaterial.new();water.shader=load("res://native/presentation/abyss_sky.gdshader");sky.sky_material=water;env.sky=sky
- env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;env.ambient_light_color=Color("c0d3d8");env.ambient_light_energy=.55
- var light:=DirectionalLight3D.new();light.rotation_degrees=Vector3(-35,-40,0);light.light_color=Color("ffe6bf");light.light_energy=1.4;viewport.add_child(light)
+ preload("res://native/presentation/showroom_light.gd").apply(viewport,env)
  viewport.add_child(camera);camera.current=true;camera.fov=42
  for entry in content.registry:
   if int(entry.id)!=id:continue

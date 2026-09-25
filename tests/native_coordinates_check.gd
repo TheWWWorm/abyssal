@@ -55,6 +55,9 @@ func check_vertical_motion() -> void:
  wreck.advance(2)
  expect(wreck.escaped and not wreck.health.enabled,"A wreck escapes only after sinking past its recovery limit")
  var fish:=Creature.new();fish.configure(4422,data.tables.creatures[0],session.rng,data.constants.dt["a:[S"]);fish.pose.origin=[0,0,0]
+ var beat: Array=[]
+ for phase in range(0,4096,64):fish.phase=phase;fish.animate(0);beat.append(fish.render_scale[1])
+ expect(beat.all(func(height):return height>0) and beat.max()>beat.min()*8,"The manta's wing beat flattens and lifts its body without ever turning it over")
  fish.speed=fish.cruise_speed()*5.0;fish.release()
  expect(is_equal_approx(fish.speed,fish.cruise_speed()),"A released fish returns to cruising speed after a struggle")
  fish.pose.origin=[0,0,41000];fish.pose.set_euler(0,0,0);fish.fresh=false

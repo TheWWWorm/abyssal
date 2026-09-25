@@ -2,6 +2,7 @@ extends SceneTree
 const Session=preload("res://native/simulation/session.gd")
 const World=preload("res://native/simulation/world.gd")
 const Save=preload("res://native/simulation/save_store.gd")
+const Region=preload("res://native/simulation/region.gd")
 var failures := 0
 func expect(value: bool, why: String) -> void:
 	if not value: failures+=1; push_error(why)
@@ -94,6 +95,7 @@ func checks() -> void:
 	expect(choice.stream_transfer(),"Tutorial gate accepts the selected destination")
 	expect(tutorial.campaign.primary.destination==1 and choice.region.success==null,"Exploration leaves the imported mission at its intended destination")
 	choice.dispose()
+	check_split_gates(content)
 	# Exercise the production atlas action and render model binding, including
 	# layout and remapped interaction keys. Test saves/settings are isolated.
 	var app=load("res://native/gameplay.gd").new(); app.content=content
@@ -106,6 +108,7 @@ func checks() -> void:
 	for _i in 3: await process_frame
 	expect(not app.stream_button.disabled and app.map_info.text.contains("S.T.R.E.A.M."),"Atlas exposes the reachable transfer and engine range")
 	expect(root.get_visible_rect().encloses(app.map_widget.get_global_rect()),"Atlas fits the viewport with transfer controls")
+	await check_zone(app,target)
 	root.content_scale_mode=Window.CONTENT_SCALE_MODE_DISABLED
 	for size in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080)]:
 		root.size=size
@@ -116,13 +119,14 @@ func checks() -> void:
 	app.stream_button.pressed.emit()
 	expect(app.page.is_empty() and app.world.stream_destination==target,"Atlas button starts the actual gate approach")
 	app.view._process(0.04)
-	expect(app.view.gate_nodes.filter(func(node):return node.visible).size()==1 and app.view.gate_nodes[0].record.id==15,"Nearby STREAM pair displays one imported portal")
+	var portals: int=2 if Region.split_gates else 1
+	expect(app.view.gate_nodes.filter(func(node):return node.visible).size()==portals and app.view.gate_nodes[0].record.id==15,"The STREAM gates display as imported portals, one per physical gate")
 	var portal: Transform3D=app.view.gate_nodes[0].transform
 	expect((-portal.basis.z).dot(-portal.origin.normalized())>.999,"The visible portal faces its station in the same frame as arriving ships")
 	app.world.region.player.pose.origin=app.world.region.gates[0].duplicate(); app.world.update_gates(640); app.view._process(0.04)
 	expect(app.view.gate_nodes[0].sampled_frame==app.world.gate_frame(0),"Gate model follows simulation opening state")
 	app.update_markers()
-	expect(app.markers.any(func(marker): return marker.visible and marker.text.contains("S.T.R.E.A.M. · Transit control")),"Ready gate advertises its transit control menu")
+	expect(app.markers.any(func(marker): return marker.visible and marker.text.begins_with("S.T.R.E.A.M.") and marker.text.contains("· Transit control")),"Ready gate advertises its transit control menu")
 	if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name()!="headless":
 		app.map_destination=target; app.show_map()
 		for _i in 4: await process_frame
@@ -138,8 +142,84 @@ func checks() -> void:
 	var old_gate_world: Vector3=app.view.gate_nodes[0].global_position+app.world.geography.anchor
 	app.world.enter_region(target);app.view._process(0.04)
 	var former: Array=app.view.neighbors[old_station].root.get_children().filter(func(node):return node.has_meta("neighbor_gate"))
-	expect(former.size()==1 and (former[0].global_position+app.world.geography.anchor).distance_to(old_gate_world)<0.1,"Crossing a region boundary leaves the previous gate at its world position")
+	expect(former.size()==portals and (former[0].global_position+app.world.geography.anchor).distance_to(old_gate_world)<0.1,"Crossing a region boundary leaves the previous gates at their world positions")
 	expect((app.view.gate_nodes[0].global_position+app.world.geography.anchor).distance_to(old_gate_world)>100.0,"The new station has a separate physical gate")
+	# E opens the chart as soon as the gate is in range; nothing advances
+	# while it is up, so confirming must not wait for the opening to finish.
+	app.view.end_transit();app.stream_exit_active=false
+	app.world.region.success=null;app.world.region.failure=null
+	app.world.region.player.pose.origin=app.world.region.gates[0].duplicate();app.world.gate_time[0]=app.world.GATE_OPEN_MS/4
+	app.show_stream_menu();app.stream_selection=old_station
+	expect(app.page=="stream" and app.world.gate_time[0]<app.world.GATE_OPEN_MS,"The chart opens at a gate that is still opening")
+	app.begin_stream_transit()
+	expect(app.session.station_id==old_station,"Confirming at a part-open gate crosses")
 	app.queue_free(); await process_frame
 	print("NATIVE_STREAM ",failures," failures · reachable stations ",reachable)
 	quit(1 if failures else 0)
+
+func check_split_gates(content) -> void:
+	"""The original's two portals: the ship comes out of the IN gate and must
+	cross to the OUT gate to leave again. The arrival gate stays shut after the
+	ship has left it."""
+	var shared: bool=Region.split_gates;Region.split_gates=true
+	var owner=Session.new(); owner.new_game(content.data,"STREAM split gates",91)
+	while owner.campaign.chapter<48: owner.campaign.next_chapter(owner.counters)
+	owner.campaign.primary.kind=-1; owner.prepare_station(0)
+	var world=World.new(); world.configure(owner); world.depart()
+	var gates: Array=world.region.gates
+	expect(gates[0]!=gates[1] and world.region.gate_index(1)==1,"Separate gates keep two portals")
+	var target := -1
+	for station in owner.stations:
+		if station.id!=0 and world.stream_denial(station.id).is_empty(): target=station.id; break
+	expect(world.plan_stream(target) and world.local_target==world.region.gates[0],"A departure heads for the OUT gate")
+	for actor in world.region.enemies+world.region.friends:
+		actor.health.hull=0; actor.health.enabled=false
+	world.cancel_autopilot()
+	world.region.player.pose.origin=world.region.gates[1].duplicate(); world.update_gates(world.GATE_OPEN_MS+40)
+	expect(world.gate_time[1]==0 and not world.stream_transfer(),"The IN gate takes no departures")
+	world.region.player.pose.origin=world.region.gates[0].duplicate(); world.update_gates(world.GATE_OPEN_MS+40)
+	expect(world.stream_transfer() and owner.station_id==target,"The OUT gate sends the ship on")
+	expect(world.region.player.pose.origin==world.region.gates[1] and world.gate_time[1]==world.GATE_OPEN_MS,"Arrival comes out of the open IN gate")
+	expect(world.departure_gate==0 and not world.at_gate(0),"The next departure is from the OUT gate, away from the arrival")
+	world.region.player.pose.origin[0]+=16000; world.update_gates(1000)
+	world.region.player.pose.origin=world.region.gates[1].duplicate(); world.update_gates(1000)
+	expect(world.gate_time[1]==0,"The IN gate stays shut once the ship has left it")
+	expect(world.nearest_safe_gate()==0,"Gate approach picks the OUT gate")
+	expect(owner.trail.slice(-2)==[0,target],"The trail records the trip")
+	var saved: Dictionary=Save.capture(owner)
+	var restored=Save.new().restore(content.data,JSON.parse_string(JSON.stringify(saved)))
+	expect(restored!=null and restored.trail==owner.trail,"The trail survives a save")
+	var older: Dictionary=JSON.parse_string(JSON.stringify(saved));older.erase("trail")
+	var upgraded=Save.new().restore(content.data,older)
+	expect(upgraded!=null and upgraded.trail==[owner.station_id],"A save from before the trail still loads, starting it at its station")
+	for step in 8: owner.prepare_station(step+1)
+	expect(owner.trail.size()==owner.TRAIL_LENGTH and owner.trail.back()==8,"The trail keeps the last six areas")
+	world.dispose()
+	Region.split_gates=shared
+func check_zone(app, target: int) -> void:
+	"""The original's chart: a tap moves a zone, and the side view lists only
+	what the zone covers; at the gate the zone stays inside the reach."""
+	var chart=app.map_widget
+	var inside:=func(): return app.map_slice.ids.all(func(id): return Vector2(app.session.stations[id].x,app.session.stations[id].y).distance_to(chart.lens_center)<=app.ZONE_RADIUS+.001)
+	var far: Dictionary={}
+	var home: Dictionary=app.session.stations[app.session.station_id]
+	for station in app.session.stations:
+		if far.is_empty() or Vector2(station.x,station.y).distance_to(Vector2(home.x,home.y))>Vector2(far.x,far.y).distance_to(Vector2(home.x,home.y)):far=station
+	chart.select_at(chart.point(far.x,far.y))
+	expect(app.map_destination==far.id and far.id in app.map_slice.ids and inside.call(),"Tapping a station moves the zone onto it and the side view lists only the zone")
+	# Open water beside stations: the zone moves, but nothing is chosen for the
+	# player until they pick one in the side view.
+	var water:=Vector2(-1,-1)
+	for x in range(2,99,2):
+		for y in range(2,99,2):
+			var spot:=Vector2(x,y)
+			var clear: bool=app.session.stations.all(func(station): return chart.point(station.x,station.y).distance_to(chart.point(spot.x,spot.y))>30)
+			if clear and not app.zone_stations(spot).is_empty():water=spot;break
+		if water.x>=0:break
+	chart.select_at(chart.point(water.x,water.y))
+	expect(water.x>=0 and app.map_unchosen and chart.selected_id==-1 and app.map_route_button.disabled,"A zone moved onto open water chooses no station by itself")
+	chart.lens_limit=app.world.stream_range()-app.ZONE_RADIUS
+	chart.place_lens(Vector2(far.x,far.y))
+	expect(chart.lens_center.distance_to(Vector2(home.x,home.y))<=chart.lens_limit+.001,"A bounded zone stops at the edge of the reach")
+	chart.lens_limit=-1.0
+	app.select_station(target)

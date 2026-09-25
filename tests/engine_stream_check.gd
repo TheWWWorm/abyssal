@@ -690,7 +690,7 @@ func run():
   expect(amount<=previous and amount>=0,"Distance fade is monotonic");previous=amount
  for i in 30:view.stream_neighbors();await process_frame
  expect(view.neighbors.size()>4,"Open-world station coverage preserved")
- expect(view.gate_nodes.filter(func(gate):return gate.visible).size()==1,"The current station has one visible physical gate")
+ expect(view.gate_nodes.filter(func(gate):return gate.visible).size()==(2 if load("res://native/simulation/region.gd").split_gates else 1),"The current station shows each physical gate once")
  expect(view.neighbors.values().all(func(neighbor):return neighbor.root.get_children().all(func(part):return not part is Model or int(part.record.id)!=15)),"Streamed landmark stations do not add transient duplicate gates")
  var distant: int=-1
  for id in view.neighbors:
@@ -760,7 +760,7 @@ func run():
  app.world.enter_region(destination);view.rebuild()
  expect(view.station_nodes[0]==incoming,"Incoming station promotes existing meshes")
  expect(view.neighbors[old_station].root.get_child(0)==old_main,"Departing station retains existing meshes")
- expect(view.neighbors[old_station].root.get_children().filter(func(part):return part is Model and int(part.record.id)==15).size()==1,"The gate just crossed remains visible with the departing station")
+ expect(view.neighbors[old_station].root.get_children().filter(func(part):return part is Model and int(part.record.id)==15).size()==(2 if load("res://native/simulation/region.gd").split_gates else 1),"The gates just crossed remain visible with the departing station")
  expect(view.player_model==old_player and view.combat.player_wake.size()==wake_count,"Region entry preserves player mesh and wake")
  for id in retained:
   expect(view.neighbors[id].root==retained[id].node and view.neighbors[id].age==retained[id].age,"Neighbor retains its mesh and fade state")

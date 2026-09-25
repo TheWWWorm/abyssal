@@ -1,12 +1,12 @@
-# Abyssal Engine 1.2.12 — platform support
+# Abyssal Engine 1.3.0 — platform support
 
 Game content is not included. Import a compatible DEEP JAR that you supply.
 
 ## Validation
 
-The engine regression suites and Python source/package tests passed on Linux x86-64 with Godot 4.7 and locally supplied compatible content. Coverage includes saved spacing preferences, all six spacing options, metre/kilometre labels, gate clearance, banking direction, continuous travel, S.T.R.E.A.M. transfers, campaign encounters, collision, touch/gamepad input and menus.
+The 19 engine regression suites and 37 Python source/package tests passed on Linux x86-64 with Godot 4.7 and locally supplied compatible content. Coverage includes the station chart zone and side view, separate and shared S.T.R.E.A.M. gates (placement clearance at six spacings, arrival/departure slots, confirming at a partly open gate), the recent-trips trail and its save round trip, loading saves written before the trail existed, grid-square world spacing, the manta wing beat, touch drags over buttons, continuous travel, campaign encounters, collision, touch/gamepad input and menus.
 
-The Linux x86-64 release was launched with prepared content using Vulkan Forward+. The settings and flight labels were visually checked. Source and archive checks verify the engine-only distribution boundary and offline importer contents.
+The Linux x86-64 build was launched in Vulkan Forward+. The station chart, gate labels, gate aperture placement and preview lighting were checked in GPU captures.
 
 ## Platform status
 
@@ -14,4 +14,4 @@ Windows, macOS, Linux ARM64 and Android packages were exported and checked as ar
 
 The browser package uses WebGL 2. A physical iPhone was not available, so desktop browser checks do not establish iOS compatibility.
 
-Android uses version code 36 and the existing release signing key for updates that preserve imported content and saves.
+Android uses version code 37 and the existing release signing key for updates that preserve imported content and saves.

@@ -14,9 +14,12 @@ func expect(ok: bool,why: String) -> void:
 func _initialize():call_deferred("run")
 func run() -> void:
 	data=JSON.parse_string(FileAccess.get_file_as_string(OS.get_cmdline_user_args()[0]))
-	for spacing in [400,600,1000,2000,18850,1234]:check_atlas(spacing)
+	for split in [false,true]:
+		Region.split_gates=split
+		for spacing in [400,600,1000,2000,18850,1234]:check_atlas(spacing)
+		check_transit()
+	Region.split_gates=false
 	check_crowded_map()
-	check_transit()
 	print("GATE_CLEARANCE %d checks; %d failures"%[checks,failures])
 	quit(1 if failures else 0)
 func session_fixture():
@@ -43,25 +46,30 @@ func check_atlas(spacing: int) -> void:
 		var placed: Array=session.world_layout.clear_gates(session,station,authored,sine)
 		if placed!=authored:changed+=1
 		expect(placed==session.world_layout.clear_gates(session,station,authored,sine),"Station %d retains its gate across region rebuilds"%station.id)
-		expect(placed[0]==placed[1],"Shared arrival and departure slots stay together at station %d"%station.id)
-		expect(placed[0][1]==authored[0][1],"Gate relocation preserves safe arrival depth at station %d"%station.id)
-		var point:=Math.vector(placed[0])
-		var anchor:=Math.vector(session.world_layout.station_origin(station))
-		var heading:=point.normalized()
-		# Check the complete 600 m transit segment against the independently
-		# assembled imported modules, allowing 180 m for activation and hulls.
-		var start:=anchor+point-heading*30000.0
-		var finish:=anchor+point+heading*30000.0
-		var clear:=true
-		for box: AABB in modules:
-			if box.grow(18000.0).intersects_segment(start,finish)!=null:clear=false;break
-		expect(clear,"Gate and transit corridor clear every station module at station %d"%station.id)
+		if Region.split_gates:
+			# Each portal's 150 m activation cube must not reach the other's.
+			expect(Math.subtracted(placed[0],placed[1]).any(func(v):return absi(v)>=30000),"Separate IN and OUT gates do not overlap at station %d"%station.id)
+		else:
+			expect(placed[0]==placed[1],"Shared arrival and departure slots stay together at station %d"%station.id)
+		for gate in (placed if Region.split_gates else [placed[0]]):
+			expect(gate[1]==authored[0][1],"Gate relocation preserves safe arrival depth at station %d"%station.id)
+			var point:=Math.vector(gate)
+			var anchor:=Math.vector(session.world_layout.station_origin(station))
+			var heading:=point.normalized()
+			# Check the complete 600 m transit segment against the independently
+			# assembled imported modules, allowing 180 m for activation and hulls.
+			var start:=anchor+point-heading*30000.0
+			var finish:=anchor+point+heading*30000.0
+			var clear:=true
+			for box: AABB in modules:
+				if box.grow(18000.0).intersects_segment(start,finish)!=null:clear=false;break
+			expect(clear,"Gate and transit corridor clear every station module at station %d"%station.id)
 	expect(session.rng.state==state,"Gate placement leaves campaign and encounter randomness unchanged")
 	if spacing==400:expect(changed>0,"The compact atlas exercises gate relocation")
 	var previous=session.world_layout
 	session.new_game(data,"Another import session",17)
 	expect(session.world_layout!=previous and session.world_layout.station_bounds.is_empty(),"New sessions cannot inherit another content profile's geometry cache")
-	print("GATE_CLEARANCE %d m: relocated %d/%d station portals"%[spacing,changed,session.stations.size()])
+	print("GATE_CLEARANCE %d m%s: relocated %d/%d station portals"%[spacing," split" if Region.split_gates else "",changed,session.stations.size()])
 func check_crowded_map() -> void:
 	# A clear centre is insufficient: a corner of the activation cube can
 	# enter a neighbour's 600 m region while the portal remains unobstructed.
@@ -94,12 +102,12 @@ func check_transit() -> void:
 	world.update_gates(world.GATE_OPEN_MS)
 	expect(world.stream_transfer(),"STREAM arrival uses the relocated Darhoven gate")
 	clear_actors(world)
-	var gate: Array=world.region.gates[0].duplicate()
+	var gate: Array=world.region.gates[world.region.gate_index(1)].duplicate()
 	var pose: Transform3D=world.region.player.pose.godot_transform()
 	expect((-pose.basis.z).dot(-pose.origin.normalized())>.999,"Relocated arrival faces its own station")
 	world.region.player.set_throttle(0);world.region.player.throttle=0
 	for tick in 60:world.advance(.04)
-	expect(session.station_id==1 and world.region.gates[0]==gate,"Lingering at Darhoven's gate does not switch to the neighbour's region")
+	expect(session.station_id==1 and world.region.gates[world.region.gate_index(1)]==gate,"Lingering at Darhoven's gate does not switch to the neighbour's region")
 	expect(not world.collides_station(world.region.player.pose.origin),"The arrival hull is outside every station")
 	expect(world.route_to(1),"Autopilot can dock after relocated arrival")
 	for tick in 3000:
@@ -108,7 +116,7 @@ func check_transit() -> void:
 	expect(session.docked and session.station_id==1,"Real flight from the relocated gate reaches Darhoven's berth")
 	expect(world.depart(),"Departing rebuilds the same region")
 	clear_actors(world)
-	expect(world.region.gates[0]==gate,"Departure and arrival agree on the portal position")
+	expect(world.region.gates[world.region.gate_index(1)]==gate,"Departure and arrival agree on the portal position")
 	expect(world.plan_stream(0),"A return trip targets the relocated portal")
 	for tick in 3000:
 		world.advance(.04)

@@ -23,6 +23,10 @@ var friends: Array = []
 var weapons: Array = []
 var fishing: Array = []
 var gates: Array = []
+## The original keeps two portals a few kilometres apart: ships arrive
+## through the far one (IN) and leave by the near one (OUT). The engine can
+## instead merge a nearby pair into one portal used both ways.
+static var split_gates := false
 var route := Route.new()
 var school_route = null
 var success = null
@@ -103,7 +107,7 @@ static func gate_positions(station: Dictionary,sine_table: Array) -> Array:
 		var transform=preload("res://native/simulation/ship_transform.gd").new();transform.math.sine_table=sine_table
 		var yaw: int=(300 if station.tech>4 else -300)*i
 		transform.set_euler(0,-yaw,0);result.append(transform.rotate_direction([0,0,(90000 if i==1 else 110000)+yaw*3]))
-	consolidate_gate_pair(result)
+	if not split_gates:consolidate_gate_pair(result)
 	return result
 
 func consolidate_gates() -> void:

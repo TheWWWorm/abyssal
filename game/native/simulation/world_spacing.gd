@@ -7,7 +7,10 @@ const ORIGINAL_METERS := 18850
 enum Preset { SHORT, NORMAL, HIGH, ORIGINAL, CUSTOM, MEDIUM_SHORT }
 const ORDER := [Preset.SHORT,Preset.MEDIUM_SHORT,Preset.NORMAL,Preset.HIGH,Preset.ORIGINAL,Preset.CUSTOM]
 const PRESETS := {Preset.SHORT:MIN_METERS,Preset.MEDIUM_SHORT:DEFAULT_METERS,Preset.NORMAL:1000,Preset.HIGH:2000,Preset.ORIGINAL:ORIGINAL_METERS}
-const NAMES := {Preset.SHORT:"Short · 400 m",Preset.MEDIUM_SHORT:"Medium short · 600 m",Preset.NORMAL:"Normal · 1 km",Preset.HIGH:"High · 2 km",Preset.ORIGINAL:"Original · 18.85 km",Preset.CUSTOM:"Custom"}
+## The chart's grid is drawn every 25 map units, and a square of it is the
+## size players can picture, so the settings speak in squares.
+const GRID_UNITS := 25
+const NAMES := {Preset.SHORT:"Short · 10 km squares",Preset.MEDIUM_SHORT:"Medium short · 15 km squares",Preset.NORMAL:"Normal · 25 km squares",Preset.HIGH:"High · 50 km squares",Preset.ORIGINAL:"Original · 471 km squares",Preset.CUSTOM:"Custom"}
 var preset := Preset.MEDIUM_SHORT
 var custom_meters := DEFAULT_METERS
 
@@ -16,6 +19,14 @@ static func valid_meters(value: Variant) -> int:
 	# Reject values that cannot be represented by fixed world coordinates.
 	if float(value)>float(9223372036854775807)/1000000.0:return DEFAULT_METERS
 	return maxi(MIN_METERS,roundi(maxf(MIN_METERS,float(value))))
+
+static func square_kilometers(meters_per_unit: float) -> float:
+	return meters_per_unit*GRID_UNITS/1000.0
+
+static func square_text(meters_per_unit: float) -> String:
+	var km: float=square_kilometers(meters_per_unit)
+	if km>=100 or is_equal_approx(km,roundf(km)):return "%d km"%roundi(km)
+	return "%.1f km"%km
 
 func meters() -> int:
 	return valid_meters(custom_meters) if preset==Preset.CUSTOM else PRESETS.get(preset,DEFAULT_METERS)

@@ -382,16 +382,12 @@ func fly_to_gate(index: int) -> void:
 	departure_gate=region.gate_index(index)
 	fly_to(region.gates[departure_gate]);gate_navigation=true
 func nearest_safe_gate() -> int:
-	if region==null:return -1
-	var best := -1;var distance := INF
-	for i in region.gates.size():
-		if region.gate_index(i)!=i:continue
-		var depth: int=session.stations[session.station_id].depth+(int(region.gates[i][1])>>3)
-		if depth<session.ship.minimum_depth or depth>session.ship.maximum_depth:continue
-		var delta: Array=Math.subtracted(region.gates[i],region.player.pose.origin)
-		var length := Vector3(delta[0],delta[1],delta[2]).length_squared()
-		if length<distance:distance=length;best=i
-	return best
+	"""The gate a departure uses, when it lies in water the hull can take.
+	Only the first slot sends ships out: a shared portal is that slot, and a
+	separate second portal is where arrivals come in."""
+	if region==null or region.gates.is_empty():return -1
+	var depth: int=session.stations[session.station_id].depth+(int(region.gates[0][1])>>3)
+	return -1 if depth<session.ship.minimum_depth or depth>session.ship.maximum_depth else 0
 func reset_gates() -> void:
 	previous_render_poses.clear(); mouse_pending=Vector2.ZERO
 	# A docked departure creates a fresh, level player while simulation time is
@@ -406,7 +402,9 @@ func update_gates(milliseconds: int) -> void:
 	for i in 2:
 		if region.gate_index(i)!=i:
 			gate_time[i]=gate_time[0];gate_closing[i]=gate_closing[0];continue
-		var available: bool = i==1 or not tutorial_travel_locked() and region.success==null and region.failure==null
+		# A separate arrival gate stays open only until the ship arriving
+		# through it has moved away; it takes no departures.
+		var available: bool = gate_time[i]>0 if i==1 else not tutorial_travel_locked() and region.success==null and region.failure==null
 		if at_gate(i) and available and (not autopilot or (gate_navigation and region.gate_index(departure_gate)==i)):
 			if gate_time[i]==0: region.audio_event("gate",region.gates[i])
 			gate_closing[i]=0; gate_time[i]+=milliseconds
@@ -430,7 +428,7 @@ func stream_transfer() -> bool:
 	session.hull=region.player.health.hull; session.shield=region.player.health.shield; session.armor=region.player.health.armor
 	cancel_autopilot(); enter_region(target)
 	var arrival_gate: int=region.gate_index(1)
-	departure_gate=arrival_gate
+	departure_gate=0
 	region.player.pose.origin=region.gates[arrival_gate].duplicate()
 	region.player.pose.set_euler(0,region.gate_yaw(arrival_gate),0)
 	region.player.depth=session.stations[target].depth

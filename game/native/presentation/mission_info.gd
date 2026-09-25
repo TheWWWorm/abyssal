@@ -25,6 +25,17 @@ static func progress(session, mission) -> String:
 		return "%s · %s"%[name,"Installed" if installed else "Not installed"]
 	return ""
 
+static func target_species(mission) -> int:
+	"""The one species a creature job is about: the school to guard (6) or the
+	quarry to catch (7), story chapters included. Other kinds carry none."""
+	return mission.target_kind if mission.kind in [6,7] and mission.target_kind>=0 else -1
+
+static func target(session, mission) -> String:
+	var species := target_species(mission)
+	var names: Array = session.data.constants.e["c:[[S"]
+	if species<0 or species>=names.size(): return ""
+	return "%s: %s"%["Protect" if mission.kind==6 else "Target species",session.text(int(names[species][0]))]
+
 static func requirements(mission) -> String:
 	if mission.total<=0: return ""
 	match mission.kind:

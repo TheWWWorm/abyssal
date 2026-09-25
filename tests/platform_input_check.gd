@@ -165,6 +165,7 @@ func run() -> void:
  expect(chart.zoom>1 and not chart.tap_allowed,"Two-finger map pinch zooms without selecting a station")
  first.pressed=false;first.canceled=true;chart._gui_input(first);second.pressed=false;chart._gui_input(second)
  expect(chart.touches.is_empty(),"Map releases both gesture fingers")
+ await check_drag_is_not_a_tap(game)
  game.close_page();game.controller.device=9;game.controller_connection(9,false)
  expect(game.page=="pause" and game.controller.device==-1,"Controller disconnect pauses actual gameplay")
  game.close_page();game._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
@@ -257,3 +258,25 @@ func check_touch_placement(game) -> void:
  editor.queue_free();await process_frame
  expect(not touch.layout_preview,"Leaving the editor stops previewing idle controls")
  touch.layout={};touch.arrange();touch.set_active(false)
+
+func pointer(game, pressed: bool, at: Vector2, moving: bool=false) -> void:
+ var event: InputEventMouse=InputEventMouseMotion.new() if moving else InputEventMouseButton.new()
+ event.device=InputEvent.DEVICE_ID_EMULATION;event.position=at;event.global_position=at
+ event.button_mask=MOUSE_BUTTON_MASK_LEFT if pressed else 0
+ if not moving:event.button_index=MOUSE_BUTTON_LEFT;event.pressed=pressed
+ game.get_viewport().push_input(event,true)
+func check_drag_is_not_a_tap(game) -> void:
+ # A finger dragged across a button is moving the screen: the button must
+ # not fire, and the next tap must land where it is made, not on it.
+ var layer:=CanvasLayer.new();layer.layer=100;game.add_child(layer)
+ var dragged:=Button.new();dragged.position=Vector2(20,20);dragged.size=Vector2(300,60);layer.add_child(dragged)
+ var other:=Button.new();other.position=Vector2(20,120);other.size=Vector2(300,60);layer.add_child(other)
+ var fired:=[0,0];dragged.pressed.connect(func():fired[0]+=1);other.pressed.connect(func():fired[1]+=1)
+ await process_frame
+ pointer(game,true,Vector2(40,50));pointer(game,true,Vector2(90,52),true);pointer(game,true,Vector2(200,52),true);pointer(game,false,Vector2(200,52))
+ expect(fired==[0,0],"A drag across a button does not press it")
+ pointer(game,true,Vector2(60,150));pointer(game,false,Vector2(61,150))
+ expect(fired==[0,1],"The tap after a drag lands on the button tapped")
+ pointer(game,true,Vector2(60,50));pointer(game,false,Vector2(62,51))
+ expect(fired==[1,1],"A tap on a button still presses it")
+ layer.queue_free()
