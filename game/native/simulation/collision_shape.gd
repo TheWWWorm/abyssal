@@ -4,12 +4,18 @@ const Math=preload("res://native/simulation/fixed_math.gd")
 var origin: Array=[0,0,0]
 var offset: Array=[0,0,0]
 var half_size: Array=[0,0,0]
+## Escape straight away from the centre instead of through the nearest face,
+## as a S.T.R.E.A.M. gate pushes a hull out (bb.a with at/cu).
+var radial := false
 func contains(point: Array) -> bool:
  var relative:=Math.vector(point)-Math.vector(origin)-Math.vector(offset)
  var extent:=Math.vector(half_size)
  return absf(relative.x)<extent.x and absf(relative.y)<extent.y and absf(relative.z)<extent.z
 func avoidance_normal(point: Array) -> Array:
  var relative:=Math.vector(point)-Math.vector(origin)-Math.vector(offset)
+ # The original adds 100 to x of the unit direction, which also gives a hull
+ # at the very centre a way out.
+ if radial:return Math.array(relative.normalized()*4096+Vector3(100,0,0))
  var extent:=Math.vector(half_size)
  var axis:=0
  for candidate in range(1,3):

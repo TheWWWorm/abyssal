@@ -135,10 +135,9 @@ func arrive() -> void:
  last_arrival_ms=elapsed_ms
  if not discovered[station_id]: discovered[station_id]=true; counters.m+=1
  docked=true
- var awarded: Array = medals.commit()
- if not awarded.is_empty():
-  var names: Array = awarded.map(func(id): return text(int(data.constants.e["a:[[S"][id][0])))
-  notices.append({"kind":"notice","text":"Medals awarded: "+", ".join(names)})
+ # ch.e: each medal won or bettered on the trip is announced on its own.
+ for id in medals.commit():
+  notices.append({"kind":"medal","id":id,"tier":int(medals.levels[id]),"text":"New medal: "+text(int(data.constants.e["a:[[S"][id][0]))})
  # The bounty on the trip's pirates grows with the square of their number,
  # a hundred a head at a colonist holding and fifty at a rebel one.
  if medals.pirates>0 and pending_bounty==0:

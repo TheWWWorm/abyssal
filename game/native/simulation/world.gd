@@ -20,6 +20,17 @@ var stream_destination := -1
 var departure_gate := 0
 var gate_time := [0,0]
 var gate_closing := [0,0]
+## at: a gate is a box of 15000 x 15000 x 8000 (cu halves it) that turns a hull
+## entering it away from its centre. The arrival shot starts inside the gate
+## it comes out of, so that one is left out until the ship is clear of it.
+const GATE_REPEL_HALF := [7500,7500,4000]
+## How far out from a station's walls the hull starts to be turned away, as a
+## gate turns it: the hull's own radius (where the walls stop it) and four
+## metres more. A ship flying in to dock is left alone until it is about to
+## touch, and one already against a wall keeps turning until it is clear.
+const STATION_REPEL_MARGIN := 1600
+var station_repellers := {}
+var arrival_exit := -1
 ## One frame of the gate's split. The whole opening is twenty of them, so this
 ## sets how sharply the gate snaps apart as a submarine runs at it.
 const GATE_FRAME_MS := 32
@@ -70,7 +81,7 @@ func depart() -> bool:
 	if region!=null: region.dispose()
 	session.world_layout.spacing_meters=spacing_meters
 	obstacle_bodies.clear();previous_render_poses.clear()
-	region=Region.new(); region.configure(session); physical_neighbors.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography(); revision+=1; accumulator=0;weapon_pending.clear(); cancel_autopilot(); reset_gates()
+	region=Region.new(); region.configure(session); physical_neighbors.clear();station_repellers.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography(); revision+=1; accumulator=0;weapon_pending.clear(); cancel_autopilot(); reset_gates()
 	# The departure berth is on the near side: face away from the station.
 	region.player.pose.face(Math.normalize_vector(region.player.pose.origin))
 	return true
@@ -293,7 +304,7 @@ func enter_region(id: int) -> void:
 	region.loadout.selected=bank
 	var equipped: Array = region.loadout.all_weapons()
 	for i in mini(equipped.size(),cooldowns.size()): equipped[i].elapsed=cooldowns[i]
-	physical_neighbors.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography()
+	physical_neighbors.clear();station_repellers.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography()
 	region.player.depth=session.stations[id].depth+(int(pose.origin[1])>>3)
 	revision+=1; speed=1; reset_gates()
 	message="Entered "+session.stations[id].name
@@ -394,7 +405,7 @@ func reset_gates() -> void:
 	# paused for the hangar shot. Do not keep interpolating from the bank held
 	# on approach, or the new hull appears to leave at that old angle.
 	previous_render_bank=region.player.visual_bank if region!=null else 0
-	stream_destination=-1; gate_time=[0,0]; gate_closing=[0,0]
+	stream_destination=-1; gate_time=[0,0]; gate_closing=[0,0]; arrival_exit=-1
 func at_gate(index: int) -> bool:
 	if region==null or session.docked: return false
 	return Math.subtracted(region.player.pose.origin,region.gates[index]).all(func(v): return absi(v)<15000)
@@ -432,7 +443,7 @@ func stream_transfer() -> bool:
 	region.player.pose.origin=region.gates[arrival_gate].duplicate()
 	region.player.pose.set_euler(0,region.gate_yaw(arrival_gate),0)
 	region.player.depth=session.stations[target].depth
-	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0
+	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0; arrival_exit=arrival_gate
 	message="S.T.R.E.A.M. arrival · "+session.stations[target].name
 	return true
 
@@ -504,7 +515,36 @@ func update_collision_bodies() -> void:
 			shape.half_size=[actor.radius,actor.radius,actor.radius]
 			actor.shapes=[shape]
 		if not actor.shapes.is_empty():active_collision_bodies.append(actor)
-	region.player.collision_groups=[active_collision_bodies]
+	var steering: Array=[]
+	for body in active_collision_bodies:
+		if body is StationBody:steering.append_array(repellers_of(body))
+		else:steering.append(body)
+	region.player.collision_groups=[steering,gate_repellers()]
+
+func repellers_of(body) -> Array:
+	"""A station's walls grown by the repel margin. A hull inside one is turned
+	away from the nearest face instead of being stopped against the wall, where
+	the walls themselves would only act once it was already stuck inside."""
+	var id: int=body.get_instance_id()
+	if not station_repellers.has(id):
+		var zones: Array=[]
+		for shape in body.shapes:
+			var zone:=CollisionShape.new();zone.origin=shape.origin.duplicate();zone.offset=shape.offset.duplicate()
+			zone.half_size=[shape.half_size[0]+STATION_REPEL_MARGIN,shape.half_size[1]+STATION_REPEL_MARGIN,shape.half_size[2]+STATION_REPEL_MARGIN]
+			zones.append(zone)
+		station_repellers[id]=zones
+	return station_repellers[id]
+
+func gate_repellers() -> Array:
+	var result: Array=[]
+	for i in region.gates.size():
+		if region.gate_index(i)!=i:continue
+		var shape:=CollisionShape.new();shape.origin=region.gates[i].duplicate();shape.half_size=GATE_REPEL_HALF.duplicate();shape.radial=true
+		if i==arrival_exit:
+			if shape.contains(region.player.pose.origin):continue
+			arrival_exit=-1
+		result.append(shape)
+	return result
 
 func collides_station(point: Array) -> bool:
 	if region.station.contains(point):return true

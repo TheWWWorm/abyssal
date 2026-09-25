@@ -100,7 +100,15 @@ func advance(delta_ms: int) -> void:
   for shape in group:
    if shape.contains(pose.origin):avoidance+=Math.vector(shape.avoidance_normal(pose.origin));contact=true
  var desired:=Vector3.ZERO
- if contact:desired=avoidance.normalized()
+ if contact:
+  desired=avoidance.normalized()
+  # Straight at a wall the way out is dead astern, and blending towards the
+  # opposite heading only shortens it without turning; turn through the side.
+  var heading:=Math.vector(pose.forward).normalized()
+  if heading.dot(desired)<-.95:
+   var side:=heading.cross(Vector3.UP)
+   if side.length_squared()<.01:side=heading.cross(Vector3.RIGHT)
+   desired=(desired+side.normalized()).normalized()
  elif autopilot_target!=null:
   var target: Array=autopilot_target if autopilot_target is Array else autopilot_target.pose.origin
   desired=(Math.vector(target)-Math.vector(pose.origin)).normalized()

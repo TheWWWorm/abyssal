@@ -550,7 +550,9 @@ func run():
  var lit: Array=view.objects[sinking.get_instance_id()].lamps
  sinking.capturable=false;sinking.health.hull=0;sinking.advance(40);view._process(0)
  expect(sinking.state==3 and lit.size()==2 and lit.all(func(lamp):return not lamp.visible),"A vessel's headlights go out when it is sunk")
- app.world.region.enemies.erase(sinking);view._process(0)
+ app.world.region.enemies.erase(sinking);app.world.region.enemies.erase(vessel_actor);view._process(0)
+ # What has left the region, or is no longer shown, no longer stops a beam.
+ expect([mine,salvage,sinking,vessel_actor].all(func(actor):return view.objects[actor.get_instance_id()].occluder.collision_layer==0),"Departed and hidden models stop no headlight beam")
  app.abyss._process(0)
  expect(app.abyss.beams.size()==2 and app.abyss.beams[0].get_parent()==app.abyss.lamps[0] and app.abyss.beams[1].get_parent()==app.abyss.lamps[1],"Each headlight carries its own visible beam cone: two beams, not one blob")
  expect(app.abyss.beams.all(func(beam):return beam.visible and beam.material_override.shader.resource_path.ends_with("headlight_beam.gdshader") and beam.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF),"Beam cones are on by default, drawn by the beam shader and cast no shadow")

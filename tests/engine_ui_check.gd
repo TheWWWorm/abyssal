@@ -143,7 +143,7 @@ func run():
  expect(game.map_widget.heading()==Vector2.ZERO,"Vertical flight does not invent a north-facing map arrow")
  game.close_page();game._process(0)
  expect(not game.objective_label.get_parsed_text().contains("Time "),"Time acceleration is not mixed into mission instructions")
- expect(game.objective_label.bbcode_enabled and game.objective_label.text.contains("CURRENT OBJECTIVE"),"Quest panel distinguishes title, body, progress and navigation hint")
+ expect(game.objective_label.bbcode_enabled and game.objective_label.get_parsed_text().contains("CURRENT OBJECTIVE"),"Quest panel distinguishes title, body, progress and navigation hint")
  check_music_transitions(game)
  await check_dock_navigation(game)
  await check_departure(game)
@@ -287,6 +287,12 @@ func check_dock_notices(game) -> void:
  game._process(.25);await process_frame
  expect(game.session.docked and not game.world.autopilot,"Autopilot reaches the berth and disengages")
  expect(game.world.region.elapsed_ms-arrival_time==game.world.STEP_MS,"The simulator stops advancing in the frame where autopilot docks")
+ # Medals won on the way in are announced first, one page each (ch.e), and
+ # M.A.I.'s dock remarks after them.
+ var announced := 0
+ while game.page in ["medal","dialogue"] and announced<30:
+  if game.page=="medal":expect(game.column.find_children("*","TextureRect",true,false).any(func(icon):return icon.texture!=null),"A new medal is shown with its sprite")
+  game.dock_back();announced+=1
  expect(game.page=="station" and game.overlay.visible and game.column.find_children("*","Button",true,false).any(func(button):return button.text=="DEPART >"),"Autopilot docking opens the station services instead of leaving only the exterior view")
  game.session.docked=false;game.clear_notices();game.close_page()
 

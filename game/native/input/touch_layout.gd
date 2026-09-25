@@ -9,12 +9,10 @@ const SCALE_STEP := 0.1
 const MAX_OFFSET := 4096.0
 ## Ordered so hit tests reach the small controls before the steering stick they
 ## can overlap, and so "next control" walks the screen roughly left to right.
-const IDS: Array[String] = ["menu","map","autopilot","time","dock","camera","bank","full",
-	"throttle_up","throttle_down","boost","hook","guns","stick"]
-const NAMES := {"menu":"Menu","map":"Map","autopilot":"Route","time":"Time","dock":"Dock",
-	"camera":"View","bank":"Bank","full":"Fullscreen","throttle_up":"Speed up",
-	"throttle_down":"Slow down","boost":"Boost","hook":"Harpoon","guns":"Guns",
-	"stick":"Steering stick"}
+## The throttle is not placed on its own: it curves round the guns.
+const IDS: Array[String] = ["time","autopilot","boost","map","menu","dock","hook","guns","stick"]
+const NAMES := {"menu":"Pause","map":"Map","autopilot":"Route","time":"Time","dock":"Dock",
+	"boost":"Boost","hook":"Harpoon","guns":"Guns","stick":"Steering stick"}
 
 static func number(value, fallback: float=0.0) -> float:
 	if value is not float and value is not int: return fallback

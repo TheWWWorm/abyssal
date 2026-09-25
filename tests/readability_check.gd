@@ -39,6 +39,42 @@ func run():
  expect(revealing>=region.creatures.size()/2 and not region.creatures.any(func(c):return c.fresh),"The view fades a fresh creature in and takes the mark")
  for i in 30:app.view._process(0.1)
  expect(region.creatures.all(func(c):return not app.view.objects.has(c.get_instance_id()) or app.view.objects[c.get_instance_id()].visual.stream_visibility>=1.0),"Three seconds on, every creature is whole")
+ # A headlight beam stops at a fish rather than lighting the water behind it.
+ var fish=region.creatures.filter(func(c):return app.view.objects.has(c.get_instance_id()))
+ if not fish.is_empty():
+  var visual: Node3D=app.view.objects[fish[0].get_instance_id()].visual
+  var occluders: Array=visual.find_children("*","StaticBody3D",true,false).filter(func(body):return body.collision_layer==app.view.BEAM_OCCLUDER_LAYER)
+  expect(occluders.size()==1,"A creature carries a beam occluder on its own layer")
+  var Abyss=load("res://native/presentation/abyss.gd")
+  var lamp:=SpotLight3D.new();app.view.add_child(lamp)
+  var middle: Vector3=visual.global_transform*visual.solid_bounds().get_center()
+  lamp.look_at_from_position(middle+Vector3(0,0,20),middle)
+  var beam=Abyss.create_beam();app.view.add_child(beam)
+  await physics_frame;await physics_frame
+  Abyss.shade_beam_in(app.view.get_world_3d().direct_space_state,lamp,beam,0);Abyss.shade_beam_in(app.view.get_world_3d().direct_space_state,lamp,beam,1)
+  var reach: Image=beam.get_meta("occlusion_image")
+  var centre: float=reach.get_pixel(Abyss.OCCLUSION_SIZE/2,Abyss.OCCLUSION_SIZE/2).r
+  expect(centre<20,"The beam's reach ends at the fish in front of the lamp")
+  # A submarine blocks a beam as well, but not the beams of its own lamps.
+  var sub=load("res://native/simulation/npc.gd").new()
+  var away: Array=region.player.pose.origin.duplicate();away[0]+=40000
+  sub.configure(1,2,true,away,app.content.data,app.session.campaign.chapter,app.session.rng)
+  sub.state=1;region.enemies.append(sub);app.view._process(0)
+  var hull_visual: Node3D=app.view.objects[sub.get_instance_id()].visual
+  var hull_body: Array=hull_visual.find_children("*","StaticBody3D",true,false).filter(func(body):return body.collision_layer==app.view.BEAM_OCCLUDER_LAYER)
+  expect(hull_body.size()==1 and is_instance_valid(app.view.player_occluder),"Vessels, the player's included, carry beam occluders")
+  var hull_middle: Vector3=hull_visual.global_transform*hull_visual.solid_bounds().get_center()
+  lamp.look_at_from_position(hull_middle+Vector3(0,0,20),hull_middle)
+  await physics_frame;await physics_frame
+  var space: PhysicsDirectSpaceState3D=app.view.get_world_3d().direct_space_state
+  Abyss.shade_beam_in(space,lamp,beam,0);Abyss.shade_beam_in(space,lamp,beam,1)
+  expect(reach.get_pixel(Abyss.OCCLUSION_SIZE/2,Abyss.OCCLUSION_SIZE/2).r<20,"A beam stops at another submarine")
+  var own: Array[RID]=[hull_body[0].get_rid()]
+  lamp.look_at_from_position(hull_middle,hull_middle+Vector3(0,0,-20))
+  Abyss.shade_beam_in(space,lamp,beam,0,own);Abyss.shade_beam_in(space,lamp,beam,1,own)
+  expect(reach.get_pixel(Abyss.OCCLUSION_SIZE/2,Abyss.OCCLUSION_SIZE/2).r>Abyss.BEAM_LENGTH,"A vessel's own lamps shine out through its hull box")
+  region.enemies.erase(sub);app.view._process(0)
+  lamp.queue_free();beam.queue_free()
  var trail=load("res://native/simulation/bubble_trail.gd").new();trail.advance([0,0,0],120,null);trail.advance([0,0,0],120,null)
  expect(trail.position[0][1]<0,"Bubbles rise in the simulation coordinate system")
  var player=app.world.region.player

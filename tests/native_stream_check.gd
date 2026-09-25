@@ -3,6 +3,7 @@ const Session=preload("res://native/simulation/session.gd")
 const World=preload("res://native/simulation/world.gd")
 const Save=preload("res://native/simulation/save_store.gd")
 const Region=preload("res://native/simulation/region.gd")
+const Map=preload("res://native/presentation/overworld_map.gd")
 var failures := 0
 func expect(value: bool, why: String) -> void:
 	if not value: failures+=1; push_error(why)
@@ -127,6 +128,20 @@ func checks() -> void:
 	expect(app.view.gate_nodes[0].sampled_frame==app.world.gate_frame(0),"Gate model follows simulation opening state")
 	app.update_markers()
 	expect(app.markers.any(func(marker): return marker.visible and marker.text.begins_with("S.T.R.E.A.M.") and marker.text.contains("· Transit control")),"Ready gate advertises its transit control menu")
+	# br.a: at the open gate the pilot is told which key enters (text 270);
+	# only the autopilot's own approach goes on to the chart by itself.
+	app.world.cancel_autopilot();app.stream_prompted=false
+	app.check_stream_proximity()
+	expect(app.page.is_empty(),"A pilot at an open gate is not pulled into the chart")
+	app.gameplay_hints=false;app._process(0)
+	expect(app.dock_prompt.visible and app.dock_prompt.text.contains("Enter the S.T.R.E.A.M.") and app.dock_prompt.text.contains(OS.get_keycode_string(app.key_bindings.dock)),"The gate says which key enters it")
+	app.perform("dock")
+	expect(app.page=="stream","The dock key at the gate opens transit control")
+	app.close_page()
+	expect(app.world.plan_stream(target) and app.world.gate_navigation,"The atlas plan flies to the gate")
+	app.stream_prompted=false;app.check_stream_proximity()
+	expect(app.page=="stream","An autopilot approach goes straight on to the chart")
+	app.close_page()
 	if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name()!="headless":
 		app.map_destination=target; app.show_map()
 		for _i in 4: await process_frame
@@ -181,6 +196,20 @@ func check_split_gates(content) -> void:
 	expect(world.stream_transfer() and owner.station_id==target,"The OUT gate sends the ship on")
 	expect(world.region.player.pose.origin==world.region.gates[1] and world.gate_time[1]==world.GATE_OPEN_MS,"Arrival comes out of the open IN gate")
 	expect(world.departure_gate==0 and not world.at_gate(0),"The next departure is from the OUT gate, away from the arrival")
+	# at/bb.a: each gate turns a hull out of its box, but the ship coming out
+	# of the arrival gate starts inside it and is let go.
+	var repellers: Array=world.gate_repellers()
+	expect(world.arrival_exit==1 and repellers.size()==1 and repellers[0].origin==world.region.gates[0],"The arrival gate does not push back the ship leaving it")
+	var inbound: Array=world.region.gates[0].duplicate();inbound[2]+=3000
+	world.region.player.pose.origin=inbound;world.region.player.pose.face([0,0,-4096]);world.region.player.set_throttle(100);world.region.player.throttle=100
+	world.region.player.collision_groups=[[],world.gate_repellers()]
+	var closest: float=INF
+	for step in 60:
+		world.region.player.advance(40)
+		closest=minf(closest,Vector3(world.region.player.pose.origin[0]-world.region.gates[0][0],world.region.player.pose.origin[1]-world.region.gates[0][1],world.region.player.pose.origin[2]-world.region.gates[0][2]).length())
+	var away:=Vector3(world.region.player.pose.origin[0]-world.region.gates[0][0],world.region.player.pose.origin[1]-world.region.gates[0][1],world.region.player.pose.origin[2]-world.region.gates[0][2])
+	expect(closest>1000 and Vector3(world.region.player.pose.forward[0],world.region.player.pose.forward[1],world.region.player.pose.forward[2]).dot(away)>0,"A hull flown into a gate is turned away from its centre")
+	check_station_repel(world)
 	world.region.player.pose.origin[0]+=16000; world.update_gates(1000)
 	world.region.player.pose.origin=world.region.gates[1].duplicate(); world.update_gates(1000)
 	expect(world.gate_time[1]==0,"The IN gate stays shut once the ship has left it")
@@ -196,6 +225,29 @@ func check_split_gates(content) -> void:
 	expect(owner.trail.size()==owner.TRAIL_LENGTH and owner.trail.back()==8,"The trail keeps the last six areas")
 	world.dispose()
 	Region.split_gates=shared
+func check_station_repel(world) -> void:
+	"""A station turns a hull away as a gate does, a few metres out from where
+	its walls would stop it, and leaves a ship coming in to dock alone."""
+	var player=world.region.player
+	var top=null;var top_z:=-INF
+	for shape in world.region.station.shapes:
+		var z: float=shape.origin[2]+shape.offset[2]+shape.half_size[2]
+		if z>top_z:top_z=z;top=shape
+	var wall: float=top_z+player.radius
+	var center: Array=[top.origin[0]+top.offset[0],top.origin[1]+top.offset[1],0]
+	# Parked just outside the zone, facing the wall, nothing turns the ship.
+	player.pose.origin=[center[0],center[1],roundi(wall+world.STATION_REPEL_MARGIN-player.radius+400)]
+	player.pose.face([0,0,-4096]);player.set_throttle(0);player.throttle=0
+	for step in 10:world.advance(.04,{})
+	expect(player.pose.forward[2]<-4000,"A ship close to a station but clear of its walls is not turned")
+	# Flown straight at the wall it is turned back out instead of stopping on it.
+	player.pose.origin=[center[0],center[1],roundi(wall+6000)];player.pose.face([0,0,-4096]);player.set_throttle(100);player.throttle=100
+	var touched:=0
+	for step in 150:
+		world.advance(.04,{})
+		if player.contact and player.pose.origin[2]<=wall+2:touched+=1
+	expect(player.pose.forward[2]>0 and player.pose.origin[2]>wall+2000,"A hull flown into a station is turned away and leaves it")
+	expect(touched<5,"The hull is not held against the wall")
 func check_zone(app, target: int) -> void:
 	"""The original's chart: a tap moves a zone, and the side view lists only
 	what the zone covers; at the gate the zone stays inside the reach."""
@@ -222,4 +274,35 @@ func check_zone(app, target: int) -> void:
 	chart.place_lens(Vector2(far.x,far.y))
 	expect(chart.lens_center.distance_to(Vector2(home.x,home.y))<=chart.lens_limit+.001,"A bounded zone stops at the edge of the reach")
 	chart.lens_limit=-1.0
+	# Holding the left button on the zone drags it; letting go settles the choice.
+	var start: Vector2=chart.point(chart.lens_center.x,chart.lens_center.y)
+	var moved: Array=[]
+	chart.zone_moved.connect(func(center,near):moved.append(center),CONNECT_ONE_SHOT)
+	var press:=InputEventMouseButton.new();press.button_index=MOUSE_BUTTON_LEFT;press.pressed=true;press.position=start;chart._gui_input(press)
+	var motion:=InputEventMouseMotion.new();motion.position=start+Vector2(40,0);chart._gui_input(motion)
+	expect(chart.zone_grabbed and chart.lens_center.distance_to(chart.chart_at(start+Vector2(40,0)))<.01,"The zone follows a left-button drag")
+	var release:=InputEventMouseButton.new();release.button_index=MOUSE_BUTTON_LEFT;release.pressed=false;release.position=start+Vector2(40,0);chart._gui_input(release)
+	expect(not chart.zone_grabbed and moved.size()==1 and inside.call(),"Letting go of the zone updates the side view")
+	# A finger on the ring drags the zone; elsewhere it pans; held still it grabs.
+	var ring: Vector2=chart.point(chart.lens_center.x,chart.lens_center.y)
+	var before_pan: Vector2=chart.pan
+	var finger:=InputEventScreenTouch.new();finger.index=0;finger.pressed=true;finger.position=ring;chart._gui_input(finger)
+	var slide:=InputEventScreenDrag.new();slide.index=0;slide.position=ring+Vector2(0,30);slide.relative=Vector2(0,30);chart._gui_input(slide)
+	expect(chart.zone_grabbed and chart.pan==before_pan and chart.lens_center.distance_to(chart.chart_at(ring+Vector2(0,30)))<.01,"A finger on the zone drags it")
+	finger.pressed=false;finger.position=slide.position;chart._gui_input(finger)
+	var lens_before: Vector2=chart.lens_center
+	var outside: Vector2=chart.point(chart.lens_center.x,chart.lens_center.y)+Vector2(chart.lens_radius*minf(chart.size.x,chart.size.y)*0.0085*chart.zoom+60,0)
+	finger.pressed=true;finger.position=outside;chart._gui_input(finger)
+	slide.position=outside+Vector2(0,30);chart._gui_input(slide)
+	expect(not chart.zone_grabbed and chart.pan!=before_pan and chart.lens_center==lens_before,"A finger off the zone pans the chart")
+	finger.pressed=false;finger.position=slide.position;chart._gui_input(finger)
+	finger.pressed=true;finger.position=outside;chart._gui_input(finger)
+	chart._process(chart.HOLD_MS/1000.0+.05)
+	expect(chart.zone_grabbed and chart.lens_center.distance_to(chart.chart_at(outside))<.01,"A finger held still picks the zone up where it rests")
+	finger.pressed=false;chart._gui_input(finger)
+	# A contract's destination is marked on the chart as the story's is (bp).
+	var contract=load("res://native/simulation/mission.gd").new();contract.kind=1;contract.destination=target;contract.destination_name=app.session.stations[target].name
+	app.session.campaign.secondary=contract
+	expect(Map.marker(app.world,app.session.stations[target]).objective and Map.objectives(app.world,target).size()>=1,"An accepted contract marks its destination")
+	app.session.campaign.secondary=load("res://native/simulation/mission.gd").new()
 	app.select_station(target)

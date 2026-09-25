@@ -7,6 +7,10 @@ var hull := ProgressBar.new()
 var fill := StyleBoxFlat.new()
 var current_color := Color.TRANSPARENT
 var symbol_direction := Vector2.ZERO
+## A quest destination: a diamond with a solid core.
+var quest := false:
+	set(value):
+		if quest!=value: quest=value;queue_redraw()
 const ICON_WIDTH := 16.0
 var enemy_ring := false
 var edge_square := false
@@ -68,6 +72,7 @@ func _draw() -> void:
 	var center:=Vector2(6,8)
 	if symbol_direction==Vector2.ZERO:
 		draw_polyline(PackedVector2Array([center+Vector2(0,-4),center+Vector2(4,0),center+Vector2(0,4),center+Vector2(-4,0),center+Vector2(0,-4)]),current_color,1.3,true)
+		if quest:draw_colored_polygon(PackedVector2Array([center+Vector2(0,-1.8),center+Vector2(1.8,0),center+Vector2(0,1.8),center+Vector2(-1.8,0)]),current_color)
 	else:
 		var direction:=symbol_direction.normalized();var side:=Vector2(-direction.y,direction.x)
 		draw_polyline(PackedVector2Array([center-direction*3+side*4,center+direction*4,center-direction*3-side*4]),current_color,1.5,true)

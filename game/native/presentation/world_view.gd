@@ -172,6 +172,7 @@ func rebuild() -> void:
 	if not keep_player:
 		if player_model!=null: player_model.queue_free()
 		player_model=model(world.session.ship.id)
+		if player_model!=null: player_occluder=add_beam_occluder(player_model)
 	for node in limit_nodes: node.queue_free()
 	limit_nodes=[]
 	for i in 2:
@@ -402,6 +403,9 @@ func _process(delta: float) -> void:
 	# after the camera has moved into the new frame, including transit shots.
 	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
 	var frustum: Array[Plane] = camera.get_frustum()
+	# A model only stops a beam while it is shown for an actor still here: a
+	# detonated mine or a collected wreck keeps its node but not its shadow.
+	var present := {}
 	for actor in region.creatures+region.enemies+region.friends:
 		var id: int = actor.get_instance_id()
 		if not objects.has(id) or objects[id].model_id!=actor.model_id:
@@ -411,8 +415,10 @@ func _process(delta: float) -> void:
 			objects[id]={"visual":visual,"model_id":actor.model_id,"secondary":null,"secondary_id":-1,"lamps":[],"reveal":0.0 if actor.is_creature else 1.0}
 			# Headlights belong to vessels under way: a mine, a capsule, or the
 			# wreck a ship becomes has nobody aboard to switch them on.
+			var occluder=add_beam_occluder(visual)
+			objects[id].occluder=occluder
 			if not actor.is_creature and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter"):
-				objects[id].lamps=add_actor_lights(visual)
+				objects[id].lamps=add_actor_lights(visual,occluder)
 		var secondary_id: int = actor.secondary_model if actor.is_creature else -1
 		if objects[id].visual.replacement!=null: secondary_id=-1
 		if objects[id].secondary_id!=secondary_id:
@@ -441,6 +447,7 @@ func _process(delta: float) -> void:
 			pose.basis=pose.basis.scaled_local(Vector3(actor.render_scale[0],actor.render_scale[1],actor.render_scale[2])/4096.0)
 		var travel_speed: float = node.position.distance_to(pose.origin)/maxf(delta,.001)
 		if node.transform!=pose: node.transform=pose
+		present[id]=true
 		if not actor.is_creature:
 			var moving: float=clampf(travel_speed/20.0,0,1) if actor.health.enabled and actor.state<3 else 0.0
 			if camera.global_position.distance_to(node.global_position)>600: moving=0.0
@@ -470,6 +477,11 @@ func _process(delta: float) -> void:
 			var sample_pose: bool = distance<250 or (region.elapsed_ms/40+id)%2==0
 			node.advance(ms,node.visible and distance<1500 and on_screen and sample_pose)
 			if secondary!=null: secondary.advance(ms,secondary.visible and distance<1500 and on_screen and sample_pose)
+	for id in objects:
+		var occluder=objects[id].get("occluder")
+		if occluder==null: continue
+		var layer: int=BEAM_OCCLUDER_LAYER if present.has(id) and objects[id].visual.visible else 0
+		if occluder.collision_layer!=layer: occluder.collision_layer=layer
 	if ms>0:
 		for node in station_nodes: node.advance(ms)
 		if player_model!=null: player_model.advance(ms)
@@ -647,7 +659,7 @@ func add_station_lights(visual) -> void:
 var actor_beams: Array = []
 var actor_beams_enabled := true
 var actor_beam_phase := 0
-func add_actor_lights(visual) -> Array:
+func add_actor_lights(visual, occluder=null) -> Array:
 	var lamps: Array=[]
 	if not modern_graphics:return lamps
 	var mounts: Array=visual.headlight_mounts()
@@ -660,7 +672,9 @@ func add_actor_lights(visual) -> Array:
 		var beam: MeshInstance3D=Abyss.create_beam();lamp.add_child(beam)
 		beam.material_override.set_shader_parameter("fade_begin",400.0);beam.material_override.set_shader_parameter("fade_length",200.0)
 		beam.visible=actor_beams_enabled
-		actor_beams.append({"lamp":lamp,"beam":beam});lamps.append(lamp)
+		var own: Array[RID]=[]
+		if occluder!=null: own.append(occluder.get_rid())
+		actor_beams.append({"lamp":lamp,"beam":beam,"exclude":own});lamps.append(lamp)
 	return lamps
 
 func set_actor_beams(on: bool) -> void:
@@ -676,7 +690,7 @@ func shade_actor_beams() -> void:
 	actor_beam_phase+=1
 	var entry: Dictionary=actor_beams[actor_beam_phase%actor_beams.size()]
 	if not entry.lamp.is_visible_in_tree() or entry.lamp.global_position.distance_to(camera.global_position)>700: return
-	Abyss.shade_beam_in(get_world_3d().direct_space_state,entry.lamp,entry.beam,actor_beam_phase/actor_beams.size())
+	Abyss.shade_beam_in(get_world_3d().direct_space_state,entry.lamp,entry.beam,actor_beam_phase/actor_beams.size(),entry.get("exclude",[] as Array[RID]))
 
 func add_station_collision(visual: Node3D) -> void:
 	# Actual replacement triangles serve the reticle and light obstruction rays.
@@ -690,6 +704,22 @@ func add_station_collision(visual: Node3D) -> void:
 		var body := StaticBody3D.new(); body.collision_layer=2; body.collision_mask=0
 		var shape := CollisionShape3D.new(); shape.shape=mesh.mesh.create_trimesh_shape();shape.shape.backface_collision=true
 		mesh.add_child(body);body.add_child(shape)
+
+## Creatures and vessels stand in the headlight beams on a layer of their
+## own, so the reticle and label rays, which look for station walls, still
+## pass them.
+const BEAM_OCCLUDER_LAYER := 4
+var player_occluder: StaticBody3D
+func add_beam_occluder(visual: Node3D) -> StaticBody3D:
+	"""A box a little inside the model's solid parts: a beam stops at a fish or
+	a submarine instead of lighting the water behind it."""
+	var bounds: AABB=visual.solid_bounds()
+	if bounds.size.x<=0 or bounds.size.y<=0 or bounds.size.z<=0:return null
+	var body := StaticBody3D.new(); body.collision_layer=BEAM_OCCLUDER_LAYER; body.collision_mask=0
+	var shape := CollisionShape3D.new(); var box := BoxShape3D.new(); box.size=bounds.size*.8
+	shape.shape=box; shape.position=bounds.get_center()
+	visual.add_child(body);body.add_child(shape)
+	return body
 
 func looking_around() -> bool:
 	return look_offset.length()>.02

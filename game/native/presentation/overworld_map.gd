@@ -2,6 +2,8 @@ extends Control
 signal selected(id: int)
 ## A tap placed the zone: where it ended up, and the station tapped, if any.
 signal zone_moved(center: Vector2, near: int)
+## The zone is being dragged: where it is now. zone_moved follows on release.
+signal zone_dragged(center: Vector2)
 var world
 var selected_id := 0
 var zoom := 1.0
@@ -19,6 +21,16 @@ const TRAIL := [Color("99ceff"),Color("78beff"),Color("52a8f2"),Color("2389ec"),
 var touches := {}
 var tap_start := Vector2.ZERO
 var tap_allowed := false
+## Dragging the zone: with the left button, from inside the ring with a finger,
+## or with a finger held still for HOLD_MS anywhere on the chart.
+var zone_grabbed := false
+var grab_offset := Vector2.ZERO
+var press_inside := false
+var mouse_pressed := false
+var hold_ms := 0.0
+const HOLD_MS := 350.0
+## How far a press may wander, in pixels, and still be a tap.
+const TAP_SLOP := 12.0
 func _ready() -> void:
 	custom_minimum_size=Vector2(400,390)
 	mouse_filter=Control.MOUSE_FILTER_STOP
@@ -81,6 +93,10 @@ func _draw() -> void:
 		pixel_square(self,p,9.0 if discovered else 7.0,3.0,mark.body,mark.core)
 		if zoom>1.7 or station.id==selected_id or objective:
 			draw_string(ThemeDB.fallback_font,p.round()+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
+		if objective:
+			var line := 0
+			for title in objectives(world,station.id):
+				draw_string(ThemeDB.fallback_font,p.round()+Vector2(10,8+line*14),title,HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color("ff9c9c"));line+=1
 	var encounter = world.encounter_navigation_point()
 	if encounter!=null:
 		var anchor: Array=world.station_origin(session.station_id)
@@ -155,12 +171,20 @@ static func marker(world, station: Dictionary) -> Dictionary:
 	var dark := Color("14501a") if rebel else Color("0d2170")
 	var body := bright if discovered else dark
 	var core := dark if discovered else bright
-	var objective: bool = station.id==session.campaign.primary.destination and session.campaign.primary.kind>=0
+	var objective: bool = not objectives(world,station.id).is_empty()
 	# The station you are at and the one you are sent to wear their own marker
 	# over whoever holds them, orange and red, as they do on the original.
 	if station.id==session.station_id: body=Color("ff8000"); core=Color("ffff00")
 	if objective: body=Color("ff0000"); core=Color("c00000")
 	return {"body":body,"core":core,"discovered":discovered,"objective":objective}
+static func objectives(world, id: int) -> Array:
+	"""The titles of the missions that send the ship to a station. The original
+	marks every one it has taken on, the story's and a contract alike, and
+	writes its title above the mark."""
+	var result: Array=[]
+	for mission in [world.session.campaign.primary,world.session.campaign.secondary]:
+		if mission.kind>=0 and not mission.failed and mission.destination==id:result.append(world.session.title(mission))
+	return result
 static func pixel_square(item: CanvasItem, at: Vector2, outer_units: float, inner_units: float, body: Color, core: Color) -> void:
 	"""Lays a station marker out on the physical pixel grid rather than on the
 	chart's own units. The window scales this canvas, so whole units here are not
@@ -205,20 +229,42 @@ func _gui_input(event: InputEvent) -> void:
 		if event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN]:
 			var old := zoom; zoom=clampf(zoom*(1.2 if event.button_index==MOUSE_BUTTON_WHEEL_UP else 1/1.2),0.75,6)
 			pan=event.position-size*0.5-(event.position-size*0.5-pan)*zoom/old; queue_redraw()
-		if event.pressed and event.button_index==MOUSE_BUTTON_LEFT:select_at(event.position)
-	if event is InputEventMouseMotion and dragging: pan+=event.relative; queue_redraw()
+		if event.button_index==MOUSE_BUTTON_LEFT:
+			if lens_radius<=0:
+				if event.pressed:select_at(event.position)
+			elif event.pressed:
+				mouse_pressed=true;tap_start=event.position;press_inside=in_ring(event.position)
+			elif mouse_pressed:
+				mouse_pressed=false
+				if zone_grabbed:release_zone()
+				else:select_at(event.position)
+	if event is InputEventMouseMotion:
+		if dragging: pan+=event.relative; queue_redraw()
+		# Holding the left button drags the zone: from where it is when the
+		# press was on it, or straight to the pointer when it was not.
+		if mouse_pressed and not zone_grabbed and event.position.distance_to(tap_start)>TAP_SLOP:grab_zone(tap_start,press_inside)
+		if zone_grabbed:drag_zone(event.position)
 	if event is InputEventMagnifyGesture: zoom=clampf(zoom*event.factor,0.75,6); queue_redraw()
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			touches[event.index]=event.position
-			tap_allowed=touches.size()==1;tap_start=event.position
+			tap_allowed=touches.size()==1;tap_start=event.position;hold_ms=0.0
+			press_inside=tap_allowed and lens_radius>0 and in_ring(event.position)
+			# A second finger turns a zone drag into a pinch.
+			if touches.size()>1 and zone_grabbed:release_zone()
 		else:
-			if tap_allowed and not event.canceled and touches.size()==1 and event.position.distance_to(tap_start)<12:select_at(event.position)
-			touches.erase(event.index);tap_allowed=false
+			if zone_grabbed:release_zone()
+			elif tap_allowed and not event.canceled and touches.size()==1 and event.position.distance_to(tap_start)<TAP_SLOP:select_at(event.position)
+			touches.erase(event.index);tap_allowed=false;press_inside=false
 		accept_event()
 	if event is InputEventScreenDrag and touches.has(event.index):
-		if event.position.distance_to(tap_start)>12:tap_allowed=false
-		if touches.size()==1:pan+=event.relative
+		if event.position.distance_to(tap_start)>TAP_SLOP:
+			tap_allowed=false
+			# A finger that lands on the ring takes the zone with it; anywhere
+			# else it pans, unless it was held still long enough to grab.
+			if press_inside and not zone_grabbed and touches.size()==1:grab_zone(tap_start,true)
+		if zone_grabbed:drag_zone(event.position)
+		elif touches.size()==1:pan+=event.relative
 		elif touches.size()==2:
 			var other: Vector2=touches.values()[1] if touches.keys()[0]==event.index else touches.values()[0]
 			var before: Vector2=touches[event.index]
@@ -229,6 +275,21 @@ func _gui_input(event: InputEvent) -> void:
 				pan=center-size*.5-(center-size*.5-pan)*zoom/old+(event.position-before)*.5
 			tap_allowed=false
 		touches[event.index]=event.position;queue_redraw();accept_event()
+func _process(delta: float) -> void:
+	# A finger held still on open water picks the zone up where it rests.
+	if touches.size()!=1 or not tap_allowed or zone_grabbed or lens_radius<=0:return
+	hold_ms+=delta*1000.0
+	if hold_ms>=HOLD_MS:tap_allowed=false;grab_zone(tap_start,false);drag_zone(tap_start)
+func in_ring(position: Vector2) -> bool:
+	var ring: float=lens_radius*minf(size.x,size.y)*0.0085*zoom
+	return position.distance_to(point(lens_center.x,lens_center.y))<=maxf(ring,24.0)
+func grab_zone(position: Vector2, keep_offset: bool) -> void:
+	zone_grabbed=true
+	grab_offset=lens_center-chart_at(position) if keep_offset else Vector2.ZERO
+func drag_zone(position: Vector2) -> void:
+	zone_dragged.emit(place_lens(chart_at(position)+grab_offset))
+func release_zone() -> void:
+	zone_grabbed=false;zone_moved.emit(lens_center,-1)
 func select_at(position: Vector2) -> void:
 	if world==null:return
 	var nearest:=24.0;var id:=-1
@@ -249,4 +310,4 @@ func nudge(direction: Vector2) -> void:
 	zone_moved.emit(place_lens(lens_center+direction*lens_radius*.5),-1)
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_VISIBILITY_CHANGED]:
-		touches.clear();dragging=false;tap_allowed=false
+		touches.clear();dragging=false;tap_allowed=false;mouse_pressed=false;zone_grabbed=false

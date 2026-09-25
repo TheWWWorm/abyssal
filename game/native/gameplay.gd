@@ -93,10 +93,14 @@ var message := Label.new()
 ## harpoon missing what it was pointed at.
 class Reticle extends Control:
 	func _draw() -> void:
-		var c := size*.5;var tint := Color("b3d1cf99")
-		for gap in [Vector2(3,0),Vector2(0,3)]:
-			draw_line(c-gap*3,c-gap,tint,2.0)
-			draw_line(c+gap,c+gap*3,tint,2.0)
+		# A broken ring with side ticks round a centre dot.
+		var c := size*.5;var tint := Color("9fe3efcc")
+		for quarter in 4:
+			var middle := quarter*PI*.5+PI*.25
+			draw_arc(c,8.0,middle-.5,middle+.5,8,tint,1.5,true)
+		for side in [-1.0,1.0]:
+			draw_line(c+Vector2(side*11,-3),c+Vector2(side*11,3),tint,1.5)
+		draw_circle(c,1.5,tint)
 var crosshair := Reticle.new()
 var struggle := ProgressBar.new()
 var instruments := preload("res://native/presentation/flight_instruments.gd").new()
@@ -146,6 +150,9 @@ var simulated_capture := false
 var mouse_sensitivity := 0.8
 var touch_look_sensitivity := 0.7
 var fullscreen_supported := true
+## The 1.4 touch controls sit in other places, so placements made against the
+## earlier composition would be offsets from the wrong anchors.
+const TOUCH_LAYOUT_KEY := "touch_layout_v2"
 var invert_mouse := false
 var strafe_mode := 0 # 0 auto · 1 always strafe · 2 always turn
 var mouse_steer := Vector2.ZERO
@@ -222,14 +229,18 @@ func _ready() -> void:
 	toast.content_margin_left=16;toast.content_margin_right=16;toast.content_margin_top=7;toast.content_margin_bottom=8
 	message.add_theme_stylebox_override("normal",toast)
 	ui.add_child(message); message.add_theme_font_size_override("font_size",16); message.add_theme_color_override("font_color",Color("9ce5d1")); message.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
-	ui.add_child(crosshair); crosshair.size=Vector2(24,24); crosshair.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	ui.add_child(crosshair); crosshair.size=Vector2(32,32); crosshair.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(dock_prompt); dock_prompt.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; dock_prompt.add_theme_font_size_override("font_size",17); dock_prompt.modulate=Color("b6ecd7"); dock_prompt.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	# Outlined: the prompt at a gate sits over the aperture's glow.
+	dock_prompt.add_theme_constant_override("outline_size",6); dock_prompt.add_theme_color_override("font_outline_color",Color(0.01,0.05,0.08,0.85))
 	ui.add_child(dock_caption); dock_caption.add_theme_font_size_override("font_size",22); dock_caption.modulate=Color("8bd6ee"); dock_caption.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(marker_layer); marker_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); marker_layer.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	for i in 96:
 		var marker := ContactMarker.new(); marker_layer.add_child(marker); markers.append(marker)
 	ui.add_child(overlay); overlay.add_theme_stylebox_override("panel",box_style())
-	ui.add_child(touch);touch.action.connect(touch_action)
+	ui.add_child(touch);touch.action.connect(touch_action);touch.throttle_changed.connect(touch_throttle)
+	# The compact HUD is laid out against the controls' own arrangement.
+	touch.resized.connect(func(): layout.call_deferred())
 	add_child(touch_scroll)
 	add_child(save_files)
 	save_files.chosen.connect(import_transfer)
@@ -262,7 +273,7 @@ func _ready() -> void:
 	vibration=bool(config.get_value("input","vibration",true))
 	strafe_mode=setting_index(config,"input","strafe",0,2)
 	world.smooth_steering=bool(config.get_value("input","smooth_steering",false))
-	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input","touch_layout",""))
+	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
 	motion_steering=bool(config.get_value("input","motion",false))
 	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
@@ -301,7 +312,13 @@ func layout() -> void:
 	instruments.position=Vector2.ZERO; instruments.size=ui.size
 	condition.size=Vector2(440,34); condition.position=Vector2((ui.size.x-440)*.5,ui.size.y-70)
 	bank_label.size=Vector2(minf(400,ui.size.x*0.45),50); bank_label.position=Vector2(ui.size.x-26-bank_label.size.x,ui.size.y-60)
-	if touch.enabled() and touch.cluster_top>0: bank_label.position=Vector2(ui.size.x-26-touch.gauge_reserve-bank_label.size.x,touch.cluster_top-56)
+	# Touch: gauges and the cargo, credits and station line in the top left,
+	# and a short depth gauge under the pause and map buttons.
+	var compact := touch.enabled()
+	condition.compact=compact
+	instruments.compact_rect=touch.depth_rect if compact else Rect2()
+	instruments.layout()
+	if compact: condition.position=Vector2(28,22);condition.size=Vector2(330,96)
 	fit_hud()
 	if page=="destinations":
 		overlay.size=Vector2(minf(700,ui.size.x-48),minf(ui.size.y-48,column.get_combined_minimum_size().y+130));overlay.position=(ui.size-overlay.size)*.5
@@ -329,14 +346,14 @@ func layout() -> void:
 	struggle.position=Vector2(ui.size.x*.5-120,catch_status.position.y+42);struggle.size=Vector2(240,4)
 	travel_status.position=Vector2(ui.size.x*.5-240,ui.size.y-220);travel_status.size=Vector2(480,30)
 	objective_label.position=Vector2(30,103); objective_label.size=Vector2(minf(390,ui.size.x*.29),160); objective_label.add_theme_font_size_override("normal_font_size",12); objective_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	if compact: objective_label.position=Vector2(30,124)
 	hints.position=Vector2(ui.size.x*.5-350,ui.size.y-21); hints.size=Vector2(700,18);hints.add_theme_font_size_override("font_size",9)
 	if touch.enabled():
 		hints.position.y=ui.size.y-30;hints.size.y=22;hints.add_theme_font_size_override("font_size",12)
 		if touch.free_right>touch.free_left+120:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
-			condition.position.x=clampf((touch.free_left+touch.free_right-condition.size.x)*.5,touch.free_left,maxf(touch.free_left,touch.free_right-condition.size.x))
 	update_render_resolution()
-	crosshair.position=(ui.size*0.5-Vector2(12,12)).floor()
+	crosshair.position=(ui.size*0.5-crosshair.size*.5).floor()
 	dock_prompt.position=Vector2(ui.size.x*.5-250,ui.size.y*.5+48);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
 func place_message() -> void:
@@ -623,23 +640,33 @@ func _process(delta: float) -> void:
 		dock_caption.visible=session.docked and page!="dialogue"
 		dock_caption.text=session.stations[session.station_id].name.to_upper()+" STATION\nBERTH SECURED  /  EXTERIOR VIEW"
 		dock_prompt.visible=page.is_empty() and not session.docked and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000)
-		dock_prompt.text=("[ %s ]  Dock at %s"%[OS.get_keycode_string(key_bindings.dock),session.stations[session.station_id].name]) if r.station.can_dock(r.player.pose.origin) else "[ %s ]  Dock · approach within 150 m"%OS.get_keycode_string(key_bindings.dock)
+		dock_prompt.text=("[ %s ]  Dock at %s"%[control_name("dock"),session.stations[session.station_id].name]) if r.station.can_dock(r.player.pose.origin) else "[ %s ]  Dock · approach within 150 m"%control_name("dock")
 		if r.success!=null or r.failure!=null:
-			dock_prompt.text="Docking locked · encounter active  [ %s ] Mission waypoint"%OS.get_keycode_string(key_bindings.autopilot)
+			dock_prompt.text="Docking locked · encounter active  [ %s ] Mission waypoint"%control_name("autopilot")
+		elif world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation):
+			dock_prompt.visible=page.is_empty() and not session.docked and not r.cinematic()
+			dock_prompt.text="[ %s ]  Enter the S.T.R.E.A.M."%control_name("dock")
 		instruments.update(r,OS.get_keycode_string(key_bindings.boost))
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
 		hazard_warning.update(r,flight_visible and page.is_empty(),not modern_graphics)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
-		classic_frame.visible=flight_visible;classic_frame.update(r.player,session.ship,world.speed)
+		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed)
 		instruments.visible=flight_visible
 		instruments.modulate.a=1;condition.modulate.a=1;bank_label.modulate.a=1
 		dashboard.visible=false
-		hud.visible=flight_visible;hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
+		hud.visible=flight_visible and not touch.enabled();hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
 		hints.text="LMB guns · RMB hook · %s fire · %s destination · %s chart"%[OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map)]
-		if touch.enabled():hints.text=("Drag anywhere to look" if touch.drag_anywhere else ("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look")+(" · FULL for fullscreen" if touch.show_fullscreen else "")
+		if touch.enabled():hints.text="Drag anywhere to look" if touch.drag_anywhere else ("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look"
 		elif controller.device>=0:hints.text=("Left stick strafe · right stick turn" if strafe_enabled() else "Left stick steer")+" · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu"
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
-		bank_label.visible=flight_visible
+		bank_label.visible=flight_visible and not touch.enabled()
+		if touch.enabled():
+			condition.info="%d/%dt     Cr %d     %s"%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name]
+			# The dock button is there while docking, or a manual gate entry, is.
+			var dockable: bool=r.station.can_dock(r.player.pose.origin) or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
+			var banks: Array=r.loadout.groups.filter(func(group):return not group.is_empty())
+			touch.show_state(r.player.throttle_target/100.0,flight_visible and page.is_empty() and dockable,instruments.boost_state(r.player),world.autopilot,world.speed,
+				banks.any(func(group):return group[0].fishing),banks.any(func(group):return not group[0].fishing))
 		if r.loadout.selected>=0:
 			var bank: Array = r.loadout.groups[r.loadout.selected]
 			bank_label.text=("FISHING BANK · Harpoon" if bank[0].fishing else "COMBAT BANK · %d weapon%s"%[bank.size(),"" if bank.size()==1 else "s"])
@@ -649,9 +676,10 @@ func _process(delta: float) -> void:
 		hud.text="%d cr · %s"%[session.credits,session.stations[session.station_id].name]
 		if hud.text!=previous_hud_text: previous_hud_text=hud.text; fit_hud()
 		var objective=current_objective()
-		objective_label.text=objective_hud(objective)
-		if r.cinematic(): objective_label.text=session.title(objective)+"\nFinal sequence · Esc pauses"
-		if auto_fire: objective_label.text+="\nAUTO FIRE · "+OS.get_keycode_string(key_bindings.auto_fire)+" to stop"
+		var objective_text: String=objective_hud(objective)
+		if r.cinematic(): objective_text=session.title(objective)+"\nFinal sequence · Esc pauses"
+		if auto_fire: objective_text+="\nAUTO FIRE · "+OS.get_keycode_string(key_bindings.auto_fire)+" to stop"
+		show_objective(objective_text,objective if not r.cinematic() else null)
 		# The way out of a gate is a camera shot, not the chase view: its centre
 		# is not where the guns point, so the reticle waits for the hand-back.
 		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
@@ -773,6 +801,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.physical_keycode==key_bindings[action]: perform(action)
 	if event is InputEventJoypadButton and event.pressed and page.is_empty():
 		if controller.ACTIONS.has(event.button_index):perform(controller.ACTIONS[event.button_index])
+func touch_throttle(percent: int) -> void:
+	if not page.is_empty() or world.region==null or session.docked: return
+	if world.autopilot: world.cancel_autopilot()
+	world.region.player.set_throttle(percent)
 func touch_action(action: String) -> void:
 	if action=="menu":show_pause()
 	elif action=="full":toggle_fullscreen()
@@ -886,6 +918,15 @@ func perform(action: String) -> void:
 		"lights":
 			if modern_graphics:graphics.headlights=not graphics.headlights;abyss.set_headlights(graphics.headlights);save_settings()
 			else:notice("Headlights are available in New graphics mode.")
+func control_name(action: String) -> String:
+	"""What the player presses for action with the controls in use: the touch
+	button's caption, the pad button or the bound key."""
+	if touch.enabled():return touch.LABELS.get(action,action.to_upper())
+	if controller.device>=0:
+		for button in controller.ACTIONS:
+			if controller.ACTIONS[button]==action:return PAD_NAMES.get(button,"Pad %d"%button)
+	return OS.get_keycode_string(key_bindings[action])
+const PAD_NAMES := {JOY_BUTTON_X:"X",JOY_BUTTON_Y:"Y",JOY_BUTTON_LEFT_SHOULDER:"LB",JOY_BUTTON_RIGHT_SHOULDER:"RB",JOY_BUTTON_BACK:"View",JOY_BUTTON_DPAD_LEFT:"D-pad left",JOY_BUTTON_DPAD_RIGHT:"D-pad right"}
 func finish_docking() -> void:
 	clear_notices()
 	show_station()
@@ -893,6 +934,11 @@ func finish_docking() -> void:
 func show_pause() -> void:
 	open_page("Dive paused","pause")
 	button("Resume",close_page)
+	if touch.enabled():
+		# The touch overlay keeps only what a dive needs to hand; the view and
+		# fullscreen switches live here.
+		option("Camera · "+view.CAMERA_NAMES[view.camera_mode],"camera",func():perform("camera");show_pause())
+		if touch.show_fullscreen: button("Fullscreen / windowed",toggle_fullscreen)
 	button("Overworld map",show_map)
 	button("Mission journal",show_journal)
 	button("Ship and cargo",show_ship_status)
@@ -1008,10 +1054,47 @@ func show_profile(medal_view: bool=false) -> void:
 		for id in session.medals.levels.size():
 			var tier: int = session.medals.levels[id]
 			var card := information_card(session.text(int(content.data.constants.e["a:[[S"][id][0])))
-			var badge: Label = label(["Locked","Gold","Silver","Bronze"][tier],16,card)
+			var line := HBoxContainer.new();line.add_theme_constant_override("separation",10);card.add_child(line)
+			medal_icon(tier,line,32)
+			var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;line.add_child(words)
+			var badge: Label = label(["Locked","Gold","Silver","Bronze"][tier],16,words)
 			badge.modulate=[Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")][tier]
-			if tier>0: label(session.text(int(content.data.constants.e["a:[[S"][id][1]),str(int(content.data.constants.f["a:[[I"][id][tier-1]))),15,card)
+			if tier>0: label(medal_text(id,tier),15,words)
 	back_row(dock_back if session.docked else show_pause)
+func medal_icon(tier: int, parent: Node, height: int=32) -> TextureRect:
+	"""The original's medal sprite: medal_1 to medal_3 for gold, silver and
+	bronze (n, y), and for one not yet won the empty frame of the station's
+	holder, medal_5 at a colonist station and medal_7 at a rebel one."""
+	var sprite: int=tier if tier>0 else (5 if session.is_colonist_station() else 7)
+	var icon := TextureRect.new();icon.texture=imported_art.image("medal_%d"%sprite)
+	icon.custom_minimum_size=Vector2(roundi(height*13.0/16.0),height);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.size_flags_vertical=Control.SIZE_SHRINK_CENTER;parent.add_child(icon)
+	return icon
+func medal_text(id: int, tier: int) -> String:
+	"""The medal's description with the figure its tier asks for (y.a)."""
+	return session.text(int(content.data.constants.e["a:[[S"][id][1]),str(int(content.data.constants.f["a:[[I"][id][tier-1])))
+func show_new_medal(queue: Array, index: int) -> void:
+	"""ch.e/y: on docking, every medal won or bettered since the last dock is
+	shown in turn under "New Medal!" (text 163): its sprite, name and what it
+	was given for."""
+	if index>=queue.size():show_station();return
+	var entry: Dictionary=queue[index]
+	var id: int=int(entry.id);var tier: int=int(entry.tier)
+	open_page(session.text(163),"medal")
+	page_back=func():show_new_medal(queue,index+1)
+	dive_audio.cue("message")
+	var row := HBoxContainer.new();row.add_theme_constant_override("separation",16);column.add_child(row)
+	medal_icon(tier,row,64)
+	var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(words)
+	label(session.text(int(content.data.constants.e["a:[[S"][id][0])),22,words).modulate=Color("eef6ff")
+	var badge: Label=label(["","Gold","Silver","Bronze"][clampi(tier,0,3)],16,words)
+	badge.modulate=[Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")][clampi(tier,0,3)]
+	if tier>0:label(medal_text(id,tier),16)
+	if queue.size()>1:label("%d / %d"%[index+1,queue.size()],12).modulate=Color("7f96ad")
+	var ok := button("OK",func():show_new_medal(queue,index+1))
+	ok.custom_minimum_size.y=56 if touch.enabled() else 44
+	focus_if_visible.call_deferred(ok)
 func section_row(text: String, key: String, act: Callable) -> Button:
 	"""A row that opens another page, carrying the key that page hands focus back
 	to. `option` cannot serve here: that one is for rows that rebuild their own."""
@@ -1242,7 +1325,7 @@ func save_settings() -> void:
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
 	config.set_value("input","motion_invert",invert_motion_pitch)
-	config.set_value("input","touch_layout",preload("res://native/input/touch_layout.gd").encode(touch.layout))
+	config.set_value("input",TOUCH_LAYOUT_KEY,preload("res://native/input/touch_layout.gd").encode(touch.layout))
 	config.set_value("view","aspect_ratio",aspect_ratio)
 	config.set_value("interface","hints",gameplay_hints)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
@@ -1326,10 +1409,17 @@ func show_station() -> void:
 	var launch:=button("DEPART >",depart);launch.custom_minimum_size.y=48;launch.modulate=Color("edc17e")
 	if not session.notices.is_empty():
 		var notices: Array=session.notices.duplicate();session.notices=[]
-		for entry in notices:
+		var medals: Array=[]
+		for index in notices.size():
+			var entry: Dictionary=notices[index]
 			session.acknowledge_notice(entry)
-			if entry.kind=="pirate_bounty":show_dialogue([{"speaker":session.text(166),"text":entry.text}],show_station);return
+			if entry.kind=="medal":medals.append(entry);continue
+			if entry.kind=="pirate_bounty":
+				# Whatever came after the bounty is shown when the station is back.
+				session.notices=medals+notices.slice(index+1)
+				show_dialogue([{"speaker":session.text(166),"text":entry.text}],show_station);return
 			if entry.kind!="cargo_settlement":notice(entry.text)
+		if not medals.is_empty():show_new_medal(medals,0);return
 	check_dock_hints()
 func show_hangar() -> void:
 	open_page("Hangar","hangar")
@@ -1600,6 +1690,7 @@ func show_map(autopilot_only: bool=false) -> void:
 		session.hints_said["map"]=true;notice(chart_hint())
 	var actions := station_chart(map_destination)
 	map_slice.selected.connect(select_station)
+	map_widget.zone_dragged.connect(func(center):follow_drag(center,-1 if map_unchosen else map_destination))
 	map_widget.zone_moved.connect(func(center,near):
 		var choice:=zone_choice(center,near,-1 if map_unchosen else map_destination)
 		if choice>=0:select_station(choice);return
@@ -1693,10 +1784,12 @@ func station_chart(selection: int) -> HFlowContainer:
 	map_info.add_theme_font_size_override("normal_font_size",14 if compact else 15); map_info.add_theme_color_override("default_color",Color("b9d4f2")); map_info.mouse_filter=Control.MOUSE_FILTER_PASS; facts.add_child(map_info)
 	map_showcase=VBoxContainer.new(); map_showcase.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_showcase.custom_minimum_size.y=90 if compact else 120; row.add_child(map_showcase)
 	var key := PanelContainer.new(); key.add_theme_stylebox_override("panel",chart_panel()); body.add_child(key)
-	var flow := map_key(key)
-	map_widget.tooltip_text="Tap the chart to move the zone, then pick a station in the side view · pinch / wheel to zoom · drag / right mouse to pan"
+	var legend := VBoxContainer.new(); legend.add_theme_constant_override("separation",2); key.add_child(legend)
+	map_key(legend)
+	map_widget.tooltip_text="Tap or drag the zone, then pick a station in the side view · hold a finger still to grab the zone · pinch / wheel to zoom · drag elsewhere / right mouse to pan"
 	if not compact:
-		var gestures := label(map_widget.tooltip_text,13,flow); gestures.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN; gestures.autowrap_mode=TextServer.AUTOWRAP_OFF; gestures.modulate=Color("7f96ad")
+		# Its own line, wrapping, so a narrow window does not widen the chart.
+		var gestures := label(map_widget.tooltip_text,13,legend); gestures.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; gestures.modulate=Color("7f96ad")
 	# A flow, so a narrow window wraps the actions onto a second row instead
 	# of pushing the whole chart off the side.
 	var actions := HFlowContainer.new(); actions.add_theme_constant_override("h_separation",10); actions.add_theme_constant_override("v_separation",8)
@@ -1762,9 +1855,10 @@ func map_marker(entry: Dictionary) -> Control:
 	node.draw.connect(func():
 		# Each mark sits on a chip of the chart's own field, so the key is read
 		# against the blue the chart is read against rather than the page's dark.
-		# Whole pixels around a centre pixel, as on the chart itself.
+		# The true middle of the chip: a floored one put every mark half a
+		# pixel up and left of centre, which shows on a 19 px chip.
 		node.draw_rect(Rect2(Vector2.ZERO,node.size),Color("2f43b4"),true)
-		var middle := (node.size*0.5).floor()
+		var middle := node.size*0.5
 		var kind: String = entry.get("kind","station")
 		if kind=="disc":
 			node.draw_circle(middle,8,Color("6e86ff4d"),true)
@@ -1780,7 +1874,7 @@ func map_marker(entry: Dictionary) -> Control:
 		elif kind=="dash":
 			node.draw_dashed_line(middle+Vector2(-13,0),middle+Vector2(13,0),Color(entry.tint),2,4)
 		elif kind=="arrow":
-			node.draw_colored_polygon(PackedVector2Array([middle+Vector2(0,-7),middle+Vector2(-3.5,4),middle+Vector2(3.5,4)]),Color("f4fafb"))
+			node.draw_colored_polygon(PackedVector2Array([middle+Vector2(0,-6),middle+Vector2(-4,5),middle+Vector2(4,5)]),Color("f4fafb"))
 		else:
 			Map.pixel_square(node,middle,11.0,3.0,Color(entry.body),Color(entry.core)))
 	return node
@@ -1799,6 +1893,10 @@ func zone_choice(center: Vector2, near: int, current: int) -> int:
 	if near in ids:return near
 	if current in ids:return current
 	return -1
+func follow_drag(center: Vector2, current: int) -> void:
+	"""While the zone is dragged the side view shows what it covers; the card
+	and the choice wait for it to be let go."""
+	map_slice.frame(center,ZONE_RADIUS,current if current in zone_stations(center) else -1)
 func zone_prompt(center: Vector2) -> Array:
 	"""The card's title and text while the zone has no station chosen."""
 	if zone_stations(center).is_empty():return ["No stations here","Move the zone over a station, or pick one from the list."]
@@ -1976,7 +2074,7 @@ func update_markers() -> void:
 			if available.is_empty(): continue
 			marker_by_contact[target.key]=available.pop_back()
 		var i: int = marker_by_contact[target.key]
-		markers[i].set_symbol(direction)
+		markers[i].set_symbol(direction);markers[i].quest=target.get("quest",false)
 		markers[i].display(target.name+" · ",RangeText.format_distance(distance),detail,target.color,float(target.hull) if on_screen else -1.0)
 		if enemy and not on_screen:markers[i].track_enemy(screen,18,true)
 		screen+=Vector2(24,12) if on_screen and enemy else Vector2(14,10) if on_screen else Vector2.ZERO
@@ -2043,6 +2141,23 @@ func objective_summary(mission) -> String:
 		if not encounter.is_empty():lines.append(encounter)
 	if objective_has_location(mission):lines.append("Hold %s to auto-navigate"%OS.get_keycode_string(key_bindings.autopilot))
 	return "\n".join(lines)
+var objective_shown := ""
+func show_objective(text: String, mission) -> void:
+	"""Fills the HUD objective, with the creature a fishing job is about drawn
+	in front of its line. Rebuilt only when it changes."""
+	var info=preload("res://native/presentation/mission_info.gd")
+	var species: int=info.target_species(mission) if mission!=null else -1
+	var key: String=text+"|%d"%species
+	if key==objective_shown:return
+	objective_shown=key;objective_label.clear()
+	var target: String=info.target(session,mission).replace("[","[lb]") if species>=0 else ""
+	var icon: Texture2D=imported_art.item(species) if species>=0 else null
+	var lines: PackedStringArray=text.split("\n")
+	for index in lines.size():
+		if index>0:objective_label.append_text("\n")
+		if icon!=null and not target.is_empty() and lines[index]==target:
+			objective_label.add_image(icon,26,20,Color.WHITE,INLINE_ALIGNMENT_CENTER);objective_label.append_text(" ")
+		objective_label.append_text(lines[index])
 func objective_hud(mission) -> String:
 	var summary: PackedStringArray=objective_summary(mission).split("\n")
 	var result: Array[String]=["[font_size=10][color=#87a8b3]CURRENT OBJECTIVE[/color][/font_size]", "[font_size=16][color=#e4ce92]"+summary[0].replace("[","[lb]")+"[/color][/font_size]"]
@@ -2128,8 +2243,12 @@ func check_hull_buzz() -> void:
 func check_stream_proximity() -> void:
 	# The chart must not reopen over the shot of the submarine leaving the far
 	# aperture: it arrives at a gate that is already open, and inside range of it.
-	if view.transit_progress>=0 or (world.autopilot and not world.gate_navigation):return
+	if view.transit_progress>=0:return
 	if not world.at_gate(world.departure_gate): stream_prompted=false; return
+	# br.a: a pilot at the open gate is told to press the dock key (text 270)
+	# and nothing opens until it is pressed. Only a ship the autopilot brought
+	# to the gate goes on to the chart by itself.
+	if not (world.autopilot and world.gate_navigation):return
 	if world.gate_time[world.departure_gate]<world.GATE_OPEN_MS: return
 	if not stream_prompted: show_stream_menu()
 
@@ -2202,6 +2321,7 @@ func show_stream_menu() -> void:
 		confirm.disabled=not denial.is_empty()
 	species.pressed.connect(func(): select.call(stream_selection))
 	map_slice.selected.connect(select)
+	map_widget.zone_dragged.connect(func(center):follow_drag(center,stream_selection))
 	map_widget.zone_moved.connect(func(center,near):select.call(zone_choice(center,near,stream_selection)))
 	options.item_selected.connect(func(at): select.call(options.get_item_id(at)))
 	select.call(stream_selection)
@@ -2352,7 +2472,8 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 	if ships:
 		label("HULL  %d  to  %d\nCARGO  %d  to  %d\nSLOTS  %d  to  %d"%[session.ship.hull,item.hull,session.ship.capacity(),item.capacity(),session.ship.slots,item.slots],14,detail).modulate=Color("a8dbcc")
 		label(item_description(item.id,"ships"),13,detail)
-		label("Your trade-in: %d cr\nBalance after exchange: %d cr"%[economy.ship_price(session.ship),session.credits+economy.ship_price(session.ship)-economy.ship_price(item)],13,detail)
+		# be: a hull once owned is worth its catalogue price divided by 1.25.
+		label("Trade-in for your %s: %d cr\nBalance after exchange: %d cr"%[content.ship_name(session.ship.id),economy.ship_price(session.ship),session.credits+economy.ship_price(session.ship)-economy.ship_price(item)],13,detail)
 		button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item));show_market(kind),detail)
 	else:
 		label(EquipmentInfo.stats(item),14,detail).modulate=Color("a8dbcc")

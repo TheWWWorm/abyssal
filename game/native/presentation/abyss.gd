@@ -218,13 +218,17 @@ func set_headlights(on: bool) -> void:
 
 var occlusion_phase := 0
 func shade_beam(lamp: SpotLight3D, beam: MeshInstance3D, index: int) -> void:
-	shade_beam_in(get_world_3d().direct_space_state,lamp,beam,occlusion_phase+index)
+	# The player's own hull stands round its lamps and must not stop them.
+	var own: Array[RID]=[]
+	if view!=null and is_instance_valid(view.player_occluder): own.append(view.player_occluder.get_rid())
+	shade_beam_in(get_world_3d().direct_space_state,lamp,beam,occlusion_phase+index,own)
 	if index==lamps.size()-1: occlusion_phase+=1
 
-static func shade_beam_in(space: PhysicsDirectSpaceState3D, lamp: SpotLight3D, beam: MeshInstance3D, phase: int) -> void:
-	"""Light does not pass through a station wall, and neither may the drawn
-	beam beyond it. The cone is sampled from the lens on a small grid of
-	directions against the station colliders, and the distance each ray gets
+static func shade_beam_in(space: PhysicsDirectSpaceState3D, lamp: SpotLight3D, beam: MeshInstance3D, phase: int, exclude: Array[RID]=[]) -> void:
+	"""Light does not pass through a station wall, a creature or another
+	vessel, and neither may the drawn beam beyond it. The cone is sampled from
+	the lens on a small grid of directions against those colliders, less the
+	lamp's own hull, and the distance each ray gets
 	is written to the beam's occlusion map; the shader darkens the water past
 	it. Half the rows are cast per call, alternating with the phase, so a
 	wall ahead is current within two calls at a hundred and some rays each."""
@@ -237,8 +241,8 @@ static func shade_beam_in(space: PhysicsDirectSpaceState3D, lamp: SpotLight3D, b
 			var u := ((column+.5)/n*2.0-1.0);var v := ((row+.5)/n*2.0-1.0)
 			if u*u+v*v>1.15: reach.set_pixel(column,row,Color(BEAM_LENGTH+10,0,0)); continue
 			var direction: Vector3=(frame.basis*Vector3(u*BEAM_HALF_TANGENT,v*BEAM_HALF_TANGENT,-1.0)).normalized()
-			var ray := PhysicsRayQueryParameters3D.create(frame.origin,frame.origin+direction*(BEAM_LENGTH+2),2)
-			ray.hit_back_faces=true;ray.hit_from_inside=true
+			var ray := PhysicsRayQueryParameters3D.create(frame.origin,frame.origin+direction*(BEAM_LENGTH+2),2|4)
+			ray.hit_back_faces=true;ray.hit_from_inside=true;ray.exclude=exclude
 			var hit := space.intersect_ray(ray)
 			reach.set_pixel(column,row,Color(BEAM_LENGTH+10 if hit.is_empty() else -(inverse*hit.position).z,0,0))
 	map.update(reach)

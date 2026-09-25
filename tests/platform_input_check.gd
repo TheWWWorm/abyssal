@@ -40,20 +40,45 @@ func run() -> void:
   touch.size=dimensions;touch.arrange()
   for name in touch.zones:expect(Rect2(Vector2.ZERO,dimensions).encloses(touch.zones[name]),"Touch target fits: "+name)
  touch.size=Vector2(1280,720);touch.arrange()
- expect(touch.zones.has("full"),"Touch row offers a fullscreen control")
- touch.show_fullscreen=false;touch.arrange()
- expect(not touch.zones.has("full"),"Browsers without a fullscreen control lose the button")
- for name in touch.zones:expect(Rect2(Vector2.ZERO,touch.size).encloses(touch.zones[name]),"Shortened row still fits: "+name)
- touch.show_fullscreen=true;touch.arrange()
+ expect(not touch.zones.has("full") and not touch.zones.has("camera"),"View and fullscreen live in the pause menu, not on the flight overlay")
+ # The dock button only answers while there is something to dock with.
+ touch.dock_ready=false
+ expect(touch.button_at(touch.zones.dock.get_center())!="dock","A hidden dock button takes no touches")
+ touch.dock_ready=true
+ expect(touch.button_at(touch.zones.dock.get_center())=="dock","The dock button answers once docking is possible")
+ touch.dock_ready=false
+ # A weapon or booster that is not fitted has no button.
+ touch.has_hook=false;touch.boost_mode="absent"
+ expect(touch.button_at(touch.zones.hook.get_center())=="" and touch.button_at(touch.zones.boost.get_center())=="","Unfitted harpoon and booster have no buttons")
+ touch.has_hook=true;touch.boost_mode="ready"
+ # The throttle is an arc round the guns: where the thumb is on it sets the level.
+ var levels: Array=[]
+ touch.throttle_changed.connect(func(percent):levels.append(percent))
+ var arc: Rect2=touch.zones.throttle
+ var radius: float=touch.arc_radius(arc)
+ expect(arc.get_center().is_equal_approx(touch.zones.guns.get_center()),"The throttle curves round the guns")
+ finger(touch,5,arc.get_center()+Vector2.from_angle(PI+.02)*radius,true)
+ drag(touch,5,arc.get_center()+Vector2.from_angle(PI*1.25)*radius,Vector2.ZERO)
+ finger(touch,5,arc.get_center()+Vector2.from_angle(PI*1.25)*radius,false)
+ expect(levels.size()>=2 and levels[0]==0 and levels[-1]==50,"The throttle arc is empty at its left end and half way at its middle")
+ expect(touch.snapshot().throttle==0,"The arc sets the level directly rather than holding a throttle key")
+ expect(touch.button_at(touch.zones.guns.get_center())=="guns","The guns inside the arc still answer")
+ var home_hook: Rect2=touch.zones.hook
+ touch.has_guns=false;touch.place_throttle()
+ expect(touch.zones.hook==touch.zones.guns and touch.button_at(touch.zones.guns.get_center())=="hook","Without guns the harpoon takes their place and size")
+ expect(touch.zones.throttle.get_center().is_equal_approx(touch.zones.hook.get_center()),"Without guns the throttle curves round the harpoon")
+ touch.has_guns=true;touch.place_throttle()
+ expect(touch.zones.hook==home_hook,"Fitting guns returns the harpoon to its own place")
+ expect(touch.zones.hook.position.x<touch.zones.guns.position.x,"Harpoon then guns under the right thumb")
  expect(Rect2(Vector2.ZERO,touch.size).encloses(touch.steer_region),"Steering surface fits the screen")
  var landing: Vector2 = touch.steer_region.get_center()
  finger(touch,0,landing,true)
  expect(touch.stick_center.is_equal_approx(touch.clamp_stick(landing)),"Stick appears where the thumb lands")
  drag(touch,0,landing+Vector2(40,-30),Vector2(40,-30))
  finger(touch,1,touch.zones.guns.get_center(),true)
- finger(touch,2,touch.zones.throttle_up.get_center(),true)
+ finger(touch,2,touch.zones.boost.get_center(),true)
  var combined:=touch.snapshot()
- expect(combined.yaw>0 and combined.pitch>0 and combined.guns and combined.throttle==1,"Three fingers steer, fire and accelerate simultaneously")
+ expect(combined.yaw>0 and combined.pitch>0 and combined.guns and combined.boost,"Three fingers steer, fire and boost simultaneously")
  finger(touch,1,touch.zones.guns.get_center(),false,true);expect(not touch.snapshot().guns and touch.snapshot().yaw>0,"Canceled finger releases only its own control")
  var free: Vector2 = Vector2(touch.size.x*.78,touch.size.y*.5)
  expect(touch.button_at(free).is_empty() and not touch.steer_region.has_point(free),"Screen centre-right is a free look surface")
@@ -70,10 +95,10 @@ func run() -> void:
  expect(not touch.engaged and touch.fingers[0]=="look","Whole-screen look includes the former analog pad")
  drag(touch,0,touch.stick_home+Vector2(50,-24),Vector2(50,-24))
  finger(touch,1,touch.zones.guns.get_center(),true)
- finger(touch,2,touch.zones.throttle_up.get_center(),true)
+ finger(touch,2,touch.zones.boost.get_center(),true)
  var full_look:=touch.snapshot()
  expect(full_look.look==looked.look and full_look.yaw==0 and full_look.pitch==0,"The same drag has the same look delta inside and outside the analog area")
- expect(full_look.guns and full_look.throttle==1,"Whole-screen look preserves simultaneous weapons and throttle")
+ expect(full_look.guns and full_look.boost,"Whole-screen look preserves simultaneous weapons and boost")
  finger(touch,0,touch.stick_home,false,true)
  expect(touch.snapshot().look==Vector2.ZERO and touch.snapshot().guns,"Canceling look keeps other fingers held without residual motion")
  touch.set_active(false);touch.drag_anywhere=false;touch.arrange();touch.set_active(true)
@@ -118,6 +143,11 @@ func run() -> void:
  var touch_config:=ConfigFile.new();touch_config.load(game.settings_path)
  expect(bool(touch_config.get_value("input","touch_drag_anywhere",false)),"Whole-screen touch look is saved")
  game.touch.drag_anywhere=false;game.save_settings()
+ # The overlay's view and fullscreen switches moved into the pause menu.
+ game.show_pause()
+ var pause_rows: Array=game.column.find_children("*","Button",true,false).map(func(button):return button.text)
+ expect(pause_rows.any(func(text):return text.begins_with("Camera · ")) and "Fullscreen / windowed" in pause_rows,"Touch pause menu offers the camera view and fullscreen")
+ game.close_page()
  # A browser with no Fullscreen API must say so rather than fail silently.
  game.fullscreen_supported=false;game.message.text="";game.notification_time=0
  var unchanged:=DisplayServer.window_get_mode()
@@ -196,7 +226,8 @@ func check_touch_placement(game) -> void:
  expect(layout.scale_of(layout.adjusted(stored,"guns",Vector2.ZERO,9.0),"guns")==layout.MAX_SCALE,"An oversized control is clamped to a size that still draws")
  # The same offsets have to mean the same composition on a different screen.
  var touch=game.touch
- touch.mode=1;touch.set_active(true)
+ # Placement is about where controls sit, so every one of them is fitted here.
+ touch.mode=1;touch.set_active(true);touch.has_guns=true;touch.has_hook=true
  touch.layout={};touch.size=Vector2(1280,720);touch.arrange()
  var anchor: Vector2=touch.control_rect("guns").get_center()
  var stick_anchor: Vector2=touch.control_rect("stick").get_center()
@@ -204,10 +235,10 @@ func check_touch_placement(game) -> void:
  touch.arrange()
  var moved: Rect2=touch.control_rect("guns")
  expect(moved.get_center().is_equal_approx(anchor+Vector2(-40,-30)*touch.unit),"A placement moves its control by the offset it stored")
- expect(is_equal_approx(moved.size.x/110.0/touch.unit,1.5),"A placement resizes its control about its own centre")
+ expect(is_equal_approx(moved.size.x/148.0/touch.unit,1.5),"A placement resizes its control about its own centre")
  expect(touch.control_rect("stick").get_center().is_equal_approx(stick_anchor+Vector2(25,0)*touch.unit),"The steering stick follows its placement too")
  expect(touch.button_at(moved.get_center())=="guns","A moved control answers touches where it now is")
- expect(touch.free_right<=touch.zones.boost.position.x,"The free HUD band is re-derived from the moved controls")
+ expect(touch.free_left>=touch.zones.boost.end.x and touch.free_right<=touch.zones.throttle.position.x,"The free HUD band is re-derived from the moved controls")
  # Editing happens over the live controls, with the panel out of the way.
  var editor=preload("res://native/presentation/touch_layout_editor.gd").new()
  game.ui.add_child(editor);editor.size=touch.size;editor.configure(touch);await process_frame

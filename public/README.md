@@ -105,18 +105,18 @@ If a build does not match, import stops with a message naming what did not fit, 
 | --- | --- | --- | --- |
 | Steer | Mouse, Up / Down pitch | Right stick, or the left stick when set to turn | Left thumb stick, or drag any free area |
 | Strafe left / right | A / D | Left stick (analog) | Left thumb stick, which turns by default |
-| Throttle | W / S | D-pad up / down | Hold + SPEED / − SPEED |
+| Throttle | W / S | D-pad up / down | Slide along the arc round GUNS |
 | Guns / harpoon | Left / right mouse | RT / LT | Hold GUNS / HOOK |
-| Selected weapon / bank | Space / Tab | A / X | GUNS or HOOK / BANK |
+| Selected weapon / bank | Space / Tab | A / X | GUNS or HOOK |
 | Boost | Shift | Left stick click (L3) | Hold BOOST |
-| Dock / STREAM gate | E | Y | DOCK |
+| Dock / STREAM gate | E | Y | DOCK (shown when in range) |
 | World map / autopilot | M / R (hold R for objective) | View (Back) / LB | MAP / ROUTE |
 | Time: 1×/2×, autopilot to 16× | T | RB | TIME |
-| Camera / lights | C / L | D-pad left / right | VIEW / Graphics menu |
+| Camera / lights | C / L | D-pad left / right | Pause menu / Graphics menu |
 | Look around the hull | Hold Alt or Ctrl, move the mouse | - | - |
-| Pause / back | Escape | Start / B | MENU / Back |
+| Pause / back | Escape | Start / B | Pause / Back |
 | Menus | Arrows / Enter | D-pad or stick / A | Tap |
-| Auto fire / fullscreen | Q / F11 | - | Hold weapon / FULL |
+| Auto fire / fullscreen | Q / F11 | - | Hold weapon / Pause menu |
 
 **Controls** in the options menu is grouped into **Steering**, **Gamepad**, **Touch controls**, **Key bindings** and a **Control reference**, so each page is short enough to walk with a D-pad; leaving a section puts the highlight back on the row that opened it. Between them they offer keyboard remapping, mouse sensitivity and inversion, tilt steering, controller deadzone and inversion, touch look sensitivity, Touch **Auto / On / Off**, touch control placement, and left/right handling as **Auto / Always strafe / Always turn**. **Gameplay tips & control hints** can also hide loading tips, one-time M.A.I. guidance and the flight control reminder; objectives and action prompts remain visible. Only the most recently used controller owns flight. The game pauses if a controller disconnects or the window loses focus. In the browser it also pauses if the page gives your pointer back, which is what pressing Escape there does.
 
@@ -136,13 +136,13 @@ On touch controls, the submarine levels while steering and the chase camera keep
 
 Lists and menus scroll by dragging anywhere inside them, not only on the narrow scroll bar. A short tap still selects the row under your finger; once the finger has clearly moved the gesture becomes a scroll and the row is not activated. The atlas keeps its own pan and pinch.
 
-On a touchscreen the stick is not fixed in place: it appears wherever your left thumb lands and returns to its resting corner when you lift off. Dragging any free area of the screen steers as the mouse does, so you can hold the stick with one thumb and aim with the other. FULL puts the game fullscreen. iPhone browsers expose no fullscreen control at all, so there the game points you to the Share menu and Add to Home Screen; launching from that icon runs it without browser bars. Where a browser does offer fullscreen, FULL uses it, and the button is dropped once the game is already running without browser chrome.
+On a touchscreen the stick is not fixed in place: it appears wherever your left thumb lands and returns to its resting corner when you lift off. Dragging any free area of the screen steers as the mouse does, so you can hold the stick with one thumb and aim with the other. The touch HUD shows hull and armour, shield, cargo, credits and station in the top left, pause and map in the top right, and a short depth gauge covering the hull's safe band. Armour is drawn in yellow while it lasts; once it is gone the same bar shows the hull in green. The throttle is an arc round the guns button: slide along it to set the speed. Buttons for a harpoon, guns or booster appear only when one is fitted, and a ship without guns has its harpoon in the guns' place. The booster button refills from the bottom while it recharges. DOCK appears, pulsing, only when there is a station or gate to dock with. The camera view and fullscreen are in the pause menu. iPhone browsers expose no fullscreen control at all, so there the game points you to the Share menu and Add to Home Screen; launching from that icon runs it without browser bars. Where a browser does offer fullscreen, the pause menu entry uses it, and it is dropped once the game is already running without browser chrome.
 
 On the world map, tap a station, drag to pan and pinch to zoom. With a mouse, right-drag and scroll. Controller users can navigate a searchable station list without pointing at the map.
 
 Touch players can select **Controls → Touch look area → Whole screen** to drag to look in the analog-stick area as well. **Touch look sensitivity** applies across the whole look surface; action buttons retain their own touch targets. Select **Outside analog area** to restore the floating stick.
 
-**Controls → Adjust touch control placement** moves and resizes the on-screen controls. Every control is named while you edit, and the selected one shows its size. Drag a control to move it, tap one to select it and resize it between 60% and 200%, and reset one control or all of them. The editor panel starts wherever it covers nothing, and you can drag the panel itself if it is still in your way. You are dragging the real controls, not stand-ins. A placement is stored as an offset from where the standard layout puts that control, so rotating the device or playing on another screen keeps the arrangement and only moves what you moved.
+**Controls → Adjust touch control placement** moves and resizes the on-screen controls. Every control is named while you edit, and the selected one shows its size. Drag a control to move it, tap one to select it and resize it between 60% and 200%, and reset one control or all of them. The editor panel starts wherever it covers nothing, and you can drag the panel itself if it is still in your way. You are dragging the real controls, not stand-ins; the throttle arc follows the guns. A placement is stored as an offset from where the standard layout puts that control, so rotating the device or playing on another screen keeps the arrangement and only moves what you moved.
 
 ## Playing
 
@@ -237,7 +237,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.3.0**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.4.0**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
