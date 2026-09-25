@@ -22,13 +22,21 @@ var safe_minimum := 0.0
 var safe_maximum := 0.0
 ## Set by the touch layout: a short gauge under its pause and map buttons.
 var compact_rect := Rect2()
+## The depth-limit barriers' own colours (world_view LIMIT_TINTS).
+const SHALLOW_TINT := Color(1.0,0.82,0.25,.75)
+const DEEP_TINT := Color(0.14,0.3,0.55,.9)
+const SHALLOW_RAIL := Color(1.0,0.82,0.25)
+const DEEP_RAIL := Color(0.3,0.62,1.0)
+## The desktop's gauges grow with the window; touch sizes its own rect.
+var text_scale := 1.0
 func gauge_rect() -> Rect2:
 	if compact_rect.size.x>0: return compact_rect
 	return Rect2(size.x-48,size.y*.24,18,size.y*.46)
 func layout() -> void:
 	var gauge := gauge_rect()
 	depth_label.position=Vector2(size.x-168,gauge.position.y-52); depth_label.size=Vector2(144,46)
-	if compact_rect.size.x>0: depth_label.position=Vector2(gauge.end.x-150,gauge.position.y-50);depth_label.size=Vector2(154,46)
+	if compact_rect.size.x>0: depth_label.position=Vector2(gauge.end.x-150*text_scale,gauge.position.y-50*text_scale);depth_label.size=Vector2(154,46)*text_scale
+	depth_label.add_theme_font_size_override("font_size",roundi(13*text_scale))
 	depth_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	depth_bar.hide()
 	boost_label.position=Vector2(size.x*.5-220,size.y-118); boost_label.size=Vector2(260,20)
@@ -52,16 +60,19 @@ func _draw() -> void:
 		var depth := span.x+(step+.5)*(span.y-span.x)/steps
 		var safe := depth>=safe_minimum and depth<=safe_maximum
 		var y := gauge.position.y+step*gauge.size.y/steps
-		draw_rect(Rect2(gauge.position.x,y,gauge.size.x,maxf(1,gauge.size.y/steps-2)),Color("59c9dc") if safe else Color("8c3a3acc"))
+		# Past a limit the gauge takes that limit barrier's colour: the gold of
+		# the shallow panel above, the deep blue of the one below.
+		var tint: Color=Color("59c9dc") if safe else (SHALLOW_TINT if depth<safe_minimum else DEEP_TINT)
+		draw_rect(Rect2(gauge.position.x,y,gauge.size.x,maxf(1,gauge.size.y/steps-2)),tint)
 	# The rail beside the gauge, red past the limits.
 	var rail_x := gauge.end.x+5
 	draw_line(Vector2(rail_x,gauge.position.y),Vector2(rail_x,gauge.end.y),Color("6093a3"),2)
 	for limit in [safe_minimum,safe_maximum]:
 		var y := depth_y(limit,gauge,span)
-		draw_line(Vector2(rail_x,gauge.position.y if limit==safe_minimum else y),Vector2(rail_x,y if limit==safe_minimum else gauge.end.y),Color("e0524a"),2)
+		draw_line(Vector2(rail_x,gauge.position.y if limit==safe_minimum else y),Vector2(rail_x,y if limit==safe_minimum else gauge.end.y),SHALLOW_RAIL if limit==safe_minimum else DEEP_RAIL,2)
 		draw_line(Vector2(gauge.position.x-(8 if compact else 14),y),Vector2(gauge.position.x-2,y),Color("72dae8"),1)
 		var caption := str(int(limit)) if compact else ("MIN " if limit==safe_minimum else "MAX ")+str(int(limit))
-		draw_string(ThemeDB.fallback_font,Vector2(gauge.position.x-(96 if compact else 102),y+(4 if compact else (-6 if limit==safe_minimum else 16))),caption,HORIZONTAL_ALIGNMENT_RIGHT,82,13 if compact else 12,Color("91d5df"))
+		draw_string(ThemeDB.fallback_font,Vector2(gauge.position.x-(96*text_scale if compact else 102),y+(4*text_scale if compact else (-6 if limit==safe_minimum else 16))),caption,HORIZONTAL_ALIGNMENT_RIGHT,82*text_scale,roundi(13*text_scale) if compact else 12,Color("91d5df"))
 	var cursor_y := depth_y(current_depth,gauge,span)
 	var color := Color("f0b665") if warning else Color("d0faff")
 	draw_colored_polygon(PackedVector2Array([Vector2(rail_x+3,cursor_y),Vector2(rail_x+13,cursor_y-7),Vector2(rail_x+13,cursor_y+7)]),color)

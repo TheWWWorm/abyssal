@@ -21,3 +21,29 @@ static func stats(item) -> String:
 		9: return "Boost %.1f× · Duration %.1f s · Recharge %.1f s"%[float(p[0])/2.0,float(p[1])/1000.0,float(p[2])/1000.0]
 		10: return "Automatic hull repair"
 	return ""
+static func kind_name(item) -> String:
+	"""What sort of system it is, as the shop's detail names it."""
+	match item.kind:
+		0,1: return stats(item).get_slice(" · ",0)
+		2: return "Harpoon"
+		3: return "Shield"
+		4: return "Armor"
+		5: return "Cargo module"
+		6: return "Engine"
+		7: return "Steering"
+		8: return "Radar"
+		9: return "Booster"
+		10: return "Repair system"
+	return ""
+static func figures(item) -> Array:
+	"""The stats line as [name, value] pairs for a table, without the kind."""
+	var result: Array=[]
+	for part in stats(item).split(" · "):
+		if item.kind in [0,1,2] and part==kind_name(item): continue
+		if part.contains(": "):
+			result.append([part.get_slice(": ",0),part.get_slice(": ",1)]);continue
+		var cut := -1
+		for i in range(1,part.length()):
+			if part[i-1]==" " and part[i] in "0123456789+-": cut=i;break
+		result.append([part.substr(0,cut).strip_edges(),part.substr(cut)] if cut>0 else [part,""])
+	return result

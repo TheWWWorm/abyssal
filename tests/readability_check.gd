@@ -158,7 +158,8 @@ func run():
  var holding: Dictionary=app.session.stations[app.session.station_id]
  while app.economy.market(holding).is_empty(): holding.cargo=app.economy.generate_goods(holding)
  app.show_ship_status();await settle()
- expect(app.column.find_children("*","Label",true,false).any(func(item):return item.text.contains("Equipment") and item.text.contains("slots") and item.text.contains("Cargo")),"Ship and Cargo page shows equipment slots alongside cargo capacity")
+ var ship_labels: Array=app.column.find_children("*","Label",true,false).map(func(item):return item.text)
+ expect(ship_labels.has("Equipment slots") and ship_labels.has("Cargo capacity"),"Ship and Cargo page shows equipment slots alongside cargo capacity")
  app.show_market("equipment");await settle()
  var tabs=app.column.find_child("EquipmentTabs",true,false)
  expect(tabs!=null and tabs.get_child_count()==2,"Equipment store offers Shop and Ship equipment tabs")
@@ -202,11 +203,11 @@ func run():
  var rows: Array=app.economy.market(station);rows.sort_custom(func(a,b):return a.id<b.id)
  var credits: int=app.session.credits;var cargo: int=app.session.ship.cargo_used;var price: int=rows[0].price
  var detail=app.column.find_child("SelectedItem",true,false)
- var actions=detail.get_children().filter(func(node):return node is Button)
+ var actions=detail.get_node("Actions").get_children().filter(func(node):return node is Button)
  expect(not actions[0].disabled,"Affordable cargo can be bought")
  actions[0].pressed.emit();await settle()
  expect(app.session.credits==credits-price and app.session.ship.cargo_used==cargo+1,"Buy button updates wallet and hold")
- detail=app.column.find_child("SelectedItem",true,false);actions=detail.get_children().filter(func(node):return node is Button)
+ detail=app.column.find_child("SelectedItem",true,false);actions=detail.get_node("Actions").get_children().filter(func(node):return node is Button)
  expect(not actions[1].disabled,"Owned cargo can be sold")
  actions[1].pressed.emit();await settle()
  expect(app.session.credits==credits and app.session.ship.cargo_used==cargo,"Sell button updates wallet and hold")
@@ -214,7 +215,7 @@ func run():
  var recipe=recipes[0];var ingredients: Array=[]
  for index in recipe.ingredients.size():ingredients.append(app.session.make_goods(recipe.ingredients[index],recipe.ingredient_counts[index]))
  app.session.ship.set_cargo(ingredients);app.show_market("manufacture");await settle()
- detail=app.column.find_child("SelectedItem",true,false);actions=detail.get_children().filter(func(node):return node is Button)
+ detail=app.column.find_child("SelectedItem",true,false);actions=detail.get_node("Actions").get_children().filter(func(node):return node is Button)
  expect(not actions[0].disabled,"Craft button enables when materials are present")
  actions[0].pressed.emit();await settle()
  expect(app.session.ship.cargo.any(func(item):return item.id==recipe.id and item.owned==1),"Craft button creates the selected recipe")

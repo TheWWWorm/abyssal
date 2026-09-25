@@ -90,10 +90,13 @@ func route_denial(id: int) -> String:
 	if id!=session.station_id:
 		if tutorial_travel_locked():return session.text(291)
 		if region.success!=null or region.failure!=null:return "Finish the active encounter before leaving this area."
-		var target: Dictionary = session.stations[id]
-		if target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth:
-			return "Destination exceeds this ship’s safe depth. Upgrade pressure protection."
 	return ""
+func outside_safety(id: int) -> bool:
+	"""A destination deeper or shallower than the hull's limits. The original
+	still goes there, at the pilot's risk, after warning (255) and asking (247)."""
+	if id<0 or id>=session.stations.size() or id==session.station_id:return false
+	var target: Dictionary=session.stations[id]
+	return target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth
 func route_to(id: int) -> bool:
 	if session.docked:return false
 	message=route_denial(id)
@@ -341,6 +344,15 @@ func build_docked_view() -> void:
 	var state: int = session.rng.state
 	region=Region.new(); region.configure(session); attach_geography(); revision+=1
 	session.rng.state=state
+	# Wildlife is set down heading anywhere, and at a berth or behind the menu
+	# it is looked at from close by: a whale hanging head down past the window
+	# reads as a dead or upside-down one. Their headings are brought near the
+	# level here; the flight's own draws are untouched.
+	for creature in region.creatures:
+		if creature.stationary: continue
+		var heading: Array=creature.pose.forward.duplicate()
+		heading[1]=int(heading[1]*.25)
+		creature.pose.face(heading);creature.secondary_pose=creature.pose.copy_pose()
 	ambient_rng=preload("res://native/simulation/java_random.gd").new()
 	ambient_rng.seed_from(session.station_id*7919+session.elapsed_ms)
 	accumulator=0
@@ -378,14 +390,12 @@ func stream_denial(id: int) -> String:
 	if session.docked and session.depart_denial()>=0: return session.text(session.depart_denial())
 	if not session.docked and region!=null and (region.success!=null or region.failure!=null): return "Complete the encounter before using S.T.R.E.A.M."
 	if stream_distance(id)>=stream_range(): return "Beyond S.T.R.E.A.M. reach. Fit a longer-range engine or use continuous autopilot."
-	var target: Dictionary = session.stations[id]
-	if target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth: return "Destination exceeds this ship’s safe depth. Upgrade pressure protection."
 	return ""
 func plan_stream(id: int) -> bool:
 	message=stream_denial(id)
 	if not message.is_empty() or session.docked or region==null: return false
 	departure_gate=nearest_safe_gate()
-	if departure_gate<0: message="No S.T.R.E.A.M. gate within safe depth.";return false
+	if departure_gate<0: message="No S.T.R.E.A.M. gate in this area.";return false
 	fly_to_gate(departure_gate); stream_destination=id; update_approach()
 	message="Approach the S.T.R.E.A.M. gate for "+session.stations[id].name
 	return true
@@ -393,12 +403,11 @@ func fly_to_gate(index: int) -> void:
 	departure_gate=region.gate_index(index)
 	fly_to(region.gates[departure_gate]);gate_navigation=true
 func nearest_safe_gate() -> int:
-	"""The gate a departure uses, when it lies in water the hull can take.
-	Only the first slot sends ships out: a shared portal is that slot, and a
-	separate second portal is where arrivals come in."""
+	"""The gate a departure uses. Only the first slot sends ships out: a shared
+	portal is that slot, and a separate second portal is where arrivals come
+	in. Its depth is the pilot's risk, as every destination's is."""
 	if region==null or region.gates.is_empty():return -1
-	var depth: int=session.stations[session.station_id].depth+(int(region.gates[0][1])>>3)
-	return -1 if depth<session.ship.minimum_depth or depth>session.ship.maximum_depth else 0
+	return 0
 func reset_gates() -> void:
 	previous_render_poses.clear(); mouse_pending=Vector2.ZERO
 	# A docked departure creates a fresh, level player while simulation time is

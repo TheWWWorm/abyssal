@@ -23,7 +23,6 @@ var sky_environment: Environment
 var built := false
 var wanted_volumetric := true
 var wanted_detail := true
-var elapsed_fraction := 0.0
 
 func _ready() -> void:
 	dock_environment=Environment.new()
@@ -104,11 +103,9 @@ func set_audio_enabled(value: bool) -> void:
 func _process(delta: float) -> void:
 	camera.fov=preload("res://native/presentation/display_settings.gd").framed_fov(65,get_viewport().get_visible_rect().size)
 	if not built or world.region==null:return
-	# The station's own clocks: the hangar doors, the rotor and the caps run
-	# as they do in the dive; nothing else here is simulated.
-	elapsed_fraction+=delta*1000.0
-	var milliseconds := int(elapsed_fraction);elapsed_fraction-=milliseconds
-	world.region.elapsed_ms+=milliseconds
+	# The station's clocks (hangar doors, rotor, caps) and the wildlife and
+	# station traffic outside run as they do beyond a berth's windows.
+	world.advance_docked(delta)
 
 func _exit_tree() -> void:
 	# The region's actors, weapons and hooks refer to one another; cut those

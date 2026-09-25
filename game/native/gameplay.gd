@@ -12,6 +12,8 @@ const DepthSlice = preload("res://native/presentation/depth_slice.gd")
 const ZONE_RADIUS := 100.0/12.0
 const Scanner = preload("res://native/presentation/scanner.gd")
 const ContactMarker = preload("res://native/presentation/contact_marker.gd")
+const StationTheme = preload("res://native/presentation/station_theme.gd")
+const StationIcon = preload("res://native/presentation/station_icon.gd")
 const RangeText = preload("res://native/presentation/range_text.gd")
 const Spacing = preload("res://native/simulation/world_spacing.gd")
 const Region = preload("res://native/simulation/region.gd")
@@ -116,6 +118,15 @@ const MAX_CONTACT_LABELS := 6
 var page := ""
 ## The way back from the open page, taken by the header's BACK, Esc and B.
 var page_back := Callable()
+## Figures shown beside a page's title: credits, the current ship.
+var header_chips: HBoxContainer
+## Where the equipment shop puts its ship line: beside the tabs when wide.
+var ship_strip: Node
+## Docked pages drawn at the station's larger title size.
+const STATION_PAGES := ["station","hangar","station_missions","station_status","system","market","ship_status","profile"]
+const PAGE_SUBTITLES := {"hangar":"Equipment, ships and manufacture","station_missions":"Objectives, journal and contracts",
+	"station_status":"Your ship, pilot profile and medals","system":"Save, controls and settings","ship_status":"Vessel, cargo and systems",
+	"profile":"Pilot record","journal":"Current objectives"}
 var lines: Array = []
 var line_index := 0
 var dialogue_cue := "message"
@@ -225,8 +236,7 @@ func _ready() -> void:
 	var fill := StyleBoxFlat.new();fill.bg_color=Color("8fddc4");struggle.add_theme_stylebox_override("fill",fill)
 	message.z_index=50;message.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
 	message.add_theme_color_override("font_shadow_color",Color.BLACK);message.add_theme_constant_override("shadow_offset_y",2)
-	var toast := StyleBoxFlat.new()
-	toast.bg_color=Color("04131de8");toast.border_color=Color("3d8fa3");toast.set_border_width_all(1);toast.set_corner_radius_all(2)
+	var toast := StationTheme.frame(Color(.016,.07,.1,.9),Color("3f9fbf"),8,1,Color(.25,.8,1.0,.18),6)
 	toast.content_margin_left=16;toast.content_margin_right=16;toast.content_margin_top=7;toast.content_margin_bottom=8
 	message.add_theme_stylebox_override("normal",toast)
 	ui.add_child(message); message.add_theme_font_size_override("font_size",16); message.add_theme_color_override("font_color",Color("9ce5d1")); message.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
@@ -316,39 +326,55 @@ func layout() -> void:
 	bank_label.size=Vector2(minf(400,ui.size.x*0.45),50); bank_label.position=Vector2(ui.size.x-26-bank_label.size.x,ui.size.y-60)
 	# Touch: gauges and the cargo, credits and station line in the top left,
 	# and a short depth gauge under the pause and map buttons.
-	var compact := touch.enabled()
-	condition.compact=compact
-	instruments.compact_rect=touch.depth_rect if compact else Rect2()
+	# Desktop shares the touch layout's gauges: condition, cargo and credits in
+	# the top left and the short depth gauge down the right; thrust and boost
+	# sit on the helm strip at the foot of the screen.
+	condition.compact=true
+	var k := hud_scale()
+	instruments.compact_rect=touch.depth_rect if touch.enabled() else Rect2(Vector2(ui.size.x-64*k,110+60*k),Vector2(12*k,280*k))
+	instruments.text_scale=k
 	instruments.layout()
-	if compact: condition.position=Vector2(28,22);condition.size=Vector2(330,96)
+	condition.position=Vector2(28,22);condition.size=Vector2(330,96);condition.scale=Vector2.ONE*k
+	classic_frame.scale_factor=k
 	fit_hud()
 	if page=="destinations":
-		overlay.size=Vector2(minf(700,ui.size.x-48),minf(ui.size.y-48,column.get_combined_minimum_size().y+130));overlay.position=(ui.size-overlay.size)*.5
+		overlay.size=Vector2(minf(700,ui.size.x-48),minf(ui.size.y-48,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="pause":
-		overlay.size=Vector2(minf(430,ui.size.x-48),minf(ui.size.y-64,maxf(sheet_full_height,column.get_combined_minimum_size().y)+136));overlay.position=Vector2(64,(ui.size.y-overlay.size.y)*.5)
-	elif page in ["controls","graphics","profile","journal","ship_status","failure","hangar","station_missions","station_status","system","confirm","transfer"]:
-		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,maxf(sheet_full_height,column.get_combined_minimum_size().y)+136));overlay.position=(ui.size-overlay.size)*.5
+		overlay.size=Vector2(minf(430,ui.size.x-48),minf(ui.size.y-64,overlay.get_combined_minimum_size().y+maxf(sheet_full_height,column.get_combined_minimum_size().y)+2));overlay.position=Vector2(64,(ui.size.y-overlay.size.y)*.5)
+	elif page in ["hangar","station_missions","station_status"]:
+		overlay.size=Vector2(minf(1120,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
+	elif page in ["ship_status","profile"]:
+		overlay.size=Vector2(minf(1240,ui.size.x-48),minf(ui.size.y-48,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
+	elif page=="system":
+		overlay.size=Vector2(minf(880,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
+	elif page in ["controls","graphics","journal","failure","confirm","transfer"]:
+		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,overlay.get_combined_minimum_size().y+maxf(sheet_full_height,column.get_combined_minimum_size().y)+2));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="dialogue":
 		overlay.size=Vector2(minf(660,ui.size.x-64),minf(300,ui.size.y-100)); overlay.position=(ui.size-overlay.size)*.5
 	elif page=="station":
-		overlay.size=Vector2(minf(410,ui.size.x-48),minf(maxf(560,column.get_combined_minimum_size().y+120),ui.size.y-48));overlay.position=Vector2(24,ui.size.y-overlay.size.y-24)
+		# Down the left side, the docked station in view on the right.
+		overlay.size=Vector2(minf(520,ui.size.x-48),minf(fitted_height(),ui.size.y-48));overlay.position=Vector2(24,ui.size.y-overlay.size.y-24)
+		if ui.size.x<ui.size.y: overlay.position.y=ui.size.y-overlay.size.y-maxf(24,ui.size.y*.06)
 	elif page in ["map","stream"]:
 		overlay.size=Vector2(minf(1600,ui.size.x-48),ui.size.y-48);overlay.position=(ui.size-overlay.size)*.5
 	elif page=="transit":
 		overlay.size=Vector2(minf(760,ui.size.x-80),minf(520,ui.size.y-100));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="market" and market_category in ["equipment","ships","trade","manufacture"]:
-		overlay.size=Vector2(minf(ui.size.x-48,1160),minf(ui.size.y-48,maxf(400,column.get_combined_minimum_size().y+116)));overlay.position=(ui.size-overlay.size)*.5
+		# One frame height for every selection: sized to its rows, the panel
+		# jumped as a longer description or a shorter list was picked.
+		overlay.size=Vector2(minf(ui.size.x-48,1400 if market_category=="ships" else 1240),minf(ui.size.y-48,920.0));overlay.position=(ui.size-overlay.size)*.5
 	elif page in ["market","contracts","cargo","market_equipment","market_goods","equipment","ships","factory"]:
-		overlay.size=Vector2(minf(1000,ui.size.x-64),ui.size.y-64);overlay.position=(ui.size-overlay.size)*.5
+		overlay.size=Vector2(minf(1240 if market_category=="missions" else 1000,ui.size.x-64),ui.size.y-64);overlay.position=(ui.size-overlay.size)*.5
 	else:
 		overlay.position=Vector2(maxf(160,ui.size.x-minf(740,ui.size.x-190)-22),140);overlay.size=Vector2(minf(740,ui.size.x-190),maxf(260,ui.size.y-304))
 	place_message()
-	hazard_warning.size=Vector2(minf(640,ui.size.x-64),108);hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,146)
+	hazard_warning.size=Vector2(minf(640,ui.size.x-64),108);hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,flight_notice_top()+104)
 	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*.5+72,ui.size.y-282));catch_status.size=Vector2(480,44)
 	struggle.position=Vector2(ui.size.x*.5-120,catch_status.position.y+42);struggle.size=Vector2(240,4)
 	travel_status.position=Vector2(ui.size.x*.5-240,ui.size.y-220);travel_status.size=Vector2(480,30)
 	objective_label.position=Vector2(30,103); objective_label.size=Vector2(minf(390,ui.size.x*.29),160); objective_label.add_theme_font_size_override("normal_font_size",12); objective_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
-	if compact: objective_label.position=Vector2(30,124)
+	objective_label.position=Vector2(30,22+102*k);objective_label.scale=Vector2.ONE*k
+	bank_label.scale=Vector2.ONE*k;bank_label.position=Vector2(ui.size.x-26-bank_label.size.x*k,ui.size.y-60*k)
 	hints.position=Vector2(ui.size.x*.5-350,ui.size.y-21); hints.size=Vector2(700,18);hints.add_theme_font_size_override("font_size",9)
 	if touch.enabled():
 		hints.position.y=ui.size.y-30;hints.size.y=22;hints.add_theme_font_size_override("font_size",12)
@@ -356,8 +382,18 @@ func layout() -> void:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
 	update_render_resolution()
 	crosshair.position=(ui.size*0.5-crosshair.size*.5).floor()
-	dock_prompt.position=Vector2(ui.size.x*.5-250,ui.size.y*.5+48);dock_prompt.size=Vector2(500,40)
+	# Under the notice band, clear of the hull below the crosshair.
+	dock_prompt.position=Vector2(ui.size.x*.5-250,flight_notice_top()+54);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
+var layout_pending := false
+func request_layout() -> void:
+	if layout_pending: return
+	layout_pending=true
+	(func():layout_pending=false;if overlay.visible:layout()).call_deferred()
+func fitted_height() -> float:
+	"""The open page's height with all of its rows showing: the frame, header
+	and footer around the scroller, and the rows inside it."""
+	return overlay.get_combined_minimum_size().y+column.get_combined_minimum_size().y+2
 func place_message() -> void:
 	"""The notice sits above everything, so an open menu has to be given room
 	rather than drawn through: a confirmation landing on a menu row reads as a
@@ -380,7 +416,16 @@ func place_message() -> void:
 		if page in ["map","stream"] and below+height>ui.size.y-12: y=overlay.position.y+6
 		message.position=Vector2(clampf((overlay.position.x+overlay.size.x*.5)-width*.5,12,maxf(12,ui.size.x-width-12)),y)
 	else:
-		message.position=Vector2(middle,ui.size.y-180)
+		# In flight the lower middle is the hull itself in the chase view, so
+		# notices take the band under the target read-out at the top instead.
+		message.position=Vector2(middle,flight_notice_top())
+func hud_scale() -> float:
+	"""The desktop canvas grows with the window up to 1920 wide, so its gauges
+	grow with the height to keep the size the touch layout gives them."""
+	return 1.0 if touch.enabled() else clampf(ui.size.y/720.0,1.0,1.6)*.67
+func flight_notice_top() -> float:
+	# Touch keeps its gauges in the top left, taller than the desktop line.
+	return 132.0 if touch.enabled() else 88.0*hud_scale()
 func fit_hud() -> void:
 	var font: Font = hud.get_theme_font("font")
 	var font_size := 18
@@ -392,25 +437,45 @@ func fit_hud() -> void:
 func golden() -> bool:
 	return session!=null and session.medals.gold_set()
 func box_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new(); style.bg_color=Color("04131df5"); style.border_color=Color("409bbd"); style.set_border_width_all(1); style.set_corner_radius_all(2 if modern_graphics else 0)
-	if true:style.bg_color=Color("061923f5");style.border_color=Color("52b8d0")
-	if golden(): style.bg_color=Color("1a1408f5");style.border_color=Color("d9b45c")
-	style.content_margin_left=20; style.content_margin_right=20; style.content_margin_top=14; style.content_margin_bottom=14
-	return style
+	return StationTheme.panel(golden())
+func colours() -> Dictionary:
+	return StationTheme.palette(golden())
+var heading_fonts := {}
+func heading_font(spacing: int) -> FontVariation:
+	"""The tracked-out face of titles and captions, one per spacing."""
+	if not heading_fonts.has(spacing): heading_fonts[spacing]=StationTheme.spaced(ui.get_theme_font("font","Label"),spacing)
+	return heading_fonts[spacing]
+func caption(text: String, size: int=11, parent: Node=null, spacing: int=3) -> Label:
+	"""A small tracked-out heading in capitals."""
+	var node := label(text.to_upper(),size,parent);node.add_theme_font_override("font",heading_font(spacing))
+	node.add_theme_color_override("font_color",colours().dim);node.autowrap_mode=TextServer.AUTOWRAP_OFF
+	return node
+func glass(parent: Node, lit: bool=false, cut: int=12) -> PanelContainer:
+	var panel := PanelContainer.new();panel.add_theme_stylebox_override("panel",StationTheme.card(golden(),lit,cut))
+	panel.size_flags_horizontal=Control.SIZE_EXPAND_FILL;parent.add_child(panel);return panel
+func line_icon(icon: String, extent: float, parent: Node, tint=null) -> Control:
+	var node := StationIcon.new(icon,colours().accent if tint==null else tint,extent);parent.add_child(node);return node
+func primary(node: Button) -> Button:
+	"""The page's main action: the green of the reference's Depart and Buy."""
+	for state in ["normal","hover","pressed","focus"]: node.add_theme_stylebox_override(state,StationTheme.button_state(golden(),state,true))
+	node.add_theme_color_override("font_color",colours().go_text);node.add_theme_color_override("font_focus_color",colours().go_text);node.add_theme_color_override("font_hover_color",colours().go_text)
+	node.alignment=HORIZONTAL_ALIGNMENT_CENTER
+	return node
+func iconic(node: Button, icon: String, extent: float=26.0) -> Button:
+	"""An icon at the left of a button's caption."""
+	var mark := StationIcon.new(icon,node.get_theme_color("font_color"),extent);node.add_child(mark)
+	mark.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT);mark.offset_left=14;mark.offset_right=14+extent;mark.offset_top=-extent*.5;mark.offset_bottom=extent*.5
+	for state in ["normal","hover","pressed","focus","disabled"]:
+		var style := node.get_theme_stylebox(state) as StyleBoxFlat
+		if style!=null: style.content_margin_left=24+extent
+	return node
 func label(text: String, size: int=18, parent: Node=null) -> Label:
 	var node := Label.new(); node.text=text; node.add_theme_font_size_override("font_size",size); node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	(parent if parent!=null else column).add_child(node); return node
 func information_card(title: String) -> VBoxContainer:
-	var panel := PanelContainer.new(); column.add_child(panel)
-	var style := StyleBoxFlat.new(); style.bg_color=Color("081c2188"); style.border_color=Color("566c60")
-	if golden(): style.bg_color=Color("2a220e88");style.border_color=Color("c9a44f")
-	# A whole frame: the open top and right of the earlier accent read as a
-	# card cut off by the page's edge.
-	style.set_border_width_all(1);style.border_width_left=2
-	style.content_margin_left=12; style.content_margin_right=12; style.content_margin_top=8; style.content_margin_bottom=8
-	panel.add_theme_stylebox_override("panel",style)
+	var panel := glass(column)
 	var body := VBoxContainer.new(); body.add_theme_constant_override("separation",8); panel.add_child(body)
-	label(title,17,body); return body
+	label(title,18,body).add_theme_color_override("font_color",colours().accent); return body
 func equipment_card(item) -> VBoxContainer:
 	var card := information_card(item_name(item.id,"equipment"))
 	art_image(imported_art.item(item.id,"equipment"),card,72)
@@ -420,13 +485,11 @@ func equipment_card(item) -> VBoxContainer:
 	return card
 func button(text: String, action: Callable, parent: Node=null) -> Button:
 	var node := Button.new(); node.text=text;
-	for state in ["normal","hover","pressed","focus"]:
-		var style := StyleBoxFlat.new(); style.bg_color=Color("1c302a99" if state in ["hover","pressed"] else "06151b00"); style.border_color=Color("e5ae63" if state=="focus" else "7c8369"); style.border_width_bottom=1;style.border_width_left=2 if state=="focus" else 0; style.set_corner_radius_all(0);
-		style.set_border_width_all(1);style.bg_color=Color("174354" if state in ["focus","hover","pressed"] else "081e29");style.border_color=Color("9be9f5" if state in ["focus","hover","pressed"] else "326778")
-		# All the medals at gold turn the interface gold, as the phone game's does.
-		if golden():style.bg_color=Color("4a3a16" if state in ["focus","hover","pressed"] else "1f1a0a");style.border_color=Color("f1d27a" if state in ["focus","hover","pressed"] else "8a774d")
-		style.content_margin_left=14; style.content_margin_right=16; node.add_theme_stylebox_override(state,style)
-	node.add_theme_color_override("font_color",Color("f3e2b0" if golden() else "c5e1e8")); node.alignment=HORIZONTAL_ALIGNMENT_LEFT; node.custom_minimum_size.y=64 if touch.enabled() else 44; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL; node.add_theme_font_size_override("font_size",20 if touch.enabled() else 16); node.pressed.connect(action)
+	for state in ["normal","hover","pressed","focus","disabled"]: node.add_theme_stylebox_override(state,StationTheme.button_state(golden(),state))
+	var palette := colours()
+	node.add_theme_color_override("font_color",palette.text);node.add_theme_color_override("font_focus_color",Color.WHITE);node.add_theme_color_override("font_hover_color",Color.WHITE)
+	node.add_theme_color_override("font_disabled_color",palette.faint)
+	node.alignment=HORIZONTAL_ALIGNMENT_LEFT; node.custom_minimum_size.y=64 if touch.enabled() else 44; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL; node.add_theme_font_size_override("font_size",20 if touch.enabled() else 16); node.pressed.connect(action)
 	(parent if parent!=null else column).add_child(node)
 	return node
 func option(text: String, key: String, action: Callable, parent: Node=null) -> Button:
@@ -440,7 +503,7 @@ func confirm(title: String, question: String, accept: String, act: Callable, can
 	label(question,17)
 	button(accept,act)
 	button("Cancel",cancel)
-func open_page(title: String, id: String) -> void:
+func open_page(title: String, id: String, subtitle: String="") -> void:
 	dive_audio.set_context(id,session!=null and session.docked)
 	touch.set_active(false);controller.blocked=true
 	autopilot_pressed_at=-1
@@ -450,18 +513,34 @@ func open_page(title: String, id: String) -> void:
 	for child in overlay.get_children(): overlay.remove_child(child); child.queue_free()
 	sheet_index=0;sheet_full_height=0;sheet_pages.clear()
 	var shell := VBoxContainer.new();shell.add_theme_constant_override("separation",12);overlay.add_child(shell)
-	var header := HBoxContainer.new();shell.add_child(header)
-	var heading := label(title.to_upper(),24,header);heading.add_theme_color_override("font_color",Color("d7c399"))
-	var condensed := SystemFont.new();condensed.font_names=PackedStringArray(["Nimbus Sans Narrow","Liberation Sans Narrow"]);heading.add_theme_font_override("font",condensed)
+	var header := HBoxContainer.new();header.add_theme_constant_override("separation",12);shell.add_child(header)
+	var titles := VBoxContainer.new();titles.size_flags_horizontal=Control.SIZE_EXPAND_FILL;titles.add_theme_constant_override("separation",4);header.add_child(titles)
+	var heading := label(title.to_upper(),30 if session!=null and session.docked and id in STATION_PAGES and ui.size.x>=700 and ui.size.y>=640 else 24,titles);heading.name="Heading"
+	heading.add_theme_font_override("font",heading_font(7));heading.add_theme_color_override("font_color",colours().text);heading.autowrap_mode=TextServer.AUTOWRAP_OFF
+	heading.clip_text=true;heading.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
+	var rule := ColorRect.new();rule.color=colours().accent;rule.custom_minimum_size=Vector2(56,2);rule.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN;titles.add_child(rule)
+	if subtitle.is_empty(): subtitle=PAGE_SUBTITLES.get(id,"")
+	if not subtitle.is_empty() and ui.size.x>=700 and ui.size.y>=640: caption(subtitle,11,titles,3).name="Subtitle"
+	header_chips=HBoxContainer.new();header_chips.add_theme_constant_override("separation",10);header.add_child(header_chips)
 	if id not in ["station","dialogue","failure","transit","map","stream"]:
-		var back := button("CLOSE" if id=="destinations" else "BACK",dock_back,header)
-		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.custom_minimum_size=Vector2(90,32)
+		var back := iconic(button("CLOSE" if id=="destinations" else "BACK",dock_back,header),"back",18)
+		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.size_flags_vertical=Control.SIZE_SHRINK_BEGIN;back.custom_minimum_size=Vector2(128,48 if touch.enabled() else 40)
+		back.add_theme_font_override("font",heading_font(4))
 	var scroll := ScrollContainer.new();sheet_scroll=scroll;scroll.follow_focus=true; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
 	scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_AUTO if touch.enabled() or id in ["station","destinations","controls"] else ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	column=VBoxContainer.new(); column.size_flags_horizontal=Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",7); scroll.add_child(column)
+	# Panels sized to their rows follow the rows once text has wrapped to width.
+	column.minimum_size_changed.connect(request_layout)
 	touch_scroll.scroll=scroll;touch_scroll.gesture_control=null;touch_scroll.release()
 	sheet_bar=HBoxContainer.new();shell.add_child(sheet_bar);sheet_bar.hide()
-	var legend := label(("ESC / B  CLOSE" if id=="destinations" else "ESC / B  BACK")+"     D-PAD / ARROWS  NAVIGATE     ENTER / A  SELECT",10,shell);legend.modulate=Color("9b9579")
+	# The keys, as the reference's footer shows them; a touch screen has none.
+	var legend := HBoxContainer.new();legend.name="KeyLegend";legend.add_theme_constant_override("separation",8);shell.add_child(legend)
+	legend.visible=not touch.enabled()
+	for entry in [["ESC / B","CLOSE" if id=="destinations" else "BACK"],["D-PAD / ARROWS","NAVIGATE"],["ENTER / A","SELECT"]]:
+		var boxed := StationTheme.frame(Color(0,0,0,0),colours().edge,0);boxed.set_content_margin_all(3);boxed.content_margin_left=7;boxed.content_margin_right=7
+		var key := caption(entry[0],10,legend,1);key.add_theme_stylebox_override("normal",boxed);key.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+		var meaning := caption(entry[1],10,legend,2);meaning.add_theme_color_override("font_color",colours().faint);meaning.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+		meaning.custom_minimum_size.x=meaning.get_minimum_size().x+14
 	overlay.show(); layout();layout.call_deferred();fit_sheets.call_deferred();focus_page.call_deferred()
 	if id!="dialogue":
 		for control in [classic_frame,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
@@ -472,7 +551,8 @@ func fit_sheets() -> void:
 	await get_tree().process_frame
 	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
 	if not is_instance_valid(column) or not overlay.visible:return
-	if page in ["station","destinations","controls","map","stream"] or (page=="market" and market_category in ["equipment","ships","trade","manufacture"]):return
+	# Pages laid out as panels side by side scroll instead of splitting into sheets.
+	if page in ["station","destinations","controls","map","stream","hangar","station_missions","station_status","system","ship_status","profile","journal"] or (page=="market" and market_category in ["equipment","ships","trade","manufacture"]):return
 	for child in column.get_children():child.show()
 	await get_tree().process_frame
 	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
@@ -491,9 +571,10 @@ func fit_sheets() -> void:
 	for child in sheet_bar.get_children():sheet_bar.remove_child(child);child.queue_free()
 	sheet_bar.visible=sheet_pages.size()>1
 	if sheet_pages.size()>1:
-		button("< PREVIOUS",func():sheet_index=maxi(0,sheet_index-1);display_sheet(),sheet_bar)
-		var number:=label("",12,sheet_bar);number.name="SheetNumber";number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
-		button("NEXT >",func():sheet_index=mini(sheet_pages.size()-1,sheet_index+1);display_sheet(),sheet_bar)
+		var previous:=iconic(button("PREVIOUS",func():sheet_index=maxi(0,sheet_index-1);display_sheet(),sheet_bar),"back",16)
+		var number:=caption("",14,sheet_bar,2);number.name="SheetNumber";number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;number.add_theme_color_override("font_color",colours().text)
+		var following:=button("NEXT",func():sheet_index=mini(sheet_pages.size()-1,sheet_index+1);display_sheet(),sheet_bar);following.alignment=HORIZONTAL_ALIGNMENT_CENTER
+		for node in [previous,following]:node.add_theme_font_override("font",heading_font(3))
 	display_sheet()
 func display_sheet() -> void:
 	if sheet_pages.is_empty():return
@@ -507,7 +588,10 @@ func close_page() -> void:
 	dive_audio.set_context("",session!=null and session.docked)
 	view.gate_preview=false
 	touch_scroll.scroll=null;touch_scroll.gesture_control=null;touch_scroll.release()
-	page=""; overlay.hide();get_viewport().gui_release_focus(); binding_action=""; suppress_fire_until_release=Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_physical_key_pressed(key_bindings.fire)
+	page=""; overlay.hide();get_viewport().gui_release_focus();
+	# A notice given while the menu was up sat beside the menu; with the menu
+	# gone it belongs in the flight's own band, not over the hull.
+	place_message(); binding_action=""; suppress_fire_until_release=Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_physical_key_pressed(key_bindings.fire)
 	mouse_steer=Vector2.ZERO
 	controller.blocked=true;touch.set_active(not session.docked)
 	# A departure may open a briefing in this same frame. Never enqueue a
@@ -652,18 +736,19 @@ func _process(delta: float) -> void:
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
 		hazard_warning.update(r,flight_visible and page.is_empty(),not modern_graphics)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
-		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed)
+		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost))
 		instruments.visible=flight_visible
 		instruments.modulate.a=1;condition.modulate.a=1;bank_label.modulate.a=1
 		dashboard.visible=false
-		hud.visible=flight_visible and not touch.enabled();hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
+		hud.visible=false;hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
 		hints.text="LMB guns · RMB hook · %s fire · %s destination · %s chart"%[OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map)]
 		if touch.enabled():hints.text="Drag anywhere to look" if touch.drag_anywhere else ("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look"
 		elif controller.device>=0:hints.text=("Left stick strafe · right stick turn" if strafe_enabled() else "Left stick steer")+" · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu"
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
-		bank_label.visible=flight_visible and not touch.enabled()
+		# The fitted weapons are the player's own knowledge; the HUD keeps quiet.
+		bank_label.visible=false
+		condition.info="%d/%dt     Cr %d     %s"%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name]
 		if touch.enabled():
-			condition.info="%d/%dt     Cr %d     %s"%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name]
 			# The dock button is there while docking, or a manual gate entry, is.
 			var dockable: bool=r.station.can_dock(r.player.pose.origin) or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
 			var banks: Array=r.loadout.groups.filter(func(group):return not group.is_empty())
@@ -697,7 +782,8 @@ func _process(delta: float) -> void:
 		message.text=""
 		if not pending_notices.is_empty():message.text=pending_notices.pop_front();notification_time=7;place_message()
 	if message.text.begins_with("Time ·"):message.text="Time · %d×"%world.speed
-	message.visible=not message.text.is_empty()
+	# The freeze is a clean look at the scene; notices wait until it ends.
+	message.visible=not message.text.is_empty() and page!="freeze"
 	if simulated_capture:
 		capture_frames+=1
 		if capture_frames==15: close_page()
@@ -943,31 +1029,31 @@ func finish_docking() -> void:
 	save_game(false)
 func show_pause() -> void:
 	open_page("Dive paused","pause")
-	button("Resume",close_page)
+	iconic(button("Resume",close_page),"resume")
 	if touch.enabled():
 		# The touch overlay keeps only what a dive needs to hand; the view and
 		# fullscreen switches live here.
-		option("Camera · "+view.CAMERA_NAMES[view.camera_mode],"camera",func():perform("camera");show_pause())
-		if touch.show_fullscreen: button("Fullscreen / windowed",toggle_fullscreen)
-	button("Overworld map",show_map)
-	button("Mission journal",show_journal)
-	button("Ship and cargo",show_ship_status)
-	button("Profile and medals",show_profile)
-	var freeze := button("Action freeze",show_action_freeze)
+		iconic(option("Camera · "+view.CAMERA_NAMES[view.camera_mode],"camera",func():perform("camera");show_pause()),"camera")
+		if touch.show_fullscreen: iconic(button("Fullscreen / windowed",toggle_fullscreen),"fullscreen")
+	iconic(button("Overworld map",show_map),"map")
+	iconic(button("Mission journal",show_journal),"journal")
+	iconic(button("Ship and cargo",show_ship_status),"cargo")
+	iconic(button("Profile and medals",show_profile),"person")
+	var freeze := iconic(button("Action freeze",show_action_freeze),"freeze")
 	freeze.disabled=session.docked or world.region==null
 	freeze.tooltip_text="Hold the dive still and look around it." if not freeze.disabled else "Available while diving."
-	button("Controls",show_controls)
-	button("Graphics",show_graphics)
-	button("World",show_world_settings)
-	button("Help",show_help)
-	button("Transfer expedition",show_transfer)
-	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
+	iconic(button("Controls",show_controls),"controls")
+	iconic(button("Graphics",show_graphics),"graphics")
+	iconic(button("World",show_world_settings),"world")
+	iconic(button("Help",show_help),"help")
+	iconic(button("Transfer expedition",show_transfer),"transfer")
+	iconic(button("Reload station checkpoint",func(): confirm("Reload checkpoint",
 		"Return to your last saved station? Everything since that checkpoint is lost.",
-		"Reload checkpoint",reload_game,show_pause))
-	button("Return to main menu",func(): confirm("Main menu",
+		"Reload checkpoint",reload_game,show_pause)),"reload")
+	iconic(button("Return to main menu",func(): confirm("Main menu",
 		("Your expedition is saved at this station first." if session.docked
 			else "You are away from a station, so this dive since your last checkpoint is lost."),
-		"Return to main menu",return_to_menu,show_pause))
+		"Return to main menu",return_to_menu,show_pause)),"exit")
 func show_journal() -> void:
 	open_page("Mission journal","journal")
 	var info=preload("res://native/presentation/mission_info.gd")
@@ -1008,13 +1094,14 @@ func target_line(mission, parent: Node) -> void:
 	var line := HBoxContainer.new();line.add_theme_constant_override("separation",8);parent.add_child(line)
 	var icon := TextureRect.new();icon.texture=imported_art.item(info.target_species(mission));icon.custom_minimum_size=Vector2(34,28)
 	icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;line.add_child(icon)
-	label(text,16,line).modulate=Color("98d4c6")
+	label(text,15,line).add_theme_color_override("font_color",colours().good)
 func autonavigate_from_journal(destination: int) -> void:
 	# Validate before leaving the berth; a denied route keeps the journal open.
 	var denial: String=world.route_denial(destination)
 	if not denial.is_empty():notice(denial);return
+	if session.docked and destination==session.station_id:notice("Already docked at the destination.");return
+	if ask_outside_safety(destination,func():autonavigate_from_journal(destination),show_journal):return
 	if session.docked:
-		if destination==session.station_id:notice("Already docked at the destination.");return
 		depart()
 		if session.docked:return
 		if page=="departure":departure_destination=destination;return
@@ -1022,55 +1109,158 @@ func autonavigate_from_journal(destination: int) -> void:
 		auto_fire=false
 		if page not in ["dialogue","departure"]:close_page()
 	else:notice(world.message)
-func show_ship_status() -> void:
+## Where Back leaves the ship page for: the hub that opened it.
+var ship_status_back := Callable()
+func show_ship_status(back: Callable=Callable()) -> void:
+	ship_status_back=back
 	open_page("Ship and cargo","ship_status")
 	var ship=session.ship
-	var identity:=HBoxContainer.new();identity.name="CurrentShip";identity.add_theme_constant_override("separation",18);column.add_child(identity)
-	art_image(imported_art.item(ship.id,"ships"),identity,96)
-	label(content.ship_name(ship.id),22,identity)
-	label("Hull capacity %d · Shield %d · Armor %d\nProtection limits %d–%d · Cargo %d / %d t · Equipment %d / %d slots"%[ship.hull,ship.shield,ship.armor,ship.minimum_depth,ship.maximum_depth,ship.cargo_used,ship.capacity(),ship.equipment.filter(func(item):return item!=null).size(),ship.slots],16)
+	var palette := colours()
+	var body := split_row(column,20)
+	# The vessel: its picture, the three protections and the limits.
+	var vessel := VBoxContainer.new();vessel.add_theme_constant_override("separation",14);glass(body,false,16).add_child(vessel)
+	vessel.get_parent().size_flags_stretch_ratio=1.0
+	var identity:=HBoxContainer.new();identity.name="CurrentShip";identity.add_theme_constant_override("separation",18);vessel.add_child(identity)
+	art_image(imported_art.item(ship.id,"ships"),identity,112)
+	var naming := VBoxContainer.new();naming.size_flags_horizontal=Control.SIZE_EXPAND_FILL;naming.alignment=BoxContainer.ALIGNMENT_CENTER;identity.add_child(naming)
+	var called := label(content.ship_name(ship.id),30,naming);called.add_theme_color_override("font_color",palette.text)
+	caption("Your vessel",11,naming,4)
+	if ui.size.y>=700 and ui.size.x>=900:
+		var preview=preload("res://native/presentation/ship_preview.gd").new()
+		identity.add_child(preview);preview.configure(content,ship.id,modern_graphics,view.library)
+		preview.custom_minimum_size=Vector2(240,170)
+	var protections := HBoxContainer.new();protections.add_theme_constant_override("separation",10);vessel.add_child(protections)
+	for entry in [["hull","Hull",ship.hull],["shield","Shield",ship.shield],["armor","Armor",ship.armor]]:
+		figure_tile(entry[0],entry[1],str(entry[2]),protections)
+	var used: int=ship.equipment.filter(func(item):return item!=null).size()
+	var rows: Array=[["shield","Protection limits","%d – %d"%[ship.minimum_depth,ship.maximum_depth]],["cargo","Cargo capacity","%d / %d t"%[ship.cargo_used,ship.capacity()]],["grid","Equipment slots","%d / %d"%[used,ship.slots]]]
 	if not session.docked and world.region!=null:
 		var health=world.region.player.health
-		label("Current condition · Hull %d · Shield %d · Armor %d"%[health.hull,health.shield,health.armor],16)
-	label("CARGO MANIFEST",13).modulate=Color("8bd6ee")
-	if ship.cargo.is_empty():label("Cargo hold empty",15)
+		rows.append(["hull","Current condition","Hull %d · Shield %d · Armor %d"%[health.hull,health.shield,health.armor]])
+	figure_rows(rows,vessel)
+	# What it carries and what is fitted.
+	var holds := VBoxContainer.new();holds.size_flags_horizontal=Control.SIZE_EXPAND_FILL;holds.add_theme_constant_override("separation",14);body.add_child(holds)
+	var manifest := titled_glass("cargo","Cargo manifest",holds)
+	if ship.cargo.is_empty():
+		var empty := label("Cargo hold empty",16,manifest);empty.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;empty.add_theme_color_override("font_color",palette.dim)
 	for item in ship.cargo:
-		compact_manifest(imported_art.item(item.id),"%s · %d units"%[item_name(item.id),item.owned],"Cargo",item_description(item.id))
-	label("INSTALLED SYSTEMS",13).modulate=Color("8bd6ee")
+		compact_manifest(imported_art.item(item.id),"%s · %d units"%[item_name(item.id),item.owned],"Cargo",item_description(item.id),manifest)
+	var systems := titled_glass("system","Installed systems",holds)
+	if used==0: label("No equipment installed.",16,systems).add_theme_color_override("font_color",palette.dim)
 	for item in ship.equipment:
-		if item!=null:compact_manifest(imported_art.item(item.id,"equipment"),item_name(item.id,"equipment"),EquipmentInfo.stats(item),item_description(item.id,"equipment"))
-	back_row(dock_back if session.docked else show_pause)
-func compact_manifest(texture: Texture2D, title: String, stats: String, description: String) -> void:
-	var row:=HBoxContainer.new();row.add_theme_constant_override("separation",14);column.add_child(row);row.tooltip_text=description
-	var icon:=TextureRect.new();icon.texture=texture;icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.custom_minimum_size=Vector2(44,44);row.add_child(icon)
-	var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(words)
-	label(title,16,words);label(stats,13,words).modulate=Color("9dc9bd")
+		if item!=null:compact_manifest(imported_art.item(item.id,"equipment"),item_name(item.id,"equipment"),EquipmentInfo.stats(item),item_description(item.id,"equipment"),systems)
+	back_row(ship_status_back if ship_status_back.is_valid() else show_station_status if session.docked else show_pause)
+func split_row(parent: Node, gap: int) -> BoxContainer:
+	"""Side by side on a wide screen, one above the other on a narrow one."""
+	var row: BoxContainer=HBoxContainer.new() if ui.size.x>=900 else VBoxContainer.new()
+	row.add_theme_constant_override("separation",gap);row.size_flags_horizontal=Control.SIZE_EXPAND_FILL;parent.add_child(row);return row
+func titled_glass(icon: String, title: String, parent: Node) -> VBoxContainer:
+	var body := VBoxContainer.new();body.add_theme_constant_override("separation",8);glass(parent,false,14).add_child(body)
+	var top := HBoxContainer.new();top.add_theme_constant_override("separation",12);body.add_child(top)
+	line_icon(icon,28,top);caption(title,15,top,4).add_theme_color_override("font_color",colours().text)
+	var rule := ColorRect.new();rule.color=Color(colours().edge,.7);rule.custom_minimum_size.y=1;body.add_child(rule)
+	return body
+func figure_tile(icon: String, title: String, value: String, parent: Node) -> void:
+	var cell := HBoxContainer.new();cell.size_flags_horizontal=Control.SIZE_EXPAND_FILL;cell.add_theme_constant_override("separation",10);parent.add_child(cell)
+	line_icon(icon,34,cell)
+	var words := VBoxContainer.new();words.add_theme_constant_override("separation",0);cell.add_child(words)
+	caption(title,11,words,3)
+	var figure := label(value,24,words);figure.add_theme_color_override("font_color",colours().text);figure.autowrap_mode=TextServer.AUTOWRAP_OFF
+func figure_rows(rows: Array, parent: Node) -> GridContainer:
+	"""Name and value pairs as a two-column table, with an icon when given."""
+	var grid := GridContainer.new();grid.columns=2;grid.add_theme_constant_override("h_separation",24);grid.add_theme_constant_override("v_separation",8);parent.add_child(grid)
+	for entry in rows:
+		var name_cell := HBoxContainer.new();name_cell.add_theme_constant_override("separation",10);grid.add_child(name_cell)
+		if not str(entry[0]).is_empty(): line_icon(entry[0],22,name_cell)
+		var name_label := label(entry[1],15,name_cell);name_label.add_theme_color_override("font_color",colours().dim);name_label.autowrap_mode=TextServer.AUTOWRAP_OFF
+		var value := label(entry[2],16,grid);value.add_theme_color_override("font_color",entry[3] if entry.size()>3 else colours().text)
+	return grid
+func compact_manifest(texture: Texture2D, title: String, stats: String, description: String, parent: Node=null) -> void:
+	var row:=HBoxContainer.new();row.add_theme_constant_override("separation",14);(parent if parent!=null else column).add_child(row);row.tooltip_text=description
+	var icon:=TextureRect.new();icon.texture=texture;icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.custom_minimum_size=Vector2(52,44);icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;row.add_child(icon)
+	var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",1);row.add_child(words)
+	label(title,17,words).add_theme_color_override("font_color",colours().text);label(stats,13,words).add_theme_color_override("font_color",colours().dim)
+var medal_selection := 0
+var medal_page := 0
+const TIER_NAMES := ["Locked","Gold","Silver","Bronze"]
+const TIER_COLOURS := [Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")]
 func show_profile(medal_view: bool=false) -> void:
-	open_page("Medals" if medal_view else "Player profile","profile")
-	label(session.name+" · Rank %d"%session.counters.k,22)
-	button("View statistics" if medal_view else "View medals",func(): show_profile(not medal_view))
+	open_page("Medals" if medal_view else "Player profile","profile","Honours for your work below the surface" if medal_view else "Pilot record")
+	var palette := colours()
+	var top := HBoxContainer.new();top.add_theme_constant_override("separation",12);column.add_child(top)
+	var rank := glass(top,false,10);rank.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var rank_row := HBoxContainer.new();rank_row.add_theme_constant_override("separation",12);rank.add_child(rank_row)
+	line_icon("person",30,rank_row)
+	var pilot := label(session.name+" · Rank %d"%session.counters.k,22,rank_row);pilot.add_theme_color_override("font_color",palette.text)
+	pilot.autowrap_mode=TextServer.AUTOWRAP_OFF;pilot.clip_text=true;pilot.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
+	var owned: int = session.medals.levels.filter(func(tier): return tier>0).size()
+	if ui.size.x>=900: caption("Medals %d / 24"%owned,12,rank_row,3).size_flags_horizontal=Control.SIZE_SHRINK_END
+	var swap := iconic(button("View statistics" if medal_view else "View medals",func(): show_profile(not medal_view),top),"status" if medal_view else "medal",24)
+	swap.size_flags_horizontal=Control.SIZE_SHRINK_END;swap.custom_minimum_size.x=230 if ui.size.x>=900 else 0
 	if not medal_view:
-		var statistics := information_card("Expedition record")
-		label("Time underway: %d h %02d min · Credits: %d"%[session.elapsed_ms/3600000,(session.elapsed_ms/60000)%60,session.credits],16,statistics)
-		var stats: Array = [["Enemies defeated","f"],["Pirates defeated","o"],["Creatures caught","h"],["Fish killed","g"],["Catches released","i"],["Dead fish recovered (t)","p"],["Crates recovered","r"],["Stations discovered","m"],["Regions entered","q"],["Goods produced","n"],["Contracts completed","j"],["New equipment purchased","s"]]
-		var grid := GridContainer.new(); grid.columns=2; grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL; grid.add_theme_constant_override("h_separation",24); grid.add_theme_constant_override("v_separation",12); statistics.add_child(grid)
-		for entry in stats: label("%s: %d"%[entry[0],session.counters[entry[1]]],15,grid)
-		label("Depth record: %d–%d"%[session.counters.u,session.counters.t],16,statistics)
+		var record := titled_glass("status","Expedition record",column)
+		var tiles := GridContainer.new();tiles.columns=4 if ui.size.x>=1100 else 3 if ui.size.x>=800 else 2
+		tiles.add_theme_constant_override("h_separation",10);tiles.add_theme_constant_override("v_separation",10);record.add_child(tiles)
+		var entries: Array=[["Time underway","%d h %02d min"%[session.elapsed_ms/3600000,(session.elapsed_ms/60000)%60]],["Credits","%d"%session.credits],["Depth record","%d–%d"%[session.counters.u,session.counters.t]]]
+		for entry in [["Enemies defeated","f"],["Pirates defeated","o"],["Creatures caught","h"],["Fish killed","g"],["Catches released","i"],["Dead fish recovered (t)","p"],["Crates recovered","r"],["Stations discovered","m"],["Regions entered","q"],["Goods produced","n"],["Contracts completed","j"],["New equipment purchased","s"]]:
+			entries.append([entry[0],str(session.counters[entry[1]])])
+		for entry in entries:
+			var cell := glass(tiles,false,8)
+			var words := VBoxContainer.new();words.add_theme_constant_override("separation",2);cell.add_child(words)
+			label(entry[1],22,words).add_theme_color_override("font_color",palette.text)
+			var name_label := label(entry[0],13,words);name_label.add_theme_color_override("font_color",palette.dim)
+			# Kept as plain text for readers and tests alike.
+			name_label.set_meta("statistic","%s: %s"%entry)
 	else:
-		var owned: int = session.medals.levels.filter(func(tier): return tier>0).size()
-		label("Medals · %d / 24"%owned,22)
-		if session.medals.complete_set(): label("Complete medal collection",16)
-		if session.medals.gold_set(): label("All medals at their highest tier",16)
-		for id in session.medals.levels.size():
-			var tier: int = session.medals.levels[id]
-			var card := information_card(session.text(int(content.data.constants.e["a:[[S"][id][0])))
-			var line := HBoxContainer.new();line.add_theme_constant_override("separation",10);card.add_child(line)
-			medal_icon(tier,line,32)
-			var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;line.add_child(words)
-			var badge: Label = label(["Locked","Gold","Silver","Bronze"][tier],16,words)
-			badge.modulate=[Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")][tier]
-			if tier>0: label(medal_text(id,tier),15,words)
+		if session.medals.complete_set(): label("Complete medal collection",16).add_theme_color_override("font_color",palette.value)
+		if session.medals.gold_set(): label("All medals at their highest tier",16).add_theme_color_override("font_color",palette.value)
+		var count: int=session.medals.levels.size()
+		medal_selection=clampi(medal_selection,0,count-1)
+		var body := split_row(column,18)
+		var list := VBoxContainer.new();list.name="MedalRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",6);body.add_child(list)
+		var row_height: int=64 if touch.enabled() else 58
+		var page_size: int=clampi(int((ui.size.y-(300 if ui.size.x>=900 else 760))/(row_height+6)),3,9)
+		medal_page=clampi(medal_page,0,(count-1)/page_size)
+		for id in range(medal_page*page_size,mini(count,(medal_page+1)*page_size)):
+			var tier: int=session.medals.levels[id]
+			var cells := stock_row("Medal_%d"%id,id==medal_selection,row_height,func():medal_selection=id;focus_option="medal_%d"%id;show_profile(true),list)
+			(cells.get_parent() as Button).set_meta("option","medal_%d"%id)
+			medal_icon(tier,cells,40)
+			var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",0);words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
+			label(session.text(int(content.data.constants.e["a:[[S"][id][0])),17,words).add_theme_color_override("font_color",palette.text if tier>0 else palette.dim)
+			var badge := label(TIER_NAMES[tier],13,words);badge.add_theme_color_override("font_color",TIER_COLOURS[tier])
+			if tier==0: line_icon("lock",22,cells,palette.faint)
+		pager(medal_page,ceili(float(count)/page_size),func(to):medal_page=to;medal_selection=to*page_size;show_profile(true),list)
+		var tier: int=session.medals.levels[medal_selection]
+		var detail := VBoxContainer.new();detail.name="SelectedMedal";detail.add_theme_constant_override("separation",10)
+		var frame := glass(body,true,16);frame.size_flags_horizontal=Control.SIZE_EXPAND_FILL;frame.add_child(detail)
+		var title := caption(session.text(int(content.data.constants.e["a:[[S"][medal_selection][0])),22,detail,5);title.add_theme_color_override("font_color",palette.text)
+		label(TIER_NAMES[tier],17,detail).add_theme_color_override("font_color",TIER_COLOURS[tier])
+		var stage := CenterContainer.new();stage.custom_minimum_size.y=150 if ui.size.y>=700 else 100;detail.add_child(stage)
+		medal_icon(tier,stage,int(stage.custom_minimum_size.y)-10)
+		var rule := ColorRect.new();rule.color=Color(palette.edge,.7);rule.custom_minimum_size.y=1;detail.add_child(rule)
+		# A medal not yet won shows what its first tier asks for.
+		label(medal_text(medal_selection,tier) if tier>0 else "Bronze · "+medal_text(medal_selection,3),16,detail).add_theme_color_override("font_color",palette.text)
+		figure_rows([["","Status","Awarded" if tier>0 else "Not yet awarded",palette.value if tier>0 else palette.dim],["","Tier",TIER_NAMES[tier],TIER_COLOURS[tier]]],detail)
 	back_row(dock_back if session.docked else show_pause)
+func stock_row(id: String, selected: bool, height: int, action: Callable, parent: Node) -> HBoxContainer:
+	"""A list row that selects its entry for the detail beside the list; the
+	chosen one keeps a lit edge while focus moves on."""
+	var control := button("",action,parent)
+	control.name=id;control.custom_minimum_size=Vector2(0,height)
+	if selected:
+		var lit := StationTheme.button_state(golden(),"focus");lit.border_width_left=4
+		control.add_theme_stylebox_override("normal",lit)
+	var cells := HBoxContainer.new();control.add_child(cells);cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cells.offset_left=12;cells.offset_right=-14;cells.offset_top=5;cells.offset_bottom=-5;cells.add_theme_constant_override("separation",14);cells.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	return cells
+func pager(index: int, pages: int, turn: Callable, parent: Node) -> void:
+	if pages<=1: return
+	var bar := HBoxContainer.new();bar.add_theme_constant_override("separation",10);parent.add_child(bar)
+	var previous := iconic(button("PREVIOUS",func():turn.call(index-1),bar),"back",16);previous.disabled=index==0
+	var number := caption("%02d / %02d"%[index+1,pages],14,bar,2);number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;number.add_theme_color_override("font_color",colours().text)
+	var following := button("NEXT",func():turn.call(index+1),bar);following.disabled=index+1>=pages;following.alignment=HORIZONTAL_ALIGNMENT_CENTER
+	for node in [previous,following]: node.add_theme_font_override("font",heading_font(3))
 func medal_icon(tier: int, parent: Node, height: int=32) -> TextureRect:
 	"""The original's medal sprite: medal_1 to medal_3 for gold, silver and
 	bronze (n, y), and for one not yet won the empty frame of the station's
@@ -1394,32 +1584,68 @@ func show_graphics() -> void:
 	back_row(show_system if session.docked else show_pause)
 func station_identity(parent: Node) -> void:
 	var station: Dictionary=session.stations[session.station_id]
-	var identity:=HBoxContainer.new();identity.name="StationIdentity";identity.add_theme_constant_override("separation",12);parent.add_child(identity)
+	var identity:=HBoxContainer.new();identity.name="StationIdentity";identity.add_theme_constant_override("separation",16);parent.add_child(identity)
 	# The gold logo for the gold collection, the faction's otherwise (ch).
-	art_image(imported_art.image("logo_2" if golden() else "logo_0" if session.is_colonist_station() else "logo_1"),identity,52)
-	var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;identity.add_child(words)
-	label("Colonists" if session.is_colonist_station() else "Rebels",17,words).modulate=Color("a8dbcc")
-	label("Tech level %d  ·  %d cr"%[station.tech,session.credits],14,words)
+	var emblem := art_image(imported_art.image("logo_2" if golden() else "logo_0" if session.is_colonist_station() else "logo_1"),identity,56)
+	if emblem!=null: emblem.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+	var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",2);words.alignment=BoxContainer.ALIGNMENT_CENTER;identity.add_child(words)
+	# Unwrapped: a wrapping label measured before the panel has its width
+	# reports a column of single words, and the dock panel is sized from it.
+	var faction := label("Colonists" if session.is_colonist_station() else "Rebels",20,words);faction.add_theme_color_override("font_color",colours().text);faction.autowrap_mode=TextServer.AUTOWRAP_OFF
+	var standing := label("Tech level %d  ·  %d cr"%[station.tech,session.credits],15,words);standing.add_theme_color_override("font_color",colours().dim);standing.autowrap_mode=TextServer.AUTOWRAP_OFF
+func tile(text: String, icon: String, action: Callable, parent: Node) -> Button:
+	"""A station service: its icon over its name."""
+	var node := button(text,action,parent)
+	node.alignment=HORIZONTAL_ALIGNMENT_CENTER;node.custom_minimum_size=Vector2(0,112 if touch.enabled() else 104)
+	node.add_theme_font_override("font",heading_font(4));node.add_theme_font_size_override("font_size",16)
+	for state in ["normal","hover","pressed","focus","disabled"]:
+		var style := node.get_theme_stylebox(state) as StyleBoxFlat
+		style.content_margin_top=60;style.content_margin_bottom=8;style.content_margin_left=6;style.content_margin_right=6
+	var mark := StationIcon.new(icon,colours().accent,44);node.add_child(mark)
+	mark.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP);mark.offset_left=-22;mark.offset_right=22;mark.offset_top=12;mark.offset_bottom=56
+	node.accessibility_name=text
+	return node
+func service_card(title: String, text: String, icon: String, art: Texture2D, action: Callable, parent: Node) -> Button:
+	"""A hub entry: icon, name and what is behind it, with the station's own
+	picture of that thing where the game has one."""
+	var node := button("",action,parent)
+	node.custom_minimum_size=Vector2(0,140 if ui.size.y>=700 else 124);node.accessibility_name=title;node.tooltip_text=text
+	node.set_meta("option",title)
+	var cells := HBoxContainer.new();node.add_child(cells);cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cells.offset_left=22;cells.offset_right=-18;cells.offset_top=16;cells.offset_bottom=-14;cells.add_theme_constant_override("separation",16);cells.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",6);words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
+	var top := HBoxContainer.new();top.add_theme_constant_override("separation",14);top.mouse_filter=Control.MOUSE_FILTER_IGNORE;words.add_child(top)
+	line_icon(icon,40,top)
+	var roomy: bool=ui.size.y>=700
+	var name_label := caption(title,19 if roomy else 16,top,4 if roomy else 3);name_label.add_theme_color_override("font_color",colours().text);name_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	var about := label(text,15,words);about.add_theme_color_override("font_color",colours().dim)
+	if art!=null:
+		var picture := TextureRect.new();picture.texture=art;picture.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;picture.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		picture.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;picture.custom_minimum_size=Vector2(minf(150,ui.size.x*(.12 if roomy else .07)),0);picture.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(picture)
+	line_icon("next",22,cells)
+	return node
+func service_grid(parent: Node=null) -> GridContainer:
+	var grid := GridContainer.new();grid.columns=2 if ui.size.x>=900 else 1;grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation",16);grid.add_theme_constant_override("v_separation",16);(parent if parent!=null else column).add_child(grid)
+	return grid
 func show_station() -> void:
 	open_page(session.stations[session.station_id].name,"station")
-	column.add_theme_constant_override("separation",5)
-	station_identity(column)
+	column.add_theme_constant_override("separation",12)
+	station_identity(glass(column,false,14))
 	if not session.cargo_receipt.is_empty():
-		var receipt:=label(session.cargo_receipt,15);receipt.name="CargoReceipt";receipt.modulate=Color("bce8b0")
-	column.add_child(HSeparator.new())
+		var receipt:=label(session.cargo_receipt,15);receipt.name="CargoReceipt";receipt.add_theme_color_override("font_color",colours().good)
 	var services := [
-		["HANGAR","Equipment shop, ship dealer and workshop",show_hangar],
-		["MISSIONS","Current objectives and available contracts",show_station_missions],
-		["MAP","Stations, routes and S.T.R.E.A.M.",show_map],
-		["TRADE","Buy and sell cargo",func():show_market("trade")],
-		["STATUS","Your ship, cargo and pilot record",show_station_status],
-		["SYSTEM","Save, controls and settings",show_system]]
-	var service_grid:=VBoxContainer.new();service_grid.name="Services";service_grid.add_theme_constant_override("separation",4);column.add_child(service_grid)
+		["HANGAR","Equipment shop, ship dealer and workshop","hangar",show_hangar],
+		["MISSIONS","Current objectives and available contracts","missions",show_station_missions],
+		["MAP","Stations, routes and S.T.R.E.A.M.","map",show_map],
+		["TRADE","Buy and sell cargo","trade",func():show_market("trade")],
+		["STATUS","Your ship, cargo and pilot record","status",show_station_status],
+		["SYSTEM","Save, controls and settings","system",show_system]]
+	var grid:=GridContainer.new();grid.name="Services";grid.columns=3;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",10);column.add_child(grid)
 	for service in services:
-		var control:=button(service[0],service[2],service_grid);control.custom_minimum_size.y=48 if touch.enabled() else 40
-		control.add_theme_font_size_override("font_size",18);control.tooltip_text=service[1];control.accessibility_name=service[0]
-	column.add_child(HSeparator.new())
-	var launch:=button("DEPART >",depart);launch.custom_minimum_size.y=48;launch.modulate=Color("edc17e")
+		tile(service[0],service[2],service[3],grid).tooltip_text=service[1]
+	var launch:=primary(iconic(button("DEPART",depart),"depart",30));launch.name="Depart"
+	launch.custom_minimum_size.y=64 if touch.enabled() else 58;launch.add_theme_font_override("font",heading_font(6));launch.add_theme_font_size_override("font_size",20)
 	if not session.notices.is_empty():
 		var notices: Array=session.notices.duplicate();session.notices=[]
 		var medals: Array=[]
@@ -1434,35 +1660,49 @@ func show_station() -> void:
 			if entry.kind!="cargo_settlement":notice(entry.text)
 		if not medals.is_empty():show_new_medal(medals,0);return
 	check_dock_hints()
+func first_art(entries: Array, kind: String) -> Texture2D:
+	for entry in entries:
+		var art: Texture2D=imported_art.item(entry.id,kind)
+		if art!=null: return art
+	return null
 func show_hangar() -> void:
 	open_page("Hangar","hangar")
-	station_identity(column)
-	button("Equipment shop",func():show_market("equipment"))
-	button("Ship dealer",func():show_market("ships"))
-	button("Workshop / Manufacture",func():show_market("manufacture"))
-	button("Your ship & cargo",show_ship_status)
+	var station: Dictionary=session.stations[session.station_id]
+	var grid := service_grid()
+	service_card("Equipment shop","Buy and fit systems for your ship, or sell what is installed.","cart",first_art(station.equipment,"equipment"),func():show_market("equipment"),grid)
+	service_card("Ship dealer","Buy a new hull. Your current ship is traded in.","hangar",first_art(station.ships,"ships"),func():show_market("ships"),grid)
+	service_card("Workshop / Manufacture","Turn the cargo in your hold into products.","workshop",first_art(economy.recipes(station),"goods"),func():show_market("manufacture"),grid)
+	service_card("Your ship & cargo","Hull, cargo manifest and installed systems.","cargo",imported_art.item(session.ship.id,"ships"),func():show_ship_status(show_hangar),grid)
 func show_station_missions() -> void:
 	open_page("Missions","station_missions")
-	button("Current objectives & journal",show_journal)
-	button("Available contracts",func():show_market("missions"))
+	var station: Dictionary=session.stations[session.station_id]
+	var grid := service_grid()
+	service_card("Current objectives & journal","Your story task and accepted contract, with autonavigation to their destinations.","journal",null,show_journal,grid)
+	var offers: int=station.missions.size()
+	service_card("Available contracts","%d on this station's board."%offers if session.campaign.secondary.kind<0 else "An accepted contract is already in your journal.","contracts",
+		imported_art.portrait(station.missions[0].portrait) if offers>0 else null,func():show_market("missions"),grid)
 func show_station_status() -> void:
 	open_page("Status","station_status")
-	button("Your ship & cargo",show_ship_status)
-	button("Pilot profile & medals",show_profile)
+	var grid := service_grid()
+	service_card("Your ship & cargo","Hull, cargo manifest and installed systems.","cargo",imported_art.item(session.ship.id,"ships"),show_ship_status,grid)
+	var best := 0
+	for tier in session.medals.levels:
+		if tier>0 and (best==0 or tier<best): best=tier
+	var owned: int=session.medals.levels.filter(func(tier): return tier>0).size()
+	service_card("Pilot profile & medals","Rank %d · %d / 24 medals · expedition statistics."%[session.counters.k,owned],"person",
+		imported_art.image("medal_%d"%(best if best>0 else (5 if session.is_colonist_station() else 7))),show_profile,grid)
 func show_system() -> void:
 	open_page("System","system")
-	button("Save game",show_save_slots)
-	button("Controls",show_controls)
-	button("Graphics & audio",show_graphics)
-	button("World",show_world_settings)
-	button("Help",show_help)
-	button("Transfer expedition",show_transfer)
-	button("Reload station checkpoint",func(): confirm("Reload checkpoint",
+	var grid := service_grid();grid.add_theme_constant_override("v_separation",10)
+	for entry in [["Save game","save",show_save_slots],["Controls","controls",show_controls],["Graphics & audio","graphics",show_graphics],["World","world",show_world_settings],
+		["Help","help",show_help],["Transfer expedition","transfer",show_transfer]]:
+		iconic(button(entry[0],entry[2],grid),entry[1])
+	iconic(button("Reload station checkpoint",func(): confirm("Reload checkpoint",
 		"Return to your last saved station? Everything since that checkpoint is lost.",
-		"Reload checkpoint",reload_game,show_system))
-	button("Main menu",func(): confirm("Main menu",
+		"Reload checkpoint",reload_game,show_system),grid),"reload")
+	iconic(button("Main menu",func(): confirm("Main menu",
 		"Your expedition is saved at this station first.",
-		"Return to main menu",return_to_menu,show_system))
+		"Return to main menu",return_to_menu,show_system),grid),"exit")
 func show_world_settings() -> void:
 	open_page("World","world_settings")
 	var settings:=preload("res://native/presentation/world_settings.gd").new()
@@ -1644,18 +1884,27 @@ func show_market(kind: String) -> void:
 	if market_category!=kind: market_selection=0;market_page=0;market_category=kind
 	var denial: int = session.service_denial(kind)
 	if denial>=0: notice(session.text(denial)); return
-	open_page({"equipment":"Equipment shop","ships":"Ship dealer","trade":"Trade","manufacture":"Workshop","missions":"Available contracts"}.get(kind,kind)+" · %d cr"%session.credits,"market")
+	open_page({"equipment":"Equipment shop","ships":"Ship dealer","trade":"Trade","manufacture":"Workshop","missions":"Available contracts"}.get(kind,kind),"market",
+		{"equipment":"Outfit your ship","ships":"Buy a hull · trade in your current one","trade":"Buy and sell cargo","manufacture":"Craft products from your cargo","missions":"Contracts offered at this station"}.get(kind,""))
+	header_chip("credits","%d CR"%session.credits,"Your credits")
+	if kind=="ships" and ui.size.x>=1100: header_chip("hangar",content.ship_name(session.ship.id),"Current ship")
 	var station: Dictionary = session.stations[session.station_id]
 	match kind:
 		"equipment":
-			var tabs := HBoxContainer.new();tabs.name="EquipmentTabs";tabs.add_theme_constant_override("separation",8);column.add_child(tabs)
+			var bar := HBoxContainer.new();bar.add_theme_constant_override("separation",10);column.add_child(bar)
+			var tabs := HBoxContainer.new();tabs.name="EquipmentTabs";tabs.add_theme_constant_override("separation",10);tabs.size_flags_horizontal=Control.SIZE_EXPAND_FILL;bar.add_child(tabs)
+			ship_strip=bar if ui.size.x>=1100 else column
 			for index in 2:
-				var tab := button("SHOP" if index==0 else "SHIP EQUIPMENT",func():
-					equipment_tab=index;market_selection=0;market_page=0;show_market("equipment"),tabs)
+				var tab := iconic(button("SHOP" if index==0 else "SHIP EQUIPMENT",func():
+					equipment_tab=index;market_selection=0;market_page=0;show_market("equipment"),tabs),"cart" if index==0 else "wrench",24)
 				tab.name="ShopTab" if index==0 else "ShipEquipmentTab"
 				tab.toggle_mode=true
 				tab.button_pressed=equipment_tab==index
-				tab.add_theme_color_override("font_color",Color("f3d49b") if equipment_tab==index else Color("c5e1e8"))
+				tab.alignment=HORIZONTAL_ALIGNMENT_CENTER;tab.add_theme_font_override("font",heading_font(4))
+				if ui.size.y<700: tab.custom_minimum_size.y=52
+				if equipment_tab==index:
+					var lit := StationTheme.button_state(golden(),"focus");lit.content_margin_left=50;lit.border_width_bottom=3
+					tab.add_theme_stylebox_override("normal",lit);tab.add_theme_stylebox_override("pressed",lit)
 			equipment_browser(station)
 		"ships":
 			equipment_browser(station,true)
@@ -1664,31 +1913,47 @@ func show_market(kind: String) -> void:
 		"manufacture":
 			goods_browser(station,true)
 		"missions":
-			if session.campaign.secondary.kind>=0: label("An accepted contract is already in your journal.")
+			if session.campaign.secondary.kind>=0: label("An accepted contract is already in your journal.").add_theme_color_override("font_color",colours().dim)
+			elif station.missions.is_empty(): label("No contracts on this station's board.").add_theme_color_override("font_color",colours().dim)
 			else:
-				var info=preload("res://native/presentation/mission_info.gd")
-				for mission in station.missions:
-					var card := information_card(session.title(mission))
-					# The board's card (k): the client's face, the destination,
-					# its depth and distance, the difficulty (or the stopovers
-					# of a passage) and the fee.
-					var row := HBoxContainer.new();row.add_theme_constant_override("separation",12);card.add_child(row)
-					art_image(imported_art.portrait(mission.portrait),row,72)
-					var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(words)
-					label("%s: %s"%[session.text(142),mission.sponsor],15,words)
-					label(session.description(mission),16,words)
-					var journey: int=int(economy.distance(station,session.stations[mission.destination]))
-					var rating: int=mission.normalized_difficulty(int(session.counters.k))
-					var grade: String=session.text(273 if rating<4 else 274 if rating<8 else 275)
-					label("%s: %s · %s: %d m · %s: %s"%[session.text(334),mission.destination_name,session.text(245),session.stations[mission.destination].depth,session.text(333),session.text(310) if journey==0 else "%d km"%journey],15,card)
-					label(("%s: %d"%[session.text(331),mission.jump_limit+1] if mission.jump_limit>=0 else "%s: %s"%[session.text(331),session.text(335)]) if mission.kind==8 else "%s: %s"%[session.text(39),grade],15,card)
-					target_line(mission,card)
-					for detail in [info.progress(session,mission),info.requirements(mission),info.deadline(mission)]:
-						if not detail.is_empty(): label(detail,16,card)
-					button("Accept · %d cr reward · %d cr deposit"%[mission.reward,mission.deposit],func():
-						if session.accept_contract(mission): show_station()
-						else: notice("Insufficient credits for the deposit."),card)
+				var board := GridContainer.new();board.columns=2 if ui.size.x>=1100 else 1;board.add_theme_constant_override("h_separation",16);board.add_theme_constant_override("v_separation",16);column.add_child(board)
+				for mission in station.missions: contract_card(station,mission,board)
 	if kind not in ["equipment","ships","trade","manufacture"]: back_row(dock_back)
+func contract_card(station: Dictionary, mission, parent: Node) -> void:
+	"""The board's card (k): the client's face and name, the destination, its
+	depth and distance, the difficulty (or the stopovers of a passage), the
+	target, and the fee against the deposit."""
+	var palette := colours()
+	var info=preload("res://native/presentation/mission_info.gd")
+	var body := VBoxContainer.new();body.add_theme_constant_override("separation",10);glass(parent,false,14).add_child(body)
+	var top := HBoxContainer.new();top.add_theme_constant_override("separation",14);body.add_child(top)
+	var face := glass(top,false,8);face.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+	art_image(imported_art.portrait(mission.portrait),face,72)
+	var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",4);top.add_child(words)
+	label(session.title(mission),19,words).add_theme_color_override("font_color",palette.text)
+	caption("%s: %s"%[session.text(142),mission.sponsor],11,words,3)
+	label(session.description(mission),15,words).add_theme_color_override("font_color",palette.dim)
+	rule(body)
+	var journey: int=int(economy.distance(station,session.stations[mission.destination]))
+	var rating: int=mission.normalized_difficulty(int(session.counters.k))
+	var grade: String=session.text(273 if rating<4 else 274 if rating<8 else 275)
+	var outside: bool=world.outside_safety(mission.destination)
+	var rows: Array=[["map",session.text(334),mission.destination_name],
+		["shield",session.text(245),"%d m"%session.stations[mission.destination].depth,palette.bad if outside else palette.text],
+		["depart",session.text(333),session.text(310) if journey==0 else "%d km"%journey]]
+	if mission.kind==8: rows.append(["grid",session.text(331),str(mission.jump_limit+1) if mission.jump_limit>=0 else session.text(335)])
+	else: rows.append(["status",session.text(39),grade])
+	figure_rows(rows,body)
+	if outside: label(session.text(255),14,body).add_theme_color_override("font_color",palette.bad)
+	target_line(mission,body)
+	for detail in [info.progress(session,mission),info.requirements(mission),info.deadline(mission)]:
+		if not detail.is_empty(): label(detail,15,body).add_theme_color_override("font_color",palette.text)
+	var terms := HBoxContainer.new();terms.add_theme_constant_override("separation",10);body.add_child(terms)
+	figure_tile("credits","Reward","%d cr"%mission.reward,terms)
+	figure_tile("shield","Deposit","%d cr"%mission.deposit,terms)
+	primary(iconic(button("Accept contract",func():
+		if session.accept_contract(mission): show_station()
+		else: notice("Insufficient credits for the deposit."),body),"contracts",22))
 func transaction_result(result: int) -> void:
 	if result>=0: notice(session.text(result))
 func show_map(autopilot_only: bool=false) -> void:
@@ -1727,27 +1992,8 @@ func show_map(autopilot_only: bool=false) -> void:
 				if session.docked:return
 				if page=="departure":departure_route="encounter";return
 			world.navigate_encounter();close_page(),actions).tooltip_text="Local encounter active · follow its waypoint before travelling to the next story station."
-	map_route_button=bar_button("Set station autopilot",func():
-		if session.docked:
-			depart()
-			if session.docked: return
-			if page=="departure":departure_destination=map_destination;return
-		if world.route_to(map_destination):
-			if page!="dialogue": close_page()
-		else: notice(world.message),actions)
-	stream_button=bar_button("Plan S.T.R.E.A.M. transfer",func():
-		var denial: String = world.stream_denial(map_destination)
-		if not denial.is_empty(): notice(denial); return
-		if session.docked:
-			depart()
-			if session.docked: return
-			if page=="departure":departure_destination=map_destination;departure_route="stream";return
-		if world.plan_stream(map_destination):
-			# A chart already shown at this gate must come up again for the
-			# new plan, even without leaving the gate first.
-			stream_prompted=false
-			if page!="dialogue": close_page()
-		else: notice(world.message),actions)
+	map_route_button=bar_button("Set station autopilot",map_autopilot,actions)
+	stream_button=bar_button("Plan S.T.R.E.A.M. transfer",map_stream,actions)
 	stream_button.visible=not atlas_autopilot_only
 	bar_button("Back",dock_back,actions)
 	back_row(show_station if session.docked else close_page)
@@ -1755,6 +2001,29 @@ func show_map(autopilot_only: bool=false) -> void:
 	var start: Dictionary=session.stations[map_destination]
 	map_widget.place_lens(Vector2(start.x,start.y))
 	select_station(map_destination)
+func map_autopilot() -> void:
+	if ask_outside_safety(map_destination,map_autopilot,func():show_map(atlas_autopilot_only)):return
+	if session.docked:
+		depart()
+		if session.docked: return
+		if page=="departure":departure_destination=map_destination;return
+	if world.route_to(map_destination):
+		if page!="dialogue": close_page()
+	else: notice(world.message)
+func map_stream() -> void:
+	var denial: String = world.stream_denial(map_destination)
+	if not denial.is_empty(): notice(denial); return
+	if ask_outside_safety(map_destination,map_stream,func():show_map(atlas_autopilot_only)):return
+	if session.docked:
+		depart()
+		if session.docked: return
+		if page=="departure":departure_destination=map_destination;departure_route="stream";return
+	if world.plan_stream(map_destination):
+		# A chart already shown at this gate must come up again for the
+		# new plan, even without leaving the gate first.
+		stream_prompted=false
+		if page!="dialogue": close_page()
+	else: notice(world.message)
 func chart_hint() -> String:
 	"""The chart's hint (ch: 359) without its last instruction. On the phone
 	the depth map was a second screen behind the "Proceed" soft key (74);
@@ -1825,7 +2094,7 @@ func species_toggle(parent: Node, refresh: Callable) -> Button:
 	toggle.text="Station" if stream_species else "Species"
 	toggle.pressed.connect(func(): stream_species=not stream_species; toggle.text="Station" if stream_species else "Species"; refresh.call())
 	return toggle
-func show_station_card(id: int, facts: String, empty_title := "No safe exits") -> void:
+func show_station_card(id: int, facts: String, empty_title := "No exits") -> void:
 	map_title.text=session.stations[id].name if id>=0 else empty_title
 	map_info.text=facts
 	for child in map_showcase.get_children(): map_showcase.remove_child(child); child.queue_free()
@@ -1945,8 +2214,9 @@ func select_station(id: int) -> void:
 	var figures:=station_figures(id)
 	var status := "Ready · transfer at the gate"
 	if id==session.station_id: status="Current area"
-	elif figures.far or figures.unsafe: status=""
+	elif figures.far: status=""
 	elif not denial.is_empty(): status="Locked by the current mission"
+	elif figures.unsafe: status=session.text(255)
 	show_station_card(id,"%s · %s\nTec Level: %s · Depth: %s\nS.T.R.E.A.M. %s / %.1f km%s"%[
 		"Rebels" if session.campaign.rebel_stations[id] else "Colonists","Discovered" if session.discovered[id] else "Unexplored",tech_text(id),figures.depth,
 		figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
@@ -2201,7 +2471,7 @@ func show_destinations() -> void:
 	dock_action.disabled=dock_locked
 	button("Approach S.T.R.E.A.M. gate",func():
 		var gate: int=world.nearest_safe_gate()
-		if gate<0:notice("No S.T.R.E.A.M. gate within safe depth.");return
+		if gate<0:notice("No S.T.R.E.A.M. gate in this area.");return
 		world.fly_to_gate(gate);close_page(),actions)
 	button("Choose station on chart",func():show_map(true),actions)
 	if world.autopilot:button("Disengage autopilot",func():world.cancel_autopilot("Manual control");close_page(),actions)
@@ -2329,7 +2599,7 @@ func show_stream_menu() -> void:
 		if id<0:
 			map_widget.selected_id=-1;map_widget.queue_redraw();map_slice.frame(map_widget.lens_center,ZONE_RADIUS,-1)
 			var prompt:=zone_prompt(map_widget.lens_center)
-			if eligible.is_empty():prompt=["No safe exits","No safe exits in range. Upgrade the engine or pressure protection."]
+			if eligible.is_empty():prompt=["No exits","No exits in range. Fit a longer-range engine."]
 			show_station_card(-1,prompt[1],prompt[0])
 			confirm.disabled=true;return
 		follow_zone(id)
@@ -2340,7 +2610,7 @@ func show_stream_menu() -> void:
 		# The original reads out who holds the station, its tech level and its
 		# depth. The reach and distance are this engine's own, and matter here.
 		var figures:=station_figures(id)
-		var status: String="Exit ready" if denial.is_empty() else "" if figures.far or figures.unsafe else denial
+		var status: String=(session.text(255) if figures.unsafe else "Exit ready") if denial.is_empty() else "" if figures.far else denial
 		show_station_card(id,"%s\nTec Level: %s · Depth: %s\nDistance %s km · reach %.1f km%s"%[
 			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",tech_text(id),figures.depth,
 			figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
@@ -2375,6 +2645,17 @@ func show_habitat(id: int, parent: Node) -> void:
 		name_label.modulate=Color("d7edf1") if known else Color("6d8894")
 		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		if known: label("caught",12,line).modulate=Color("c9ae79")
+var safety_confirmed := -1
+func ask_outside_safety(id: int, go: Callable, back: Callable) -> bool:
+	"""The original's chart asks before a trip outside the hull's depth
+	limits instead of refusing it: the destination (334), the warning (255)
+	and "Travel to this station?" (247). True while the question is open;
+	answering yes runs go again with the answer recorded."""
+	if safety_confirmed==id: safety_confirmed=-1;return false
+	if not world.outside_safety(id): return false
+	confirm(session.text(334)+": "+session.stations[id].name,session.text(255)+"\n"+session.text(247),"Travel",
+		func():safety_confirmed=id;go.call(),back)
+	return true
 func begin_stream_transit() -> void:
 	"""Confirming a destination is the crossing. The original does not fly the
 	submarine into the aperture and wait: the chart closes, the far side is
@@ -2382,6 +2663,7 @@ func begin_stream_transit() -> void:
 	no run-up to steer, nothing to arm and no notice to read."""
 	var denial: String=world.stream_denial(stream_selection)
 	if not denial.is_empty() or not world.at_gate(world.departure_gate):notice(denial);return
+	if ask_outside_safety(stream_selection,begin_stream_transit,show_stream_menu):return
 	world.cancel_autopilot();world.gate_navigation=false;world.approach_planned=false;world.approach_path.clear()
 	# The chart can be opened (E) before the aperture has finished opening,
 	# and nothing advances while it is up, so the gate would stay part open
@@ -2446,6 +2728,7 @@ func end_transit_shot() -> void:
 func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 	var entries: Array=[]
 	var kind := "ships" if ships else "equipment"
+	var palette := colours()
 	if ships:
 		for item in station.ships: entries.append({"item":item,"buy":true})
 	elif equipment_tab==0:
@@ -2454,115 +2737,185 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		for item in session.ship.equipment:
 			if item!=null: entries.append({"item":item,"buy":false})
 	if not ships:
+		# The ship being outfitted, its free slots and its hold.
+		# The ship line opens the ship page, and Back from there returns here.
+		var holder := button("",func():show_ship_status(func():show_market("equipment")),ship_strip if is_instance_valid(ship_strip) else column)
+		holder.name="ShipLine";holder.accessibility_name=content.ship_name(session.ship.id);holder.tooltip_text="Ship and cargo"
+		holder.custom_minimum_size.y=52 if ui.size.y<700 else 56
+		var strip := HBoxContainer.new();strip.add_theme_constant_override("separation",16);holder.add_child(strip)
+		strip.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);strip.offset_left=14;strip.offset_right=-14;strip.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var hull := art_image(imported_art.item(session.ship.id,"ships"),strip,40)
+		if hull!=null: hull.custom_minimum_size.x=64;hull.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+		caption(content.ship_name(session.ship.id),18,strip,4).add_theme_color_override("font_color",palette.text)
 		var used: int=session.ship.equipment.filter(func(item):return item!=null).size()
-		label("%s  ·  %d / %d EQUIPMENT SLOTS  ·  CARGO %d / %d t"%[content.ship_name(session.ship.id).to_upper(),used,session.ship.slots,session.ship.cargo_used,session.ship.capacity()],13).modulate=Color("93b5aa")
-	if entries.is_empty(): label("No ships available at this station." if ships else "No equipment for sale at this station." if equipment_tab==0 else "No equipment installed. Choose Shop to fit a system.");return
+		caption("%d / %d EQUIPMENT SLOTS  ·  CARGO %d / %d t"%[used,session.ship.slots,session.ship.cargo_used,session.ship.capacity()],12,strip,2).size_flags_vertical=Control.SIZE_SHRINK_CENTER
+		line_icon("next",18,strip)
+	if entries.is_empty(): label("No ships available at this station." if ships else "No equipment for sale at this station." if equipment_tab==0 else "No equipment installed. Choose Shop to fit a system.").add_theme_color_override("font_color",palette.dim);return
 	market_selection=clampi(market_selection,0,entries.size()-1)
-	if ships:label("YOUR SHIP  /  "+content.ship_name(session.ship.id),12).modulate=Color("93b5aa")
-	var row := HBoxContainer.new();row.add_theme_constant_override("separation",20);column.add_child(row)
-	var list := VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",3);row.add_child(list)
+	var row := split_row(column,18)
+	var list := VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",6);row.add_child(list)
 	var headings := HBoxContainer.new();list.add_child(headings)
-	label("SHIPS FOR SALE" if ships else "SHOP STOCK" if equipment_tab==0 else "INSTALLED SYSTEMS",11,headings).modulate=Color("b49a70")
-	var value_heading := label("VALUE",11,headings);value_heading.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value_heading.modulate=Color("b49a70")
-	var page_size := clampi(int((ui.size.y-270)/(68 if ships else 58)),3,8)
+	caption("SHIPS FOR SALE" if ships else "SHOP STOCK" if equipment_tab==0 else "INSTALLED SYSTEMS",12,headings,3)
+	var value_heading := caption("VALUE",12,headings,3);value_heading.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	var row_height: int=(76 if ships else 64) if touch.enabled() else (72 if ships else 60)
+	var page_size := clampi(int((ui.size.y-(330 if ui.size.x>=900 else 900))/(row_height+6)),3,8)
 	market_page=clampi(market_page,0,(entries.size()-1)/page_size)
 	for index in range(market_page*page_size,mini(entries.size(),(market_page+1)*page_size)):
 		var entry: Dictionary=entries[index];var item=entry.item
 		var title: String=content.ship_name(item.id) if ships else item_name(item.id,"equipment")
 		var price: int=economy.ship_price(item) if ships else item.price
-		var control := button("",func():market_selection=index;show_market(kind),list)
-		control.name="Stock_"+str(index);control.custom_minimum_size=Vector2(280 if ships else 480,64 if ships else 56);control.accessibility_name=title
-		var surface := control.get_theme_stylebox("normal") as StyleBoxFlat
-		surface.bg_color=Color("142923") if index==market_selection else Color("0a1a20");surface.border_color=Color("c8a05e") if index==market_selection else Color("3c514d");surface.border_width_left=3 if index==market_selection else 1
-		var cells := HBoxContainer.new();control.add_child(cells);cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);cells.offset_left=10;cells.offset_right=-10;cells.offset_top=5;cells.offset_bottom=-5;cells.add_theme_constant_override("separation",12);cells.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		var icon := TextureRect.new();icon.texture=imported_art.item(item.id,kind);icon.custom_minimum_size=Vector2(44,36);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
-		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",2);cells.add_child(words);words.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		label(title,15,words).mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var cells := stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),list)
+		var control := cells.get_parent() as Button;control.accessibility_name=title
+		var icon := TextureRect.new();icon.texture=imported_art.item(item.id,kind);icon.custom_minimum_size=Vector2(72 if ships else 56,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
+		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",1);words.alignment=BoxContainer.ALIGNMENT_CENTER;cells.add_child(words);words.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var named := label(title,17,words);named.add_theme_color_override("font_color",palette.text);named.autowrap_mode=TextServer.AUTOWRAP_OFF;named.clip_text=true;named.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
 		var stats := "Hull %d · Cargo %d · Slots %d"%[item.hull,item.capacity(),item.slots] if ships else EquipmentInfo.stats(item)
-		var spec := label(stats,11,words);spec.modulate=Color("8fb7ad");spec.mouse_filter=Control.MOUSE_FILTER_IGNORE;spec.max_lines_visible=2
-		var value := label("%d cr"%price if entry.buy else "INSTALLED",12,cells);value.custom_minimum_size.x=84;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;value.modulate=Color("c9ae79");value.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var spec := label(stats,13,words);spec.add_theme_color_override("font_color",palette.dim);spec.max_lines_visible=1;spec.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS;spec.autowrap_mode=TextServer.AUTOWRAP_OFF;spec.clip_text=true
+		var value := label("%d cr"%price if entry.buy else "INSTALLED",15,cells);value.custom_minimum_size.x=96;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		value.add_theme_color_override("font_color",palette.value if entry.buy else palette.good);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 		control.tooltip_text=title+"\n"+stats
-	if entries.size()>page_size:
-		var pager := HBoxContainer.new();list.add_child(pager)
-		button("< PREVIOUS",func():market_page-=1;market_selection=market_page*page_size;show_market(kind),pager).disabled=market_page==0
-		label("%d / %d"%[market_page+1,ceili(float(entries.size())/page_size)],12,pager)
-		button("NEXT >",func():market_page+=1;market_selection=market_page*page_size;show_market(kind),pager).disabled=(market_page+1)*page_size>=entries.size()
+	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind),list)
 	if ships:
+		var stage := glass(row,false,16);stage.size_flags_stretch_ratio=1.3 if ui.size.x>=1400 else .8
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
-		(row if ui.size.x>=1050 else list).add_child(preview)
+		stage.add_child(preview)
 		preview.configure(content,entries[market_selection].item.id,modern_graphics,view.library)
-		if ui.size.x<1050:preview.custom_minimum_size.y=180;list.move_child(preview,1)
-	var detail := VBoxContainer.new();detail.name="SelectedItem";detail.custom_minimum_size.x=240;detail.size_flags_horizontal=Control.SIZE_FILL;detail.add_theme_constant_override("separation",12);row.add_child(detail)
+		if ui.size.x<900:stage.custom_minimum_size.y=180
+	var frame := glass(row,true,16);frame.custom_minimum_size.x=340 if ui.size.x>=900 else 0;frame.size_flags_horizontal=Control.SIZE_FILL if ui.size.x>=900 else Control.SIZE_EXPAND_FILL
+	var detail := VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",10);frame.add_child(detail)
 	var selected: Dictionary=entries[market_selection];var item=selected.item
-	label(content.ship_name(item.id) if ships else item_name(item.id,"equipment"),20,detail).modulate=Color("8bd6ee")
+	var heading_row := HBoxContainer.new();detail.add_child(heading_row)
+	var name_label := label(content.ship_name(item.id) if ships else item_name(item.id,"equipment"),26,heading_row);name_label.add_theme_color_override("font_color",palette.text)
+	if not ships and not selected.buy:
+		var fitted := caption("Installed",12,heading_row,2);fitted.add_theme_color_override("font_color",palette.good);fitted.size_flags_horizontal=Control.SIZE_SHRINK_END
+	caption("For sale" if ships else EquipmentInfo.kind_name(item),12,detail,4)
+	rule(detail)
 	if ships:
-		label("HULL  %d  to  %d\nCARGO  %d  to  %d\nSLOTS  %d  to  %d"%[session.ship.hull,item.hull,session.ship.capacity(),item.capacity(),session.ship.slots,item.slots],14,detail).modulate=Color("a8dbcc")
-		label(item_description(item.id,"ships"),13,detail)
+		var better := func(now: int, next: int) -> Color: return palette.good if next>now else palette.bad if next<now else palette.text
+		figure_rows([["hull","Hull","%d  →  %d"%[session.ship.hull,item.hull],better.call(session.ship.hull,item.hull)],
+			["cargo","Cargo","%d  →  %d"%[session.ship.capacity(),item.capacity()],better.call(session.ship.capacity(),item.capacity())],
+			["grid","Slots","%d  →  %d"%[session.ship.slots,item.slots],better.call(session.ship.slots,item.slots)]],detail)
+		rule(detail)
+		label(item_description(item.id,"ships"),15,detail).add_theme_color_override("font_color",palette.text)
+		rule(detail)
 		# be: a hull once owned is worth its catalogue price divided by 1.25.
-		label("Trade-in for your %s: %d cr\nBalance after exchange: %d cr"%[content.ship_name(session.ship.id),economy.ship_price(session.ship),session.credits+economy.ship_price(session.ship)-economy.ship_price(item)],13,detail)
-		button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item));show_market(kind),detail)
+		var balance: int=session.credits+economy.ship_price(session.ship)-economy.ship_price(item)
+		figure_rows([["","Trade-in for your %s"%content.ship_name(session.ship.id),"%d cr"%economy.ship_price(session.ship),palette.value],
+			["","Balance after exchange","%d cr"%balance,palette.value if balance>=0 else palette.bad]],detail)
+		primary(iconic(button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item));show_market(kind),detail),"depart",22))
 	else:
-		label(EquipmentInfo.stats(item),14,detail).modulate=Color("a8dbcc")
-		label(item_description(item.id,"equipment"),13,detail)
+		# A phone held landscape has the row's own icon to go by.
+		if ui.size.y>=700:
+			var showcase := CenterContainer.new();detail.add_child(showcase)
+			var art := art_image(imported_art.item(item.id,"equipment"),showcase,96)
+			if art!=null: art.custom_minimum_size.x=art.custom_minimum_size.y*2
+		var figures: Array=[]
+		for pair in EquipmentInfo.figures(item): figures.append(["",pair[0],pair[1]])
+		figure_rows(figures,detail)
+		rule(detail)
+		label(item_description(item.id,"equipment"),14,detail).add_theme_color_override("font_color",palette.text)
 		if selected.buy:
 			for installed in session.ship.equipment:
 				if installed!=null and installed.kind==item.kind:
-					label("CURRENTLY EQUIPPED\n%s\n%s"%[item_name(installed.id,"equipment"),EquipmentInfo.stats(installed)],13,detail).modulate=Color("95adaa")
-			button("Buy · %d cr"%item.price,func():transaction_result(economy.buy_equipment(station,item));show_market(kind),detail)
-		else:button("Sell · %d cr"%item.price,func():transaction_result(economy.sell_equipment(station,item));show_market(kind),detail)
-
-
+					var current := VBoxContainer.new();current.add_theme_constant_override("separation",2);glass(detail,false,8).add_child(current)
+					caption("Currently equipped",11,current,3)
+					label(item_name(installed.id,"equipment"),15,current).add_theme_color_override("font_color",palette.text)
+					label(EquipmentInfo.stats(installed),13,current).add_theme_color_override("font_color",palette.dim)
+			primary(iconic(button("Buy · %d cr"%item.price,func():transaction_result(economy.buy_equipment(station,item));show_market(kind),detail),"cart",22))
+		else:iconic(button("Sell · %d cr"%item.price,func():transaction_result(economy.sell_equipment(station,item));show_market(kind),detail),"credits",22).alignment=HORIZONTAL_ALIGNMENT_CENTER
+func header_chip(icon: String, value: String, note: String) -> void:
+	"""A figure beside the page title, as the reference shows the purse."""
+	if ui.size.x<700: return
+	var panel := glass(header_chips,false,10);panel.size_flags_horizontal=Control.SIZE_SHRINK_END;panel.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
+	var row := HBoxContainer.new();row.add_theme_constant_override("separation",12);panel.add_child(row)
+	line_icon(icon,30,row)
+	var words := VBoxContainer.new();words.add_theme_constant_override("separation",0);row.add_child(words)
+	var figure := caption(value,18,words,2);figure.add_theme_color_override("font_color",colours().text)
+	caption(note,9,words,3)
+func action_row(parent: Node) -> HBoxContainer:
+	"""The detail's actions, side by side so the pair fits a phone's height."""
+	var row := HBoxContainer.new();row.name="Actions";row.add_theme_constant_override("separation",10);parent.add_child(row);return row
+func rule(parent: Node) -> void:
+	var line := ColorRect.new();line.color=Color(colours().edge,.7);line.custom_minimum_size.y=1;parent.add_child(line)
 func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var kind: String="manufacture" if manufacturing else "trade"
+	var palette := colours()
 	var entries: Array=economy.recipes(station) if manufacturing else economy.market(station)
 	entries.sort_custom(func(a,b):return a.id<b.id)
-	if entries.is_empty():label("No recipes available here." if manufacturing else "No cargo available for exchange.");return
+	if entries.is_empty():label("No recipes available here." if manufacturing else "No cargo available for exchange.").add_theme_color_override("font_color",palette.dim);return
 	market_selection=clampi(market_selection,0,entries.size()-1)
-	label("CARGO HOLD  /  %d OF %d t USED"%[session.ship.cargo_used,session.ship.capacity()],12).modulate=Color("93b5aa")
-	var row:=HBoxContainer.new();row.add_theme_constant_override("separation",20);column.add_child(row)
-	var list:=VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",3);row.add_child(list)
+	# The hold, as a gauge: how much there is room for decides both trades.
+	if ui.size.y<700:
+		header_chip("cargo","%d / %d t"%[session.ship.cargo_used,session.ship.capacity()],"Cargo hold")
+	var hold := HBoxContainer.new();hold.add_theme_constant_override("separation",16)
+	if ui.size.y>=700: glass(column,false,10).add_child(hold)
+	line_icon("cargo",32,hold)
+	var hold_words := VBoxContainer.new();hold_words.add_theme_constant_override("separation",0);hold.add_child(hold_words)
+	caption("Cargo hold",14,hold_words,4).add_theme_color_override("font_color",palette.text)
+	caption("%d of %d t used"%[session.ship.cargo_used,session.ship.capacity()],10,hold_words,2)
+	var gauge := ProgressBar.new();gauge.show_percentage=false;gauge.max_value=maxi(1,session.ship.capacity());gauge.value=session.ship.cargo_used
+	gauge.size_flags_horizontal=Control.SIZE_EXPAND_FILL;gauge.size_flags_vertical=Control.SIZE_SHRINK_CENTER;gauge.custom_minimum_size.y=8;hold.add_child(gauge)
+	var track := StationTheme.frame(Color(0,0,0,.35),palette.edge,0);var fill := StationTheme.frame(palette.accent,palette.accent,0)
+	gauge.add_theme_stylebox_override("background",track);gauge.add_theme_stylebox_override("fill",fill)
+	caption("%d%%"%roundi(100.0*session.ship.cargo_used/maxi(1,session.ship.capacity())),14,hold,1).add_theme_color_override("font_color",palette.text)
+	if hold.get_parent()==null: hold.free()
+	var row:=split_row(column,18)
+	var list:=VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.size_flags_stretch_ratio=1.25;list.add_theme_constant_override("separation",6);row.add_child(list)
 	var headings:=HBoxContainer.new();list.add_child(headings)
-	label("RECIPE & MATERIALS" if manufacturing else "CARGO & AVAILABILITY",11,headings).modulate=Color("b49a70")
-	var heading:=label("CAN MAKE" if manufacturing else "UNIT PRICE",11,headings);heading.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;heading.modulate=Color("b49a70")
+	caption("RECIPE & MATERIALS" if manufacturing else "CARGO & AVAILABILITY",12,headings,3)
+	caption("CAN MAKE" if manufacturing else "UNIT PRICE",12,headings,3).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	var row_height:=64 if touch.enabled() else 56
-	var page_size:=clampi(int((ui.size.y-300)/(row_height+4)),3,7)
+	var page_size:=clampi(int((ui.size.y-(360 if ui.size.x>=900 else 980))/(row_height+6)),3,7)
 	market_page=clampi(market_page,0,(entries.size()-1)/page_size)
 	for index in range(market_page*page_size,mini(entries.size(),(market_page+1)*page_size)):
 		var item=entries[index];var title:=item_name(item.id)
-		var control:=button("",func():market_selection=index;show_market(kind),list)
-		control.name="Stock_"+str(index);control.custom_minimum_size=Vector2(460,row_height);control.accessibility_name=title
-		var surface:=control.get_theme_stylebox("normal") as StyleBoxFlat
-		surface.bg_color=Color("142923") if index==market_selection else Color("0a1a20");surface.border_color=Color("c8a05e") if index==market_selection else Color("3c514d");surface.border_width_left=3 if index==market_selection else 1
-		var cells:=HBoxContainer.new();control.add_child(cells);cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);cells.offset_left=10;cells.offset_right=-10;cells.offset_top=5;cells.offset_bottom=-5;cells.add_theme_constant_override("separation",12);cells.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		var icon:=TextureRect.new();icon.texture=imported_art.item(item.id);icon.custom_minimum_size=Vector2(44,36);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
-		var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",2);words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
-		label(title,15,words).mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var cells:=stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),list)
+		(cells.get_parent() as Button).accessibility_name=title
+		var icon:=TextureRect.new();icon.texture=imported_art.item(item.id);icon.custom_minimum_size=Vector2(48,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
+		var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",0);words.alignment=BoxContainer.ALIGNMENT_CENTER;words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
+		label(title,17,words).add_theme_color_override("font_color",palette.text)
 		var subtitle: String=("Materials ready" if item.owned>0 else "Needs materials") if manufacturing else "In hold %d · Station stock %d"%[item.owned,item.stock]
-		var spec:=label(subtitle,11,words);spec.modulate=Color("8fb7ad");spec.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d cr"%item.price,12,cells);value.custom_minimum_size.x=84;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;value.modulate=Color("c9ae79");value.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	if entries.size()>page_size:
-		var pager:=HBoxContainer.new();list.add_child(pager)
-		button("< PREVIOUS",func():market_page-=1;market_selection=market_page*page_size;show_market(kind),pager).disabled=market_page==0
-		label("%d / %d"%[market_page+1,ceili(float(entries.size())/page_size)],12,pager)
-		button("NEXT >",func():market_page+=1;market_selection=market_page*page_size;show_market(kind),pager).disabled=(market_page+1)*page_size>=entries.size()
-	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.custom_minimum_size.x=300;detail.size_flags_horizontal=Control.SIZE_FILL;detail.add_theme_constant_override("separation",10);row.add_child(detail)
+		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
+		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d cr"%item.price,16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
+	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind),list)
+	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
+	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)
 	var item=entries[market_selection]
-	label(item_name(item.id),20,detail).modulate=Color("8bd6ee")
-	art_image(imported_art.item(item.id),detail,72)
-	label(item_description(item.id),13,detail)
+	label(item_name(item.id),26,detail).add_theme_color_override("font_color",palette.text)
+	if ui.size.y>=700: caption("Product" if manufacturing else "Cargo",12,detail,4)
+	var about := HBoxContainer.new();about.add_theme_constant_override("separation",14);detail.add_child(about)
+	var holder := glass(about,false,8);holder.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+	var art := art_image(imported_art.item(item.id),holder,80) if ui.size.y>=700 else null
+	var described := label(item_description(item.id),14,about);described.add_theme_color_override("font_color",palette.text);described.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+	if art==null: holder.hide()
 	if manufacturing:
-		label(recipe_ingredients(item).replace(" · ","\n"),14,detail).modulate=Color("a8dbcc")
-		label("Available to make: %d"%maxi(0,item.owned),14,detail)
-		button("Make one",func():
+		caption("Ingredients (in cargo / per unit)",11,detail,3)
+		for index in item.ingredients.size():
+			var id: int=item.ingredients[index];var need: int=item.ingredient_counts[index];var have := 0
+			for held in session.ship.cargo:
+				if held.id==id: have=held.owned;break
+			var line := HBoxContainer.new();line.add_theme_constant_override("separation",12)
+			var cell := glass(detail,false,6);cell.add_child(line);cell.get_theme_stylebox("panel").content_margin_top=5;cell.get_theme_stylebox("panel").content_margin_bottom=5
+			var picture := art_image(imported_art.item(id),line,26)
+			if picture!=null: picture.custom_minimum_size.x=34;picture.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+			label(item_name(id),15,line).add_theme_color_override("font_color",palette.text)
+			var count := label("%d / %d"%[have,need],15,line);count.size_flags_horizontal=Control.SIZE_SHRINK_END;count.autowrap_mode=TextServer.AUTOWRAP_OFF
+			count.add_theme_color_override("font_color",palette.good if have>=need else palette.dim)
+		label("Available to make: %d"%maxi(0,item.owned),15,detail).add_theme_color_override("font_color",palette.text)
+		var actions := action_row(detail)
+		var one := iconic(button("Make one",func():
 			if not economy.manufacture(station,item.id,1):notice("Required ingredients or cargo space are missing.")
 			else:notice("Made 1 "+item_name(item.id))
-			show_market(kind),detail).disabled=item.owned<1
-		button("Make all (%d)"%maxi(0,item.owned),func():
+			show_market(kind),actions),"cargo",22)
+		one.disabled=item.owned<1
+		if not one.disabled: primary(one)
+		iconic(button("Make all (%d)"%maxi(0,item.owned),func():
 			if not economy.manufacture(station,item.id,item.owned):notice("Required ingredients or cargo space are missing.")
 			else:notice("Made %d %s"%[item.owned,item_name(item.id)])
-			show_market(kind),detail).disabled=item.owned<2
+			show_market(kind),actions),"trade",22).disabled=item.owned<2
 	else:
-		label("UNIT PRICE  %d cr\nIN HOLD  %d t\nSTATION STOCK  %d t"%[item.price,item.owned,item.stock],14,detail).modulate=Color("a8dbcc")
+		figure_rows([["credits","Unit price","%d cr"%item.price,palette.value],["cargo","In hold","%d t"%item.owned],["trade","Station stock","%d t"%item.stock]],detail)
 		var affordable := buy_limit(item)
 		var sellable: int = maxi(0,item.owned)
 		var reachable: int = maxi(1,maxi(affordable,sellable))
@@ -2570,7 +2923,7 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		# The amount is chosen once and both trades read it, because a hold is
 		# usually filled at one station and emptied at the next.
 		var amount:=HBoxContainer.new();amount.add_theme_constant_override("separation",6);detail.add_child(amount)
-		var caption:=label("AMOUNT  %d t"%market_quantity,12,amount);caption.custom_minimum_size.x=96;caption.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;caption.modulate=Color("93b5aa")
+		var quantity:=caption("Amount  %d t"%market_quantity,12,amount,2);quantity.custom_minimum_size.x=110;quantity.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;quantity.add_theme_color_override("font_color",palette.text)
 		for entry in [["−",-1],["+",1]]:
 			var stride: int=entry[1]
 			var step:=option(entry[0],"amount"+entry[0],func():market_quantity=clampi(market_quantity+stride,1,reachable);show_market(kind),amount)
@@ -2581,9 +2934,12 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		# a promise the hold or the purse is about to refuse.
 		var buying: int=mini(market_quantity,affordable)
 		var selling: int=mini(market_quantity,sellable)
-		button("Buy %d · %d cr"%[maxi(1,buying),item.price*maxi(1,buying)],func():
+		var actions := action_row(detail)
+		var purchase := iconic(button("Buy %d · %d cr"%[maxi(1,buying),item.price*maxi(1,buying)],func():
 			trade_amount(station,item,true,buying)
-			show_market(kind),detail).disabled=buying<1
-		button("Sell %d · %d cr"%[maxi(1,selling),item.price*maxi(1,selling)],func():
+			show_market(kind),actions),"cart",22)
+		purchase.disabled=buying<1
+		if not purchase.disabled: primary(purchase)
+		iconic(button("Sell %d · %d cr"%[maxi(1,selling),item.price*maxi(1,selling)],func():
 			trade_amount(station,item,false,selling)
-			show_market(kind),detail).disabled=selling<1
+			show_market(kind),actions),"credits",22).disabled=selling<1

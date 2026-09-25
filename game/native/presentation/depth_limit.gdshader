@@ -7,13 +7,17 @@ uniform vec3 tint: source_color = vec3(1.0, 0.68, 0.28);
 uniform float strength = 0.0;
 uniform float half_extent = 60.0;
 varying vec2 local;
-void vertex() { local = VERTEX.xz; }
+varying vec2 world;
+// The panel rides along under the hull, so its squares are laid in world
+// space: they slide past as the submarine moves, instead of travelling with
+// it and reading as a hull standing still.
+void vertex() { local = VERTEX.xz; world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz; }
 void fragment() {
 	float radius = length(local) / half_extent;
 	float edge = 1.0 - smoothstep(0.2, 0.9, radius);
 	// Lines thirty centimetres wide, softened by one screen pixel only,
 	// so they stay crisp at every distance and angle instead of blurring.
-	vec2 cell = abs(fract(local / 12.0) - 0.5) * 12.0;
+	vec2 cell = abs(fract(world / 12.0) - 0.5) * 12.0;
 	float gap = min(cell.x, cell.y);
 	float aa = fwidth(gap);
 	float line = 1.0 - smoothstep(0.15 - aa, 0.15 + aa, gap);

@@ -4,6 +4,7 @@ const Content = preload("res://native/content.gd")
 const Model = preload("res://native/presentation/model.gd")
 const Health = preload("res://native/simulation/health.gd")
 const Trade = preload("res://native/simulation/trade.gd")
+const StationTheme = preload("res://native/presentation/station_theme.gd")
 var content := Content.new()
 var camera := Camera3D.new()
 var abyss := preload("res://native/presentation/abyss.gd").new()
@@ -77,28 +78,23 @@ func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
 	return node
 
 func style(color: Color, border: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color=color
-	box.border_color=border
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(0)
-	box.content_margin_left=22
-	box.content_margin_right=22
-	box.content_margin_top=20
-	box.content_margin_bottom=20
+	# The station menus' glass; the colours asked for are kept only as a hint
+	# of opacity, so every dialog reads as one interface.
+	var box := StationTheme.panel(false);box.bg_color.a=maxf(color.a,.9)
+	box.content_margin_left=24;box.content_margin_right=24;box.content_margin_top=20;box.content_margin_bottom=20
 	return box
 
 func button(text: String, action: Callable, parent: Node=column) -> Button:
 	var node := Button.new()
 	node.text=text
 	node.alignment=HORIZONTAL_ALIGNMENT_LEFT
-	node.custom_minimum_size.y=36
+	node.custom_minimum_size.y=40
 	node.add_theme_font_size_override("font_size",17)
-	for state in ["normal","hover","focus","pressed"]:
-		var box := style(Color("0b1b22") if state=="normal" else Color("172a2c"),Color("4f5345") if state=="normal" else Color("c39b62"))
-		box.content_margin_top=8
-		box.content_margin_bottom=8
-		node.add_theme_stylebox_override(state,box)
+	var palette := StationTheme.palette(false)
+	for state in ["normal","hover","focus","pressed","disabled"]:
+		node.add_theme_stylebox_override(state,StationTheme.button_state(false,state))
+	node.add_theme_color_override("font_color",palette.text);node.add_theme_color_override("font_focus_color",Color.WHITE);node.add_theme_color_override("font_hover_color",Color.WHITE)
+	node.add_theme_color_override("font_disabled_color",palette.faint)
 	node.pressed.connect(action)
 	parent.add_child(node)
 	return node

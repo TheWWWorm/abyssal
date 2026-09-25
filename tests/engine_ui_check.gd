@@ -160,6 +160,8 @@ func run():
  check_save_transfer(game)
  await check_controls_sections(game)
  await check_trade_quantity(game)
+ await check_outside_safety(game)
+ await check_notice_band(game)
  await check_travel_fade(game)
  check_motion_steering()
  check_touch_chase_and_gate_axis()
@@ -293,7 +295,7 @@ func check_dock_notices(game) -> void:
  while game.page in ["medal","dialogue"] and announced<30:
   if game.page=="medal":expect(game.column.find_children("*","TextureRect",true,false).any(func(icon):return icon.texture!=null),"A new medal is shown with its sprite")
   game.dock_back();announced+=1
- expect(game.page=="station" and game.overlay.visible and game.column.find_children("*","Button",true,false).any(func(button):return button.text=="DEPART >"),"Autopilot docking opens the station services instead of leaving only the exterior view")
+ expect(game.page=="station" and game.overlay.visible and game.column.find_children("*","Button",true,false).any(func(button):return button.text=="DEPART"),"Autopilot docking opens the station services instead of leaving only the exterior view")
  game.session.docked=false;game.clear_notices();game.close_page()
 
 func check_free_look(game) -> void:
@@ -382,6 +384,12 @@ func check_dock_navigation(game) -> void:
  expect(game.page=="hangar" and old.get_ref()==null,"Back returns to Hangar and frees the old showroom")
  var back:=InputEventJoypadButton.new();back.pressed=true;back.button_index=JOY_BUTTON_B;game._input(back)
  expect(game.page=="station","Gamepad B returns from Hangar to the dock")
+ # The shop's ship line opens the ship page, and Back returns to the shop.
+ game.equipment_tab=0;game.market_category="";game.show_market("equipment")
+ game.column.find_child("ShipLine",true,false).pressed.emit()
+ expect(game.page=="ship_status","The equipment shop's ship line opens the ship page")
+ game.dock_back()
+ expect(game.page=="market" and game.market_category=="equipment","Back from the ship page returns to the equipment shop")
  game.show_ship_status()
  var ship=game.column.find_child("CurrentShip",true,false)
  expect(ship.find_children("*","TextureRect",true,false)[0].texture==game.imported_art.item(game.session.ship.id,"ships"),"Ship and cargo uses the current owned hull icon")
@@ -671,6 +679,37 @@ func check_controls_sections(game) -> void:
  expect(named_button(game,"Steer by tilting")!=null,"Tilt steering is offered beside the other steering settings")
  expect(named_button(game,"Tilt sensitivity")==null,"Tilt settings stay hidden until tilt steering is on")
  game.close_page()
+
+func check_notice_band(game) -> void:
+ # A notice given while a menu is open moves to the flight band when it closes.
+ game.session.docked=false
+ game.show_destinations();await process_frame
+ game.notice("Manual control");await process_frame
+ game.close_page();await process_frame
+ expect(game.message.position.y<=game.flight_notice_top()+1,"A notice left from a menu moves to the top band in flight")
+ game.message.text="";game.notification_time=0
+
+func check_outside_safety(game) -> void:
+ # The original's chart warns (255) and asks (247) before a trip outside the
+ # hull's depth limits; it does not refuse one.
+ game.session.docked=false
+ var target:=-1
+ for station in game.session.stations:
+  if station.id!=game.session.station_id and (station.depth<game.session.ship.minimum_depth or station.depth>game.session.ship.maximum_depth): target=station.id;break
+ if target<0:
+  expect(false,"Some station lies outside the starting hull's depth limits");return
+ expect(game.world.outside_safety(target),"A station beyond the hull's limits is outside the safety zone")
+ expect(game.world.route_denial(target).is_empty(),"Autopilot is not refused for depth")
+ game.world.cancel_autopilot()
+ game.map_destination=target;game.map_autopilot();await process_frame
+ expect(game.page=="confirm" and not game.world.autopilot,"Choosing it asks first and sets no course yet")
+ expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains(game.session.text(255))),"The question carries the original warning")
+ named_button(game,"Cancel").pressed.emit();await process_frame
+ expect(game.page=="map" and not game.world.autopilot,"Cancel returns to the chart without a course")
+ game.map_destination=target;game.map_autopilot();await process_frame
+ named_button(game,"Travel").pressed.emit();await process_frame
+ expect(game.world.autopilot and game.world.destination==target,"Confirming sets the course anyway")
+ game.world.cancel_autopilot();game.close_page()
 
 func check_trade_quantity(game) -> void:
  # Filling a hold one tonne per press was the longest chore in the game.
