@@ -239,7 +239,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.6.0**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.6.1**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

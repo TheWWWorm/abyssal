@@ -10,11 +10,16 @@ var particles := ShaderMaterial.new()
 var radius := 20.0
 var bounds := AABB()
 var wake := MultiMesh.new()
+## Turned by dragging across the picture.
+var turn := 0.0
+var tilt := 0.0
+var dragging := false
 
 func configure(content, id: int, modern: bool, library=null) -> void:
  selected_id=id;name="ShipPreview";stretch=true
  custom_minimum_size=Vector2(280,280);size_flags_horizontal=Control.SIZE_EXPAND_FILL
- size_flags_vertical=Control.SIZE_EXPAND_FILL;mouse_filter=Control.MOUSE_FILTER_IGNORE
+ size_flags_vertical=Control.SIZE_EXPAND_FILL;mouse_filter=Control.MOUSE_FILTER_STOP
+ mouse_default_cursor_shape=Control.CURSOR_DRAG
  viewport.own_world_3d=true;viewport.size=Vector2i(360,320)
  viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE;add_child(viewport)
  var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env;viewport.add_child(environment)
@@ -53,6 +58,13 @@ func configure(content, id: int, modern: bool, library=null) -> void:
  self_modulate.a=0
  RenderingServer.frame_post_draw.connect(reveal,CONNECT_ONE_SHOT)
 
+func _gui_input(event: InputEvent) -> void:
+ # Touch arrives as emulated mouse events, so one path serves both.
+ if event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
+  dragging=event.pressed;accept_event()
+ elif event is InputEventMouseMotion and dragging:
+  turn+=event.relative.x*.012;tilt=clampf(tilt+event.relative.y*.006,-.5,.5);accept_event()
+
 func reveal() -> void:
  if is_inside_tree():self_modulate.a=1
 
@@ -61,7 +73,7 @@ func _process(delta: float) -> void:
  elapsed+=delta
  if vessel!=null:
   vessel.advance(roundi(delta*1000))
-  var attitude:=Basis.from_euler(Vector3(sin(elapsed*.7)*.025,0,sin(elapsed*.5)*.035))
+  var attitude:=Basis(Vector3.RIGHT,tilt)*Basis(Vector3.UP,turn)*Basis.from_euler(Vector3(sin(elapsed*.7)*.025,0,sin(elapsed*.5)*.035))
   vessel.transform=Transform3D(attitude,-(attitude*center)+Vector3(0,sin(elapsed)*radius*.015,0))
  if vessel!=null:
   for i in wake.instance_count:

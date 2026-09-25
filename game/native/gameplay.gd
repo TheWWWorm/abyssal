@@ -563,9 +563,11 @@ func fit_sheets() -> void:
 	var available: float=sheet_scroll.size.y
 	if column.get_combined_minimum_size().y>available:available-=48
 	sheet_pages.clear();var batch: Array=[];var height:=0.0
+	# The separation falls between rows only, not after the last one.
 	for child in column.get_children():
-		var next: float=child.get_combined_minimum_size().y+7
-		if height+next>available and not batch.is_empty():sheet_pages.append(batch);batch=[];height=0
+		if not child.visible:continue
+		var next: float=child.get_combined_minimum_size().y+(7.0 if not batch.is_empty() else 0.0)
+		if height+next>available+.5 and not batch.is_empty():sheet_pages.append(batch);batch=[];height=0;next=child.get_combined_minimum_size().y
 		batch.append(child);height+=next
 	if not batch.is_empty():sheet_pages.append(batch)
 	for child in sheet_bar.get_children():sheet_bar.remove_child(child);child.queue_free()
@@ -1951,6 +1953,8 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 	var terms := HBoxContainer.new();terms.add_theme_constant_override("separation",10);body.add_child(terms)
 	figure_tile("credits","Reward","%d cr"%mission.reward,terms)
 	figure_tile("shield","Deposit","%d cr"%mission.deposit,terms)
+	# Cards side by side share a row's height; the button keeps to the foot.
+	var foot := Control.new();foot.size_flags_vertical=Control.SIZE_EXPAND_FILL;foot.mouse_filter=Control.MOUSE_FILTER_IGNORE;body.add_child(foot)
 	primary(iconic(button("Accept contract",func():
 		if session.accept_contract(mission): show_station()
 		else: notice("Insufficient credits for the deposit."),body),"contracts",22))
@@ -2780,6 +2784,8 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
 		stage.add_child(preview)
 		preview.configure(content,entries[market_selection].item.id,modern_graphics,view.library)
+		# A drag across the showroom turns the hull instead of scrolling the page.
+		touch_scroll.gesture_control=preview
 		if ui.size.x<900:stage.custom_minimum_size.y=180
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=340 if ui.size.x>=900 else 0;frame.size_flags_horizontal=Control.SIZE_FILL if ui.size.x>=900 else Control.SIZE_EXPAND_FILL
 	var detail := VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",10);frame.add_child(detail)

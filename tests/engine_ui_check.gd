@@ -704,6 +704,8 @@ func check_outside_safety(game) -> void:
  game.map_destination=target;game.map_autopilot();await process_frame
  expect(game.page=="confirm" and not game.world.autopilot,"Choosing it asks first and sets no course yet")
  expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains(game.session.text(255))),"The question carries the original warning")
+ for frame in 4:await process_frame
+ expect(game.sheet_pages.size()<=1 and not game.sheet_bar.visible,"A two-answer question fits on one sheet")
  named_button(game,"Cancel").pressed.emit();await process_frame
  expect(game.page=="map" and not game.world.autopilot,"Cancel returns to the chart without a course")
  game.map_destination=target;game.map_autopilot();await process_frame
