@@ -50,6 +50,20 @@ func run() -> void:
  if arc_zone.get_center().distance_to(touch.zones.hook.get_center())<touch.arc_radius(arc_zone)+touch.zones.hook.size.x*.5+8:crowded.append("hook/throttle")
  expect(crowded.is_empty(),"Upright controls stay apart: %s"%[crowded])
  expect(is_equal_approx(touch.unit,minf(1280/1280.0,589/720.0)),"Upright controls keep their landscape size")
+ # Settings held upright: no page is wider than the phone (an iPhone browser
+ # with its bars is about 634 wide on the touch canvas).
+ for room in [Vector2(540,1280),Vector2(591,1280),Vector2(634,1280),Vector2(1280,720)]:
+  var holder:=Control.new();holder.size=room;root.add_child(holder)
+  var menu=preload("res://native/presentation/settings_menu.gd").new();holder.add_child(menu)
+  menu.configure("user://platform-fit.cfg",{},false,true)
+  var wide: Array=[]
+  for page in ["audio","graphics","display","controls","gameplay","steering","gamepad","touch","bindings","reference"]:
+   menu.open(page);await process_frame;await process_frame
+   if menu.get_combined_minimum_size().x>menu.size.x+.5 or not Rect2(Vector2.ZERO,room).encloses(menu.get_rect()):wide.append("%s %d>%d"%[page,menu.get_combined_minimum_size().x,menu.size.x])
+  expect(wide.is_empty(),"Settings fit a %dx%d canvas: %s"%[room.x,room.y,wide])
+  if room.x>=1280:expect(menu.tab_bar.columns==5,"A landscape canvas keeps the five tabs in one row")
+  else:expect(menu.tab_bar.columns<5,"An upright canvas stacks the tabs")
+  holder.queue_free()
  # Every size, landscape phones inside their notch margins included: round
  # controls keep a clear gap, and the depth label clears the top buttons.
  for dimensions in [Vector2(800,600),Vector2(1280,720),Vector2(1140,589),Vector2(2400,1080),Vector2(589,1184)]:

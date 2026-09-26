@@ -43,7 +43,7 @@ var scroll: ScrollContainer
 var column: VBoxContainer
 var tab_bar: GridContainer
 var subtitle: Label
-var legend: HBoxContainer
+var legend: HFlowContainer
 var back_button: Button
 var fonts := {}
 
@@ -85,8 +85,25 @@ func fit() -> void:
 	"""One size for every tab, so switching tabs never moves the frame."""
 	var room: Vector2=get_parent().size
 	var wanted:=Vector2(minf(780,room.x-(24.0 if room.x<560 else 48.0)),minf(room.y-(24.0 if room.y<560 else 48.0),760))
+	if tab_bar!=null:
+		var columns := tab_columns(wanted.x-get_theme_stylebox("panel").get_minimum_size().x)
+		if tab_bar.columns!=columns: tab_bar.columns=columns
 	if size!=wanted: size=wanted
 	if position!=((room-size)*.5).round(): position=((room-size)*.5).round()
+
+func tab_columns(inner: float) -> int:
+	"""All five tabs in a row when they fit, else rows of three or two: an
+	upright phone is too narrow for one row."""
+	var tabs := tab_bar.get_children()
+	for columns in [5,3,2]:
+		# A grid column is as wide as its widest tab.
+		var needed: float=(columns-1)*8.0
+		for place in columns:
+			var widest := 0.0
+			for at in range(place,tabs.size(),columns): widest=maxf(widest,tabs[at].get_combined_minimum_size().x)
+			needed+=widest
+		if needed<=inner: return columns
+	return 1
 
 # ---------------------------------------------------------------- the file
 
@@ -158,11 +175,11 @@ func build_chrome() -> void:
 		var node := styled_button(tab[1],func(): switch_to(tab[0],true),tab_bar)
 		node.name="Tab_"+tab[0];node.set_meta("option","tab_"+tab[0]);node.set_meta("tab",tab[0])
 		icon_on(node,tab[2],22)
-		node.add_theme_font_override("font",spaced(2))
+		node.add_theme_font_override("font",spaced(2));node.add_theme_font_size_override("font_size",17 if touch else 16)
 	scroll=ScrollContainer.new();scroll.name="Scroll";scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
 	column=VBoxContainer.new();column.name="Rows";column.size_flags_horizontal=Control.SIZE_EXPAND_FILL;column.add_theme_constant_override("separation",8);scroll.add_child(column)
-	legend=HBoxContainer.new();legend.name="KeyLegend";legend.add_theme_constant_override("separation",8);shell.add_child(legend)
+	legend=HFlowContainer.new();legend.name="KeyLegend";legend.add_theme_constant_override("h_separation",8);legend.add_theme_constant_override("v_separation",6);shell.add_child(legend)
 	legend.visible=not touch
 	for entry in [["ESC / B","BACK"],["LB / RB","SECTION"],["D-PAD / ARROWS","NAVIGATE"],["ENTER / A","SELECT"]]:
 		var boxed := StationTheme.frame(Color(0,0,0,0),colours().edge,0);boxed.set_content_margin_all(3);boxed.content_margin_left=7;boxed.content_margin_right=7
@@ -171,8 +188,6 @@ func build_chrome() -> void:
 		meaning.custom_minimum_size.x=meaning.get_minimum_size().x+14
 
 func refresh_tabs() -> void:
-	var wide: bool=get_parent().size.x>=620
-	tab_bar.columns=5 if wide else 3
 	for node in tab_bar.get_children():
 		var current: bool=node.get_meta("tab")==section
 		# The open tab keeps its lit frame whether or not it holds focus.
@@ -292,7 +307,7 @@ func chooser(title: String, names: Array, current: int, key: String, choose: Cal
 func slider(title: String, section_name: String, key: String, fallback: float, low: float, high: float, step: float, percent := false) -> HSlider:
 	var line := HBoxContainer.new();line.add_theme_constant_override("separation",16);column.add_child(line)
 	line.custom_minimum_size.y=56 if touch else 44
-	var words := plain(title,20 if touch else 16,line);words.size_flags_horizontal=Control.SIZE_FILL;words.custom_minimum_size.x=200 if get_parent().size.x>=620 else 130
+	var words := plain(title,20 if touch else 16,line);words.size_flags_horizontal=Control.SIZE_FILL;words.custom_minimum_size.x=200 if size.x>=700 else 130
 	words.add_theme_color_override("font_color",colours().text);words.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;words.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 	var node := HSlider.new();node.name="Slider_"+key;node.set_meta("option",key)
 	node.min_value=low;node.max_value=high;node.step=step;node.value=number(section_name,key,fallback,low,high)
@@ -377,7 +392,7 @@ func graphics_page() -> void:
 		put("graphics","modern",not enhanced))
 	note("Enhanced adds lights, fog and shading. Classic matches the original.")
 	group("Enhanced lighting")
-	var grid := GridContainer.new();grid.columns=2 if get_parent().size.x>=620 else 1;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
+	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
 	var names := {"headlights":"Headlights","beams":"Headlight beams","volumetric":"Volumetric light","detail":"Surface shading detail"}
 	for key in names:
 		var needs_forward: bool=key in ["volumetric","detail"] and not forward_plus()
@@ -478,7 +493,7 @@ func bindings_page() -> void:
 	if binding!="": note("Press a key for %s. Esc cancels."%action_name(binding)).add_theme_color_override("font_color",colours().value)
 	elif not binding_notice.is_empty(): note(binding_notice).add_theme_color_override("font_color",colours().bad)
 	else: note("Select an action, then press its new key. Esc cancels.")
-	var grid := GridContainer.new();grid.columns=2 if get_parent().size.x>=620 else 1;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
+	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
 	# Travel first: tap-or-hold autopilot is the binding players look for.
 	var order: Array=["autopilot","time"]
 	for action in DEFAULT_KEYS:
