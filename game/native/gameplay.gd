@@ -369,7 +369,9 @@ func layout() -> void:
 		overlay.position=Vector2(maxf(160,ui.size.x-minf(740,ui.size.x-190)-22),140);overlay.size=Vector2(minf(740,ui.size.x-190),maxf(260,ui.size.y-304))
 	place_message()
 	hazard_warning.size=Vector2(minf(640,ui.size.x-64),108);hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,flight_notice_top()+104)
-	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*.5+72,ui.size.y-282));catch_status.size=Vector2(480,44)
+	# Under the hull in the chase view (its keel sits near 71% of the height
+	# in landscape, 63% upright), clear of the helm strip below.
+	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*(.67 if ui.size.x<ui.size.y else .75),ui.size.y-(96.0*hud_scale()+64.0)));catch_status.size=Vector2(480,44)
 	struggle.position=Vector2(ui.size.x*.5-120,catch_status.position.y+42);struggle.size=Vector2(240,4)
 	travel_status.position=Vector2(ui.size.x*.5-240,ui.size.y-220);travel_status.size=Vector2(480,30)
 	objective_label.position=Vector2(30,103); objective_label.size=Vector2(minf(390,ui.size.x*.29),160); objective_label.add_theme_font_size_override("normal_font_size",12); objective_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
