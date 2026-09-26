@@ -68,7 +68,7 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	dive_audio.music_gain=clampf(float(config.get_value("audio","music",0.65)),0,1)
 	dive_audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1)
 	dive_audio.set_enabled(bool(config.get_value("graphics","audio",true)))
-	dive_audio.set_context("",true)
+	dive_audio.set_context("mainmenu",true)
 	dock_environment=sky_environment
 	if is_processing():abyss.environment.environment=sky_environment
 	built=true

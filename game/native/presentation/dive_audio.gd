@@ -19,6 +19,7 @@ static var wave_cache := {}
 var world
 var sounds := {}
 var source_paths := {}
+var intro_music: AudioStreamWAV
 var station_music: AudioStreamWAV
 ## The opening plays the game's track over the water; set for its length.
 var opening_music := false
@@ -69,14 +70,24 @@ func configure(owner_world, directory: String) -> void:
 			key="procedural:"+cue
 			if not wave_cache.has(key): wave_cache[key]=synthesize_cue(cue)
 		sounds[cue]=wave_cache[key]; source_paths[cue]=key
-	var music_path := directory.path_join("data/sound/station.mid.wav")
-	if FileAccess.file_exists(music_path):
-		if not wave_cache.has(music_path):
-			var music := AudioStreamWAV.load_from_file(music_path)
+		
+	var station_music_path := directory.path_join("data/sound/station.mid.wav")
+	if FileAccess.file_exists(station_music_path):
+		if not wave_cache.has(station_music_path):
+			var music := AudioStreamWAV.load_from_file(station_music_path)
 			if music!=null:
 				music.loop_mode=AudioStreamWAV.LOOP_FORWARD; music.loop_end=roundi(music.get_length()*music.mix_rate)
-			wave_cache[music_path]=music
-		station_music=wave_cache[music_path]
+			wave_cache[station_music_path]=music
+		station_music=wave_cache[station_music_path]
+		
+	var intro_music_path := directory.path_join("data/sound/intro.mid.wav")
+	if FileAccess.file_exists(intro_music_path):
+		if not wave_cache.has(intro_music_path):
+			var music := AudioStreamWAV.load_from_file(intro_music_path)
+			if music!=null:
+				music.loop_mode=AudioStreamWAV.LOOP_FORWARD; music.loop_end=roundi(music.get_length()*music.mix_rate)
+			wave_cache[intro_music_path]=music
+		intro_music=wave_cache[intro_music_path]
 	# Upload once during content loading, never on the first shot in flight.
 	if OS.has_feature("web"):
 		for sound in sounds.values():
@@ -98,7 +109,7 @@ func prepare_web_music(key: String, sound: AudioStream) -> bool:
 	web_music.prepare(key,Marshalls.raw_to_base64(sound.data),sound.mix_rate,sound.stereo)
 	return true
 func set_context(page: String, docked: bool) -> void:
-	context="station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure","opening"] else "paused"
+	context="mainmenu" if page=="mainmenu" else "station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure","opening"] else "paused"
 func set_enabled(value: bool) -> void:
 	if enabled==value: return
 	enabled=value; pending.clear(); ui_requests.clear(); priority_until=-1; last_played.clear()
@@ -187,10 +198,10 @@ func _process(_delta: float) -> void:
 	# opening (l, ch, br.a); br.void_a stops it on the way out into the water,
 	# where the only sound is the ocean's own cue every ten seconds. Without
 	# imported content the code-authored ocean bed stands in for that track.
-	var bed := "station" if (context=="station" or opening_music) and station_music!=null else "ocean" if station_music==null and (context=="station" or opening_music) else ""
+	var bed := "intro" if (opening_music or context=="mainmenu") and intro_music != null else "station" if (context=="station" or opening_music) and station_music!=null else "ocean" if station_music==null and (context=="station" or opening_music) else ""
 	if previous_bed!=bed:
 		if web_music!=null and not previous_bed.is_empty():web_music.stop()
-		stream=station_music if bed=="station" else ambience if bed=="ocean" else null
+		stream=intro_music if bed=="intro" else station_music if bed=="station" else ambience if bed=="ocean" else null
 		previous_bed=bed
 		music_paused=false
 		web_bed=not bed.is_empty() and prepare_web_music(bed,stream)
