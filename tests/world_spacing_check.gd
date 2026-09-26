@@ -93,8 +93,8 @@ func check_ui(cache: String) -> void:
 	app.settings_path="user://world-spacing-check.cfg";app.save_path="user://world-spacing-check.json"
 	for path in [app.settings_path,app.save_path,app.save_path+".bak"]:DirAccess.remove_absolute(path)
 	root.add_child(app);await process_frame;root.size=Vector2i(800,600);await process_frame
-	app.open_cache(cache);app.show_world_settings();await process_frame;await process_frame
-	var controls=app.modal.find_child("WorldSpacingPreset",true,false).get_parent()
+	app.open_cache(cache);app.show_settings("gameplay");await process_frame;await process_frame
+	var controls=app.settings_panel.find_child("WorldSpacingPreset",true,false).get_parent()
 	expect(controls.selector.get_selected_id()==Spacing.Preset.MEDIUM_SHORT,"Title settings initially select Medium short")
 	expect(controls.selector.item_count==6 and controls.selector.get_item_text(1)=="Medium short · 15 km squares","Medium short appears between Short and Normal")
 	select(controls.selector,Spacing.Preset.CUSTOM);controls.custom.value=86.4
@@ -106,10 +106,10 @@ func check_ui(cache: String) -> void:
 	controls.custom.value=86.4
 	for preset in Spacing.ORDER:
 		select(controls.selector,preset);await process_frame;await process_frame
-		expect(root.get_visible_rect().encloses(app.modal.get_global_rect()),"Spacing option %d fits the title screen: viewport %s, dialog %s"%[preset,root.get_visible_rect(),app.modal.get_global_rect()])
+		expect(root.get_visible_rect().encloses(app.settings_panel.get_global_rect()),"Spacing option %d fits the title screen: viewport %s, dialog %s"%[preset,root.get_visible_rect(),app.settings_panel.get_global_rect()])
 		var stored:=ConfigFile.new();stored.load(app.settings_path);var preference:=Spacing.new();preference.read_config(stored)
 		expect(preference.preset==preset and preference.custom_meters==3456,"Title choices persist without losing the custom number")
-	select(controls.selector,Spacing.Preset.MEDIUM_SHORT);app.close_modal();app.launch_game(false,"Spacing test")
+	select(controls.selector,Spacing.Preset.MEDIUM_SHORT);app.settings_panel.back();app.launch_game(false,"Spacing test")
 	await process_frame;await process_frame
 	var game=current_scene;game.set_process(false)
 	game.view.set_process(false);game.view._process(0)
@@ -117,13 +117,13 @@ func check_ui(cache: String) -> void:
 	var old_neighbors: Array=game.view.neighbors.values().map(func(entry):return entry.root)
 	expect(not old_neighbors.is_empty(),"Spacing fixture includes visible neighbouring stations")
 	expect(game.world.session.world_layout.spacing_meters==600,"Starting an expedition uses the saved Medium short setting")
-	game.show_world_settings();await process_frame;await process_frame
-	controls=game.column.find_child("WorldSpacingPreset",true,false).get_parent()
+	game.show_settings("gameplay");await process_frame;await process_frame
+	controls=game.settings_panel.find_child("WorldSpacingPreset",true,false).get_parent()
 	var checkpoint: Dictionary=Save.capture(game.session)
 	var position: Array=game.world.global_position();select(controls.selector,Spacing.Preset.HIGH)
 	expect(Save.capture(game.session)==checkpoint and game.world.global_position()==position,"Changing settings preserves the expedition and current position")
 	expect(game.world.session.world_layout.spacing_meters==600 and game.world.spacing_meters==2000,"High waits for the next departure")
-	expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains("Next departure: 50 km grid squares")),"Settings make pending changes visible as grid squares")
+	expect(game.settings_panel.find_children("*","Label",true,false).any(func(node):return node.text.contains("Next departure: 50 km grid squares")),"Settings make pending changes visible as grid squares")
 	game.reload_game()
 	game.view.rebuild()
 	expect(old_neighbors.all(func(node):return node.is_queued_for_deletion()),"Changing scale discards streamed station positions from the old dive")

@@ -88,7 +88,7 @@ func build_toolbar() -> void:
 	rows.add_child(actions)
 	for item in [["−",zoom.bind(1.15)],["+",zoom.bind(1.0/1.15)],["Lights",toggle_lights],
 			["Reset camera",reset_camera],["Hide panel",toggle_panel],
-			["Back to pause",dismiss.bind(false)],["Resume dive",dismiss.bind(true)]]:
+			["Back to pause",dismiss.bind(false)],["Resume",dismiss.bind(true)]]:
 		var node := Button.new()
 		node.text=item[0]
 		node.custom_minimum_size=Vector2(74,38)

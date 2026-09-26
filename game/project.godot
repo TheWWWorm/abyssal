@@ -28,7 +28,7 @@ window/size/min_height=600
 window/size/window_width_override=1280
 window/size/window_height_override=720
 window/stretch/mode="canvas_items"
-window/handheld/orientation=0
+window/handheld/orientation=6
 
 [input]
 

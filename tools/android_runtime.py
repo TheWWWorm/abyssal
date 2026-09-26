@@ -53,7 +53,7 @@ def stage(project, godot, release):
         '<meta-data android:name="org.godotengine.plugin.v2.AbyssalImporter" '
         'android:value="org.abyssal.engine.AbyssalImporter" />\n'
         '<activity android:name="org.abyssal.engine.AbyssalImportActivity" android:exported="false" '
-        'android:process=":importer" android:screenOrientation="landscape" android:hardwareAccelerated="false" '
+        'android:process=":importer" android:screenOrientation="fullSensor" android:hardwareAccelerated="false" '
         'android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" '
         'android:configChanges="orientation|screenSize|keyboardHidden" />\n</application>')
     manifest.write_text(text)

@@ -34,15 +34,29 @@ func run():
   app.title_menu.toggle_help();await process_frame
   expect(root.get_visible_rect().encloses(app.title_menu.help.get_global_rect()),"Help fits %s"%dimensions)
   app.title_menu.toggle_help();app.show_settings();await process_frame;await process_frame
-  expect(root.get_visible_rect().encloses(app.modal.get_global_rect()),"Options fit %s"%dimensions)
-  app.close_modal()
- app.show_settings();await process_frame
- var title_hints=app.modal.find_children("*","CheckButton",true,false).filter(func(node):return node.text=="Gameplay tips and control hints")
- expect(title_hints.size()==1 and title_hints[0].button_pressed,"Title options expose enabled gameplay hints")
- title_hints[0].set_pressed_no_signal(false);title_hints[0].toggled.emit(false)
+  expect(root.get_visible_rect().encloses(app.settings_panel.get_global_rect()),"Options fit %s"%dimensions)
+  app.settings_panel.back()
+ app.show_settings("gameplay");await process_frame;await process_frame
+ var title_hints:=panel_button(app.settings_panel,"Gameplay tips & control hints")
+ expect(title_hints!=null and title_hints.get_node("Value").text=="On","Title options expose enabled gameplay hints")
+ title_hints.pressed.emit();await process_frame
  var title_config:=ConfigFile.new();title_config.load(app.settings_path)
  expect(not bool(title_config.get_value("interface","hints",true)) and app.loading_hint(1).is_empty(),"Turning hints off at the title also removes loading tips")
- title_hints[0].set_pressed_no_signal(true);title_hints[0].toggled.emit(true);app.close_modal()
+ panel_button(app.settings_panel,"Gameplay tips & control hints").pressed.emit();await process_frame
+ title_config.load(app.settings_path)
+ expect(bool(title_config.get_value("interface","hints",false)),"The title switch restores hints")
+ app.settings_panel.back()
+ expect(not app.settings_panel.visible,"Back at the top of settings closes the panel")
+ # Browser build: a corner fullscreen switch on the bare main menu only.
+ app.fullscreen_button.web_build=true;app._process(0)
+ var corner: Rect2=app.fullscreen_button.get_global_rect()
+ expect(app.fullscreen_button.visible and corner.end.x>root.get_visible_rect().size.x-120 and corner.position.y<120,"The browser main menu shows fullscreen in the top-right corner")
+ app.show_settings();app._process(0)
+ expect(not app.fullscreen_button.visible,"The corner switch steps aside for settings")
+ app.settings_panel.back();app._process(0)
+ expect(app.fullscreen_button.visible,"It comes back with the main menu")
+ app.fullscreen_button.web_build=false;app._process(0)
+ expect(not app.fullscreen_button.visible,"Desktop and phone apps do not show it")
  root.size=Vector2i(1280,720);app.show_start();await process_frame
  expect(app.face_preview.texture!=null,"Portrait creator reads local JAR art")
  app.close_modal();app.launch_game(false,"Engine test");await process_frame;await process_frame
@@ -131,9 +145,11 @@ func run():
  game.close_page();key.pressed=true;game._unhandled_input(key);game.autopilot_pressed_at-=500;game._process(0)
  expect(game.world.autopilot and game.page.is_empty(),"Hold R navigates the current objective without opening a menu")
  key.pressed=false;game._unhandled_input(key);game.world.cancel_autopilot()
- game.show_controls("bindings")
+ game.show_settings("bindings")
  for i in 4:await process_frame
- expect(game.column.find_children("*","Button",true,false).any(func(node):return node.text.begins_with("Autopilot (tap / hold)") and node.is_visible_in_tree()),"Autopilot control is prominently visible")
+ expect(game.settings_panel.column.find_children("*","Button",true,false).any(func(node):return node.text.begins_with("Autopilot (tap / hold)") and node.is_visible_in_tree()),"Autopilot control is prominently visible")
+ await check_key_rebinding(game)
+ game.close_page()
  game.show_map();await process_frame
  expect(game.map_widget!=null,"Searchable route map retained")
  for direction in [Vector3(1,0,0),Vector3(0,0,1),Vector3(-1,0,0),Vector3(0,0,-1),Vector3(1,1,-1)]:
@@ -191,6 +207,20 @@ func check_music_transitions(game) -> void:
  expect(music.transitions==[true,false,true,false],"Dialogue resumes the same music bed once")
  music.set_enabled(false);music.set_enabled(true);music.set_context("autopilot",false);music._process(0)
  expect(music.music_paused and music.transitions[-1],"Re-enabled music respects the current menu")
+ var intro := AudioStreamWAV.new();var station := AudioStreamWAV.new()
+ music.music_tracks={"intro":intro,"station":station}
+ music.read_title_track({})
+ expect(music.title_track()=="station","Imports without a music table keep the 1.0.8 title track")
+ music.read_title_track({"music":["intro.mid","station.mid"]})
+ expect(music.title_track()=="intro" and music.title_choice_text()=="Auto · Intro","Auto follows a 1.0.3 JAR's intro track")
+ music.title_choice=2
+ expect(music.title_track()=="station","The player can choose the station track")
+ music.title_choice=1;music.read_title_track({"music":["station.mid","station.mid"]})
+ expect(music.title_track()=="intro","The player can choose the intro track on a 1.0.8 JAR")
+ music.music_tracks.erase("intro")
+ expect(music.title_track()=="station","A missing intro track falls back to station")
+ music.set_context("title",true);music._process(0)
+ expect(music.stream==station,"The title screen plays the title track, not silence")
  music.queue_free()
 
 func check_oblique_portals(game) -> void:
@@ -393,7 +423,7 @@ func check_dock_navigation(game) -> void:
  game.show_ship_status()
  var ship=game.column.find_child("CurrentShip",true,false)
  expect(ship.find_children("*","TextureRect",true,false)[0].texture==game.imported_art.item(game.session.ship.id,"ships"),"Ship and cargo uses the current owned hull icon")
- game.show_system();game.show_controls();game.dock_back();expect(game.page=="system","Settings return to System at the dock")
+ game.show_system();game.show_settings();game.settings_panel.back();expect(game.page=="system","Settings return to System at the dock")
  game.session.docked=false;game.close_page()
 
 func check_departure(game) -> void:
@@ -484,16 +514,16 @@ func check_confirmations(game) -> void:
 func check_option_focus(game) -> void:
  # A long settings list that jumps back to the top on every toggle is unusable
  # on a pad. Focus has to stay on the row the player just changed.
- game.show_controls("steering");await process_frame;await process_frame
+ game.show_settings("steering");await process_frame;await process_frame
  var before: bool=game.invert_mouse
- var row := named_button(game,"Invert vertical mouse")
+ var row := panel_button(game.settings_panel,"Invert vertical mouse")
  expect(row!=null and row.get_meta("option","")=="invert_mouse","Settings rows carry the key focus returns to")
  row.pressed.emit();await process_frame;await process_frame
  expect(game.invert_mouse!=before,"The row still performs its setting")
  var focused := root.gui_get_focus_owner()
  expect(focused!=null and focused.get_meta("option","")=="invert_mouse","Focus stays on the toggled row instead of the top of the list")
- expect(game.controls_section=="steering","A setting rebuilds its own section rather than dropping to the section list")
- row=named_button(game,"Invert vertical mouse");row.pressed.emit();await process_frame;await process_frame
+ expect(game.settings_panel.subpage=="steering","A setting rebuilds its own section rather than dropping to the section list")
+ row=panel_button(game.settings_panel,"Invert vertical mouse");row.pressed.emit();await process_frame;await process_frame
  expect(game.invert_mouse==before,"Toggling back restores the original setting")
  game.close_page()
 
@@ -511,9 +541,9 @@ func check_gameplay_hints(game) -> void:
  game.save_settings()
  var config:=ConfigFile.new();config.load(game.settings_path)
  expect(not bool(config.get_value("interface","hints",true)),"The in-game hint preference is saved")
- game.show_controls("");await process_frame;await process_frame
- var toggle:=named_button(game,"Gameplay tips & control hints")
- expect(toggle!=null and toggle.text.ends_with("Off"),"Controls expose the gameplay hint switch")
+ game.show_settings("gameplay");await process_frame;await process_frame
+ var toggle:=panel_button(game.settings_panel,"Gameplay tips & control hints")
+ expect(toggle!=null and toggle.get_node("Value").text=="Off","Settings expose the gameplay hint switch")
  toggle.pressed.emit();await process_frame;await process_frame
  expect(game.gameplay_hints,"The in-game switch can restore hints")
  game.close_page()
@@ -580,7 +610,7 @@ func check_action_freeze(game) -> void:
   root.size=dimensions;await process_frame;await process_frame
   expect(Rect2(Vector2.ZERO,game.freeze_view.size).encloses(bar.get_global_rect()),"Action freeze controls stay on screen at %s"%dimensions)
  root.size=Vector2i(1280,720);await process_frame;await process_frame
- expect(toolbar_button(bar,"Resume dive")!=null and toolbar_button(bar,"Back to pause")!=null,"Action freeze offers a way out that needs no keyboard")
+ expect(toolbar_button(bar,"Resume")!=null and toolbar_button(bar,"Back to pause")!=null,"Action freeze offers a way out that needs no keyboard")
  expect(game.view.process_mode==Node.PROCESS_MODE_DISABLED,"The flight view stops driving the camera while frozen")
  game.freeze_view.orbit(Vector2(120,0));game.freeze_view.zoom(1.4)
  expect(game.camera.global_transform!=before,"The frozen camera actually moves")
@@ -594,7 +624,7 @@ func check_action_freeze(game) -> void:
  expect(game.camera.global_transform.is_equal_approx(before),"Leaving restores the flight camera exactly")
  # And the on-screen button does the same thing, for players with no keyboard.
  game.close_page();game.show_action_freeze();await process_frame;await process_frame
- toolbar_button(game.freeze_view.toolbar,"Resume dive").pressed.emit();await process_frame;await process_frame
+ toolbar_button(game.freeze_view.toolbar,"Resume").pressed.emit();await process_frame;await process_frame
  expect(game.page=="" and game.freeze_view==null,"The Resume control returns to the dive")
  expect(game.camera.global_transform.is_equal_approx(before),"Resuming restores the flight camera exactly")
 
@@ -663,22 +693,75 @@ func check_save_feedback(game) -> void:
 func check_controls_sections(game) -> void:
  # Every control on one page was longer than a pad could comfortably walk, and
  # the sliders sat at the bottom of it.
- game.session.docked=false;game.show_controls();await process_frame;await process_frame
- expect(game.controls_section.is_empty(),"Controls opens on its list of sections")
+ game.session.docked=false;game.show_settings("controls");await process_frame;await process_frame
+ var panel=game.settings_panel
+ expect(game.page=="settings" and panel.visible and panel.subpage.is_empty(),"Controls opens on its list of sections")
  for key in ["steering","gamepad","touch","bindings","reference"]:
-  expect(game.find_option(game.column,key)!=null,"Controls lists the %s section"%key)
- expect(game.column.find_children("*","HSlider",true,false).is_empty(),"The section list carries no settings of its own")
- game.find_option(game.column,"touch").pressed.emit();await process_frame;await process_frame
- expect(game.controls_section=="touch" and game.page=="controls","A section row opens that section")
- expect(named_button(game,"Touch controls ·")!=null,"The touch section carries the touch settings")
- game.dock_back();await process_frame;await process_frame
- expect(game.controls_section.is_empty(),"Back inside Controls returns to the section list, not out of settings")
+  expect(panel.find_option(panel.column,key)!=null,"Controls lists the %s section"%key)
+ expect(panel.column.find_children("*","HSlider",true,false).is_empty(),"The section list carries no settings of its own")
+ for key in ["steering","gamepad","touch","bindings","reference"]:
+  expect(panel.find_option(panel.column,key).get_node_or_null("Value")==null,"The %s row opens a page, so it shows no value that reads as a choice"%key)
+ panel.find_option(panel.column,"touch").pressed.emit();await process_frame;await process_frame
+ expect(panel.subpage=="touch","A section row opens that section")
+ expect(panel_button(panel,"Touch controls")!=null,"The touch section carries the touch settings")
+ panel.back();await process_frame;await process_frame
+ expect(panel.subpage.is_empty() and panel.visible,"Back inside Controls returns to the section list, not out of settings")
  var focused := root.gui_get_focus_owner()
  expect(focused!=null and focused.get_meta("option","")=="touch","Leaving a section puts focus back on the row that opened it")
- game.show_controls("steering");await process_frame;await process_frame
- expect(named_button(game,"Steer by tilting")!=null,"Tilt steering is offered beside the other steering settings")
- expect(named_button(game,"Tilt sensitivity")==null,"Tilt settings stay hidden until tilt steering is on")
+ game.show_settings("steering");await process_frame;await process_frame
+ expect(panel_button(panel,"Steer by tilting")!=null,"Tilt steering is offered beside the other steering settings")
+ expect(panel_button(panel,"Tilt sensitivity")==null,"Tilt settings stay hidden until tilt steering is on")
+ # One panel for every place: the pause menu and System lead to it, not to
+ # separate Controls, Graphics and World pages.
+ game.show_pause();await process_frame
+ var rows: Array=game.column.find_children("*","Button",true,false).map(func(node):return node.text)
+ expect("Settings" in rows and not ("Graphics" in rows or "World" in rows or "Controls" in rows),"The pause menu has one Settings entry")
+ for id in ["audio","graphics","display","controls","gameplay"]:
+  game.show_settings(id);await process_frame
+  expect(panel.section==id and panel.find_child("Tab_"+id,true,false)!=null,"Settings opens on the %s tab"%id)
+ game.show_settings("audio");await process_frame
+ var pad:=InputEventJoypadButton.new();pad.button_index=JOY_BUTTON_RIGHT_SHOULDER;pad.pressed=true;panel._input(pad)
+ expect(panel.section=="graphics","RB steps to the next settings tab")
+ pad.button_index=JOY_BUTTON_LEFT_SHOULDER;panel._input(pad);panel._input(pad)
+ expect(panel.section=="gameplay","LB steps back round to the last tab")
+ game.show_settings("audio");await process_frame
+ var music:=panel_button(panel,"Menu and opening music")
+ expect(music!=null and music.get_node("Value").text.begins_with("Auto"),"Audio offers the menu music choice")
+ music.pressed.emit();await process_frame
+ expect(game.dive_audio.title_choice==1,"Choosing Intro reaches the dive's music")
+ panel_button(panel,"Menu and opening music").pressed.emit();panel_button(panel,"Menu and opening music").pressed.emit();await process_frame
+ expect(game.dive_audio.title_choice==0,"The choice cycles back to Auto")
  game.close_page()
+ expect(not panel.visible,"Closing the page closes the panel with it")
+ game.fullscreen_button.web_build=true
+ game.show_pause();game._process(0)
+ expect(game.fullscreen_button.visible,"The browser pause menu shows the corner fullscreen switch")
+ game.show_settings();game._process(0)
+ expect(not game.fullscreen_button.visible,"Other pages do not show it")
+ game.close_page();game._process(0)
+ expect(not game.fullscreen_button.visible,"Flight does not show it")
+ game.fullscreen_supported=false;game.message.text=""
+ game.fullscreen_button.pressed.emit()
+ expect(game.message.text.contains("Add to Home Screen"),"Without the Fullscreen API the switch explains the home-screen route")
+ game.fullscreen_supported=true;game.fullscreen_button.web_build=false
+
+func check_key_rebinding(game) -> void:
+ var panel=game.settings_panel
+ panel.find_option(panel.column,"key_camera").pressed.emit();await process_frame
+ expect(panel.binding=="camera","Choosing an action waits for its key")
+ var key:=InputEventKey.new();key.physical_keycode=KEY_V;key.keycode=KEY_V;key.pressed=true;panel._input(key);await process_frame
+ expect(game.key_bindings.camera==KEY_V and panel.binding.is_empty(),"The pressed key is bound and reaches the dive")
+ panel.find_option(panel.column,"key_camera").pressed.emit();await process_frame
+ key.physical_keycode=KEY_M;key.keycode=KEY_M;panel._input(key);await process_frame
+ expect(game.key_bindings.camera==KEY_V and not panel.binding_notice.is_empty(),"A key already in use is refused with a reason")
+ panel.find_option(panel.column,"key_camera").pressed.emit();await process_frame
+ key.physical_keycode=KEY_C;key.keycode=KEY_C;panel._input(key);await process_frame
+ expect(game.key_bindings.camera==KEY_C,"The default comes back the same way")
+
+func panel_button(panel, caption: String) -> Button:
+ for node in panel.column.find_children("*","Button",true,false):
+  if str(node.text).begins_with(caption):return node
+ return null
 
 func check_notice_band(game) -> void:
  # A notice given while a menu is open moves to the flight band when it closes.

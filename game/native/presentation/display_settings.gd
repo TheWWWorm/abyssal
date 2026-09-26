@@ -30,3 +30,24 @@ static func apply(window: Window, ratio: String, fallback: Vector2i) -> void:
 	var shape := Window.CONTENT_SCALE_ASPECT_EXPAND if chosen=="auto" else Window.CONTENT_SCALE_ASPECT_KEEP
 	if window.content_scale_size!=wanted: window.content_scale_size=wanted
 	if window.content_scale_aspect!=shape: window.content_scale_aspect=shape
+
+static func responsive_size(pixels: Vector2i, touch: bool) -> Vector2i:
+	"""The interface canvas for a window: a desktop canvas grows with the window
+	up to 1920 wide; touch keeps 1280 on the long side. Held upright, the long
+	side is 1280 as it is held landscape, so every control and line of text
+	keeps its size on the same phone. The title and the dive share this."""
+	var width := 1280 if touch else clampi(pixels.x,1280,1920)
+	var size := Vector2i(width,roundi(width*float(pixels.y)/maxf(1,pixels.x)))
+	if touch and pixels.y>pixels.x: size=Vector2i(roundi(1280.0*pixels.x/pixels.y),1280)
+	return size
+
+const ORIENTATIONS := ["Auto · any direction","Landscape","Portrait"]
+static func orientation_setting_available() -> bool:
+	"""Only an installed phone app turns its own screen; a browser tab cannot."""
+	return OS.has_feature("mobile") and not OS.has_feature("web")
+static func apply_orientation(choice: int) -> void:
+	# Auto follows the sensor through every direction, so a phone mounted
+	# upside down in a controller clamp (USB port on the other side) turns the
+	# picture the right way up; Landscape and Portrait still turn over.
+	if not orientation_setting_available(): return
+	DisplayServer.screen_set_orientation([DisplayServer.SCREEN_SENSOR,DisplayServer.SCREEN_SENSOR_LANDSCAPE,DisplayServer.SCREEN_SENSOR_PORTRAIT][clampi(choice,0,2)])

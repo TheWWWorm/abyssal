@@ -69,6 +69,14 @@ var images := preload("res://native/platform/image_file.gd").new()
 var mods_target := ""
 var mods_notice := ""
 var load_path := ""
+## The shared settings screen (settings_menu.gd), made on first use.
+var settings_panel
+## Browser build only: the corner fullscreen switch over the main menu.
+var fullscreen_button
+const FullscreenButton = preload("res://native/presentation/fullscreen_button.gd")
+const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
+const TouchControls = preload("res://native/input/touch_controls.gd")
+const Display = preload("res://native/presentation/display_settings.gd")
 
 func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
 	var node := Label.new()
@@ -126,6 +134,9 @@ func _ready() -> void:
 	title_menu.quit_requested.connect(func(): get_tree().quit())
 	title_menu.help_requested.connect(show_help)
 	title_menu.mods_requested.connect(show_mods)
+	fullscreen_button=FullscreenButton.new(func(): FullscreenButton.toggle(func(text): status.text=text))
+	var start_config := ConfigFile.new();start_config.load(settings_path)
+	Display.apply_orientation(clampi(int(start_config.get_value("view","orientation",0)),0,2))
 	add_child(images)
 	images.chosen.connect(install_texture)
 	images.failed.connect(func(message):mods_notice=message;show_mod_textures())
@@ -173,6 +184,7 @@ func _ready() -> void:
 	modal.minimum_size_changed.connect(func():layout_ui.call_deferred())
 	modal.hide()
 	ui.add_child(loading);loading.add_theme_stylebox_override("panel",style(Color("07151df5"),Color("409bbd")));loading.hide()
+	ui.add_child(fullscreen_button)
 	var loading_row := HBoxContainer.new();loading_row.add_theme_constant_override("separation",18);loading.add_child(loading_row)
 	loading_spinner=label("◐",30,Color("8bd6ee"));loading_row.add_child(loading_spinner)
 	loading_caption=label("",19);loading_caption.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;loading_row.add_child(loading_caption)
@@ -198,7 +210,7 @@ func _ready() -> void:
 	# through their own pickers.
 	if not OS.has_feature("web") and not OS.has_feature("android"): get_window().files_dropped.connect(dropped_files)
 	ui.resized.connect(layout_ui)
-	get_window().size_changed.connect(apply_side_margins);apply_side_margins()
+	get_window().size_changed.connect(fit_window);fit_window()
 	layout_ui()
 	var args := OS.get_cmdline_user_args()
 	var config := ConfigFile.new();config.load(settings_path)
@@ -262,6 +274,18 @@ func import_pack(path: String) -> void:
 	if cache.is_empty():status.text=pack_importer.failure;return
 	selected_jar="";open_cache(cache)
 
+func fit_window() -> void:
+	"""The title uses the dive's canvas rule, so an upright phone gets an upright
+	title rather than a letterboxed landscape one."""
+	var pixels := get_window().size
+	if pixels.x>0 and pixels.y>0:
+		var config := ConfigFile.new();config.load(settings_path)
+		# The dive's rule (touch_controls.enabled), read before any dive exists.
+		var mode:=clampi(int(config.get_value("input","touch",0)),0,2)
+		var last:=TouchControls.last_input
+		var touch: bool=mode==1 or (mode==0 and (last=="touch" or (last.is_empty() and DisplayServer.is_touchscreen_available())))
+		Display.apply(get_window(),Display.valid(str(config.get_value("view","aspect_ratio","auto"))),Display.responsive_size(pixels,touch))
+	apply_side_margins()
 func apply_side_margins() -> void:
 	# The title menus keep clear of a phone's notch as the flight interface does.
 	var margin: Dictionary=preload("res://native/platform/safe_margins.gd").margins(get_viewport().get_visible_rect().size,get_window().size,DisplayServer.is_touchscreen_available())
@@ -342,6 +366,8 @@ func toggle_lights() -> void:
 
 func _process(delta: float) -> void:
 	if tools_status.text!=status.text: tools_status.text=status.text
+	var settings_open: bool=is_instance_valid(settings_panel) and settings_panel.visible
+	fullscreen_button.place(title_menu.visible and not inspector_open and not modal.visible and not loading.visible and not settings_open)
 	if loading.visible:loading_spinner.text=["◐","◓","◑","◒"][int(Time.get_ticks_msec()/160)%4]
 	if import_busy and bundled_import and FileAccess.file_exists(import_progress):
 		var progress:=FileAccess.get_file_as_string(import_progress)
@@ -458,13 +484,13 @@ func close_modal() -> void:
 func _exit_tree() -> void:
 	if importer.is_started(): importer.wait_to_finish()
 
-func show_start(player_name: String="Diver") -> void:
+func show_start(player_name: String="Pilot") -> void:
 	if not ready_for_preview: return
 	face_art.root=content.root
 	for child in modal.get_children(): modal.remove_child(child); child.queue_free()
 	var shell := VBoxContainer.new();shell.name="CharacterSheet";shell.add_theme_constant_override("separation",12); modal.add_child(shell)
 	shell.add_child(label("CREATE YOUR CHARACTER",26,Color("8bd6ee")))
-	shell.add_child(label("Choose your name and portrait for this expedition.",15))
+	shell.add_child(label("Choose your name and portrait.",15))
 	# Scrolls only where a phone's height cannot hold it all.
 	var scroll:=ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
@@ -495,9 +521,9 @@ func show_start(player_name: String="Diver") -> void:
 		var saved:=ConfigFile.new();saved.load(settings_path);spacing.write_config(saved)
 		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
 		if saved.save(settings_path)!=OK:status.text="Could not save settings. Check your user folder.")
-	box.add_child(label("You can change this later under Options → World.",14,Color("89a6a6")))
+	box.add_child(label("Change later in Options → Gameplay.",14,Color("89a6a6")))
 	shell.add_child(label("Your previous checkpoint is kept as a backup.",12,Color("89a6a6")))
-	button("BEGIN EXPEDITION >",func(): launch_game(false,name_field.text.strip_edges()),shell)
+	button("START GAME",func(): launch_game(false,name_field.text.strip_edges()),shell)
 	button("Back",close_modal,shell)
 	scrim.show(); modal.show();layout_ui();name_field.grab_focus.call_deferred()
 func random_face() -> void:
@@ -545,7 +571,7 @@ func show_load() -> void:
 	for index in 4:
 		var path: String=save_path if index==3 else store.slot_path(index)
 		var entry: Dictionary=store.summary(path,content.data) if FileAccess.file_exists(path) else {}
-		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():launch_game(true,"Diver",path),box)
+		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():launch_game(true,"Pilot",path),box)
 		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT;choice.disabled=entry.is_empty()
 		if first==null and not entry.is_empty():first=choice
 	var back := button("Back",close_modal,box)
@@ -600,10 +626,10 @@ func show_mods() -> void:
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
 	box.add_child(label("MODS",24,Color("8bd6ee")))
-	var intro := label("Your own art in place of the imported art. Nothing here ships with the game; whatever you put in stands in for the original, and the original is a click away.",13,Color("a2c3d3"))
+	var intro := label("Replace the game's textures with your own PNGs. Remove a replacement to restore the original.",13,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=560;box.add_child(intro)
 	var textures := button("Textures",show_mod_textures,box)
-	box.add_child(label("The two atlases every hull, station and creature is painted from, and a folder for your replacements.",12,Color("89a6a6")))
+	box.add_child(label("The two texture atlases used by all models.",12,Color("89a6a6")))
 	var back := button("Back",close_modal,box)
 	scrim.show();modal.show();layout_ui();textures.grab_focus.call_deferred()
 
@@ -635,7 +661,7 @@ func show_mod_textures() -> void:
 	if not ready_for_preview:
 		box.add_child(label("Import your DEEP JAR first; the textures come from it.",15))
 		var only := button("Back",show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
-	var intro := label("Two atlases draw the whole game. One PNG of any size stands in for either - keep the layout, since every model addresses it by the original's texels. Where a polygon is meant to see through, the atlas is pure white (or transparent); everything else is opaque. Changes show at once.",12,Color("a2c3d3"))
+	var intro := label("A PNG of any size replaces an atlas; keep the original layout. Pure white or transparent areas are see-through. Changes apply immediately.",12,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=580;box.add_child(intro)
 	var first: Button=null
 	for atlas in Mods.ATLASES:
@@ -653,7 +679,7 @@ func show_mod_textures() -> void:
 		words.add_child(label(standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
 		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",4);words.add_child(actions)
 		for entry in [["View",func():show_texture(atlas),true],["Replace…",func():mods_target=atlas.name;mods_notice="";images.choose(),images.available()],["Restore original",func():
-			mods_notice=("The original %s stands again."%atlas.name) if Mods.remove_texture(atlas.name) else "Could not remove the replacement."
+			mods_notice=("Restored the original %s."%atlas.name) if Mods.remove_texture(atlas.name) else "Could not remove the replacement."
 			apply_textures();show_mod_textures(),status.replaced]]:
 			var act := button(entry[0],entry[1],actions);act.custom_minimum_size.y=28;act.add_theme_font_size_override("font_size",13);act.disabled=not entry[2]
 			for state in ["normal","hover","focus","pressed"]:
@@ -689,7 +715,7 @@ func install_texture(path: String) -> void:
 	var Mods=preload("res://native/presentation/mods.gd")
 	var trouble: String=Mods.install_texture(mods_target,path) if not mods_target.is_empty() else "Choose an atlas first."
 	if path.begins_with("user://") or path.begins_with(OS.get_cache_dir()):DirAccess.remove_absolute(path)
-	mods_notice=trouble if not trouble.is_empty() else "%s.png replaced. It applies to the next dive and the station behind this menu."%mods_target
+	mods_notice=trouble if not trouble.is_empty() else "%s.png replaced."%mods_target
 	if trouble.is_empty():apply_textures()
 	show_mod_textures()
 
@@ -712,7 +738,7 @@ func refresh_title() -> void:
 			if not FileAccess.file_exists(path):continue
 			if store.read(path,content.data)!=null:
 				title_menu.continue_button.disabled=false
-				if store.recovered and index==3:status.text="Your latest autosave is damaged; the previous checkpoint stands in for it."
+				if store.recovered and index==3:status.text="Latest autosave is damaged; the previous save was loaded."
 			elif index==3:status.text=store.failure
 	focus_title()
 
@@ -738,69 +764,47 @@ func set_preference(section: String, key: String, value: Variant) -> void:
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
 	if config.save(settings_path)!=OK: status.text="Could not save settings. Check your user folder."
 
-func show_settings() -> void:
-	for child in modal.get_children(): modal.remove_child(child);child.queue_free()
-	var shell:=VBoxContainer.new();shell.add_theme_constant_override("separation",14);modal.add_child(shell)
-	shell.add_child(label("EXPEDITION SETTINGS",26,Color("8bd6ee")))
-	shell.add_child(label("Changes are saved for your next dive.",14,Color("89a6a6")))
-	var scroll:=ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
-	var box:=VBoxContainer.new();box.add_theme_constant_override("separation",14);box.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(box)
-	button("World",show_world_settings,box)
+func show_settings(section: String="") -> void:
+	"""The same settings screen the game and the station open."""
+	close_modal()
+	if not is_instance_valid(settings_panel):
+		settings_panel=SettingsMenu.new();ui.add_child(settings_panel)
+		settings_panel.changed.connect(apply_setting)
+		settings_panel.closed.connect(close_settings)
+		settings_panel.visibility_changed.connect(func():
+			var behavior := Control.FOCUS_BEHAVIOR_DISABLED if settings_panel.visible else Control.FOCUS_BEHAVIOR_INHERITED
+			title_menu.focus_behavior_recursive=behavior;panel.focus_behavior_recursive=behavior)
+	modal_origin=get_viewport().gui_get_focus_owner()
+	settings_panel.configure(settings_path,{
+		"text":content.text,
+		"auto_title":func():return title_dock.dive_audio.title_track() if title_dock.dive_audio.title_choice==0 and ready_for_preview else ""},
+		false,TouchControls.last_input=="touch" or (TouchControls.last_input.is_empty() and DisplayServer.is_touchscreen_available()))
+	scrim.show();settings_panel.open(section)
+
+func close_settings() -> void:
+	scrim.hide()
+	if is_instance_valid(modal_origin) and modal_origin.is_visible_in_tree(): modal_origin.grab_focus.call_deferred();modal_origin=null
+	else: focus_title()
+
+func apply_setting(section: String, key: String) -> void:
+	"""The title's backdrop and music follow the choices at once; everything
+	else is read when a dive starts."""
 	var config := ConfigFile.new();config.load(settings_path)
-	var modern := bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true)))
-	var mode := button("Lighting · "+("ENHANCED LIGHTING" if modern else "CLASSIC LIGHTING")+"  ⇄",func():
-		if not config.has_section_key("graphics","modern") and not bool(config.get_value("graphics","materials",true)):set_preference("graphics","materials",true)
-		set_preference("graphics","modern",not modern);title_dock.set_lighting(not modern);show_settings(),box)
-	mode.name="GraphicsMode"
-	var row := HBoxContainer.new();box.add_child(row)
-	var caption := label("Render resolution",16);caption.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(caption)
-	var resolution := OptionButton.new();row.add_child(resolution)
-	for name in ["1080p · performance","1440p · balanced","Native · sharpest"]: resolution.add_item(name)
-	resolution.disabled=not modern
-	resolution.select(clampi(int(config.get_value("view","resolution_v5",2)),0,2) if modern else 2)
-	resolution.item_selected.connect(func(index): set_preference("view","resolution_v5",index))
-	var taa := CheckButton.new();taa.text="Temporal antialiasing";taa.button_pressed=bool(config.get_value("view","temporal_aa",false));box.add_child(taa)
-	taa.disabled=not modern
-	taa.button_pressed=modern and taa.button_pressed
-	taa.tooltip_text="Off preserves sharper detail in motion. On smooths jagged edges."
-	taa.toggled.connect(func(value): set_preference("view","temporal_aa",value))
-	for item in [["Music","audio","music",0.65,0.0,1.0,0.05],["Sound effects","audio","effects",0.75,0.0,1.0,0.05],["Mouse sensitivity","keys","mouse_sensitivity",0.8,0.2,2.0,0.1]]:
-		var line := HBoxContainer.new();line.add_theme_constant_override("separation",16);box.add_child(line)
-		var text := label(item[0],16);text.custom_minimum_size.x=180;line.add_child(text)
-		var slider := HSlider.new();slider.size_flags_horizontal=Control.SIZE_EXPAND_FILL;slider.min_value=item[4];slider.max_value=item[5];slider.step=item[6];slider.value=float(config.get_value(item[1],item[2],item[3]));line.add_child(slider)
-		var amount := label("%.2f" % slider.value,15);amount.custom_minimum_size.x=46;line.add_child(amount)
-		slider.value_changed.connect(func(value):
-			amount.text="%.2f" % value;set_preference(item[1],item[2],value)
-			if item[2]=="music":title_dock.set_music(value)
-			elif item[2]=="effects":title_dock.dive_audio.effects_gain=value;title_dock.dive_audio.apply_levels())
-	var invert := CheckButton.new();invert.text="Invert vertical mouse";invert.button_pressed=bool(config.get_value("keys","invert_mouse",false));box.add_child(invert)
-	invert.toggled.connect(func(value): set_preference("keys","invert_mouse",value))
-	var hints := CheckButton.new();hints.text="Gameplay tips and control hints";hints.button_pressed=bool(config.get_value("interface","hints",true));box.add_child(hints)
-	hints.tooltip_text="Show loading tips, one-time M.A.I. guidance and the flight control reminder."
-	hints.toggled.connect(func(value): set_preference("interface","hints",value))
-	button("Toggle fullscreen  ·  F11",func(): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN),box)
-	var back := button("Back",close_modal,shell)
-	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
+	var audio=title_dock.dive_audio
+	match [section,key]:
+		["audio","music"]: title_dock.set_music(clampf(float(config.get_value("audio","music",0.65)),0,1))
+		["audio","effects"]: audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1);audio.apply_levels()
+		["audio","title_music"]: audio.title_choice=title_dock.title_choice(config)
+		["graphics","audio"]: title_dock.set_audio_enabled(bool(config.get_value("graphics","audio",true)))
+		["graphics","modern"]: title_dock.set_lighting(bool(config.get_value("graphics","modern",true)))
+		["graphics","station_smoothing"]: title_dock.view.set_station_smoothing(bool(config.get_value("graphics","station_smoothing",false)))
+		["graphics","volumetric"],["graphics","detail"]:
+			title_dock.wanted_volumetric=bool(config.get_value("graphics","volumetric",true)) and RenderingServer.get_current_rendering_method()=="forward_plus"
+			title_dock.wanted_detail=bool(config.get_value("graphics","detail",true));title_dock.apply_lighting()
+		["view","aspect_ratio"],["input","touch"]: fit_window();layout_ui()
+		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))
 
-func show_world_settings() -> void:
-	for child in modal.get_children():modal.remove_child(child);child.queue_free()
-	var box:=VBoxContainer.new();box.add_theme_constant_override("separation",18);modal.add_child(box)
-	box.add_child(label("WORLD",26,Color("8bd6ee")))
-	var config:=ConfigFile.new();config.load(settings_path)
-	var spacing:=preload("res://native/simulation/world_spacing.gd").new();spacing.read_config(config)
-	var controls:=preload("res://native/presentation/world_settings.gd").new();controls.configure(spacing);box.add_child(controls)
-	controls.changed.connect(func():
-		var saved:=ConfigFile.new();saved.load(settings_path);spacing.write_config(saved)
-		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
-		if saved.save(settings_path)!=OK:status.text="Could not save settings. Check your user folder.")
-	var split:=bool(config.get_value("world","split_gates",true))
-	button(preload("res://native/presentation/world_settings.gd").gate_text(split),func():set_preference("world","split_gates",not split);show_world_settings(),box)
-	box.add_child(label("Changes are saved for your next dive.",14,Color("89a6a6")))
-	button("Back",show_settings,box)
-	scrim.show();modal.show();layout_ui();controls.selector.grab_focus.call_deferred()
-
-func launch_game(resume: bool=false, player_name: String="Diver", path: String="") -> void:
+func launch_game(resume: bool=false, player_name: String="Pilot", path: String="") -> void:
 	if not ready_for_preview or launching: return
 	if path.is_empty():path=save_path
 	var chapter := 1
@@ -818,5 +822,5 @@ func launch_game(resume: bool=false, player_name: String="Diver", path: String="
 	get_viewport().disable_3d=false
 	var gameplay=load("res://native/gameplay.gd").new()
 	gameplay.save_path=save_path;gameplay.load_path=path;gameplay.settings_path=settings_path
-	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_name="Diver" if player_name.is_empty() else player_name
+	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_name="Pilot" if player_name.is_empty() else player_name
 	get_tree().root.add_child(gameplay); get_tree().current_scene=gameplay; queue_free()

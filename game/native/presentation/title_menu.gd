@@ -64,7 +64,7 @@ func load_content(directory: String) -> void:
 	if not FileAccess.file_exists(file):return
 	var pixels := Image.load_from_file(file)
 	if pixels==null:return
-	logo.texture=ImageTexture.create_from_image(pixels);logo.show();headline.hide();subtitle.hide()
+	logo.texture=ImageTexture.create_from_image(pixels);logo.show();headline.hide();subtitle.hide();layout()
 
 func caption(value: String, font_size: int, color: Color) -> Label:
 	var node := Label.new();node.text=value;node.add_theme_font_size_override("font_size",font_size);node.modulate=color;node.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(node);return node
@@ -88,15 +88,19 @@ func toggle_help() -> void:
 
 func layout() -> void:
 	if status==null:return
-	var unit := clampf(minf(size.x/1000.0,size.y/720.0),0.8,2.5)
+	var upright: bool=size.y>size.x
+	var unit := clampf(size.x/560.0 if upright else minf(size.x/1000.0,size.y/720.0),0.8,2.5)
 	# Everything keeps to a column down the left; the station has the rest.
-	var left := 40*unit
-	var column := minf(360,size.x/unit-80)
+	# Upright, the column takes the width and the station shows below it.
+	var left := (24 if upright else 40)*unit
+	var column := size.x/unit-48 if upright else minf(360,size.x/unit-80)
 	headline.scale=Vector2.ONE*unit;headline.position=Vector2(left,38*unit)
 	subtitle.scale=Vector2.ONE*unit;subtitle.position=Vector2(left,91*unit)
 	logo.position=Vector2(left,44*unit);logo.size=Vector2(column,column*81.0/354.0)*unit
-	panel.scale=Vector2.ONE*unit;panel.size=Vector2(column,0);panel.position=Vector2(left,150*unit)
-	var below: float=150*unit+panel.get_combined_minimum_size().y*unit+14*unit
+	# A column-wide logo is taller than the landscape one; the menu starts under it.
+	var top: float=maxf(150*unit,logo.position.y+logo.size.y+18*unit) if logo.visible else 150*unit
+	panel.scale=Vector2.ONE*unit;panel.size=Vector2(column,0);panel.position=Vector2(left,top)
+	var below: float=top+panel.get_combined_minimum_size().y*unit+14*unit
 	status.scale=Vector2.ONE*unit;status.position=Vector2(left,below);status.size=Vector2(column,65)
 	help.scale=Vector2.ONE*unit;help.position=Vector2(left,below);help.size=Vector2(minf(620,size.x/unit-80),150)
 	footer.scale=Vector2.ONE*unit;footer.size=Vector2(column,42);footer.position=Vector2(left,size.y-94*unit)

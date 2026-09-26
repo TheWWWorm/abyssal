@@ -210,8 +210,8 @@ func run() -> void:
  var inverted: float=game.flight_input().pitch
  expect(upright>0 and inverted<0,"Inverted vertical steering reverses the touch stick")
  game.invert_mouse=false;game.touch.reset()
- game.show_controls("")
- var control_rows: Array=game.column.find_children("*","Button",true,false).map(func(button):return button.text)
+ game.show_settings("controls")
+ var control_rows: Array=game.settings_panel.column.find_children("*","Button",true,false).map(func(button):return button.text)
  expect("Touch controls" in control_rows,"The controls list names the touch section without its mode")
  game.close_page()
  # The overlay's view and fullscreen switches moved into the pause menu.

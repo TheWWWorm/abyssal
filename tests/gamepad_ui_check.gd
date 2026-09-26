@@ -64,9 +64,9 @@ func run() -> void:
  await tilt(JOY_AXIS_LEFT_Y,-1);await tilt(JOY_AXIS_LEFT_Y,0)
  expect(focused_text()=="Options","Left stick navigates the title")
  await tap(JOY_BUTTON_A);await settle()
- expect(app.modal.visible,"A opens title Options")
+ expect(is_instance_valid(app.settings_panel) and app.settings_panel.visible and app.settings_panel.is_ancestor_of(root.gui_get_focus_owner()),"A opens title Options with focus inside it")
  await tap(JOY_BUTTON_B);await settle()
- expect(not app.modal.visible and root.gui_get_focus_owner()==app.title_menu.footer,"B closes Options and restores title focus")
+ expect(not app.settings_panel.visible and focused_text()=="Options","B closes Options and returns to its entry")
  app.open_cache(OS.get_cmdline_user_args()[0]);await settle()
  expect(root.gui_get_focus_owner()==app.title_menu.new_button,"Imported content focuses Start")
  await tap(JOY_BUTTON_A);await settle()
@@ -86,10 +86,10 @@ func run() -> void:
  expect(not app.modal.visible,"B returns from diver creation")
  await tap(JOY_BUTTON_A);await settle()
  for i in 12:
-  if focused_text()=="BEGIN EXPEDITION >":break
+  if focused_text()=="START GAME":break
   await tap(JOY_BUTTON_DPAD_DOWN)
-  expect(app.modal.is_ancestor_of(root.gui_get_focus_owner()),"Diver navigation stays inside its dialog")
- expect(focused_text()=="BEGIN EXPEDITION >","Controller reaches Begin expedition")
+  expect(app.modal.is_ancestor_of(root.gui_get_focus_owner()),"Character sheet navigation stays inside its dialog")
+ expect(focused_text()=="START GAME","Controller reaches Start game")
  await tap(JOY_BUTTON_A);await settle()
  var game=current_scene
  expect(not game.touch.enabled(),"Title gamepad input survives the scene change")
@@ -102,7 +102,7 @@ func run() -> void:
  expect(game.page=="map","A opens the world map")
  await tap(JOY_BUTTON_B);await settle()
  expect(game.page!="map","B leaves the world map")
- game.show_controls("steering");await settle()
+ game.show_settings("steering");await settle()
  var navigated:=false
  for i in 40:
   await tap(JOY_BUTTON_DPAD_DOWN)
@@ -111,24 +111,26 @@ func run() -> void:
    var before: float=control.value
    await tap(JOY_BUTTON_DPAD_RIGHT)
    expect(control.value>before,"D-pad adjusts a settings slider")
-   expect(game.sheet_scroll.get_global_rect().intersects(control.get_global_rect()),"Focused settings stay on screen")
+   expect(game.settings_panel.scroll.get_global_rect().intersects(control.get_global_rect()),"Focused settings stay on screen")
    navigated=true;break
  expect(navigated,"Controller navigation reaches the settings sliders")
  # Sections are short enough now that none of them scrolls on a normal window,
  # which is the point of them. Following focus down a page still has to work on
  # a window too short to hold one, so that is where it gets checked.
  root.size=Vector2i(1280,420);await settle()
- game.show_controls("bindings");await settle()
+ game.show_settings("bindings");await settle()
  var scrolled:=false
  for i in 40:
   await tap(JOY_BUTTON_DPAD_DOWN)
   var control:=root.gui_get_focus_owner()
   if control==null:continue
-  expect(game.sheet_scroll.get_global_rect().intersects(control.get_global_rect()),"A focused binding stays on screen")
-  if game.sheet_scroll.scroll_vertical>0:scrolled=true;break
+  expect(game.settings_panel.scroll.get_global_rect().intersects(control.get_global_rect()),"A focused binding stays on screen")
+  if game.settings_panel.scroll.scroll_vertical>0:scrolled=true;break
  expect(scrolled,"A page longer than the window scrolls to the focused row")
  await tap(JOY_BUTTON_B);await settle()
- expect(game.page=="controls" and game.controls_section.is_empty(),"B inside a section returns to the section list")
+ expect(game.page=="settings" and game.settings_panel.subpage.is_empty(),"B inside a section returns to the section list")
+ await tap(JOY_BUTTON_B);await settle()
+ expect(game.page=="pause","B at the top of settings returns to the pause menu")
  root.size=Vector2i(1280,720);await settle()
  game.show_dialogue([{"speaker":"Test","text":"Controller briefing"}],game.close_page);await settle()
  await tap(JOY_BUTTON_A);await settle()

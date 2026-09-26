@@ -20,6 +20,13 @@ var world
 var sounds := {}
 var source_paths := {}
 var station_music: AudioStreamWAV
+## Imported MIDI conversions by track name ("intro", "station").
+var music_tracks := {}
+## The title menu and opening track: 0 follows the JAR, 1 intro, 2 station.
+const TITLE_CHOICES := ["Auto","Intro","Station"]
+var title_choice := 0
+## Track 0 of the JAR's own music table; 1.0.3 builds open with intro.mid.
+var jar_title := "station"
 ## The opening plays the game's track over the water; set for its length.
 var opening_music := false
 var music_gain := 0.65
@@ -69,22 +76,38 @@ func configure(owner_world, directory: String) -> void:
 			key="procedural:"+cue
 			if not wave_cache.has(key): wave_cache[key]=synthesize_cue(cue)
 		sounds[cue]=wave_cache[key]; source_paths[cue]=key
-	var music_path := directory.path_join("data/sound/station.mid.wav")
-	if FileAccess.file_exists(music_path):
+	music_tracks.clear()
+	for track in ["intro","station"]:
+		var music_path := directory.path_join("data/sound/%s.mid.wav"%track)
+		if not FileAccess.file_exists(music_path):continue
 		if not wave_cache.has(music_path):
 			var music := AudioStreamWAV.load_from_file(music_path)
 			if music!=null:
 				music.loop_mode=AudioStreamWAV.LOOP_FORWARD; music.loop_end=roundi(music.get_length()*music.mix_rate)
 			wave_cache[music_path]=music
-		station_music=wave_cache[music_path]
+		if wave_cache[music_path]!=null:music_tracks[track]=wave_cache[music_path]
+	station_music=music_tracks.get("station")
 	# Upload once during content loading, never on the first shot in flight.
 	if OS.has_feature("web"):
 		for sound in sounds.values():
 			if sound!=null and not AudioServer.is_stream_registered_as_sample(sound):
 				AudioServer.register_stream_as_sample(sound)
 	prepare_web_music("ocean",ambience)
-	prepare_web_music("station",station_music)
+	for track in music_tracks:prepare_web_music(track,music_tracks[track])
 	previous_bed=""
+func read_title_track(data: Dictionary) -> void:
+	"""Imports that predate the recorded music table keep the 1.0.8 track."""
+	var table=data.get("music",[])
+	jar_title="station"
+	if table is Array and not table.is_empty() and table[0] is String and table[0].ends_with(".mid"):
+		jar_title=table[0].get_basename()
+func title_choice_text() -> String:
+	"""Auto names the track it resolves to, so the choice is never a guess."""
+	return "Auto · "+title_track().capitalize() if title_choice==0 else TITLE_CHOICES[title_choice]
+func title_track() -> String:
+	"""The chosen menu track, or the station track where this JAR has none."""
+	var wanted: String=jar_title if title_choice==0 else "intro" if title_choice==1 else "station"
+	return wanted if music_tracks.has(wanted) else "station"
 func update_music_pause(paused: bool) -> void:
 	if music_paused==paused:return
 	music_paused=paused
@@ -98,7 +121,7 @@ func prepare_web_music(key: String, sound: AudioStream) -> bool:
 	web_music.prepare(key,Marshalls.raw_to_base64(sound.data),sound.mix_rate,sound.stereo)
 	return true
 func set_context(page: String, docked: bool) -> void:
-	context="station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure","opening"] else "paused"
+	context="title" if page=="title" else "station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure","opening"] else "paused"
 func set_enabled(value: bool) -> void:
 	if enabled==value: return
 	enabled=value; pending.clear(); ui_requests.clear(); priority_until=-1; last_played.clear()
@@ -187,10 +210,13 @@ func _process(_delta: float) -> void:
 	# opening (l, ch, br.a); br.void_a stops it on the way out into the water,
 	# where the only sound is the ocean's own cue every ten seconds. Without
 	# imported content the code-authored ocean bed stands in for that track.
-	var bed := "station" if (context=="station" or opening_music) and station_music!=null else "ocean" if station_music==null and (context=="station" or opening_music) else ""
+	# The menu and opening play the JAR's first track (intro.mid in 1.0.3,
+	# station.mid in 1.0.8) unless the player picked one; docking plays station.
+	var bed := title_track() if context=="title" or opening_music else "station" if context=="station" else ""
+	if not bed.is_empty() and not music_tracks.has(bed):bed="ocean"
 	if previous_bed!=bed:
 		if web_music!=null and not previous_bed.is_empty():web_music.stop()
-		stream=station_music if bed=="station" else ambience if bed=="ocean" else null
+		stream=music_tracks.get(bed) if music_tracks.has(bed) else ambience if bed=="ocean" else null
 		previous_bed=bed
 		music_paused=false
 		web_bed=not bed.is_empty() and prepare_web_music(bed,stream)
@@ -206,7 +232,7 @@ func _process(_delta: float) -> void:
 	if context=="paused":
 		for voice in voices: voice.stop()
 		return
-	if context=="station": events=[]; pending.clear()
+	if context in ["station","title"]: events=[]; pending.clear()
 	var now := Time.get_ticks_msec()
 	# br.a: every ten seconds in the water one of the four ocean cues, chosen
 	# at random, at a volume drawn between six tenths and the full level.

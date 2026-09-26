@@ -167,6 +167,12 @@ func _draw() -> void:
 			_fill(pad,.18);_line(pad,true)
 			_line([Vector2(-.6,-.12),Vector2(-.3,-.12)]);_line([Vector2(-.45,-.27),Vector2(-.45,.03)])
 			_line(_ring(Vector2(.36,-.2),.07));_line(_ring(Vector2(.56,-.02),.07))
+		"audio":
+			# A speaker cone with two sound arcs.
+			var cone := [Vector2(-.82,-.26),Vector2(-.44,-.26),Vector2(-.02,-.66),Vector2(-.02,.66),Vector2(-.44,.26),Vector2(-.82,.26)]
+			_fill(cone,.22);_line(cone,true)
+			_line(_ring(Vector2(-.02,0),.42,-PI*.3,PI*.3,false))
+			_line(_ring(Vector2(-.02,0),.78,-PI*.32,PI*.32,false))
 		"graphics":
 			_fill(_box(-.86,-.66,.86,.4),.16);_line(_box(-.86,-.66,.86,.4),true)
 			_line([Vector2(-.3,.72),Vector2(.3,.72)]);_line([Vector2(0,.4),Vector2(0,.72)])

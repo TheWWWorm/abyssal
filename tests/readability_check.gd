@@ -19,8 +19,8 @@ func run():
    app.modern_graphics=modern;app.graphics.detail=detail;app.apply_graphics()
    expect(app.abyss.particles.visible,"Sea bubbles remain enabled across lighting/detail presets")
  app.modern_graphics=true;app.graphics.detail=true;app.apply_graphics()
- app.show_graphics();await settle()
- expect(not app.column.find_children("*","Button",true,false).any(func(button):return button.text.contains("Modern weapon effects")),"Removed weapon effect switch is absent")
+ app.show_settings("graphics");await settle()
+ expect(not app.settings_panel.column.find_children("*","Button",true,false).any(func(button):return button.text.contains("Modern weapon effects")),"Removed weapon effect switch is absent")
  app.close_page()
  # Wildlife follows the camera: anything left four hundred metres behind is
  # set down three hundred metres out again, so open water is never empty.

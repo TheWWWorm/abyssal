@@ -14,19 +14,19 @@ func validate(data: Dictionary, value: Variant) -> Dictionary:
 	"""Accepts only this build's envelope around a save this content can restore."""
 	failure=""
 	if value is not Dictionary or value.get("format")!=FORMAT or int(value.get("version",0))!=VERSION:
-		failure="This is not an Abyssal expedition export."
+		failure="This is not an Abyssal save export."
 		return {}
 	if str(value.get("content_id",""))!=str(data.jar_sha256):
-		failure="This expedition was played on different game content. Import the same JAR first."
+		failure="This save was made with a different JAR. Import that JAR first."
 		return {}
 	var record: Variant = value.get("save")
 	if record is not Dictionary:
-		failure="The export contains no expedition."
+		failure="The export contains no save."
 		return {}
 	var store := Save.new()
 	# Restoring is the validation: the same reader the title screen uses.
 	if store.restore(data,record)==null:
-		failure=store.failure if not store.failure.is_empty() else "The exported expedition is invalid."
+		failure=store.failure if not store.failure.is_empty() else "The exported save is invalid."
 		return {}
 	return {"format":FORMAT,"version":VERSION,"content_id":str(data.jar_sha256),"save":record.duplicate(true)}
 
@@ -47,7 +47,7 @@ func collect(data: Dictionary, save_path: String) -> Dictionary:
 	"""Wraps the save on disk, having confirmed this build can still read it."""
 	failure=""
 	if not FileAccess.file_exists(save_path):
-		failure="There is no expedition to export yet."
+		failure="There is no save to export yet."
 		return {}
 	var value: Variant = Save.quiet_parse(FileAccess.get_file_as_string(save_path))
 	return validate(data,{"format":FORMAT,"version":VERSION,"content_id":str(data.jar_sha256),"save":value})
@@ -82,22 +82,22 @@ func install(data: Dictionary, save_path: String, value: Dictionary) -> bool:
 	var staged := save_path+".import"
 	var file := FileAccess.open(staged,FileAccess.WRITE)
 	if file==null:
-		failure="Could not stage the imported expedition."
+		failure="Could not prepare the imported save."
 		return false
 	file.store_string(JSON.stringify(checked.save))
 	file.flush()
 	var ok := file.get_error()==OK
 	file.close()
 	if not ok:
-		failure="Could not stage the imported expedition. The disk may be full."
+		failure="Could not prepare the imported save. The disk may be full."
 		DirAccess.remove_absolute(staged)
 		return false
 	if FileAccess.file_exists(save_path) and DirAccess.copy_absolute(save_path,save_path+".bak")!=OK:
-		failure="Could not preserve the expedition already on this device."
+		failure="Could not back up the save already on this device."
 		DirAccess.remove_absolute(staged)
 		return false
 	if DirAccess.rename_absolute(staged,save_path)!=OK:
-		failure="Could not finish importing the expedition."
+		failure="Could not finish importing the save."
 		DirAccess.remove_absolute(staged)
 		return false
 	return true

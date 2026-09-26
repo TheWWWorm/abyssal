@@ -33,6 +33,27 @@ PROFILE_CLASSES=('ah','e','bo','ab','f','dj','cy')
 UNMATCHED=('This DEEP build does not match the declarative content profile, which is '
            'written for the Sony Ericsson release of DEEP 1.0.8: ')
 
+def music_table(archive):
+    """The sound manager's track list, in play order: track 0 is the menu and
+    opening music, track 1 the docked one. 1.0.3 builds open with intro.mid and
+    1.0.8 builds with station.mid, from the same code. Only static initializers
+    that make no calls are read; anything else leaves the table unknown."""
+    for name in archive.namelist():
+        if not name.endswith('.class') or '/' in name:continue
+        raw=archive.read(name)
+        if b'.mid' not in raw:continue
+        try:
+            cls=ClassData(raw);owner=name[:-6];statics={}
+            for (field,desc),(flags,attrs) in cls.fields.items():
+                if flags&8:statics[owner,field,desc]=default(desc)
+            def refuse(*call):raise DataError('call')
+            evaluate(cls,'<clinit>','()V',[],statics,refuse)
+        except (DataError,ValueError,KeyError,IndexError,TypeError,AttributeError):continue
+        for value in statics.values():
+            if isinstance(value,list) and value and all(isinstance(item,str) and re.fullmatch(r'/data/sound/[a-z0-9_]+\.mid',item) for item in value):
+                return [item.rsplit('/',1)[1] for item in value]
+    return []
+
 def language_root(root):
     """Each build ships one localisation; prefer English when several are present."""
     languages=sorted(path for path in (root/'data/lang').iterdir() if path.is_dir())
@@ -60,6 +81,7 @@ def read_profile(jar,root,digest=None):
         missing=[name for name in PROFILE_CLASSES if name+'.class' not in present]
         if missing:raise DataError(UNMATCHED+'missing '+', '.join(name+'.class' for name in missing))
         classes={name:ClassData(archive.read(name+'.class')) for name in PROFILE_CLASSES}
+        music=music_table(archive)
     statics={}
     for owner,cls in classes.items():
         for (name,desc),(flags,attrs) in cls.fields.items():
@@ -146,6 +168,7 @@ def read_profile(jar,root,digest=None):
         for offset in range(min(6,species_count)):habitat.extend([(index*7+offset*5)%species_count,20])
         habitats.append(habitat)
     out={'schema':1,'jar_sha256':digest or hashlib.sha256(pathlib.Path(jar).read_bytes()).hexdigest(),'importer':'native-6','language':language.name,'constants':constants,'tables':tables,'campaign':campaign,'timelines':timelines,'strings':strings,'name_pools':names,'habitats':habitats,'data_reader':'restricted-class-data-1','station_geometry':geometry}
+    if music:out['music']=music
     (root/'native-data.json').write_text(json.dumps(out,separators=(',',':')))
     return out
 

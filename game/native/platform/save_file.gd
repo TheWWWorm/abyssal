@@ -62,7 +62,7 @@ window.abyssalSaves = {
 			add_child(dialog)
 			dialog.access=FileDialog.ACCESS_FILESYSTEM
 			dialog.use_native_dialog=true
-			dialog.filters=PackedStringArray(["*.abyssave ; Abyssal expedition export"])
+			dialog.filters=PackedStringArray(["*.abyssave ; Abyssal save export"])
 		open_dialog.file_mode=FileDialog.FILE_MODE_OPEN_FILE
 		open_dialog.file_selected.connect(func(path):chosen.emit(path))
 		save_dialog.file_mode=FileDialog.FILE_MODE_SAVE_FILE
@@ -94,7 +94,7 @@ func write_chosen(path: String) -> void:
 	file.flush()
 	var ok := file.get_error()==OK
 	file.close()
-	if ok: delivered.emit("Expedition exported to "+path.get_file())
+	if ok: delivered.emit("Save exported to "+path.get_file())
 	else:
 		DirAccess.remove_absolute(path)
 		failed.emit("Could not finish writing the export.")
@@ -104,7 +104,7 @@ func received(args: Array) -> void:
 	match str(args[0]):
 		"cancel": return
 		"error": failed.emit(str(args[1]))
-		"saved": delivered.emit("Expedition downloaded as "+str(args[1]))
+		"saved": delivered.emit("Save downloaded as "+str(args[1]))
 		"file":
 			var bytes := JavaScriptBridge.js_buffer_to_packed_byte_array(args[1])
 			var file := FileAccess.open(STAGED,FileAccess.WRITE)

@@ -49,7 +49,7 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	var store := SaveStore.new()
 	if FileAccess.file_exists(save_path):session=store.read(save_path,content.data)
 	if session==null:
-		session=Session.new();session.new_game(content.data,"Diver",int(Time.get_unix_time_from_system()))
+		session=Session.new();session.new_game(content.data,"Pilot",int(Time.get_unix_time_from_system()))
 		session.prepare_station(session.station_id)
 	session.docked=true
 	var config := ConfigFile.new();config.load(settings_path)
@@ -65,10 +65,12 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	wanted_detail=bool(config.get_value("graphics","detail",true))
 	apply_lighting()
 	dive_audio.configure(world,content.root)
+	dive_audio.read_title_track(content.data)
+	dive_audio.title_choice=title_choice(config)
 	dive_audio.music_gain=clampf(float(config.get_value("audio","music",0.65)),0,1)
 	dive_audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1)
 	dive_audio.set_enabled(bool(config.get_value("graphics","audio",true)))
-	dive_audio.set_context("",true)
+	dive_audio.set_context("title",true)
 	dock_environment=sky_environment
 	if is_processing():abyss.environment.environment=sky_environment
 	built=true
@@ -93,6 +95,10 @@ func apply_lighting() -> void:
 	env.volumetric_fog_enabled=view.modern_graphics and wanted_volumetric
 	env.ssao_enabled=view.modern_graphics and wanted_detail
 	env.glow_enabled=view.modern_graphics
+
+static func title_choice(config: ConfigFile) -> int:
+	var value: Variant=config.get_value("audio","title_music",0)
+	return clampi(int(value),0,2) if value is int else 0
 
 func set_music(value: float) -> void:
 	dive_audio.music_gain=value;dive_audio.apply_levels()
