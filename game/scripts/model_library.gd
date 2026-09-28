@@ -29,6 +29,8 @@ var ocean_strength := 0.0
 var effect_glow := 1.6
 ## Graphics shadow quality, 0 (off) to 3 (high); see graphics_quality.gd.
 var shadow_level := 3
+## A view that chooses which lamps cast shadows (world_view.gd) builds them unshadowed.
+var shadow_budgeted := false
 
 ## The game's frame to Godot's: y and z the other way. A turn expressed in
 ## the game's units becomes S*R*S in Godot.
@@ -342,7 +344,8 @@ func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
 	# blinking lamp recoloured walls behind unrelated modules. Mines and
 	# moving creature lures retain their cheaper unshadowed point lights.
 	light.set_meta("wanted_shadow",bool(lamp.get("shadow",false)))
-	preload("res://native/presentation/graphics_quality.gd").sprite_lamp_shadow(light,bool(lamp.get("shadow",false)),shadow_level);light.shadow_bias=.08;light.shadow_normal_bias=float(lamp.get("shadow_normal_bias",.6))
+	if lamp.get("shadow",false):light.add_to_group("shadow_lamps")
+	preload("res://native/presentation/graphics_quality.gd").sprite_lamp_shadow(light,bool(lamp.get("shadow",false)),shadow_level,shadow_budgeted);light.shadow_bias=.08;light.shadow_normal_bias=float(lamp.get("shadow_normal_bias",.6))
 	light.light_volumetric_fog_energy=float(lamp.get("fog_energy",.6))
 	light.distance_fade_enabled=true;light.distance_fade_begin=float(lamp.get("fade_begin",420));light.distance_fade_length=float(lamp.get("fade_length",180))
 	holder.position=lamp.centre
@@ -539,7 +542,7 @@ func affine_material(resource: String, blend: int, double_sided: bool, lit: bool
 		if smoothed:filtering="filter_linear_mipmap_anisotropic"
 		elif pixelated:filtering="filter_nearest_mipmap"
 		var code := "shader_type spatial;\nrender_mode %s;\n" % ", ".join(modes)
-		code += '#include "res://native/presentation/ocean_background.gdshaderinc"\nuniform float distance_haze=0.0;\n'
+		code += '#include "res://native/presentation/ocean_background.gdshaderinc"\nglobal uniform float ocean_visual_time;\nuniform float distance_haze=0.0;\n'
 		# Sky samples are numeric byte-color data. Avoid losing dark ramp values
 		# in Compatibility's 8-bit linear intermediate target.
 		code += "uniform sampler2D albedo : %s%s, repeat_disable;\n" % ["source_color, " if sky_pass == 0 else "",filtering]

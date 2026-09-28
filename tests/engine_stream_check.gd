@@ -73,6 +73,12 @@ func check_sprite_lamp_occlusion() -> void:
  var blocker:=MeshInstance3D.new();var box:=BoxMesh.new();box.size=Vector3(10,10,1)
  blocker.mesh=box;blocker.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
  blocker.position.z=4;viewport.add_child(blocker)
+ # A hull or a fish passing the lamp casts nothing from it: a moving caster
+ # would redraw the lamp's whole shadow map every frame.
+ var passing:=await light_frame(viewport)
+ expect(absf(lit.get_pixel(128,128).r-passing.get_pixel(128,128).r)<.05,"A moving hull does not cast a station lamp's shadow")
+ # Station walls do; they cast through StationShadow, on the station caster layer.
+ blocker.layers=1|preload("res://native/presentation/graphics_quality.gd").STATION_CASTER_LAYER
  var blocked:=await light_frame(viewport)
  expect(lit.get_pixel(128,128).r>blocked.get_pixel(128,128).r+.1,"A wall behind a station lamp occluder stays dark through the blink")
  blocker.hide();wall.position.z=-24

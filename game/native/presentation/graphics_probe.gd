@@ -1,6 +1,7 @@
 extends Node
 ## Chooses a graphics preset by trying presets on the title's station
-## backdrop, which uses the dive's renderer, lights and station. It starts at
+## backdrop, which uses the dive's renderer, lights and station, seen close
+## up as in flight (world_view.backdrop_close). It starts at
 ## High and steps up while a preset keeps sixty frames a second with room to
 ## spare, or down until one does. Low is the floor; Classic is a look, not a
 ## fallback, and is never chosen here.
@@ -20,6 +21,11 @@ const STEP_LIMIT := 8.0
 ## The dive adds the submarine, its lamps and beams, wildlife and the
 ## interface to what the title draws. Keep that much in hand.
 const FRAME_BUDGET := 1.0/60.0
+## Each preset is tried on about a third more pixels than it will draw. A
+## browser reports no GPU time, and a steady sixty says nothing of how close
+## to the edge it was; the extra pixels are that room, and cover what the
+## dive draws beyond the station: the submarine, its lamps and the HUD.
+const PIXEL_MARGIN := 1.15
 const RENDER_BUDGET_MS := 11.5
 
 var preset := Quality.HIGH

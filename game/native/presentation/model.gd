@@ -102,7 +102,12 @@ func apply_hinge() -> void:
 	Library.set_lamp_hinge(figure,hinge_axis,hinge_bend)
 
 func set_stream_visibility(value: float) -> void:
-	stream_visibility=clampf(value,0.0,1.0)
+	# Called every frame for every part of every station in view; once a
+	# fade has settled there is nothing to apply (refresh reapplies it to a
+	# new pose itself).
+	value=clampf(value,0.0,1.0)
+	if value==stream_visibility:return
+	stream_visibility=value
 	apply_stream_visibility()
 	apply_hinge()
 	apply_headlight_lenses()

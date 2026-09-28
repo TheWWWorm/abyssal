@@ -103,6 +103,19 @@ static func preset_quality(preset: int) -> Dictionary:
 ## The settings a preset owns; changing one by hand leaves the preset Custom.
 const OWNED := [["graphics","modern"],["graphics","shadows"],["graphics","volumetric"],["graphics","detail"],["view","msaa"],["view","temporal_aa"]]
 
+## Raised when detection measures something new; an older recommendation is
+## measured again. 2: the station close up, with room for the dive's own work.
+const DETECTION_VERSION := 2
+
+static func measured(config: ConfigFile) -> bool:
+	"""Whether this profile has a recommendation from the current detection."""
+	return recommended(config)>=0 and integer(config,"graphics","detection",1,99)>=DETECTION_VERSION
+
+static func following_recommendation(config: ConfigFile) -> bool:
+	"""The preset in use is the one detection chose, untouched since."""
+	var best := recommended(config)
+	return best>=0 and has_preset(config) and str(config.get_value("graphics","preset",""))==PRESETS[best].to_lower().replace(" ","_") and current(config)==best
+
 static func recommended(config: ConfigFile) -> int:
 	"""The preset measured for this device, or -1."""
 	var value: Variant=config.get_value("graphics","recommended",-1)
@@ -124,15 +137,18 @@ static func mark_chosen(config: ConfigFile, section: String, key: String) -> voi
 	if [section,key] in OWNED and not has_preset(config):config.set_value("graphics","preset","custom")
 
 static func render_scale(quality: Dictionary, pixels: Vector2i) -> float:
-	"""The display resolution relative to the window, times the 3D percentage."""
+	"""The display resolution relative to the window, times the 3D percentage.
+	Detection draws more pixels than that (margin), as headroom for what the
+	dive draws and runs beyond the station."""
 	var display := 1.0 if quality.height<=0 else minf(1.0,float(quality.height)/maxf(1,pixels.y))
-	return clampf(display*quality.scale/100.0,0.25,1.0)
+	return clampf(display*quality.scale/100.0,0.25,1.0)*float(quality.get("margin",1.0))
 
 static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vector2i) -> void:
 	"""Resolution, antialiasing and shadow-map sizes for the 3D view."""
 	var forward: bool=RenderingServer.get_current_rendering_method()=="forward_plus"
 	viewport.scaling_3d_scale=render_scale(quality,pixels)
-	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_FSR if forward else Viewport.SCALING_3D_MODE_BILINEAR
+	# FSR only upscales; detection's margin draws above the window's size.
+	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_FSR if forward and viewport.scaling_3d_scale<1.0 else Viewport.SCALING_3D_MODE_BILINEAR
 	viewport.use_taa=quality.modern and quality.taa and forward
 	var msaa: int=[Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X][clampi(quality.msaa,0,2)]
 	if viewport.msaa_3d!=msaa: viewport.msaa_3d=msaa
@@ -145,25 +161,36 @@ static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vect
 	RenderingServer.positional_soft_shadow_filter_set_quality(filter)
 	RenderingServer.directional_soft_shadow_filter_set_quality(filter)
 
-## Station lights by shadow level. High: every lamp casts a full cube shadow.
-## Medium and Low on Vulkan: the habitat work lamps use two hemispheres
-## instead of six cube faces, about half the cost, with small leaks close to a
-## lamp. The Compatibility renderer (browsers, older phones) has no
-## hemisphere shadows and draws each shadowed lamp as an extra pass, so there
-## only the overhead lamp of each habitat keeps its shadow and the lower
-## service lamp lights without one. Low also drops the shadows of the small
-## sprite lamps. Off: none.
+## Station lights by shadow level. A shadowed lamp is not a fixed cost: the
+## Compatibility renderer (browsers, phones) draws every object in its reach
+## again for it, and near a station that is most of the screen once per
+## lamp. So only the lamps nearest the camera cast shadows, as many as the
+## level allows (world_view.gd picks them); the rest light unshadowed. On
+## Vulkan, below High the work lamps use two hemispheres instead of six cube
+## faces, about half the cost, with small leaks close to a lamp. The
+## Compatibility renderer has no hemisphere shadows.
 static func compatibility() -> bool:
 	return RenderingServer.get_current_rendering_method()=="gl_compatibility"
 
-static func work_lamp_shadow(light: OmniLight3D, level: int) -> void:
-	if compatibility():
-		light.omni_shadow_mode=OmniLight3D.SHADOW_CUBE
-		light.shadow_enabled=level>=3 or (level>0 and not light.get_meta("service_lamp",false))
-		return
-	light.shadow_enabled=level>0
-	light.omni_shadow_mode=OmniLight3D.SHADOW_CUBE if level>=3 else OmniLight3D.SHADOW_DUAL_PARABOLOID
+static func shadow_budget(level: int) -> Vector2i:
+	"""How many work lamps (x) and sprite lamps (y) may cast shadows at once."""
+	level=clampi(level,0,3)
+	if compatibility(): return [Vector2i(0,0),Vector2i(1,0),Vector2i(2,2),Vector2i(4,4)][level]
+	return [Vector2i(0,0),Vector2i(4,0),Vector2i(8,4),Vector2i(14,8)][level]
 
-static func sprite_lamp_shadow(light: OmniLight3D, wanted: bool, level: int) -> void:
-	light.shadow_enabled=wanted and level>=2
+## Station lamps take their shadows from the station alone (StationShadow is
+## on this render layer too). A caster that moves in a lamp's reach - the
+## submarine, a fish - makes it draw all six faces of its shadow again every
+## frame, for every caster; with only the station, the shadow is drawn once
+## and kept. The submarine keeps its shadows from the headlights and the sun.
+const STATION_CASTER_LAYER := 1<<10
+
+static func work_lamp_shadow(light: OmniLight3D, level: int) -> void:
+	light.shadow_caster_mask=STATION_CASTER_LAYER
+	light.omni_shadow_mode=OmniLight3D.SHADOW_CUBE if level>=3 or compatibility() else OmniLight3D.SHADOW_DUAL_PARABOLOID
+
+static func sprite_lamp_shadow(light: OmniLight3D, wanted: bool, level: int, budgeted: bool=false) -> void:
+	"""Outside a budgeted view (the station catalogue) the level decides alone."""
+	light.shadow_enabled=wanted and level>=2 and not budgeted
+	light.shadow_caster_mask=STATION_CASTER_LAYER
 	light.omni_shadow_mode=OmniLight3D.SHADOW_CUBE if level>=3 or compatibility() else OmniLight3D.SHADOW_DUAL_PARABOLOID

@@ -9,6 +9,7 @@ var coverage := {"stream_visibility":1.0,"hangar_open":0.0,"smoothed":false}
 func configure(library, call: Dictionary, mesh_data: Array) -> void:
 	name="StationShadow"
 	cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	layers=1|preload("res://native/presentation/graphics_quality.gd").STATION_CASTER_LAYER
 	var key := str([call.resource,call.pattern])
 	if not library.station_shadow_meshes.has(key):
 		library.station_shadow_meshes[key]=build_geometry(mesh_data)

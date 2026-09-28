@@ -102,8 +102,13 @@ func check_probe_rules() -> void:
 	probe.free()
 
 func check_detection(app) -> void:
+	var map: Node=root.get_node_or_null("OceanRadianceMap")
+	expect(map is SubViewport and (map as SubViewport).use_hdr_2d,"The water's colour is drawn once into a shared half-float direction map")
 	app.start_graphics_probe()
 	expect(app.probing(),"The device can be measured on request")
+	expect(app.title_dock.view.backdrop_close,"Measuring looks at the station close up, as in flight")
+	await frames(3)
+	expect(app.get_viewport().scaling_3d_scale>1.0,"Measuring draws more pixels than the preset will, as headroom")
 	var started := Time.get_ticks_msec()
 	while app.probing() and Time.get_ticks_msec()-started<40000:
 		await process_frame
@@ -113,6 +118,19 @@ func check_detection(app) -> void:
 	expect(Quality.current(config)>=Quality.LOW and Quality.current(config)<=Quality.VERY_HIGH,"Measuring chooses a preset from Low up")
 	expect(app.modal.visible and app.modal.find_child("GraphicsChoice",true,false)!=null,"The first choice is shown in a dialog")
 	expect(Quality.recommended(saved())==Quality.current(saved()),"The measured preset is the recommended one")
+	expect(Quality.measured(saved()) and not app.title_dock.view.backdrop_close,"The measurement is recorded and the menu view comes back")
+	expect(app.get_viewport().scaling_3d_scale<=1.0,"The chosen preset draws without the measuring headroom")
+	app.close_modal();await frames(2)
+	# A recommendation from the earlier detection, which measured the distant
+	# menu view, is measured again; a preset still following it is replaced.
+	var earlier := saved();Quality.write(earlier,Quality.VERY_HIGH);earlier.set_value("graphics","recommended",Quality.VERY_HIGH);earlier.erase_section_key("graphics","detection");earlier.save(SETTINGS)
+	expect(not Quality.measured(saved()) and Quality.following_recommendation(saved()),"An earlier detection's preset is recognised as followed")
+	app.start_graphics_probe()
+	var remeasure := Time.get_ticks_msec()
+	while app.probing() and Time.get_ticks_msec()-remeasure<40000:
+		await process_frame
+	expect(Quality.measured(saved()) and Quality.current(saved())==Quality.recommended(saved()),"A followed recommendation is replaced by the new measurement")
+	expect(app.modal.visible and app.modal.find_child("GraphicsChoice",true,false)!=null,"The replaced choice is shown in a dialog")
 	app.close_modal();await frames(2)
 	# A preset from before the recommendation was stored: measure, keep the preset.
 	var older := saved();older.set_value("graphics","preset","custom");older.set_value("graphics","shadows",0);older.erase_section_key("graphics","recommended");older.save(SETTINGS)
@@ -149,21 +167,29 @@ func check_settings_rows(app) -> void:
 	await frames(30)
 	var work := lights(app,"work_lamp")
 	expect(not work.is_empty(),"The title's station has work lamps")
+	var budget := Quality.shadow_budget(2)
+	var shadowed := work.filter(func(light):return light.shadow_enabled)
+	expect(not shadowed.is_empty() and shadowed.size()<=budget.x,"Medium shadows the nearest work lamps, no more than its budget (%d of %d)"%[shadowed.size(),work.size()])
+	var eye: Vector3=app.title_dock.camera.global_position
+	var nearest_unshadowed := INF
+	for light in work:
+		if not light.shadow_enabled and light.is_visible_in_tree():nearest_unshadowed=minf(nearest_unshadowed,eye.distance_to(light.global_position)/light.omni_range)
+	expect(shadowed.all(func(light):return eye.distance_to(light.global_position)/light.omni_range<=nearest_unshadowed*1.25),"The shadowed lamps are the ones the camera is deepest inside")
 	if Quality.compatibility():
-		expect(work.all(func(light):return light.omni_shadow_mode==OmniLight3D.SHADOW_CUBE and light.shadow_enabled!=light.get_meta("service_lamp")),"Medium on Compatibility shadows only the overhead work lamps")
+		expect(work.all(func(light):return light.omni_shadow_mode==OmniLight3D.SHADOW_CUBE),"Compatibility has only cube lamp shadows")
 	else:
-		expect(work.all(func(light):return light.shadow_enabled and light.omni_shadow_mode==OmniLight3D.SHADOW_DUAL_PARABOLOID),"Medium uses the faster lamp shadows")
-	expect(lights(app,"wanted_shadow").all(func(light):return not light.shadow_enabled),"Medium drops the small lamps' shadows")
+		expect(work.all(func(light):return light.omni_shadow_mode==OmniLight3D.SHADOW_DUAL_PARABOLOID),"Medium uses the faster lamp shadows")
+	expect(lights(app,"wanted_shadow").filter(func(light):return light.shadow_enabled).size()<=budget.y,"Medium keeps the small lamps within their budget")
 	expect(app.get_viewport().msaa_3d==Viewport.MSAA_DISABLED,"Medium leaves multisampling off")
 	choose(preset_row(app),Quality.HIGH);await frames(2)
 	expect(Quality.current(saved())==Quality.HIGH,"Medium changes to High")
 	await frames(4)
-	expect(lights(app,"wanted_shadow").all(func(light):return light.shadow_enabled==light.get_meta("wanted_shadow")),"High keeps the small lamps' shadows")
 	expect(app.get_viewport().msaa_3d==Viewport.MSAA_2X,"High multisamples twice")
-	choose(app.settings_panel.find_child("Row_shadows",true,false),3);await frames(2)
+	choose(app.settings_panel.find_child("Row_shadows",true,false),3);await frames(3)
 	expect(Quality.current(saved())==Quality.CUSTOM and preset_row(app).get_node("Value").text=="Custom","A changed setting shows Custom")
-	expect(lights(app,"work_lamp").all(func(light):return light.shadow_enabled and light.omni_shadow_mode==OmniLight3D.SHADOW_CUBE),"High shadow quality uses full lamp shadows")
-	choose(app.settings_panel.find_child("Row_shadows",true,false),0);await frames(2)
+	shadowed=lights(app,"work_lamp").filter(func(light):return light.shadow_enabled)
+	expect(not shadowed.is_empty() and shadowed.size()<=Quality.shadow_budget(3).x and shadowed.all(func(light):return light.omni_shadow_mode==OmniLight3D.SHADOW_CUBE),"High shadow quality uses full lamp shadows within its budget")
+	choose(app.settings_panel.find_child("Row_shadows",true,false),0);await frames(3)
 	expect(lights(app,"work_lamp").all(func(light):return not light.shadow_enabled),"Shadow quality Off removes the lamp shadows")
 	var slider := app.settings_panel.find_child("Slider_headlight_strength",true,false) as HSlider
 	expect(slider!=null and slider.editable,"Headlight brightness has a slider")

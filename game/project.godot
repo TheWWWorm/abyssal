@@ -107,6 +107,11 @@ ocean_shaft_gain={
 "value": 0.0
 }
 
+ocean_radiance_map={
+"type": "sampler2D",
+"value": ""
+}
+
 ocean_visual_time={
 "type": "float",
 "value": 0.0

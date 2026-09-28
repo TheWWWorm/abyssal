@@ -49,6 +49,8 @@ var rendered_modern := true
 var rendered_pack := false
 var neighbors: Dictionary = {}
 var neighbor_clock := 0.0
+## The title's backdrop close to the station, for the graphics measurement.
+var backdrop_close := false
 var player_model
 ## The depth-limit barriers, after bb's two limiter panels (models 9993 and
 ## 9997) that ride with the submarine at its shallowest and deepest safe
@@ -96,6 +98,7 @@ var oven: SubViewport
 var oven_frames := 0
 func _ready() -> void:
 	combat.owner_view=self; add_child(combat)
+	library.shadow_budgeted=true
 func configure(owner_world, owner_content, eye: Camera3D) -> void:
 	world=owner_world; world.render_interpolation_enabled=true; content=owner_content; camera=eye; library.root=content.root; library.ocean_strength=0.12; library.effect_glow=0.65
 	pack.enabled=false
@@ -154,6 +157,7 @@ func refresh_atmosphere(parent: Node) -> void:
 
 func rebuild() -> void:
 	clear_player_clip()
+	shadow_clock=SHADOW_INTERVAL
 	var keep_scene: bool=revision>=0 and rendered_modern==modern_graphics and rendered_pack==pack.enabled and rendered_map_scale==world.map_scale()
 	var keep_player: bool=keep_scene and player_model!=null and int(player_model.record.id)==world.session.ship.id
 	combat.reset(keep_player and not world.session.docked)
@@ -247,6 +251,9 @@ func rebuild() -> void:
 	revision=world.revision
 	if not keep_scene: bake_shaders()
 
+## Room between the oven's lighting groups: wider than the largest station
+## module, so no light reaches the next group.
+const OVEN_SPACING := 400.0
 func bake_shaders() -> void:
 	"""Every material variant the imported content can produce is compiled the
 	first time something wearing it is drawn, and on a fresh install that is a
@@ -259,13 +266,24 @@ func bake_shaders() -> void:
 	oven=SubViewport.new();oven.size=Vector2i(32,32);oven.own_world_3d=true
 	oven.render_target_update_mode=SubViewport.UPDATE_ALWAYS;oven.positional_shadow_atlas_size=256
 	add_child(oven)
-	var eye := Camera3D.new();oven.add_child(eye);eye.current=true;eye.fov=90;eye.far=4000;eye.position=Vector3(0,0,300)
+	var eye := Camera3D.new();oven.add_child(eye);eye.current=true;eye.fov=90;eye.far=6000;eye.position=Vector3(0,0,OVEN_SPACING*3.2)
 	var surroundings := WorldEnvironment.new();surroundings.environment=get_viewport().find_world_3d().environment;oven.add_child(surroundings)
-	# Shadowed lights of both kinds, so their shadow passes are baked too.
-	var sun := DirectionalLight3D.new();sun.shadow_enabled=true;oven.add_child(sun)
-	var lamp := OmniLight3D.new();lamp.shadow_enabled=true;lamp.omni_range=600;lamp.position=Vector3(0,80,120);oven.add_child(lamp)
-	var spot := SpotLight3D.new();spot.shadow_enabled=true;spot.spot_range=600;spot.position=Vector3(0,0,200);oven.add_child(spot)
-	for record in content.registry: model(int(record.id),32,oven,false)
+	var sun := DirectionalLight3D.new();sun.shadow_enabled=library.shadow_level>0;oven.add_child(sun)
+	# The Compatibility renderer compiles each material again for the lights
+	# on it: with or without unshadowed point lights and spotlights in its
+	# main pass, and a pass of its own per shadowed light. Flight meets every
+	# combination - a station's unshadowed lamps, the few nearest ones
+	# shadowed, the headlights, open water with none - so the catalogue is
+	# drawn once under each, side by side, out of each other's reach.
+	var groups := [[false,false,false],[true,false,false],[false,true,false],[true,true,false],[true,true,true]]
+	for g in groups.size():
+		var centre := Vector3((g-(groups.size()-1)*.5)*OVEN_SPACING,0,0)
+		var group := Node3D.new();group.position=centre;oven.add_child(group)
+		if groups[g][0]:
+			var lamp := OmniLight3D.new();lamp.shadow_enabled=groups[g][2];lamp.omni_range=OVEN_SPACING*.45;lamp.position=Vector3(0,40,60);group.add_child(lamp)
+		if groups[g][1]:
+			var spot := SpotLight3D.new();spot.shadow_enabled=groups[g][2];spot.spot_range=OVEN_SPACING*.45;spot.spot_angle=60;spot.position=Vector3(0,0,120);group.add_child(spot)
+		for record in content.registry: model(int(record.id),32,group,false)
 	# The effect surfaces: shot trails and bursts, bubbles, the gate aperture,
 	# lamp halos and the hull wake are drawn from pools that stay empty until
 	# the first shot or the first station, and would compile then.
@@ -435,6 +453,8 @@ func _process(delta: float) -> void:
 	# Region entry rebases local coordinates. Measure streaming distances only
 	# after the camera has moved into the new frame, including transit shots.
 	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
+	shadow_clock+=delta
+	if shadow_clock>=SHADOW_INTERVAL: shadow_clock=0; choose_shadowed_lamps()
 	var frustum: Array[Plane] = camera.get_frustum()
 	choose_actor_beam_passes()
 	# A model only stops a beam while it is shown for an actor still here: a
@@ -682,7 +702,8 @@ func add_station_lights(visual) -> void:
 		# plain soft filter is indistinguishable on these walls.
 		lamp.light_size=0.0
 		lamp.omni_range=reach;lamp.omni_attenuation=.85
-		lamp.set_meta("work_lamp",true);lamp.set_meta("service_lamp",side==1);GraphicsQuality.work_lamp_shadow(lamp,library.shadow_level);lamp.shadow_bias=.08;lamp.shadow_normal_bias=.6
+		lamp.set_meta("work_lamp",true);lamp.shadow_enabled=false;lamp.add_to_group("shadow_lamps")
+		GraphicsQuality.work_lamp_shadow(lamp,library.shadow_level);lamp.shadow_bias=.08;lamp.shadow_normal_bias=.6
 		lamp.light_volumetric_fog_energy=.3
 		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=650;lamp.distance_fade_length=300
 		var halo := MeshInstance3D.new();var quad := QuadMesh.new();quad.size=Vector2(4,4)
@@ -696,7 +717,48 @@ func set_shadow_level(level: int) -> void:
 	library.shadow_level=level
 	for light in find_children("*","OmniLight3D",true,false):
 		if light.has_meta("work_lamp"):GraphicsQuality.work_lamp_shadow(light,level)
-		elif light.has_meta("wanted_shadow"):GraphicsQuality.sprite_lamp_shadow(light,light.get_meta("wanted_shadow"),level)
+		elif light.has_meta("wanted_shadow"):GraphicsQuality.sprite_lamp_shadow(light,light.get_meta("wanted_shadow"),level,true)
+	shadow_clock=SHADOW_INTERVAL
+
+## How often the shadowed lamps are chosen again, and how much nearer a lamp
+## must be than one already shadowed to take its place, so two lamps at
+## about the same distance do not trade the shadow back and forth.
+const SHADOW_INTERVAL := .25
+const SHADOW_HYSTERESIS := 1.25
+var shadow_clock := SHADOW_INTERVAL
+func choose_shadowed_lamps() -> void:
+	"""Shadows go to the lamps whose light the camera is deepest inside, on
+	screen: the few whose shadows are seen. A lamp further out, or off
+	screen, lights without one; at that distance the difference is not seen,
+	and on the Compatibility renderer each shadowed lamp redraws all it reaches."""
+	var budget: Vector2i=GraphicsQuality.shadow_budget(library.shadow_level) if modern_graphics else Vector2i.ZERO
+	var eye: Vector3=camera.global_position
+	var frustum: Array[Plane]=camera.get_frustum()
+	var ranked: Array=[[],[]]
+	for light: OmniLight3D in get_tree().get_nodes_in_group("shadow_lamps"):
+		if not is_ancestor_of(light):continue
+		var sprite: bool=not light.has_meta("work_lamp")
+		var reach: float=light.omni_range
+		var centre: Vector3=light.global_position
+		var distance: float=eye.distance_to(centre)
+		var wanted: bool=light.is_visible_in_tree() and light.light_energy>0.0 and distance<reach*2.0+60.0 and (not sprite or light.get_meta("wanted_shadow",false))
+		if wanted:
+			for plane in frustum:
+				if plane.distance_to(centre)>reach:wanted=false;break
+		if not wanted:
+			if light.shadow_enabled:light.shadow_enabled=false
+			continue
+		# Deeper inside the light's reach first; a lamp keeping its shadow
+		# counts as a little nearer than it is.
+		var score: float=distance/maxf(reach,1.0)/(SHADOW_HYSTERESIS if light.shadow_enabled else 1.0)
+		ranked[1 if sprite else 0].append([score,light])
+	for kind in 2:
+		var lamps: Array=ranked[kind]
+		lamps.sort_custom(func(a,b):return a[0]<b[0])
+		var allowed: int=budget.x if kind==0 else budget.y
+		for i in lamps.size():
+			var on: bool=i<allowed
+			if lamps[i][1].shadow_enabled!=on:lamps[i][1].shadow_enabled=on
 
 # Other vessels carry the same lamps and beams as the player's hull. Their
 # beams are shadowed one per frame in turn, which keeps the raycasts cheap.
@@ -898,7 +960,14 @@ func update_docked_camera(delta: float) -> void:
 	var focus := bounds.get_center()
 	var radius := maxf(180,bounds.size.length()*.78)
 	var height := radius*.23
-	if menu_backdrop:
+	if menu_backdrop and backdrop_close:
+		# Choosing graphics settings: the station as it fills the screen in
+		# flight, where its lamps and walls cost the most, not the menu's
+		# distant view of it.
+		dock_orbit+=delta*TAU/20.0
+		radius=clampf(bounds.size.length()*.28,70.0,120.0)
+		height=radius*.15
+	elif menu_backdrop:
 		# ck's first path: a circle of the station once a minute, two hundred
 		# metres out, climbing and sinking by a quarter of that on the way.
 		dock_orbit+=delta*TAU/60.0
@@ -908,7 +977,7 @@ func update_docked_camera(delta: float) -> void:
 	camera.global_position=focus+Vector3(sin(dock_orbit)*radius,height,cos(dock_orbit)*radius)
 	camera.look_at(focus,Vector3.UP)
 	# Leave the left side clear for the original-style dock menu.
-	camera.h_offset=-radius*(.3 if menu_backdrop else .22)
+	camera.h_offset=0.0 if backdrop_close else -radius*(.3 if menu_backdrop else .22)
 	if player_model!=null: player_model.hide()
 
 func assign_player_basis(basis: Basis) -> void:

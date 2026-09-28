@@ -45,6 +45,7 @@ const BEAM_HALF_TANGENT := .249
 
 func _ready() -> void:
 	process_priority=1
+	preload("res://native/presentation/ocean_radiance_map.gd").ensure(get_tree())
 	var env := Environment.new()
 	var sky := Sky.new()
 	var sky_material := ShaderMaterial.new()

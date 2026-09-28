@@ -873,7 +873,7 @@ func wants_graphics_probe() -> bool:
 	var config := ConfigFile.new();config.load(settings_path)
 	# Measured once per profile. A profile whose preset came from before the
 	# recommendation was stored is measured for the recommendation alone.
-	if GraphicsQuality.recommended(config)>=0:return false
+	if GraphicsQuality.measured(config):return false
 	# Classic lighting chosen in an earlier version is a look, not a speed: keep it.
 	if not GraphicsQuality.has_preset(config) and not GraphicsQuality.read(config).modern:
 		GraphicsQuality.write(config,GraphicsQuality.CLASSIC)
@@ -888,27 +888,41 @@ func start_graphics_probe() -> void:
 	if is_instance_valid(graphics_probe):graphics_probe.queue_free()
 	graphics_probe=GraphicsProbe.new();add_child(graphics_probe)
 	var config := ConfigFile.new();config.load(settings_path)
-	graphics_probe.set_meta("first",not GraphicsQuality.has_preset(config))
-	graphics_probe.trying.connect(func(preset):apply_render_quality(GraphicsQuality.preset_quality(preset)))
+	# A preset that an earlier detection chose and the player kept is
+	# replaced by the new result, as a first choice is.
+	graphics_probe.set_meta("first",not GraphicsQuality.has_preset(config) or GraphicsQuality.following_recommendation(config))
+	graphics_probe.trying.connect(try_graphics_preset)
+	title_dock.view.backdrop_close=true
 	graphics_probe.finished.connect(finish_graphics_probe)
 	status.text="Choosing graphics settings for this device…"
 	graphics_probe.begin()
+
+func try_graphics_preset(preset: int) -> void:
+	"""The preset over the player's own resolution, with the probe's margin."""
+	var config := ConfigFile.new();config.load(settings_path)
+	GraphicsQuality.write(config,preset)
+	var quality := GraphicsQuality.read(config)
+	quality.margin=GraphicsProbe.PIXEL_MARGIN
+	apply_render_quality(quality)
 
 func cancel_graphics_probe() -> void:
 	"""Leaving the title while measuring keeps the settings as they were;
 	the next start measures again."""
 	if not probing():return
 	graphics_probe.stop();graphics_probe.queue_free()
+	title_dock.view.backdrop_close=false
 	if status.text=="Choosing graphics settings for this device…":status.text=""
 	apply_render_quality()
 
 func finish_graphics_probe(preset: int) -> void:
 	var first: bool=graphics_probe.get_meta("first",true)
 	graphics_probe.queue_free()
+	title_dock.view.backdrop_close=false
 	var config := ConfigFile.new();config.load(settings_path)
 	# A preset the player already has stays; only the recommendation is new.
 	if first or not GraphicsQuality.has_preset(config):GraphicsQuality.write(config,preset)
 	config.set_value("graphics","recommended",preset)
+	config.set_value("graphics","detection",GraphicsQuality.DETECTION_VERSION)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
 	if config.save(settings_path)!=OK: status.text="Could not save settings. Check your user folder.";return
 	apply_render_quality()
