@@ -123,7 +123,9 @@ func run():
  for i in 20:effects.update(app.world.region,40)
  expect(effects.player_wake.size()>8 and effects.bubble_count>0,"Player has a rendered stern wake")
  var emitted: Vector3=effects.player_wake[-1].at-app.world.geography.anchor
- expect((model.global_transform.affine_inverse()*emitted).z>model.solid_bounds().end.z,"Wake emits outside the stern")
+ var nearest:=INF
+ for outlet in model.exhaust_outlets():nearest=minf(nearest,(model.global_transform.affine_inverse()*emitted).distance_to(outlet))
+ expect(nearest<1.0,"Wake emits from the engines")
  var anchored: Vector3=effects.player_wake[0].at
  app.world.geography.anchor+=Vector3(1000,0,0);effects.update(app.world.region,0)
  expect(effects.player_wake[0].at==anchored,"Existing wake stays in world coordinates")

@@ -333,6 +333,9 @@ func layout() -> void:
 		overlay.size=Vector2(minf(880,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page in ["controls","graphics","journal","failure","confirm","transfer"]:
 		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,overlay.get_combined_minimum_size().y+maxf(sheet_full_height,column.get_combined_minimum_size().y)+2));overlay.position=(ui.size-overlay.size)*.5
+	elif page=="medal":
+		# A short notice: centred, and only as tall as its rows.
+		overlay.size=Vector2(minf(560,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="dialogue":
 		overlay.size=Vector2(minf(660,ui.size.x-64),minf(300,ui.size.y-100)); overlay.position=(ui.size-overlay.size)*.5
 	elif page=="station":
@@ -509,7 +512,8 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 	if subtitle.is_empty(): subtitle=PAGE_SUBTITLES.get(id,"")
 	if not subtitle.is_empty() and ui.size.x>=700 and ui.size.y>=640: caption(subtitle,11,titles,3).name="Subtitle"
 	header_chips=HBoxContainer.new();header_chips.add_theme_constant_override("separation",10);header.add_child(header_chips)
-	if id not in ["station","dialogue","failure","transit","map","stream"]:
+	# A medal is a notice with its own OK; Esc still moves on.
+	if id not in ["station","dialogue","failure","transit","map","stream","medal"]:
 		var back := iconic(button("CLOSE" if id=="destinations" else "BACK",dock_back,header),"back",18)
 		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.size_flags_vertical=Control.SIZE_SHRINK_BEGIN;back.custom_minimum_size=Vector2(128,48 if touch.enabled() else 40)
 		back.add_theme_font_override("font",heading_font(4))
@@ -1983,8 +1987,11 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 	primary(iconic(button("Accept contract",func():
 		if session.accept_contract(mission): show_station()
 		else: notice("Insufficient credits for the deposit."),body),"contracts",22))
-func transaction_result(result: int) -> void:
+func transaction_result(result: int, done: String="") -> void:
+	"""A refusal's reason, or what the original says once it went through
+	(ai: "<ship> bought.", "<item> mounted.", "<item> sold.")."""
 	if result>=0: notice(session.text(result))
+	elif not done.is_empty(): notice(done)
 func show_map(autopilot_only: bool=false) -> void:
 	atlas_autopilot_only=autopilot_only
 	if session.docked:
@@ -2285,8 +2292,8 @@ func select_station(id: int) -> void:
 	elif figures.far: status=""
 	elif not denial.is_empty(): status="Locked by the current mission"
 	elif figures.unsafe: status=session.text(255)
-	show_station_card(id,"%s · %s\nTec Level: %s · Depth: %s\nS.T.R.E.A.M. %s / %.1f\u00a0km%s"%[
-		"Rebels" if session.campaign.rebel_stations[id] else "Colonists","Discovered" if session.discovered[id] else "Unexplored",tech_text(id),figures.depth,
+	show_station_card(id,"%s · %s\n%s: %s · %s: %s\u00a0m\nS.T.R.E.A.M. %s / %.1f\u00a0km%s"%[
+		"Rebels" if session.campaign.rebel_stations[id] else "Colonists","Discovered" if session.discovered[id] else "Unexplored",session.text(44),tech_text(id),session.text(245),figures.depth,
 		figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 	map_info.tooltip_text=denial
 	if is_instance_valid(stream_button): stream_button.tooltip_text=denial if not denial.is_empty() else "Autopilot to the gate, then confirm your exit in transit control."
@@ -2670,8 +2677,8 @@ func show_stream_menu() -> void:
 		# depth. The reach and distance are this engine's own, and matter here.
 		var figures:=station_figures(id)
 		var status: String=(session.text(255) if figures.unsafe else "Exit ready") if denial.is_empty() else "" if figures.far else denial
-		show_station_card(id,"%s\nTec Level: %s · Depth: %s\nDistance %s\u00a0km · reach %.1f\u00a0km%s"%[
-			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",tech_text(id),figures.depth,
+		show_station_card(id,"%s\n%s: %s · %s: %s\u00a0m\nDistance %s\u00a0km · reach %.1f\u00a0km%s"%[
+			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",session.text(44),tech_text(id),session.text(245),figures.depth,
 			figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 		confirm.disabled=not denial.is_empty()
 	species.pressed.connect(func(): select.call(stream_selection))
@@ -2866,7 +2873,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var balance: int=session.credits+economy.ship_price(session.ship)-economy.ship_price(item)
 		figure_rows([["","Trade-in for your %s"%content.ship_name(session.ship.id),"%d cr"%economy.ship_price(session.ship),palette.value],
 			["","Balance after exchange","%d cr"%balance,palette.value if balance>=0 else palette.bad]],detail)
-		var purchase := primary(iconic(button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item));show_market(kind),detail),"depart",22))
+		var purchase := primary(iconic(button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item),content.ship_name(item.id)+" "+session.text(89));show_market(kind),detail),"depart",22))
 		market_action(purchase,economy.buy_ship_denial(station,item))
 	else:
 		# A phone held landscape has the row's own icon to go by.
@@ -2886,10 +2893,10 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 					caption("Currently equipped",11,current,3)
 					label(item_name(installed.id,"equipment"),15,current).add_theme_color_override("font_color",palette.text)
 					label(EquipmentInfo.stats(installed),13,current).add_theme_color_override("font_color",palette.dim)
-			var purchase := primary(iconic(button("Buy · %d cr"%item.price,func():transaction_result(economy.buy_equipment(station,item));show_market(kind),detail),"cart",22))
+			var purchase := primary(iconic(button("Buy · %d cr"%item.price,func():transaction_result(economy.buy_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(91));show_market(kind),detail),"cart",22))
 			market_action(purchase,economy.buy_equipment_denial(station,item))
 		else:
-			var sale := iconic(button("Sell · %d cr"%item.price,func():transaction_result(economy.sell_equipment(station,item));show_market(kind),detail),"credits",22);sale.alignment=HORIZONTAL_ALIGNMENT_CENTER
+			var sale := iconic(button("Sell · %d cr"%item.price,func():transaction_result(economy.sell_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(90));show_market(kind),detail),"credits",22);sale.alignment=HORIZONTAL_ALIGNMENT_CENTER
 			market_action(sale,economy.sell_equipment_denial(station,item))
 func header_chip(icon: String, value: String, note: String) -> void:
 	"""A figure beside the page title, as the reference shows the purse."""

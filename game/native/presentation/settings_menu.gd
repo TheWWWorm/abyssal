@@ -543,7 +543,6 @@ func display_page() -> void:
 	var ratio: String=Display.valid(str(load_config().get_value("view","aspect_ratio","auto")))
 	var ratios: Array=Display.names()
 	chooser("Aspect ratio",ratios.map(func(item): return str(item).capitalize()),maxi(0,ratios.find(ratio)),"aspect",func(next): put("view","aspect_ratio",ratios[next]))
-	group("Resolution")
 	var quality := Quality.read(load_config())
 	var screen: int=DisplayServer.screen_get_size(get_window().current_screen).y
 	var heights: Array=Quality.heights_for(maxi(screen,get_window().size.y))

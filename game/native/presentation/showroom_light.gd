@@ -7,6 +7,10 @@ extends RefCounted
 ## silhouette against the water.
 
 static func apply(viewport: SubViewport, env: Environment) -> void:
+	# A SubViewport starts without multisampling; the previews follow the
+	# antialiasing chosen for the main view.
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree!=null: viewport.msaa_3d=tree.root.msaa_3d
 	env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color=Color("9fb8c4");env.ambient_light_energy=.22
 	env.tonemap_mode=Environment.TONE_MAPPER_ACES;env.tonemap_exposure=1.1

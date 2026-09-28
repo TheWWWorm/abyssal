@@ -2,6 +2,7 @@ extends RefCounted
 ## Geometry is decoded from the supplied JAR, never generated as replacement art.
 
 const UNIT := 0.01
+const CabinWindows = preload("res://native/presentation/cabin_windows.gd")
 var root := ""
 var models: Dictionary = {}
 var meshes: Dictionary = {}
@@ -199,11 +200,12 @@ static func lamp_tint(polygon: Dictionary, sheet: Dictionary) -> Color:
 func lamps_for(resource: String, pattern: int, atlas: String) -> Array:
 	return mesh_for(resource,pattern,atlas)[2]
 
-func mesh_for(resource: String, pattern: int, atlas: String = "", lenses: Dictionary={}, headlights: Dictionary={}) -> Array:
+func mesh_for(resource: String, pattern: int, atlas: String = "", lenses: Dictionary={}, headlights: Dictionary={}, hull: bool=false, tails: Dictionary={}) -> Array:
 	var sheet := lamp_sheet(atlas) if enhanced else {}
-	var key := resource + ":" + str(pattern) + (":lamps:"+atlas if not sheet.is_empty() else "")
+	var key := resource + ":" + str(pattern) + (":lamps:"+atlas if not sheet.is_empty() else "")+(":hull" if hull else "")
 	if not lenses.is_empty():key+=":lenses:"+str(lenses)
 	if not headlights.is_empty():key+=":headlights:"+str(headlights)
+	if not tails.is_empty():key+=":tails:"+str(tails)
 	if meshes.has(key):
 		return meshes[key]
 	var source := data(resource)
@@ -244,9 +246,16 @@ func mesh_for(resource: String, pattern: int, atlas: String = "", lenses: Dictio
 		var two_sided:bool=polygon.double_sided or (resource.get_file().begins_with("station_") and int(polygon.blend)==0)
 		var lens: int=lenses.get(polygon_index,0)
 		var headlight: bool=headlights.has(polygon_index)
-		var group_key := str([polygon.texture, polygon.blend, two_sided, lit, alpha,door,lens,headlight])
+		# A lens keeps its own surface; a lamp listed for it only adds light.
+		var tail: int=0 if lens>0 else int(tails.get(polygon_index,0))
+		# On a hull only a real pane is glass. Anything else that samples the
+		# pane's black (a slice of it, or a face mapped just over the tile's
+		# edge) is paint.
+		var painted: bool=(hull and lens==0 and tail==0 and not CabinWindows.is_pane(source,polygon)) or tail==CabinWindows.STERN_PAINT
+		if painted:tail=0
+		var group_key := str([polygon.texture, polygon.blend, two_sided, lit, alpha,door,lens,headlight,painted,tail])
 		if not groups.has(group_key):
-			groups[group_key] = {"texture": int(polygon.texture), "blend": int(polygon.blend), "double": two_sided, "door":door, "lens":lens, "headlight":headlight, "lit": lit, "alpha": alpha, "faces": []}
+			groups[group_key] = {"texture": int(polygon.texture), "blend": int(polygon.blend), "double": two_sided, "door":door, "lens":lens, "headlight":headlight, "painted":painted, "tail":tail, "lit": lit, "alpha": alpha, "faces": []}
 		groups[group_key].faces.append(polygon)
 	var mesh := ArrayMesh.new()
 	var surfaces: Array = []
@@ -279,6 +288,9 @@ func mesh_for(resource: String, pattern: int, atlas: String = "", lenses: Dictio
 	meshes[key] = [mesh, surfaces, lamps]
 	return meshes[key]
 
+static func is_hull_call(call: Dictionary) -> bool:
+	return bool(call.get("hull_coating",false)) and not bool(call.get("station_coating",false))
+
 static func is_hangar_door(resource: String, polygon: Dictionary) -> bool:
 	"""The berth door of either hangar: the panel between the blue lamps is
 	the one face of each that is painted with the door's texels."""
@@ -294,7 +306,7 @@ func figure(call: Dictionary) -> Node3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	node.add_child(instance)
-	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call),call.get("headlight_lenses",{}),call.get("source_headlights",{}))
+	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call),call.get("headlight_lenses",{}),call.get("source_headlights",{}),is_hull_call(call),call.get("tail_lamps",{}))
 	instance.mesh = mesh_data[0]
 	# Light added or taken from the water throws no shadow: an explosion, a
 	# shot or the depth-limit panel would otherwise darken the fog below it.
@@ -311,9 +323,11 @@ func figure(call: Dictionary) -> Node3D:
 	# Keep the small lamps attached even when switched off, so cached poses
 	# and animation variants can restore them without rebuilding the hull.
 	if bool(call.get("cabin_lamps",call.get("cabin_windows",false))):
-		for lamp in preload("res://native/presentation/cabin_windows.gd").lamps(data(call.resource),int(call.pattern),call.get("headlight_lenses",{})):
+		for lamp in CabinWindows.lamps(data(call.resource),int(call.pattern),call.get("headlight_lenses",{}),call.get("tail_lamps",{})):
 			lamp.cabin=true
 			points.append({"node":add_lamp(node,lamp),"lamp":lamp})
+	for lamp in CabinWindows.tail_lamps(data(call.resource),int(call.pattern),call.get("tail_lamps",{})):
+		points.append({"node":add_lamp(node,lamp),"lamp":lamp})
 	node.set_meta("lamps",points)
 	return node
 
@@ -333,6 +347,7 @@ func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
 		holder.add_child(halo)
 	var light := OmniLight3D.new();light.name="Light";holder.add_child(light)
 	light.light_color=lamp.tint;light.light_energy=float(lamp.get("energy",LAMP_ENERGY));light.light_size=0.0
+	light.light_specular=float(lamp.get("specular",0.5))
 	# The hangar's animated berth lamps blink at their fixtures. A broad point
 	# light reached the adjoining modules, making unrelated roofs pulse with
 	# each frame of the berth animation despite the shadow map. Keep the glow
@@ -370,6 +385,14 @@ static func set_lamp_hinge(node: Node3D, axis: int, bend: float) -> void:
 	for point in node.get_meta("lamps",[]):
 		if point.has("rest"):point.node.transform=bend_lamp(point.rest,axis,bend)
 
+static func pulse_cabin_lamps(node: Node3D, value: float) -> void:
+	"""The cabin lamps' share of the windows' slow rise and fall."""
+	for point in node.get_meta("lamps",[]):
+		if not point.lamp.get("cabin",false):continue
+		var light := (point.node as Node3D).get_node_or_null("Light") as OmniLight3D
+		if light!=null and light.visible:
+			light.light_energy=float(point.lamp.energy)*value*CabinWindows.pulse(CabinWindows.clock,point.lamp.get("window",point.lamp.centre))
+
 static func set_lamp_visibility(node: Node3D, value: float, cabins: bool=true) -> void:
 	for point in node.get_meta("lamps",[]):
 		var holder: Node3D=point.node
@@ -382,7 +405,7 @@ static func set_lamp_visibility(node: Node3D, value: float, cabins: bool=true) -
 
 func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 	var instance := node.get_node("Mesh") as MeshInstance3D
-	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call),call.get("headlight_lenses",{}),call.get("source_headlights",{}))
+	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call),call.get("headlight_lenses",{}),call.get("source_headlights",{}),is_hull_call(call),call.get("tail_lamps",{}))
 	for i in mesh_data[1].size():
 		var g: Dictionary = mesh_data[1][i]
 		var resource_name := ""
@@ -414,6 +437,8 @@ func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 					mat.set_shader_parameter("biology_eye_left",biology.eyes[0])
 					mat.set_shader_parameter("biology_eye_right",biology.eyes[1])
 		mat.set_shader_parameter("hangar_door",g.get("door",false))
+		mat.set_shader_parameter("painted_glass",g.get("painted",false))
+		mat.set_shader_parameter("tail_lamp",g.get("tail",0))
 		var lens: int=g.get("lens",0)
 		mat.set_shader_parameter("headlight_lens",lens)
 		if lens>0:mat.set_shader_parameter("headlight_lens_color",call.headlight_tints[lens-1])
@@ -585,6 +610,8 @@ uniform bool portal_clip_enabled = false;
 uniform vec4 portal_clip_plane = vec4(0.0);
 uniform bool station_coating = false;
 uniform bool hull_coating = false;
+uniform bool painted_glass = false;
+uniform int tail_lamp = 0;
 uniform bool cabin_windows = false;
 uniform int headlight_lens = 0;
 uniform bool headlight_lens_enabled = true;
@@ -677,15 +704,35 @@ if(station_coating){
 }
 if(hull_coating && !replacement_enabled){
 	vec4 hints=texture(surface_map,(UV+vec2(0.5))/texture_size);
-	// Station doors share these texels too, but are painted panels, not glass.
-	if(station_coating){hints.a=0.0;}
+	// Station doors and some hull panels share these texels too, but are
+	// painted panels, not glass.
+	if(station_coating || painted_glass){hints.a=0.0;}
+	// An engine's pane keeps the hull's own surface; only its glow is added.
+	float pane_mask=hints.a;
+	if(tail_lamp==2){hints.a=0.0;}
 	ROUGHNESS=hints.g;
 	// Clear glazing has a smooth reflection, without the painted hull's relief.
 	vec3 glass_tint=vec3(0.006,0.012,0.017);
 	ALBEDO=mix(ALBEDO,OUTPUT_IS_SRGB?to_srgb(glass_tint):glass_tint,hints.a*0.75);
 	ROUGHNESS=mix(ROUGHNESS,0.16,hints.a);
 	SPECULAR=mix(SPECULAR,0.5,hints.a);
-	if(cabin_windows && headlight_lens==0){
+	if(tail_lamp>0){
+		// A stern pane is a tail lamp (1): steady red behind the glass,
+		// brightest in the middle of the frame; or an engine's dim glow (2).
+		vec2 pane=(UV-vec2(54.5,103.5))/vec2(4.5);
+		float inset=1.0-smoothstep(0.5,1.1,max(abs(pane.x),abs(pane.y)));
+		vec3 tint=vec3(0.75,0.035,0.015);
+		if(tail_lamp==2){
+			// An engine: a soft round glow in the middle of the nozzle, not a
+			// lit pane, breathing slowly between faint and dim blue.
+			float phase=dot(material_position,vec3(0.35,0.25,0.3));
+			tint=vec3(0.018,0.04,0.065)*(0.35+0.65*(0.5+0.5*sin(ocean_visual_time*1.4+phase)));
+			inset=exp(-dot(pane,pane)*2.2)*1.4-0.3;
+		}
+		vec3 tail_radiance=tint*pane_mask*(0.3+0.7*inset);
+		EMISSION+=OUTPUT_IS_SRGB?to_srgb(tail_radiance):tail_radiance;
+	}
+	else if(cabin_windows && headlight_lens==0){
 		// Amber light sits inside the frame, with a dark recess around each
 		// pane. A slight view shift separates it from the glass reflection.
 		vec2 pane=(UV-vec2(54.5,103.5))/vec2(4.5);
@@ -694,6 +741,9 @@ if(hull_coating && !replacement_enabled){
 		float centre=exp(-dot(source,source));
 		float edge=1.0-smoothstep(0.55,1.1,max(abs(pane.x),abs(pane.y)));
 		float cabin_light=(0.035+0.965*centre*edge)*mix(0.45,1.0,smoothstep(0.0,0.7,dot(NORMAL,VIEW)));
+		// cabin_windows.gd pulse(): the lamp outside the pane follows the same curve.
+		float phase=dot(material_position,vec3(0.35,0.25,0.3));
+		cabin_light*=0.7+0.3*(0.65*sin(ocean_visual_time*0.9+phase)+0.35*sin(ocean_visual_time*2.1+phase*1.6));
 		vec3 interior_radiance=vec3(0.18,0.09,0.020)*hints.a*cabin_light;
 		// Compatibility shades in sRGB; a linear constant would disappear
 		// in its low-precision target before the tone mapper can expose it.

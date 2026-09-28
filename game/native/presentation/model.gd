@@ -6,6 +6,7 @@ const Clock = preload("res://native/simulation/animation_clock.gd")
 const Special = preload("res://native/simulation/special_actor.gd")
 const Mods = preload("res://native/presentation/mods.gd")
 const Headlights = preload("res://native/presentation/headlight_options.gd")
+const CabinWindows = preload("res://native/presentation/cabin_windows.gd")
 ## Every station module is turned half a turn about its socket axis: the
 ## imported station meshes stand the other way up and the other way round
 ## from the phone game, so a hangar's berth door read as a roof and each
@@ -145,6 +146,8 @@ func configure(cache: String, entry: Dictionary, preview_frame_ms: int = 32) -> 
 	record=entry
 	if has_meta("headlight_rig"):remove_meta("headlight_rig")
 	if has_meta("headlight_lens_faces"):remove_meta("headlight_lens_faces")
+	if has_meta("exhaust_outlets"):remove_meta("exhaust_outlets")
+	if has_meta("tail_lamp_faces"):remove_meta("tail_lamp_faces")
 	if pack!=null: material_look=pack.look_for(int(record.id))
 	source=library.data(record.model)
 	if material_look.get("biology",false): biological_look=preload("res://native/presentation/biological_surface.gd").definition(int(record.id),source)
@@ -323,6 +326,7 @@ func refresh() -> void:
 	call.headlight_rig=headlight_rig() if hull else []
 	call.headlight_tints=call.headlight_rig.map(func(lamp):return headlight_tint(lamp.tint))
 	call.headlight_lenses=headlight_lens_faces() if modern_graphics and hull else {}
+	call.tail_lamps=tail_lamp_faces() if modern_graphics and hull else {}
 	call.source_headlights={}
 	for lamp in call.headlight_rig:
 		for polygon in lamp.get("polygons",[]):call.source_headlights[polygon]=true
@@ -366,6 +370,7 @@ func advance(milliseconds: int, render_pose: bool=true) -> void:
 	elapsed+=milliseconds
 	clock.advance(elapsed)
 	if render_pose: refresh()
+	if figure!=null and is_hull_id(int(record.id)): Library.pulse_cabin_lamps(figure,stream_visibility)
 
 func bounds() -> AABB:
 	var transforms: Array[Transform3D] = []
@@ -405,6 +410,37 @@ func solid_bounds() -> AABB:
 	solid_aabb=result; solid_aabb_ready=true
 	return result
 
+## The engines of the original hulls seen from astern, in model units (x, y):
+## Ino, Dagon and Pontos push with two pods, Hyperion with three, the others
+## with one engine on the centre line. Measured on the hulls' stern views.
+const ENGINE_OUTLETS := {
+	0:[Vector2(-4.0,0.0),Vector2(4.0,0.0)],1:[Vector2(0.0,-0.8)],2:[Vector2(0.0,-0.4)],
+	3:[Vector2(-3.55,-0.3),Vector2(3.55,-0.3)],4:[Vector2(0.0,0.0)],5:[Vector2(0.0,0.0)],
+	6:[Vector2(0.0,0.0)],7:[Vector2(-5.5,-0.75),Vector2(0.0,0.25),Vector2(5.45,-0.75)],
+	8:[Vector2(-3.95,-0.1),Vector2(3.95,-0.1)],9:[Vector2(0.0,0.0)],10:[Vector2(0.0,0.4)]}
+
+func exhaust_outlets() -> Array[Vector3]:
+	"""Where the wake leaves the hull, in the model's frame: just astern of
+	each engine. A hull without a measured layout (a replacement model)
+	uses two outlets either side of its stern."""
+	if has_meta("exhaust_outlets"):return get_meta("exhaust_outlets")
+	var bounds := solid_bounds()
+	var outlets: Array[Vector3]=[]
+	var layout: Array=ENGINE_OUTLETS.get(int(record.id),[]) if replacement==null else []
+	if layout.is_empty():
+		for side in [-1,1]:outlets.append(bounds.get_center()+Vector3(bounds.size.x*.36*side,-bounds.size.y*.08,bounds.size.z*.5+.5))
+	else:
+		var points: Array[Vector3]=preload("res://native/presentation/headlight_rig.gd").posed_vertices(source,current_bones)
+		for engine: Vector2 in layout:
+			# The engine's back is the hull's last point around it.
+			var stern := -INF
+			for point in points:
+				if Vector2(point.x,point.y).distance_squared_to(engine)<2.25:stern=maxf(stern,point.z)
+			if stern==-INF:stern=bounds.end.z
+			outlets.append(Vector3(engine.x,engine.y,stern+.3))
+	set_meta("exhaust_outlets",outlets)
+	return outlets
+
 func headlight_rig() -> Array:
 	var source_rig=preload("res://native/presentation/headlight_rig.gd")
 	if replacement!=null and not replacement.get_meta("headlight_mounts",[]).is_empty():
@@ -423,6 +459,33 @@ func headlight_frames() -> Array:
 
 func headlight_tint(original: Color) -> Color:
 	return preload("res://native/presentation/headlight_rig.gd").display_tint(original,library.blue_headlights)
+
+## What a hull's stern panes show, where a red tail lamp does not suit: the
+## Okeanos' single broad pane and the Lir's engine cone glow dimly as engines.
+const STERN_PANES := {1:CabinWindows.STERN_ENGINE,9:CabinWindows.STERN_ENGINE}
+## Hulls whose flanks carry the pane's tile, drawn a texel over its edge, on
+## panels behind the headlight housings (not windows, so otherwise plain
+## hull): the Okeanos. They are red tail lamps, picked on the posed hull at
+## least this far off the centre line.
+const RED_FLANKS := {1:1.5}
+
+func tail_lamp_faces() -> Dictionary:
+	"""Stern pane index -> CabinWindows.STERN_* kind."""
+	if not has_meta("tail_lamp_faces"):
+		var kind: int=STERN_PANES.get(int(record.id),CabinWindows.STERN_LAMP) if replacement==null else CabinWindows.STERN_LAMP
+		var faces := {}
+		for index in CabinWindows.tail_faces(source,current_bones):faces[index]=kind
+		if replacement==null and RED_FLANKS.has(int(record.id)):
+			var points: Array[Vector3]=preload("res://native/presentation/headlight_rig.gd").posed_vertices(source,current_bones)
+			var lenses: Dictionary=headlight_lens_faces()
+			for index in source.polygons.size():
+				var polygon: Dictionary=source.polygons[index]
+				if lenses.has(index) or not CabinWindows.is_glass(polygon,1.0) or CabinWindows.is_pane(source,polygon):continue
+				var x := 0.0
+				for vertex in polygon.indices:x+=points[int(vertex)].x
+				if absf(x/polygon.indices.size())>=RED_FLANKS[int(record.id)]:faces[index]=CabinWindows.STERN_LAMP
+		set_meta("tail_lamp_faces",faces)
+	return get_meta("tail_lamp_faces")
 
 func headlight_lens_faces() -> Dictionary:
 	if not has_meta("headlight_lens_faces"):

@@ -1,6 +1,7 @@
 extends Node3D
 ## Art direction only: light scattering, particulate and rising bubbles.
 const OceanProfile=preload("res://native/presentation/ocean_profile.gd")
+const CabinWindows=preload("res://native/presentation/cabin_windows.gd")
 var atmosphere := preload("res://native/presentation/ocean_options.gd").defaults()
 var camera: Camera3D
 var world
@@ -209,6 +210,7 @@ func _process(delta: float) -> void:
 	ambient_clock+=seconds
 	particle_material.set_shader_parameter("drift_time",ambient_clock)
 	RenderingServer.global_shader_parameter_set("ocean_visual_time",ambient_clock)
+	CabinWindows.clock=ambient_clock
 	if world!=null and world.region!=null:
 		update_water_light(world.region.player.depth,seconds)
 		var pose: Transform3D = world.render_pose(world.region.player)

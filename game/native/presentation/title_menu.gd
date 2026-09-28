@@ -24,9 +24,16 @@ var help_open := false
 const StationTheme = preload("res://native/presentation/station_theme.gd")
 const StationIcon = preload("res://native/presentation/station_icon.gd")
 var palette := StationTheme.palette(false)
+## The column is enlarged with Control.scale, which the window's font
+## oversampling does not see: glyphs drawn for 17 px and stretched to 25 blur.
+## The title's own copy of the font is rasterised at the enlarged size.
+var sharp_font: FontFile
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var base: Font=get_theme_default_font()
+	if base is FontFile:
+		sharp_font=base.duplicate();theme=Theme.new();theme.default_font=sharp_font
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	headline=caption("ABYSSAL",42,palette.text);headline.add_theme_font_override("font",StationTheme.spaced(headline.get_theme_font("font"),10))
 	subtitle=caption("COMPATIBILITY ENGINE",13,palette.dim);subtitle.add_theme_font_override("font",StationTheme.spaced(subtitle.get_theme_font("font"),5))
@@ -94,6 +101,9 @@ func layout() -> void:
 	# Upright, the column takes the width and the station shows below it.
 	var left := (24 if upright else 40)*unit
 	var column := size.x/unit-48 if upright else minf(360,size.x/unit-80)
+	if sharp_font!=null and is_inside_tree():
+		var wanted: float=unit*maxf(1.0,get_window().get_oversampling())
+		if not is_equal_approx(sharp_font.oversampling,wanted):sharp_font.oversampling=wanted
 	headline.scale=Vector2.ONE*unit;headline.position=Vector2(left,38*unit)
 	subtitle.scale=Vector2.ONE*unit;subtitle.position=Vector2(left,91*unit)
 	logo.position=Vector2(left,44*unit);logo.size=Vector2(column,column*81.0/354.0)*unit

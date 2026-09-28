@@ -115,14 +115,10 @@ func update_player_wake(region, milliseconds: float) -> void:
 		player_wake.clear();wake_previous.clear();wake_timer=0;return
 	var model=owner_view.player_model
 	if model==null:return
-	var bounds: AABB=model.solid_bounds()
 	var frame: Transform3D=model.global_transform
 	var outlets: Array[Vector3]=[]
-	for side in [-1,1]:
-		var local := bounds.get_center()+Vector3(bounds.size.x*.36*side,-bounds.size.y*.08,0)
-		local.z=bounds.end.z+.5
-		outlets.append(frame*local+anchor)
-	if wake_previous.is_empty():wake_previous=outlets.duplicate()
+	for local in model.exhaust_outlets():outlets.append(frame*local+anchor)
+	if wake_previous.size()!=outlets.size():wake_previous=outlets.duplicate()
 	# A lost hull runs no engines; the bubbles already out rise on.
 	if dt>0 and region.player.health.hull>0:
 		var power: float=clampf(region.player.throttle/100.0,0,1)
@@ -130,7 +126,7 @@ func update_player_wake(region, milliseconds: float) -> void:
 		wake_timer=minf(wake_timer+dt,interval*8)
 		while wake_timer>=interval:
 			wake_timer-=interval
-			for side in 2:
+			for side in outlets.size():
 				var at := wake_previous[side].lerp(outlets[side],clampf(1.0-wake_timer/dt,0,1))
 				# Deterministic turbulence is sampled once at birth, never per frame.
 				var phase := float(wake_serial)*2.399963
