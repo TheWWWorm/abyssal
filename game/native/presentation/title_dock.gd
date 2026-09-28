@@ -99,6 +99,15 @@ func set_lighting(modern: bool) -> void:
 	view.set_headlight_mode(view.library.headlight_mode)
 	apply_lighting()
 
+func set_quality(quality: Dictionary) -> void:
+	"""Shadows, volumetric light and shading detail from graphics_quality.gd."""
+	set_lighting(quality.modern)
+	var shadows: int=quality.shadows if quality.modern else 3
+	view.set_shadow_level(shadows);abyss.set_shadow_level(shadows)
+	wanted_volumetric=quality.volumetric and RenderingServer.get_current_rendering_method()=="forward_plus"
+	wanted_detail=quality.detail
+	apply_lighting()
+
 func apply_lighting() -> void:
 	var env := sky_environment
 	env.volumetric_fog_enabled=view.modern_graphics and wanted_volumetric

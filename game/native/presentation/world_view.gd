@@ -17,6 +17,7 @@ static func far_visibility(distance: float) -> float:
 
 const Model = preload("res://native/presentation/model.gd")
 const StationShadow = preload("res://native/presentation/station_shadow.gd")
+const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
 const Abyss = preload("res://native/presentation/abyss.gd")
 const Library = preload("res://scripts/model_library.gd")
 var world
@@ -679,7 +680,7 @@ func add_station_lights(visual) -> void:
 		# plain soft filter is indistinguishable on these walls.
 		lamp.light_size=0.0
 		lamp.omni_range=reach;lamp.omni_attenuation=.85
-		lamp.shadow_enabled=true;lamp.shadow_bias=.08;lamp.shadow_normal_bias=.6
+		lamp.set_meta("work_lamp",true);lamp.set_meta("service_lamp",side==1);GraphicsQuality.work_lamp_shadow(lamp,library.shadow_level);lamp.shadow_bias=.08;lamp.shadow_normal_bias=.6
 		lamp.light_volumetric_fog_energy=.3
 		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=650;lamp.distance_fade_length=300
 		var halo := MeshInstance3D.new();var quad := QuadMesh.new();quad.size=Vector2(4,4)
@@ -687,10 +688,19 @@ func add_station_lights(visual) -> void:
 		material.set_shader_parameter("tint",lamp.light_color);quad.material=material;halo.mesh=quad
 		halo.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;lamp.add_child(halo)
 
+func set_shadow_level(level: int) -> void:
+	"""Station lamps follow the shadow quality setting, built or yet to be."""
+	if library.shadow_level==level:return
+	library.shadow_level=level
+	for light in find_children("*","OmniLight3D",true,false):
+		if light.has_meta("work_lamp"):GraphicsQuality.work_lamp_shadow(light,level)
+		elif light.has_meta("wanted_shadow"):GraphicsQuality.sprite_lamp_shadow(light,light.get_meta("wanted_shadow"),level)
+
 # Other vessels carry the same lamps and beams as the player's hull. Their
 # beams are shadowed one per frame in turn, which keeps the raycasts cheap.
 var actor_beams: Array = []
 var actor_beams_enabled := true
+var headlight_strength := 1.0
 var actor_beam_phase := 0
 func set_headlight_mode(mode: int) -> void:
 	library.headlight_mode=mode
@@ -713,16 +723,25 @@ func add_actor_lights(visual, occluder=null) -> Array:
 		var lamp: SpotLight3D=Abyss.create_headlight(0.0);visual.add_child(lamp)
 		lamp.visible=visual.headlights_powered and Headlights.casts_light(library.headlight_mode)
 		lamp.transform=rig[i].frame;lamp.light_color=visual.headlight_tint(rig[i].tint)
+		lamp.light_energy=Abyss.HEADLIGHT_ENERGY*headlight_strength
 		lamp.shadow_enabled=false
 		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=400;lamp.distance_fade_length=200
 		var beam: MeshInstance3D=Abyss.create_beam();lamp.add_child(beam)
 		beam.material_override.set_shader_parameter("tint",lamp.light_color)
+		beam.material_override.set_shader_parameter("energy",Abyss.BEAM_ENERGY*headlight_strength)
 		beam.material_override.set_shader_parameter("fade_begin",400.0);beam.material_override.set_shader_parameter("fade_length",200.0)
 		beam.visible=actor_beams_enabled
 		var own: Array[RID]=[]
 		if occluder!=null: own.append(occluder.get_rid())
 		actor_beams.append({"lamp":lamp,"beam":beam,"exclude":own,"tint":rig[i].tint});lamps.append(lamp)
 	return lamps
+
+func set_headlight_strength(value: float) -> void:
+	headlight_strength=value
+	actor_beams=actor_beams.filter(func(entry):return is_instance_valid(entry.lamp) and is_instance_valid(entry.beam))
+	for entry in actor_beams:
+		entry.lamp.light_energy=Abyss.HEADLIGHT_ENERGY*value
+		entry.beam.material_override.set_shader_parameter("energy",Abyss.BEAM_ENERGY*value)
 
 func set_actor_beams(on: bool) -> void:
 	actor_beams_enabled=on

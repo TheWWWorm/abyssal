@@ -12,7 +12,13 @@ func _initialize() -> void:call_deferred("run")
 func press(panel, key: String) -> void:
 	var button := panel.find_child("Row_"+key,true,false) as Button
 	expect(button!=null and not button.disabled,"The %s option is reachable"%key)
-	if button!=null and not button.disabled:button.pressed.emit()
+	if button!=null and not button.disabled:
+		var list := button.get_node_or_null("List") as OptionButton
+		# A dropdown row: take the next choice from its list.
+		if list!=null:
+			var next := (list.selected+1)%list.item_count
+			list.select(next);list.item_selected.emit(next)
+		else:button.pressed.emit()
 	await process_frame;await process_frame
 
 func dark_cabin(model) -> bool:
@@ -59,11 +65,12 @@ func run() -> void:
 		expect(not Options.flag(saved,"graphics",key),"Title saves %s immediately"%key)
 		expect(not app.title_dock.abyss.atmosphere[key],"Title water follows %s immediately"%key)
 	expect(not app.title_dock.view.library.cabin_lights and not app.title_dock.view.library.bioluminescence,"Title models use the selected lighting")
-	await press(app.settings_panel,"lighting")
+	# The Classic preset is the original lighting; any other preset returns to Enhanced.
+	app.settings_panel.choose_preset(0);await process_frame;await process_frame
 	expect(not app.settings_panel.find_child("Row_ship_smoothing",true,false).disabled and not app.title_dock.view.library.ship_smoothing,"Ship filtering remains available and preserves its choice in Classic lighting")
 	for key in Options.VISUALS:
 		expect(app.settings_panel.find_child("Row_"+key,true,false).disabled,"Classic disables %s"%key)
-	await press(app.settings_panel,"lighting")
+	app.settings_panel.choose_preset(4);await process_frame;await process_frame
 	for key in Options.VISUALS:
 		expect(not app.settings_panel.flag("graphics",key,true),"Returning to Enhanced preserves %s"%key)
 	app.settings_panel.back();app.launch_game(false,"Options check")

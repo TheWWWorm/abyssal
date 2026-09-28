@@ -821,10 +821,13 @@ func check_controls_sections(game) -> void:
  game.show_settings("audio");await process_frame
  var music:=panel_button(panel,"Menu and opening music")
  expect(music!=null and music.get_node("Value").text.begins_with("Auto"),"Audio offers the menu music choice")
+ var tracks: OptionButton=music.get_node("List")
  music.pressed.emit();await process_frame
+ expect(tracks.get_popup().visible,"The music row opens its list")
+ tracks.get_popup().hide();tracks.select(1);tracks.item_selected.emit(1);await process_frame
  expect(game.dive_audio.title_choice==1,"Choosing Intro reaches the dive's music")
- panel_button(panel,"Menu and opening music").pressed.emit();panel_button(panel,"Menu and opening music").pressed.emit();await process_frame
- expect(game.dive_audio.title_choice==0,"The choice cycles back to Auto")
+ tracks=panel_button(panel,"Menu and opening music").get_node("List");tracks.select(0);tracks.item_selected.emit(0);await process_frame
+ expect(game.dive_audio.title_choice==0,"Auto can be chosen again")
  game.close_page()
  expect(not panel.visible,"Closing the page closes the panel with it")
  game.fullscreen_button.web_build=true

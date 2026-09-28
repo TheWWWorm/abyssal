@@ -77,6 +77,13 @@ const FullscreenButton = preload("res://native/presentation/fullscreen_button.gd
 const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
 const TouchControls = preload("res://native/input/touch_controls.gd")
 const Display = preload("res://native/presentation/display_settings.gd")
+const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
+const GraphicsProbe = preload("res://native/presentation/graphics_probe.gd")
+## Measures the device on first start (or when asked) and picks a preset.
+var graphics_probe: Node
+var fps_counter := preload("res://native/presentation/fps_counter.gd").new()
+## Lists the finger drags, on the title as in the dive.
+var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
 
 func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
 	var node := Label.new()
@@ -122,6 +129,9 @@ func _ready() -> void:
 	abyss.hide()
 	inspector_environment=abyss.environment.environment;abyss.environment.environment=null
 	add_child(title_dock)
+	add_child(touch_scroll)
+	add_child(fps_counter)
+	fps_counter.set_enabled(fps_counter.wanted(start_config_now()))
 	add_child(canvas)
 	canvas.add_child(ui)
 	ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -285,6 +295,7 @@ func fit_window() -> void:
 		var last:=TouchControls.last_input
 		var touch: bool=mode==1 or (mode==0 and (last=="touch" or (last.is_empty() and DisplayServer.is_touchscreen_available())))
 		Display.apply(get_window(),Display.valid(str(config.get_value("view","aspect_ratio","auto"))),Display.responsive_size(pixels,touch))
+		if not probing():apply_render_quality()
 	apply_side_margins()
 func apply_side_margins() -> void:
 	# The title menus keep clear of a phone's notch as the flight interface does.
@@ -339,6 +350,8 @@ func open_cache(path: String) -> void:
 	if inspector_open: show_model(initial)
 	title_dock.load_content(content,save_path,settings_path)
 	refresh_title()
+	apply_render_quality()
+	if wants_graphics_probe():start_graphics_probe.call_deferred()
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): launch_game.call_deferred()
 
 func show_model(index: int) -> void:
@@ -743,6 +756,7 @@ func refresh_title() -> void:
 	focus_title()
 
 func show_tools() -> void:
+	cancel_graphics_probe()
 	get_viewport().disable_3d=false
 	title_dock.set_active(false);abyss.environment.environment=inspector_environment;camera.current=true
 	inspector_open=true;title_menu.hide();panel.show();model_name.show()
@@ -764,8 +778,85 @@ func set_preference(section: String, key: String, value: Variant) -> void:
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
 	if config.save(settings_path)!=OK: status.text="Could not save settings. Check your user folder."
 
+func apply_render_quality(quality: Dictionary={}) -> void:
+	"""The backdrop draws what the dive will: resolution, antialiasing,
+	shadows, volumetric light and shading detail from the settings, or the
+	preset being measured."""
+	if quality.is_empty():
+		var config := ConfigFile.new();config.load(settings_path);quality=GraphicsQuality.read(config)
+	GraphicsQuality.apply_viewport(get_viewport(),quality,get_window().size)
+	title_dock.set_quality(quality)
+
+func start_config_now() -> ConfigFile:
+	var config := ConfigFile.new();config.load(settings_path);return config
+
+func probing() -> bool:
+	return is_instance_valid(graphics_probe) and graphics_probe.running
+
+func wants_graphics_probe() -> bool:
+	"""Once, on the first start with content: no preset chosen or measured yet."""
+	var config := ConfigFile.new();config.load(settings_path)
+	# Measured once per profile. A profile whose preset came from before the
+	# recommendation was stored is measured for the recommendation alone.
+	if GraphicsQuality.recommended(config)>=0:return false
+	# Classic lighting chosen in an earlier version is a look, not a speed: keep it.
+	if not GraphicsQuality.has_preset(config) and not GraphicsQuality.read(config).modern:
+		GraphicsQuality.write(config,GraphicsQuality.CLASSIC)
+		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
+		return false
+	if DisplayServer.get_name()=="headless" or "--gameplay-capture" in OS.get_cmdline_user_args() or not capture_path.is_empty():return false
+	return ready_for_preview and not launching
+
+func start_graphics_probe() -> void:
+	if probing() or not ready_for_preview or launching or inspector_open:return
+	if is_instance_valid(settings_panel) and settings_panel.visible:return
+	if is_instance_valid(graphics_probe):graphics_probe.queue_free()
+	graphics_probe=GraphicsProbe.new();add_child(graphics_probe)
+	var config := ConfigFile.new();config.load(settings_path)
+	graphics_probe.set_meta("first",not GraphicsQuality.has_preset(config))
+	graphics_probe.trying.connect(func(preset):apply_render_quality(GraphicsQuality.preset_quality(preset)))
+	graphics_probe.finished.connect(finish_graphics_probe)
+	status.text="Choosing graphics settings for this device…"
+	graphics_probe.begin()
+
+func cancel_graphics_probe() -> void:
+	"""Leaving the title while measuring keeps the settings as they were;
+	the next start measures again."""
+	if not probing():return
+	graphics_probe.stop();graphics_probe.queue_free()
+	if status.text=="Choosing graphics settings for this device…":status.text=""
+	apply_render_quality()
+
+func finish_graphics_probe(preset: int) -> void:
+	var first: bool=graphics_probe.get_meta("first",true)
+	graphics_probe.queue_free()
+	var config := ConfigFile.new();config.load(settings_path)
+	# A preset the player already has stays; only the recommendation is new.
+	if first or not GraphicsQuality.has_preset(config):GraphicsQuality.write(config,preset)
+	config.set_value("graphics","recommended",preset)
+	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
+	if config.save(settings_path)!=OK: status.text="Could not save settings. Check your user folder.";return
+	apply_render_quality()
+	if status.text=="Choosing graphics settings for this device…":status.text=""
+	if first:show_graphics_choice(preset)
+
+func show_graphics_choice(preset: int) -> void:
+	"""Says which preset was chosen, once, where it cannot be missed."""
+	if launching or inspector_open:return
+	if is_instance_valid(settings_panel) and settings_panel.visible:return
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.name="GraphicsChoice";box.add_theme_constant_override("separation",12);modal.add_child(box)
+	box.add_child(label("GRAPHICS",24,Color("8bd6ee")))
+	var text := label("The %s preset suits this device best, so the game now uses it.\n\nYou can choose another preset or change single settings in Settings > Graphics."%GraphicsQuality.PRESETS[preset],16)
+	text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=480;box.add_child(text)
+	var ok := button("OK",close_modal,box)
+	button("Open graphics settings",func():close_modal();show_settings("graphics"),box)
+	scrim.show();modal.show();layout_ui();ok.grab_focus.call_deferred()
+
 func show_settings(section: String="") -> void:
 	"""The same settings screen the game and the station open."""
+	cancel_graphics_probe()
 	close_modal()
 	if not is_instance_valid(settings_panel):
 		settings_panel=SettingsMenu.new();ui.add_child(settings_panel)
@@ -798,7 +889,7 @@ func apply_setting(section: String, key: String) -> void:
 		["audio","effects"]: audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1);audio.apply_levels()
 		["audio","title_music"]: audio.title_choice=title_dock.title_choice(config)
 		["graphics","audio"]: title_dock.set_audio_enabled(bool(config.get_value("graphics","audio",true)))
-		["graphics","modern"]: title_dock.set_lighting(bool(config.get_value("graphics","modern",true)))
+		["graphics","modern"]: title_dock.set_lighting(bool(config.get_value("graphics","modern",true)));apply_render_quality()
 		["graphics","station_smoothing"]: title_dock.view.set_station_smoothing(bool(config.get_value("graphics","station_smoothing",false)))
 		["graphics","ship_smoothing"]: title_dock.view.set_ship_smoothing(bool(config.get_value("graphics","ship_smoothing",false)))
 		["graphics","headlight_mode"]: title_dock.view.set_headlight_mode(SettingsMenu.Headlights.read(config))
@@ -806,6 +897,9 @@ func apply_setting(section: String, key: String) -> void:
 			title_dock.wanted_volumetric=bool(config.get_value("graphics","volumetric",true)) and RenderingServer.get_current_rendering_method()=="forward_plus"
 			title_dock.wanted_detail=bool(config.get_value("graphics","detail",true));title_dock.apply_lighting()
 		["view","aspect_ratio"],["input","touch"]: fit_window();layout_ui()
+		["view","show_fps"]: fps_counter.set_enabled(fps_counter.wanted(config))
+		["view","resolution_height"],["view","render_scale"],["view","msaa"],["view","temporal_aa"],["graphics","shadows"],["graphics","preset"]:
+			title_dock.set_lighting(bool(config.get_value("graphics","modern",true)));apply_render_quality()
 		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))
 
 func launch_game(resume: bool=false, player_name: String="Pilot", path: String="") -> void:
@@ -816,6 +910,7 @@ func launch_game(resume: bool=false, player_name: String="Pilot", path: String="
 		var store=preload("res://native/simulation/save_store.gd").new()
 		if store.read(path,content.data)==null: status.text=store.failure; return
 		chapter=int(store.summary(path,content.data).get("chapter",1))
+	cancel_graphics_probe()
 	launching=true
 	# Building the dive is one long synchronous stretch: the region, every
 	# model in it and every shader variant. Say so on screen first, and let

@@ -15,6 +15,10 @@ var environment := WorldEnvironment.new()
 var shadows := true
 var headlights_enabled := true
 var beams_enabled := true
+## The player's setting: 1 is full strength, as the lamps were designed.
+var headlight_strength := 1.0
+const HEADLIGHT_ENERGY := 32.0
+const BEAM_ENERGY := .7
 var daylight := DirectionalLight3D.new()
 var water_gain := 1.0
 var warm_sky := Vector3(.4,.4,.1)
@@ -165,7 +169,7 @@ static func create_headlight(x: float) -> SpotLight3D:
 	# the falloff is pow(distance,-attenuation), so at ten metres this is a
 	# fifth of the energy and at forty about a thirtieth. The cone matches
 	# the visible beam (BEAM_HALF_TANGENT), so the lit patch is the beam's end.
-	lamp.light_energy=32.0
+	lamp.light_energy=HEADLIGHT_ENERGY
 	lamp.spot_range=550
 	lamp.spot_angle=rad_to_deg(atan(BEAM_HALF_TANGENT))
 	lamp.spot_angle_attenuation=1.6
@@ -257,7 +261,7 @@ func update_water_particles(seconds: float, anchor: Vector3) -> void:
 		particle_material.set_shader_parameter("lamp_frame"+suffix,lamps[i].global_transform.affine_inverse())
 		particle_material.set_shader_parameter("lamp_occlusion"+suffix,beams[i].get_meta("occlusion_map"))
 		particle_material.set_shader_parameter("lamp_active"+suffix,1.0 if lamps[i].visible else 0.0)
-		particle_material.set_shader_parameter("lamp_color"+suffix,lamps[i].light_color)
+		particle_material.set_shader_parameter("lamp_color"+suffix,lamps[i].light_color*headlight_strength)
 	if world!=null and world.region!=null:
 		var region_id: int=world.region.get_instance_id()
 		var absolute: Vector3=world.render_pose(world.region.player).origin+anchor
@@ -323,6 +327,19 @@ static func shade_beam_in(space: PhysicsDirectSpaceState3D, lamp: SpotLight3D, b
 			var hit := space.intersect_ray(ray)
 			reach.set_pixel(column,row,Color(BEAM_LENGTH+10 if hit.is_empty() else -(inverse*hit.position).z,0,0))
 	map.update(reach)
+
+func set_headlight_strength(value: float) -> void:
+	"""Dims the lamps, the lit water in their beams and the snow they catch."""
+	headlight_strength=value
+	for i in lamps.size():
+		lamps[i].light_energy=HEADLIGHT_ENERGY*value
+		beams[i].material_override.set_shader_parameter("energy",BEAM_ENERGY*value)
+
+func set_shadow_level(level: int) -> void:
+	"""Shadow quality Off leaves the headlights and the overhead light unshadowed."""
+	shadows=level>0
+	daylight.shadow_enabled=shadows
+	for lamp in lamps:lamp.shadow_enabled=shadows
 
 func set_headlight_beams(on: bool) -> void:
 	beams_enabled=on

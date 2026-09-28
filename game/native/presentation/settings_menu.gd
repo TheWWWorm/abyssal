@@ -14,6 +14,7 @@ const WorldSettings = preload("res://native/presentation/world_settings.gd")
 const Spacing = preload("res://native/simulation/world_spacing.gd")
 const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 const Headlights = preload("res://native/presentation/headlight_options.gd")
+const Quality = preload("res://native/presentation/graphics_quality.gd")
 
 ## Tabs in order of how often they are reached for: sound first, input last
 ## but one, and the world rules that only matter between dives at the end.
@@ -22,7 +23,6 @@ const TABS := [["audio","Audio","audio"],["graphics","Graphics","graphics"],["di
 const CONTROL_PAGES := {"steering":"Steering","gamepad":"Gamepad","touch":"Touch controls","bindings":"Key bindings","reference":"Control reference"}
 const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L}
 const TITLE_MUSIC := ["Auto","Intro","Station"]
-const RESOLUTIONS := ["Performance · 1080p","Quality · 1440p","Native"]
 const STRAFE := ["Auto · strafe unless on touch","Always strafe","Always turn"]
 const TOUCH_MODES := ["Auto","On","Off"]
 
@@ -115,6 +115,7 @@ func load_config() -> ConfigFile:
 
 func put(section_name: String, key: String, value: Variant, rebuild_after := true) -> void:
 	var config := load_config();config.set_value(section_name,key,value)
+	Quality.mark_chosen(config,section_name,key)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
 	changed.emit(section_name,key)
 	if rebuild_after: rebuild(true)
@@ -181,7 +182,10 @@ func build_chrome() -> void:
 		node.add_theme_font_override("font",spaced(2));node.add_theme_font_size_override("font_size",17 if touch else 16)
 	scroll=ScrollContainer.new();scroll.name="Scroll";scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
-	column=VBoxContainer.new();column.name="Rows";column.size_flags_horizontal=Control.SIZE_EXPAND_FILL;column.add_theme_constant_override("separation",8);scroll.add_child(column)
+	# Room between the rows and the scroll bar.
+	var gutter := MarginContainer.new();gutter.name="Gutter";gutter.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	gutter.add_theme_constant_override("margin_right",18 if touch else 14);scroll.add_child(gutter)
+	column=VBoxContainer.new();column.name="Rows";column.size_flags_horizontal=Control.SIZE_EXPAND_FILL;column.add_theme_constant_override("separation",8);gutter.add_child(column)
 	legend=HFlowContainer.new();legend.name="KeyLegend";legend.add_theme_constant_override("h_separation",8);legend.add_theme_constant_override("v_separation",6);shell.add_child(legend)
 	legend.visible=not touch
 	for entry in [["ESC / B","BACK"],["LB / RB","SECTION"],["D-PAD / ARROWS","NAVIGATE"],["ENTER / A","SELECT"]]:
@@ -309,10 +313,39 @@ func toggle(title: String, section_name: String, key: String, fallback: bool, on
 	var value := flag(section_name,key,fallback)
 	return row(title,on_text if value else off_text,key,func(): put(section_name,key,not value),parent)
 
-func chooser(title: String, names: Array, current: int, key: String, choose: Callable) -> Button:
-	"""Steps through a short list; the row names the next choice's effect only by
-	showing where it now stands."""
-	return row(title,str(names[current]),key,func(): choose.call((current+1)%names.size()))
+func chooser(title: String, names: Array, current: int, key: String, choose: Callable, parent: Node=null, shown_text := "") -> Button:
+	"""A dropdown: the row shows the current choice and opens the list of
+	them below it. A value outside the list (Custom) shows shown_text."""
+	var chosen: bool=current>=0 and current<names.size()
+	var node := row(title,str(names[current]) if chosen else shown_text,key,func():pass,parent)
+	# The list itself is an OptionButton behind the row: it places the popup,
+	# follows the window's scale and takes keys, pad and touch.
+	var list := OptionButton.new();list.name="List"
+	list.focus_mode=Control.FOCUS_NONE;list.mouse_filter=Control.MOUSE_FILTER_IGNORE;list.self_modulate=Color(1,1,1,0)
+	for i in names.size():list.add_item(str(names[i]),i)
+	list.selected=current if chosen else -1
+	StationTheme.style_popup(list.get_popup(),golden,touch)
+	node.add_child(list);node.move_child(list,0);list.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	list.item_selected.connect(func(index):
+		focus_key=key
+		if index!=current: choose.call(index)
+		else: restore_focus())
+	# A press outside an open list closes it; the same press on this row must
+	# not open it again straight away.
+	list.get_popup().popup_hide.connect(func(): list.set_meta("closed_at",Time.get_ticks_msec()))
+	node.pressed.connect(func():
+		if Time.get_ticks_msec()-int(list.get_meta("closed_at",-10000))<300:return
+		list.show_popup())
+	var arrow := StationIcon.new("down",colours().accent,14 if not touch else 18);node.add_child(arrow)
+	arrow.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	var extent: float=arrow.custom_minimum_size.x
+	arrow.offset_left=-16-extent;arrow.offset_right=-16;arrow.offset_top=-extent*.5;arrow.offset_bottom=extent*.5
+	var value := node.get_node_or_null("Value") as Label
+	if value!=null:value.offset_right=-24-extent
+	for state in ["normal","hover","pressed","focus","disabled"]:
+		var style := node.get_theme_stylebox(state) as StyleBoxFlat
+		if style!=null: style.content_margin_right+=extent+8
+	return node
 
 func slider(title: String, section_name: String, key: String, fallback: float, low: float, high: float, step: float, percent := false) -> HSlider:
 	var line := HBoxContainer.new();line.add_theme_constant_override("separation",16);column.add_child(line)
@@ -323,6 +356,8 @@ func slider(title: String, section_name: String, key: String, fallback: float, l
 	node.min_value=low;node.max_value=high;node.step=step;node.value=number(section_name,key,fallback,low,high)
 	node.size_flags_horizontal=Control.SIZE_EXPAND_FILL;node.size_flags_vertical=Control.SIZE_SHRINK_CENTER;node.custom_minimum_size.y=32
 	node.focus_mode=Control.FOCUS_ALL;line.add_child(node)
+	# The wheel scrolls the page; it never moves a slider under the pointer.
+	node.scrollable=false
 	var amount := plain("",18 if touch else 15,line);amount.size_flags_horizontal=Control.SIZE_SHRINK_END;amount.custom_minimum_size.x=56
 	amount.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;amount.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;amount.add_theme_color_override("font_color",colours().value)
 	var show_amount := func(value: float): amount.text="%d%%"%roundi(value*100) if percent else "%.2f"%value
@@ -409,14 +444,19 @@ func audio_page() -> void:
 
 func graphics_page() -> void:
 	var enhanced := modern()
-	row("Lighting","Enhanced" if enhanced else "Classic","lighting",func():
-		var config := load_config()
-		# The former materials-only switch must not carry its Off state into Enhanced.
-		if not config.has_section_key("graphics","modern") and not bool(config.get_value("graphics","materials",true)): put("graphics","materials",true,false)
-		put("graphics","modern",not enhanced))
-	note("Enhanced adds lights, fog and shading. Classic matches the original.")
+	var preset := Quality.current(load_config())
+	var presets: Array=Quality.PRESETS.duplicate()
+	var best := Quality.recommended(load_config())
+	if best>=0: presets[best]+=" (Recommended)"
+	chooser("Preset",presets,preset,"preset",choose_preset,null,"Custom")
+	note("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.")
+	group("Performance")
+	performance_options()
 	group("Enhanced lighting")
 	graphics_options(["headlight_mode","blue_headlights","cabin_lights","cool_lighting","filtered_sunlight"])
+	var strength := slider("Headlight brightness","graphics","headlight_strength",Quality.HEADLIGHT_HIGH,Quality.HEADLIGHT_LOW,Quality.HEADLIGHT_HIGH,0.05,true)
+	strength.editable=enhanced and Headlights.casts_light(Headlights.read(load_config()))
+	strength.tooltip_text="How strongly the headlights light the water and nearby surfaces."
 	group("Ocean atmosphere")
 	graphics_options(["volumetric","deep_darkness","regional_water","marine_snow","bioluminescence","explosion_aftermath"])
 	group("Surfaces and textures")
@@ -425,6 +465,30 @@ func graphics_page() -> void:
 	for kind in ["station","ship"]:
 		var node := toggle(kind.capitalize()+" texture smoothing","graphics",kind+"_smoothing",false,"On","Off",textures)
 		node.tooltip_text="On: smoothly filtered textures. Off: original pixelated textures."
+
+func choose_preset(preset: int) -> void:
+	var config := load_config();Quality.write(config,preset)
+	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
+	changed.emit("graphics","preset")
+	focus_key="preset";rebuild(true)
+
+func performance_options() -> void:
+	var enhanced := modern()
+	var quality := Quality.read(load_config())
+	var grid := graphics_grid()
+	var shadows := chooser("Shadow quality",Quality.SHADOWS,quality.shadows if enhanced else -1,"shadows",func(next): put("graphics","shadows",next),grid,"Classic")
+	shadows.disabled=not enhanced
+	shadows.tooltip_text="Shadows from station lamps, headlights and overhead light. Low and Medium use faster station-lamp shadows that can let a little light through close to a lamp."
+	var scales: Array=Quality.SCALES
+	var resolution := chooser("3D resolution",scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
+	resolution.tooltip_text="Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp."
+	var msaa := chooser("Multisample antialiasing",Quality.MSAA,quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
+	msaa.tooltip_text="Smooths the edges of models."
+	var taa: Button
+	if forward_plus(): taa=toggle("Temporal antialiasing","view","temporal_aa",false,"On","Off",grid)
+	else: taa=row("Temporal antialiasing","Needs Vulkan","temporal_aa",func():pass,grid)
+	taa.disabled=not enhanced or not forward_plus()
+	taa.tooltip_text="Smooths edges further; slightly blurs motion."
 
 func graphics_grid() -> GridContainer:
 	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1
@@ -441,10 +505,10 @@ func graphics_options(keys: Array) -> void:
 	for key in keys:
 		if key=="headlight_mode":
 			var mode := Headlights.read(load_config())
-			var lamps := row("Headlights",Headlights.NAMES[mode] if enhanced else "Classic",key,func():
-				var config := load_config();Headlights.write(config,(mode+1)%Headlights.NAMES.size())
+			var lamps := chooser("Headlights",Headlights.NAMES,mode if enhanced else -1,key,func(next):
+				var config := load_config();Headlights.write(config,next)
 				DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
-				changed.emit("graphics","headlight_mode");rebuild(true),grid)
+				changed.emit("graphics","headlight_mode");rebuild(true),grid,"Classic")
 			lamps.disabled=not enhanced
 			lamps.tooltip_text="Off: no headlight glow or beams. Light only: lit lenses and surface illumination. Light + beams: adds visible light in the water. Classic: the original textured beams and colours."
 			continue
@@ -479,17 +543,15 @@ func display_page() -> void:
 	var ratio: String=Display.valid(str(load_config().get_value("view","aspect_ratio","auto")))
 	var ratios: Array=Display.names()
 	chooser("Aspect ratio",ratios.map(func(item): return str(item).capitalize()),maxi(0,ratios.find(ratio)),"aspect",func(next): put("view","aspect_ratio",ratios[next]))
-	var enhanced := modern()
-	group("Rendering")
-	var quality := index("view","resolution_v5",2,2)
-	var resolution := chooser("3D resolution",RESOLUTIONS,quality if enhanced else 2,"resolution",func(next): put("view","resolution_v5",next))
-	resolution.disabled=not enhanced
-	var taa: Button
-	if forward_plus(): taa=toggle("Temporal antialiasing","view","temporal_aa",false)
-	else: taa=row("Temporal antialiasing","Needs Vulkan","temporal_aa",func():pass)
-	taa.disabled=not enhanced or not forward_plus()
-	if not enhanced: note("Needs Enhanced lighting.")
-	else: note("Smooths edges; slightly blurs motion.")
+	group("Resolution")
+	var quality := Quality.read(load_config())
+	var screen: int=DisplayServer.screen_get_size(get_window().current_screen).y
+	var heights: Array=Quality.heights_for(maxi(screen,get_window().size.y))
+	if not quality.height in heights: heights.append(quality.height)
+	var shown := chooser("Resolution",heights.map(func(height): return Quality.height_name(height)),heights.find(quality.height),"resolution",func(next): put("view","resolution_height",heights[next]))
+	shown.tooltip_text="The resolution the game is drawn at. The interface stays at the screen's own resolution."
+	note("3D resolution and antialiasing are in Graphics.")
+	toggle("Show FPS","view","show_fps",false).tooltip_text="Frames per second at the top of the screen."
 
 func controls_page() -> void:
 	sub_row("Steering","steering")

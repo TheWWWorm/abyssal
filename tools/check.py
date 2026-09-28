@@ -32,6 +32,7 @@ def main():
         'engine_ui_check.gd':cache,
         'engine_stream_check.gd':cache,
         'station_shadow_check.gd':cache,
+        'graphics_quality_check.gd':cache,
         'mods_check.gd':cache,
     }
     failures=[]

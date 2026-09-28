@@ -114,6 +114,8 @@ func _draw() -> void:
 			_line([Vector2(.28,-.66),Vector2(-.34,0),Vector2(.28,.66)])
 		"next":
 			_line([Vector2(-.28,-.66),Vector2(.34,0),Vector2(-.28,.66)])
+		"down":
+			_line([Vector2(-.66,-.28),Vector2(0,.34),Vector2(.66,-.28)])
 		"cart":
 			_line([Vector2(-.95,-.66),Vector2(-.66,-.66),Vector2(-.42,.3),Vector2(.62,.3),Vector2(.84,-.4),Vector2(-.56,-.4)])
 			_fill([Vector2(-.56,-.4),Vector2(.84,-.4),Vector2(.62,.3),Vector2(-.42,.3)],.2)

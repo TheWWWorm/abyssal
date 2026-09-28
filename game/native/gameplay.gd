@@ -20,6 +20,7 @@ const Region = preload("res://native/simulation/region.gd")
 const EquipmentInfo = preload("res://native/presentation/equipment_info.gd")
 const Library = preload("res://scripts/model_library.gd")
 const OceanOptions = preload("res://native/presentation/ocean_options.gd")
+const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
 var content
 var imported_art := preload("res://native/presentation/imported_art.gd").new()
 var stream_prompted := false
@@ -48,8 +49,11 @@ var hazard_warning := preload("res://native/presentation/hazard_warning.gd").new
 var damage_feedback := preload("res://native/presentation/damage_feedback.gd").new()
 var damage_seen_ms := -1
 var hints := Label.new()
-var render_quality := 2
-var temporal_aa := false
+## Resolution, antialiasing and shadows (graphics_quality.gd), read with the settings.
+var quality := GraphicsQuality.read(ConfigFile.new())
+var headlight_strength := 1.0
+var fps_counter := preload("res://native/presentation/fps_counter.gd").new()
+var show_fps := false
 var player_face: Array = [85,65,75,16,43,-1]
 var dock_prompt := Label.new()
 var dock_caption := Label.new()
@@ -262,6 +266,7 @@ func _ready() -> void:
 	# The compact HUD is laid out against the controls' own arrangement.
 	touch.resized.connect(func(): layout.call_deferred())
 	add_child(touch_scroll)
+	add_child(fps_counter)
 	add_child(save_files)
 	save_files.chosen.connect(import_transfer)
 	save_files.delivered.connect(notice)
@@ -1457,14 +1462,14 @@ func read_settings() -> void:
 		if key_bindings.down==KEY_S: key_bindings.down=KEY_DOWN
 		mouse_sensitivity=setting_number(config,"keys","mouse_sensitivity",0.8,0.2,2.0); invert_mouse=bool(config.get_value("keys","invert_mouse",false))
 		touch_look_sensitivity=setting_number(config,"input","touch_look",0.7,0.2,2.0)
-		render_quality=setting_index(config,"view","resolution_v5",2,2)
-		temporal_aa=bool(config.get_value("view","temporal_aa",false))
 		dive_audio.music_gain=setting_number(config,"audio","music",0.65,0.0,1.0); dive_audio.effects_gain=setting_number(config,"audio","effects",0.75,0.0,1.0)
 		dive_audio.title_choice=setting_index(config,"audio","title_music",0,2)
 		view.camera_mode=setting_index(config,"view","camera",0,3)
 		dive_audio.apply_levels()
 	graphics.merge(OceanOptions.read(config),true)
 	headlight_mode=Headlights.read(config);headlight_previous=Headlights.previous(config)
+	quality=GraphicsQuality.read(config);headlight_strength=GraphicsQuality.headlight_strength(config)
+	show_fps=bool(config.get_value("view","show_fps",false))
 	touch.mode=setting_index(config,"input","touch",0,2)
 	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
 	touch.fixed_stick=bool(config.get_value("input","touch_fixed_stick",false))
@@ -1515,9 +1520,6 @@ func save_settings() -> void:
 	config.set_value("input","vibration",vibration)
 	config.set_value("graphics","modern",modern_graphics)
 	config.set_value("view","camera",view.camera_mode)
-	config.set_value("view","render_quality",render_quality)
-	config.set_value("view","resolution_v5",render_quality)
-	config.set_value("view","temporal_aa",temporal_aa)
 	config.set_value("keys","mouse_sensitivity",mouse_sensitivity); config.set_value("keys","invert_mouse",invert_mouse)
 	config.set_value("input","touch_look",touch_look_sensitivity)
 	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
@@ -1548,6 +1550,9 @@ func apply_graphics() -> void:
 	abyss.set_atmosphere(graphics)
 	if rebuild:view.revision=-1
 	terrain.apply_pack(view.pack)
+	fps_counter.set_enabled(show_fps)
+	var shadows: int=quality.shadows if modern_graphics else 3
+	view.set_shadow_level(shadows);abyss.set_shadow_level(shadows)
 	apply_headlights()
 	view.set_depth_limits(graphics.depth_limits)
 	var env := abyss.environment.environment
@@ -1560,6 +1565,7 @@ func apply_headlights() -> void:
 	view.set_headlight_mode(headlight_mode)
 	abyss.set_headlight_beams(modern_graphics and headlight_mode==Headlights.Mode.LIGHT_BEAMS)
 	abyss.set_headlights(modern_graphics and Headlights.casts_light(headlight_mode))
+	abyss.set_headlight_strength(headlight_strength);view.set_headlight_strength(headlight_strength)
 	if headlight_mode!=Headlights.Mode.OFF:headlight_previous=headlight_mode
 func station_identity(parent: Node) -> void:
 	var station: Dictionary=session.stations[session.station_id]
@@ -1985,8 +1991,10 @@ func show_map(autopilot_only: bool=false) -> void:
 		for node in [map_route_button,stream_button]:
 			if is_instance_valid(node):node.disabled=true)
 	var search := LineEdit.new(); search.placeholder_text="Find a station…"; search.custom_minimum_size.x=170; actions.add_child(search)
+	StationTheme.style_field(search,golden(),touch.enabled())
 	search.text_changed.connect(func(value): map_widget.filtered=value.to_lower(); map_widget.queue_redraw())
 	var picker := OptionButton.new(); map_picker=picker; picker.custom_minimum_size.x=190
+	StationTheme.style_option(picker,golden(),touch.enabled())
 	for station in session.stations: picker.add_item(station.name,station.id)
 	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); actions.add_child(picker)
 	species_toggle(actions,func():
@@ -2576,10 +2584,7 @@ func update_render_resolution() -> void:
 	if pixels.x<=0 or pixels.y<=0: return
 	Display.apply(get_window(),aspect_ratio,Display.responsive_size(pixels,touch.enabled()))
 	apply_side_margins()
-	var budget: float = [1920.0*1080.0,2560.0*1440.0,999999999.0][clampi(render_quality,0,2)]
-	get_viewport().scaling_3d_scale=clampf(sqrt(budget/maxf(1,pixels.x*pixels.y)),0.35,1.0) if modern_graphics else 1.0
-	get_viewport().scaling_3d_mode=Viewport.SCALING_3D_MODE_FSR if RenderingServer.get_current_rendering_method()=="forward_plus" else Viewport.SCALING_3D_MODE_BILINEAR
-	get_viewport().use_taa=modern_graphics and temporal_aa
+	GraphicsQuality.apply_viewport(get_viewport(),quality.merged({"modern":modern_graphics},true),pixels)
 func apply_side_margins() -> void:
 	"""Insets the interface from a phone's notch and rounded corners on both
 	sides; the 3D view behind it still fills the screen."""
@@ -2607,6 +2612,7 @@ func show_stream_menu() -> void:
 	if not stream_selection in eligible: stream_selection=eligible[0] if not eligible.is_empty() else -1
 	var actions := station_chart(stream_selection)
 	var options := OptionButton.new();options.custom_minimum_size.x=210;actions.add_child(options)
+	StationTheme.style_option(options,golden(),touch.enabled())
 	for id in eligible: options.add_item(str(session.stations[id].name),id)
 	options.disabled=eligible.size()<2
 	var species := species_toggle(actions,func(): pass)

@@ -227,8 +227,13 @@ func run() -> void:
  expect(not lists.scrolling and sheet.scroll_vertical==0,"A small movement stays a tap and does not scroll")
  # Controls owning their own gestures, such as the atlas, keep their touches.
  lists.release();lists.gesture_control=rows.get_child(0)
- expect(not lists.owns(rows.get_child(0).get_global_rect().get_center()),"A gesture control inside the list keeps its own touches")
- lists.gesture_control=null;lists.scroll=null;lists.queue_free();sheet.queue_free()
+ expect(lists.list_at(rows.get_child(0).get_global_rect().get_center())==null,"A gesture control inside the list keeps its own touches")
+ # A list nobody named, such as the title's settings, is found under the finger.
+ lists.gesture_control=null;lists.scroll=null;lists.release();sheet.scroll_vertical=0
+ lists._input(press);lists._input(swipe)
+ expect(lists.target==sheet and sheet.scroll_vertical>0,"A list under the finger scrolls without being named")
+ lists._input(lifted)
+ lists.queue_free();sheet.queue_free()
  await process_frame
  var args:=OS.get_cmdline_user_args()
  var app=load("res://scenes/native_main.tscn").instantiate();app.settings_path="user://platform-check.cfg";app.save_path="user://platform-check.json"
