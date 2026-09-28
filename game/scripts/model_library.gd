@@ -16,7 +16,12 @@ var native_pose_cache: Dictionary = {}
 var native_bones_cache: Dictionary = {}
 var native_animations: Dictionary = {}
 var enhanced := true
+var cabin_lights := true
+var blue_headlights := false
+var headlight_mode := preload("res://native/presentation/headlight_options.gd").DEFAULT
+var bioluminescence := true
 var station_smoothing := false
+var ship_smoothing := false
 var surface_roughness := 0.62
 var surface_specular := 0.35
 var water_to_world := Transform3D.IDENTITY
@@ -75,6 +80,9 @@ func reload_textures() -> void:
 			if own!=null: img=own
 		img.convert(Image.FORMAT_RGBA8);img.generate_mipmaps()
 		textures[path].set_image(img)
+		var surface_key := root.path_join(texture_resources[path])
+		if surface_maps.has(surface_key):
+			surface_maps[surface_key].set_image(preload("res://native/presentation/imported_surface.gd").derive(img,texture_sizes[path]))
 
 func texture_size(resource: String, alpha: bool = false) -> Vector2:
 	"""The imported atlas's size in texels, which is what the geometry's
@@ -145,7 +153,7 @@ func surface_map(resource: String) -> Texture2D:
 	var key := root.path_join(resource)
 	if not surface_maps.has(key):
 		var source := texture(resource).get_image()
-		surface_maps[key]=ImageTexture.create_from_image(preload("res://native/presentation/imported_surface.gd").derive(source))
+		surface_maps[key]=ImageTexture.create_from_image(preload("res://native/presentation/imported_surface.gd").derive(source,texture_size(resource)))
 	return surface_maps[key]
 
 ## The lamp sprites of the original, additive quads that carry a whole
@@ -187,9 +195,11 @@ static func lamp_tint(polygon: Dictionary, sheet: Dictionary) -> Color:
 func lamps_for(resource: String, pattern: int, atlas: String) -> Array:
 	return mesh_for(resource,pattern,atlas)[2]
 
-func mesh_for(resource: String, pattern: int, atlas: String = "") -> Array:
+func mesh_for(resource: String, pattern: int, atlas: String = "", lenses: Dictionary={}, headlights: Dictionary={}) -> Array:
 	var sheet := lamp_sheet(atlas) if enhanced else {}
 	var key := resource + ":" + str(pattern) + (":lamps:"+atlas if not sheet.is_empty() else "")
+	if not lenses.is_empty():key+=":lenses:"+str(lenses)
+	if not headlights.is_empty():key+=":headlights:"+str(headlights)
 	if meshes.has(key):
 		return meshes[key]
 	var source := data(resource)
@@ -200,7 +210,8 @@ func mesh_for(resource: String, pattern: int, atlas: String = "") -> Array:
 	var groups: Dictionary = {}
 	# The crossed quads of one lamp share a centre; each centre is one light.
 	var lamps: Array = [];var lamp_index: Dictionary = {}
-	for polygon: Dictionary in source.polygons:
+	for polygon_index in source.polygons.size():
+		var polygon: Dictionary=source.polygons[polygon_index]
 		if int(polygon.pattern) != 0 and (int(polygon.pattern) & pattern) == 0:
 			continue
 		var tint := lamp_tint(polygon,sheet)
@@ -227,9 +238,11 @@ func mesh_for(resource: String, pattern: int, atlas: String = "") -> Array:
 		var alpha := is_textured and int(a[4]) != 0
 		var door:bool=is_hangar_door(resource,polygon)
 		var two_sided:bool=polygon.double_sided or (resource.get_file().begins_with("station_") and int(polygon.blend)==0)
-		var group_key := str([polygon.texture, polygon.blend, two_sided, lit, alpha,door])
+		var lens: int=lenses.get(polygon_index,0)
+		var headlight: bool=headlights.has(polygon_index)
+		var group_key := str([polygon.texture, polygon.blend, two_sided, lit, alpha,door,lens,headlight])
 		if not groups.has(group_key):
-			groups[group_key] = {"texture": int(polygon.texture), "blend": int(polygon.blend), "double": two_sided, "door":door, "lit": lit, "alpha": alpha, "faces": []}
+			groups[group_key] = {"texture": int(polygon.texture), "blend": int(polygon.blend), "double": two_sided, "door":door, "lens":lens, "headlight":headlight, "lit": lit, "alpha": alpha, "faces": []}
 		groups[group_key].faces.append(polygon)
 	var mesh := ArrayMesh.new()
 	var surfaces: Array = []
@@ -277,7 +290,7 @@ func figure(call: Dictionary) -> Node3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "Mesh"
 	node.add_child(instance)
-	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call))
+	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call),call.get("headlight_lenses",{}),call.get("source_headlights",{}))
 	instance.mesh = mesh_data[0]
 	# Light added or taken from the water throws no shadow: an explosion, a
 	# shot or the depth-limit panel would otherwise darken the fog below it.
@@ -288,10 +301,16 @@ func figure(call: Dictionary) -> Node3D:
 		var shadow := preload("res://native/presentation/station_shadow.gd").new()
 		node.add_child(shadow);shadow.configure(self,call,mesh_data)
 		instance.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var points: Array=[]
 	if sky_pass_for_call(call)==0 and bool(call.get("source_glow_visible",true)) and call.effect.get("transparency",true):
-		var points: Array=[]
 		for lamp in mesh_data[2]:points.append({"node":add_lamp(node,lamp),"lamp":lamp})
-		node.set_meta("lamps",points)
+	# Keep the small lamps attached even when switched off, so cached poses
+	# and animation variants can restore them without rebuilding the hull.
+	if bool(call.get("cabin_lamps",call.get("cabin_windows",false))):
+		for lamp in preload("res://native/presentation/cabin_windows.gd").lamps(data(call.resource),int(call.pattern),call.get("headlight_lenses",{})):
+			lamp.cabin=true
+			points.append({"node":add_lamp(node,lamp),"lamp":lamp})
+	node.set_meta("lamps",points)
 	return node
 
 func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
@@ -309,19 +328,20 @@ func add_lamp(node: Node3D, lamp: Dictionary) -> Node3D:
 		halo.custom_aabb=AABB(Vector3.ONE*-lamp.radius,Vector3.ONE*lamp.radius*2)
 		holder.add_child(halo)
 	var light := OmniLight3D.new();light.name="Light";holder.add_child(light)
-	light.light_color=lamp.tint;light.light_energy=LAMP_ENERGY;light.light_size=0.0
+	light.light_color=lamp.tint;light.light_energy=float(lamp.get("energy",LAMP_ENERGY));light.light_size=0.0
 	# The hangar's animated berth lamps blink at their fixtures. A broad point
 	# light reached the adjoining modules, making unrelated roofs pulse with
 	# each frame of the berth animation despite the shadow map. Keep the glow
 	# local while the imported sprite still shows at its authored size.
 	light.omni_range=clampf(lamp.radius*(3.0 if lamp.get("shadow",false) else 10.0),8.0 if lamp.get("shadow",false) else 15.0,20.0 if lamp.get("shadow",false) else 90.0)
+	if lamp.has("range"):light.omni_range=lamp.range
 	light.omni_attenuation=1.0
 	# Station lamps must stop at the surrounding geometry. An unshadowed
 	# blinking lamp recoloured walls behind unrelated modules. Mines and
 	# moving creature lures retain their cheaper unshadowed point lights.
-	light.shadow_enabled=bool(lamp.get("shadow",false));light.shadow_bias=.08;light.shadow_normal_bias=.6
-	light.light_volumetric_fog_energy=.6
-	light.distance_fade_enabled=true;light.distance_fade_begin=420;light.distance_fade_length=180
+	light.shadow_enabled=bool(lamp.get("shadow",false));light.shadow_bias=.08;light.shadow_normal_bias=float(lamp.get("shadow_normal_bias",.6))
+	light.light_volumetric_fog_energy=float(lamp.get("fog_energy",.6))
+	light.distance_fade_enabled=true;light.distance_fade_begin=float(lamp.get("fade_begin",420));light.distance_fade_length=float(lamp.get("fade_length",180))
 	holder.position=lamp.centre
 	return holder
 
@@ -344,17 +364,19 @@ static func set_lamp_hinge(node: Node3D, axis: int, bend: float) -> void:
 	for point in node.get_meta("lamps",[]):
 		if point.has("rest"):point.node.transform=bend_lamp(point.rest,axis,bend)
 
-static func set_lamp_visibility(node: Node3D, value: float) -> void:
+static func set_lamp_visibility(node: Node3D, value: float, cabins: bool=true) -> void:
 	for point in node.get_meta("lamps",[]):
 		var holder: Node3D=point.node
 		var halo := holder.get_node_or_null("Halo") as MeshInstance3D
 		if halo!=null:halo.mesh.material.set_shader_parameter("visibility",value)
 		var light := holder.get_node_or_null("Light") as OmniLight3D
-		if light!=null:light.light_energy=LAMP_ENERGY*value
+		if light!=null:
+			light.visible=cabins or not point.lamp.get("cabin",false)
+			light.light_energy=float(point.lamp.get("energy",LAMP_ENERGY))*value if light.visible else 0.0
 
 func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 	var instance := node.get_node("Mesh") as MeshInstance3D
-	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call))
+	var mesh_data := mesh_for(call.resource, int(call.pattern), call_atlas(call),call.get("headlight_lenses",{}),call.get("source_headlights",{}))
 	for i in mesh_data[1].size():
 		var g: Dictionary = mesh_data[1][i]
 		var resource_name := ""
@@ -362,7 +384,10 @@ func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 			resource_name = call.textures[g.texture]
 		var blend: int = g.blend if call.effect.get("transparency",true) else 0
 		var look: Dictionary = call.get("replacement",{})
-		var mat := affine_material(resource_name,blend,g.double,(g.lit or not look.is_empty()) and call.effect.lit,g.alpha,int(call.get("sky_pass",0)),bool(call.get("pixelated_station",false)),bool(call.get("smoothed_station",false)))
+		var pixelated: bool=call.get("pixelated_station",false) or (blend==0 and call.get("pixelated_ship",false))
+		var smoothed: bool=call.get("smoothed_station",false) or (blend==0 and call.get("smoothed_ship",false))
+		var mat := affine_material(resource_name,blend,g.double,(g.lit or not look.is_empty()) and call.effect.lit,g.alpha,int(call.get("sky_pass",0)),pixelated,smoothed,g.headlight)
+		mat.set_meta("source_headlight",g.headlight)
 		if not look.is_empty() and blend==0 and sky_pass_for_call(call)==0:
 			mat.set_shader_parameter("replacement_enabled",true)
 			mat.set_shader_parameter("replacement_albedo",call.replacement_texture)
@@ -383,8 +408,12 @@ func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 					mat.set_shader_parameter("biology_eye_left",biology.eyes[0])
 					mat.set_shader_parameter("biology_eye_right",biology.eyes[1])
 		mat.set_shader_parameter("hangar_door",g.get("door",false))
+		var lens: int=g.get("lens",0)
+		mat.set_shader_parameter("headlight_lens",lens)
+		if lens>0:mat.set_shader_parameter("headlight_lens_color",call.headlight_tints[lens-1])
 		instance.set_surface_override_material(i, mat)
 	node.set_meta("station_smoothing",station_smoothing)
+	node.set_meta("ship_smoothing",ship_smoothing)
 	var shadow := node.get_node_or_null("StationShadow")
 	if shadow!=null:shadow.set_coverage("smoothed",bool(call.get("smoothed_station",false)))
 
@@ -431,12 +460,18 @@ func pose(node: Node3D, call: Dictionary) -> void:
 		mat.set_shader_parameter("water_to_world",water_to_world)
 		mat.set_shader_parameter("ocean_strength",ocean_strength)
 		mat.set_shader_parameter("distance_haze",float(call.get("distance_haze",0.0)))
-		mat.set_shader_parameter("source_glow_visible",bool(call.get("source_glow_visible",true)))
-		mat.set_shader_parameter("source_ambient",float(call.effect.ambient)/4096.0)
-		mat.set_shader_parameter("source_intensity",float(call.effect.intensity)/4096.0)
+		var source_headlight: bool=mat.get_meta("source_headlight",false)
+		var source_visible: bool=bool(call.get("source_glow_visible",true)) or (source_headlight and bool(call.get("classic_headlights",false)))
+		if source_headlight and not bool(call.get("headlights_powered",true)):source_visible=false
+		mat.set_shader_parameter("source_glow_visible",source_visible)
+		mat.set_shader_parameter("source_ambient",float(1800 if source_headlight else call.effect.ambient)/4096.0)
+		mat.set_shader_parameter("source_intensity",float(2200 if source_headlight else call.effect.intensity)/4096.0)
 		mat.set_shader_parameter("source_light",point(call.effect.direction).normalized())
 		mat.set_shader_parameter("station_coating",bool(call.get("station_coating",false)))
 		mat.set_shader_parameter("hull_coating",bool(call.get("hull_coating",false)))
+		mat.set_shader_parameter("cabin_windows",bool(call.get("cabin_windows",false)))
+		var lens: int=mat.get_shader_parameter("headlight_lens")
+		if lens>0:mat.set_shader_parameter("headlight_lens_color",call.headlight_tints[lens-1])
 		mat.set_shader_parameter("bioluminescence",float(call.get("bioluminescence",0.0)))
 		mat.set_shader_parameter("surface_roughness",surface_roughness)
 		mat.set_shader_parameter("surface_specular",surface_specular)
@@ -464,6 +499,8 @@ static func pose_copy(material: ShaderMaterial) -> ShaderMaterial:
 	copy.set_shader_parameter("hangar_open",0.0)
 	copy.set_shader_parameter("hinge_bend",0.0)
 	copy.set_shader_parameter("hinge_axis",1)
+	# Lamp enablement belongs to a vessel, never to a shared animation pose.
+	copy.set_shader_parameter("headlight_lens_enabled",true)
 	return copy
 
 func pose_bounds(resource: String, transforms: Array[Transform3D]) -> AABB:
@@ -479,9 +516,10 @@ func pose_bounds(resource: String, transforms: Array[Transform3D]) -> AABB:
 	# Keep zero-thickness faces and float-rounding at the boundary visible.
 	return result.grow(0.001)
 
-func affine_material(resource: String, blend: int, double_sided: bool, lit: bool, alpha: bool, sky_pass: int = 0, pixelated: bool = false, smoothed: bool = false) -> ShaderMaterial:
-	var modern := enhanced and sky_pass == 0
-	var key := str([blend,double_sided,lit,alpha,enhanced,resource != "",sky_pass,pixelated,smoothed])
+func affine_material(resource: String, blend: int, double_sided: bool, lit: bool, alpha: bool, sky_pass: int = 0, pixelated: bool = false, smoothed: bool = false, classic: bool = false) -> ShaderMaterial:
+	var use_enhanced := enhanced and not classic
+	var modern := use_enhanced and sky_pass == 0
+	var key := str([blend,double_sided,lit,alpha,use_enhanced,resource != "",sky_pass,pixelated,smoothed])
 	if not shaders.has(key):
 		var modes := ["cull_disabled" if double_sided else "cull_back"]
 		if not lit or not modern:
@@ -494,7 +532,7 @@ func affine_material(resource: String, blend: int, double_sided: bool, lit: bool
 				modes.append("blend_sub")
 				modes.append("fog_disabled")
 		# Sky ramps must never share mip levels with the neighboring ramp.
-		var filtering := "filter_linear" if sky_pass != 0 and enhanced else ("filter_linear_mipmap_anisotropic" if modern else "filter_nearest")
+		var filtering := "filter_linear" if sky_pass != 0 and use_enhanced else ("filter_linear_mipmap_anisotropic" if modern else "filter_nearest")
 		if smoothed:filtering="filter_linear_mipmap_anisotropic"
 		elif pixelated:filtering="filter_nearest_mipmap"
 		var code := "shader_type spatial;\nrender_mode %s;\n" % ", ".join(modes)
@@ -541,6 +579,10 @@ uniform bool portal_clip_enabled = false;
 uniform vec4 portal_clip_plane = vec4(0.0);
 uniform bool station_coating = false;
 uniform bool hull_coating = false;
+uniform bool cabin_windows = false;
+uniform int headlight_lens = 0;
+uniform bool headlight_lens_enabled = true;
+uniform vec3 headlight_lens_color : source_color = vec3(.72,.9,1.0);
 uniform float bioluminescence = 0.0;
 uniform sampler2D surface_map : filter_linear_mipmap_anisotropic, repeat_disable;
 uniform float surface_roughness = 0.62;
@@ -600,7 +642,7 @@ void vertex() {
 		# The door's end coordinates name the centers of its border texels.
 		# Rounding there keeps both edges visible in crisp mode, centered on
 		# the same aperture as the filtered texture and the departure path.
-		var coords := "(surface_uv+vec2(0.5))/texture_size" if (enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(hangar_door?0.5:0.0001))+vec2(0.5))/texture_size"
+		var coords := "(surface_uv+vec2(0.5))/texture_size" if (use_enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(hangar_door?0.5:0.0001))+vec2(0.5))/texture_size"
 		code += "vec4 color="+("texture(albedo,%s)" % coords if resource != "" else "vec4(OUTPUT_IS_SRGB?COLOR.rgb:to_linear(COLOR.rgb),COLOR.a)")+";\n"
 		if alpha:
 			# The phone keys palette index 0 on these polygons, and that entry is
@@ -628,11 +670,45 @@ if(station_coating){
 	ROUGHNESS=hints.g; SPECULAR=0.38; METALLIC=0.08;
 }
 if(hull_coating && !replacement_enabled){
-	vec3 hints=texture(surface_map,(UV+vec2(0.5))/texture_size).rgb;
+	vec4 hints=texture(surface_map,(UV+vec2(0.5))/texture_size);
+	// Station doors share these texels too, but are painted panels, not glass.
+	if(station_coating){hints.a=0.0;}
 	ROUGHNESS=hints.g;
+	// Clear glazing has a smooth reflection, without the painted hull's relief.
+	vec3 glass_tint=vec3(0.006,0.012,0.017);
+	ALBEDO=mix(ALBEDO,OUTPUT_IS_SRGB?to_srgb(glass_tint):glass_tint,hints.a*0.75);
+	ROUGHNESS=mix(ROUGHNESS,0.16,hints.a);
+	SPECULAR=mix(SPECULAR,0.5,hints.a);
+	if(cabin_windows && headlight_lens==0){
+		// Amber light sits inside the frame, with a dark recess around each
+		// pane. A slight view shift separates it from the glass reflection.
+		vec2 pane=(UV-vec2(54.5,103.5))/vec2(4.5);
+		vec2 room=pane+vec2(VIEW.x,-VIEW.y)*0.18;
+		vec2 source=(room-vec2(0.0,0.20))*vec2(1.05,0.8);
+		float centre=exp(-dot(source,source));
+		float edge=1.0-smoothstep(0.55,1.1,max(abs(pane.x),abs(pane.y)));
+		float cabin_light=(0.035+0.965*centre*edge)*mix(0.45,1.0,smoothstep(0.0,0.7,dot(NORMAL,VIEW)));
+		vec3 interior_radiance=vec3(0.18,0.09,0.020)*hints.a*cabin_light;
+		// Compatibility shades in sRGB; a linear constant would disappear
+		// in its low-precision target before the tone mapper can expose it.
+		EMISSION+=OUTPUT_IS_SRGB?to_srgb(interior_radiance):interior_radiance;
+	}
+	if(headlight_lens>0 && headlight_lens_enabled){
+		vec2 pane=(UV-vec2(54.5,103.5))/vec2(4.5);
+		float inset=1.0-smoothstep(0.65,1.1,max(abs(pane.x),abs(pane.y)));
+		// Ino's work lamps use the separate framed grille below the glazing.
+		// Illuminate only its dark openings, preserving bars, frame and plate.
+		vec2 cover=(UV-vec2(54.5,119.5))/vec2(4.5);
+		float cover_edge=1.0-smoothstep(0.8,1.12,max(abs(cover.x),abs(cover.y)));
+		vec3 cover_texel=OUTPUT_IS_SRGB?color.rgb:to_srgb(color.rgb);
+		float cover_mask=cover_edge*(1.0-smoothstep(0.05,0.17,max(cover_texel.r,max(cover_texel.g,cover_texel.b))));
+		vec3 lamp_color=OUTPUT_IS_SRGB?to_linear(headlight_lens_color):headlight_lens_color;
+		vec3 lens_radiance=lamp_color*(hints.a*(0.12+0.8*inset)+cover_mask*0.8);
+		EMISSION+=OUTPUT_IS_SRGB?to_srgb(lens_radiance):lens_radiance;
+	}
 	// Tiny relief follows the imported panels through the deformed geometry.
 	// Clamp the slope and fade it at distance to keep low-resolution art stable.
-	float height=hints.r*(station_coating?0.65:0.14)*(1.0-smoothstep(80.0,500.0,length(VERTEX)));
+	float height=hints.r*(1.0-hints.a)*0.14*(1.0-smoothstep(80.0,500.0,length(VERTEX)));
 	vec3 dx=dFdx(VERTEX),dy=dFdy(VERTEX),r1=cross(dy,NORMAL),r2=cross(NORMAL,dx);
 	float det=dot(dx,r1);
 	if(abs(det)>0.00000001){
@@ -643,9 +719,10 @@ if(hull_coating && !replacement_enabled){
 }
 if(bioluminescence>0.0){
 	// The imported jelly's pale markings provide the luminous tissue mask.
-	// Low, steady blue-green radiance retains its original painted anatomy.
+	// A slow pulse follows the existing luminous tissue, preserving the art.
 	float tissue=smoothstep(0.12,0.55,max(color.r,max(color.g,color.b)));
-	EMISSION+=color.rgb*vec3(0.32,0.8,1.0)*tissue*bioluminescence;
+	float pulse=0.86+0.14*sin(ocean_visual_time*1.15+material_position.y*0.16);
+	EMISSION+=color.rgb*vec3(0.32,0.8,1.0)*tissue*bioluminescence*pulse;
 }
 if(replacement_enabled){
 	vec3 w=pow(abs(normalize(material_normal)),vec3(4.0)); w/=max(0.001,w.x+w.y+w.z);

@@ -12,6 +12,8 @@ const StationIcon = preload("res://native/presentation/station_icon.gd")
 const Display = preload("res://native/presentation/display_settings.gd")
 const WorldSettings = preload("res://native/presentation/world_settings.gd")
 const Spacing = preload("res://native/simulation/world_spacing.gd")
+const OceanOptions = preload("res://native/presentation/ocean_options.gd")
+const Headlights = preload("res://native/presentation/headlight_options.gd")
 
 ## Tabs in order of how often they are reached for: sound first, input last
 ## but one, and the world rules that only matter between dives at the end.
@@ -46,6 +48,7 @@ var subtitle: Label
 var legend: HFlowContainer
 var back_button: Button
 var fonts := {}
+var rebuild_revision := 0
 
 func configure(path: String, capabilities: Dictionary, gold := false, touch_sized := false) -> void:
 	settings_path=path;host=capabilities;golden=gold;touch=touch_sized
@@ -114,7 +117,7 @@ func put(section_name: String, key: String, value: Variant, rebuild_after := tru
 	var config := load_config();config.set_value(section_name,key,value)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
 	changed.emit(section_name,key)
-	if rebuild_after: rebuild()
+	if rebuild_after: rebuild(true)
 
 func flag(section_name: String, key: String, fallback: bool) -> bool:
 	var value: Variant=load_config().get_value(section_name,key,fallback)
@@ -219,6 +222,13 @@ func back() -> void:
 
 func _input(event: InputEvent) -> void:
 	if not visible or not is_inside_tree(): return
+	if scroll!=null:
+		# A pointer may hit the visible part of a clipped row. Focusing it on
+		# press must not move the target before the release activates it.
+		if (event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT and event.pressed) or (event is InputEventScreenTouch and event.pressed):
+			if scroll.get_global_rect().has_point(event.position):scroll.follow_focus=false
+		elif event is InputEventKey or event is InputEventJoypadButton or event is InputEventJoypadMotion:
+			scroll.follow_focus=true
 	if binding!="" and event is InputEventKey and event.pressed and not event.echo:
 		get_viewport().set_input_as_handled()
 		if event.physical_keycode==KEY_ESCAPE or event.keycode==KEY_ESCAPE:
@@ -332,8 +342,13 @@ func sub_row(title: String, key: String) -> Button:
 
 # ---------------------------------------------------------------- the pages
 
-func rebuild() -> void:
+func rebuild(preserve_scroll := false) -> void:
 	if column==null: return
+	rebuild_revision+=1
+	var previous_scroll := scroll.scroll_vertical
+	# Refocusing a replacement row before containers finish laying it out
+	# can scroll to a temporary position, even when the row was visible.
+	if preserve_scroll:scroll.follow_focus=false
 	for child in column.get_children(): column.remove_child(child);child.queue_free()
 	refresh_tabs()
 	match section:
@@ -350,6 +365,15 @@ func rebuild() -> void:
 				_: controls_page()
 		"gameplay": gameplay_page()
 	restore_focus.call_deferred()
+	if preserve_scroll:restore_scroll.call_deferred(previous_scroll,rebuild_revision)
+	else:scroll.follow_focus=true
+
+func restore_scroll(position_y: int, revision: int) -> void:
+	await get_tree().process_frame
+	if not is_inside_tree() or revision!=rebuild_revision:return
+	scroll.scroll_vertical=position_y
+	# Navigation still brings newly focused rows into view normally.
+	scroll.follow_focus=true
 
 func restore_focus() -> void:
 	if not visible or column==null: return
@@ -392,17 +416,51 @@ func graphics_page() -> void:
 		put("graphics","modern",not enhanced))
 	note("Enhanced adds lights, fog and shading. Classic matches the original.")
 	group("Enhanced lighting")
-	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
-	var names := {"headlights":"Headlights","beams":"Headlight beams","volumetric":"Volumetric light","detail":"Surface shading detail"}
-	for key in names:
+	graphics_options(["headlight_mode","blue_headlights","cabin_lights","cool_lighting","filtered_sunlight"])
+	group("Ocean atmosphere")
+	graphics_options(["volumetric","deep_darkness","regional_water","marine_snow","bioluminescence","explosion_aftermath"])
+	group("Surfaces and textures")
+	graphics_options(["detail"])
+	var textures := graphics_grid()
+	for kind in ["station","ship"]:
+		var node := toggle(kind.capitalize()+" texture smoothing","graphics",kind+"_smoothing",false,"On","Off",textures)
+		node.tooltip_text="On: smoothly filtered textures. Off: original pixelated textures."
+
+func graphics_grid() -> GridContainer:
+	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1
+	grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
+	return grid
+
+func graphics_options(keys: Array) -> void:
+	var enhanced := modern()
+	var grid := graphics_grid()
+	var lighting := {
+		"volumetric":["Volumetric light","Light and shadow in the surrounding water."],
+		"detail":["Surface shading detail","Fine shading and contact shadows on hulls and structures."]
+	}
+	for key in keys:
+		if key=="headlight_mode":
+			var mode := Headlights.read(load_config())
+			var lamps := row("Headlights",Headlights.NAMES[mode] if enhanced else "Classic",key,func():
+				var config := load_config();Headlights.write(config,(mode+1)%Headlights.NAMES.size())
+				DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
+				changed.emit("graphics","headlight_mode");rebuild(true),grid)
+			lamps.disabled=not enhanced
+			lamps.tooltip_text="Off: no headlight glow or beams. Light only: lit lenses and surface illumination. Light + beams: adds visible light in the water. Classic: the original textured beams and colours."
+			continue
+		var option: Array=OceanOptions.VISUALS.get(key,lighting.get(key,[]))
 		var needs_forward: bool=key in ["volumetric","detail"] and not forward_plus()
 		var node: Button
-		if needs_forward: node=row(names[key],"Needs Vulkan",key,func():pass,grid)
-		else: node=toggle(names[key],"graphics",key,true,"On","Off",grid)
-		node.disabled=not enhanced or needs_forward
-		if not enhanced and not needs_forward: node.get_node("Value").text="Off"
-	group("Textures")
-	toggle("Station texture smoothing","graphics","station_smoothing",false,"On","Off · pixelated")
+		if needs_forward:node=row(option[0],"Needs Vulkan",key,func():pass,grid)
+		else:node=toggle(option[0],"graphics",key,OceanOptions.default_on(key),"Blue" if key=="blue_headlights" else "On","White" if key=="blue_headlights" else "Off",grid)
+		node.tooltip_text=option[1];node.disabled=not enhanced or needs_forward
+		if not enhanced and not needs_forward:
+			node.get_node("Value").text="Classic" if key=="blue_headlights" else "Off"
+			node.accessibility_name=option[0]+": unavailable in Classic lighting"
+		elif key=="blue_headlights" and not Headlights.casts_light(Headlights.read(load_config())):
+			node.disabled=true
+			if Headlights.read(load_config())==Headlights.Mode.CLASSIC:node.get_node("Value").text="Original"
+			node.tooltip_text="Choose Light only or Light + beams to change the colour. Classic keeps the original beam colours."
 
 func display_page() -> void:
 	if not OS.has_feature("mobile") or OS.has_feature("web"):
@@ -480,6 +538,7 @@ func touch_page() -> void:
 		if can("layout_editor"): host.layout_editor.call())
 	placement.disabled=not (can("layout_editor") and active)
 	placement.tooltip_text="Move and resize the on-screen controls." if not placement.disabled else ("Turn touch controls on first." if can("layout_editor") else "Available during gameplay.")
+	toggle("Mirror fire control","input","touch_mirror_fire",false).tooltip_text="Put the throttle arc on the right of the fire button, for a button placed on the left."
 	toggle("Touch look area","input","touch_drag_anywhere",false,"Whole screen","Outside analog area")
 	toggle("Steering stick","input","touch_fixed_stick",false,"Fixed in place","Moves to thumb")
 	toggle("Invert vertical steering","keys","invert_mouse",false)

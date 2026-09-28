@@ -13,6 +13,35 @@ func finger(touch, id: int, position: Vector2, down: bool, cancel: bool=false) -
  var event:=InputEventScreenTouch.new();event.index=id;event.position=position;event.pressed=down;event.canceled=cancel;touch.handle(event)
 func drag(touch, id: int, position: Vector2, relative: Vector2) -> void:
  var event:=InputEventScreenDrag.new();event.index=id;event.position=position;event.relative=relative;touch.handle(event)
+func check_weapon_taps(touch) -> void:
+ touch.size=Vector2(1280,720);touch.arrange()
+ var guns: Vector2=touch.zones.guns.get_center()
+ var hook: Vector2=touch.zones.hook.get_center()
+ finger(touch,8,guns,true);finger(touch,8,guns,false)
+ expect(touch.snapshot().guns and not touch.snapshot().guns,"A quick weapon tap survives between render frames and fires once")
+ finger(touch,8,guns,true);finger(touch,8,guns,false)
+ for i in 5:expect(touch.snapshot().guns and not touch.snapshot().hook,"Double-tapping guns continues that bank after the finger lifts")
+ finger(touch,8,guns,true);finger(touch,8,guns,false)
+ expect(not touch.snapshot().guns,"One tap stops latched automatic guns")
+ touch.reset()
+ for i in 2:finger(touch,9,hook,true);finger(touch,9,hook,false)
+ expect(touch.snapshot().hook and not touch.snapshot().guns,"Harpoon double-tap latches independently of the guns")
+ touch.set_active(false);touch.set_active(true)
+ expect(not touch.snapshot().hook,"Opening a menu clears touch autofire")
+ finger(touch,8,guns,true);finger(touch,8,guns,false);touch.snapshot()
+ touch.last_weapon_tap_ms-=touch.DOUBLE_TAP_MS+1
+ finger(touch,8,guns,true);finger(touch,8,guns,false);touch.snapshot()
+ expect(not touch.snapshot().guns,"Two separated taps do not latch automatic fire")
+ touch.reset()
+ finger(touch,8,guns,true);finger(touch,8,guns,false);touch.snapshot()
+ finger(touch,8,guns,true);finger(touch,8,guns,false,true)
+ expect(not touch.snapshot().guns,"A cancelled second tap cannot enable autofire")
+ touch.reset()
+ finger(touch,8,guns,true);finger(touch,8,guns,false);touch.snapshot()
+ finger(touch,8,guns,true);drag(touch,8,guns+Vector2(70,0),Vector2(70,0));finger(touch,8,guns,false);touch.snapshot()
+ expect(not touch.snapshot().guns,"Dragging out and back is not a double tap")
+ touch.reset()
+
 func run() -> void:
  var pad=preload("res://native/input/flight_controls.gd").new()
  axis(pad,JOY_AXIS_LEFT_X,.1);expect(pad.snapshot().yaw==0,"Controller drift stays inside deadzone")
@@ -36,6 +65,8 @@ func run() -> void:
  pad.reset();expect(pad.snapshot().yaw==0 and pad.snapshot().throttle==0,"Disconnect/focus reset clears movement")
  var touch=preload("res://native/input/touch_controls.gd").new();root.add_child(touch);touch.mode=1;touch.set_active(true)
  await process_frame
+ check_weapon_taps(touch)
+ check_mirrored_throttle(touch)
  for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2560,1080)]:
   touch.size=dimensions;touch.arrange()
   for name in touch.zones:expect(Rect2(Vector2.ZERO,dimensions).encloses(touch.zones[name]),"Touch target fits: "+name)
@@ -377,7 +408,50 @@ func check_touch_placement(game) -> void:
  expect(not touch.layout_preview,"Leaving the editor stops previewing idle controls")
  expect(touch.zones.hook==touch.weapon_home.guns,"Leaving the editor puts a gunless ship's harpoon back in the guns' place")
  touch.has_guns=true;touch.place_throttle()
+ var before_mirroring: Rect2=touch.control_rect("guns")
+ game.show_settings("touch");await process_frame;await process_frame
+ var mirror=game.settings_panel.find_child("Row_touch_mirror_fire",true,false)
+ expect(mirror!=null,"Touch settings offer a fire-control mirror switch")
+ if mirror!=null:
+  mirror.pressed.emit();await process_frame;await process_frame
+  var config:=ConfigFile.new();config.load(game.settings_path)
+  expect(touch.mirror_fire_control and bool(config.get_value("input","touch_mirror_fire",false)),"Mirroring applies immediately and is saved")
+  expect(touch.control_rect("guns")==before_mirroring,"Mirroring keeps the player's button position and size")
+  touch.mirror_fire_control=false;game.read_settings()
+  expect(touch.mirror_fire_control,"Reloading settings restores the mirrored fire control")
+  game.settings_panel.find_child("Row_touch_mirror_fire",true,false).pressed.emit();await process_frame
+  expect(not touch.mirror_fire_control,"The same switch restores the original throttle arc")
+ game.settings_panel.back()
  touch.layout={};touch.arrange();touch.set_active(false)
+
+func check_mirrored_throttle(touch) -> void:
+ var levels: Array=[]
+ var record:=func(percent):levels.append(percent)
+ touch.throttle_changed.connect(record)
+ for dimensions in [Vector2(1280,720),Vector2(589,1280),Vector2(1920,1080)]:
+  touch.size=dimensions;touch.layout={};touch.arrange()
+  var offset: Vector2=Vector2(180*touch.unit,touch.zones.guns.get_center().y)-touch.zones.guns.get_center()
+  touch.layout={"guns":{"x":offset.x/touch.unit,"y":0,"scale":1.25}};touch.arrange()
+  var area: Rect2=touch.zones.throttle;var center: Vector2=area.get_center();var radius: float=touch.arc_radius(area)
+  var original_button: Rect2=touch.zones.guns
+  touch.mirror_fire_control=true
+  expect(touch.zones.guns==original_button,"Mirroring a moved, resized fire control keeps its placement")
+  expect(touch.button_at(center)=="guns","Mirroring keeps the centre available for firing")
+  var old_middle: Vector2=center+Vector2(-1,-1).normalized()*radius
+  expect(not touch.on_arc(area,old_middle),"The old throttle arc no longer intercepts touches")
+  touch.throttle_level=.4;levels.clear()
+  finger(touch,11,center+Vector2(radius,0),true)
+  for level in [.25,.5,.75,1.0]:drag(touch,11,center+Vector2.from_angle(-PI*.5*level)*radius,Vector2.ZERO)
+  finger(touch,11,center+Vector2(0,-radius),false)
+  expect(levels==[0,25,50,75,100],"The right-side arc increases from its outer end to the top at %s"%dimensions)
+  expect(not touch.snapshot().guns,"Dragging the mirrored throttle does not fire the weapon")
+  touch.has_guns=false;touch.place_throttle()
+  expect(touch.button_at(center)=="hook" and touch.on_arc(area,center+Vector2(1,-1).normalized()*radius),"The mirrored arc also works when the harpoon occupies the fire button")
+  touch.has_guns=true;touch.place_throttle();touch.reset()
+  touch.mirror_fire_control=false
+  expect(touch.on_arc(area,old_middle),"Turning mirroring off restores the original arc")
+ touch.throttle_changed.disconnect(record)
+ touch.layout={};touch.size=Vector2(1280,720);touch.arrange();touch.reset()
 
 func pointer(game, pressed: bool, at: Vector2, moving: bool=false) -> void:
  var event: InputEventMouse=InputEventMouseMotion.new() if moving else InputEventMouseButton.new()

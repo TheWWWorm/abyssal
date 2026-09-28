@@ -571,9 +571,9 @@ func run():
  slab.queue_free();await process_frame
  for i in 3:app.abyss.shade_beam(app.abyss.lamps[0],probe,0);app.abyss.shade_beam(app.abyss.lamps[0],probe,1)
  expect(reach.get_pixel(app.abyss.OCCLUSION_SIZE/2,app.abyss.OCCLUSION_SIZE/2).r>app.abyss.BEAM_LENGTH,"Open water leaves the beam its whole length")
- # The lamps sit at the hull's front corners beside the cockpit, as the original draws them, not on the pods.
- var hull_box: AABB=view.player_model.solid_bounds();var mounts: Array=view.player_model.headlight_mounts()
- expect(mounts.size()==2 and absf(absf(mounts[0].x-hull_box.get_center().x)-hull_box.size.x*.22)<.01 and mounts[0].x<mounts[1].x and mounts[0].z<hull_box.position.z+hull_box.size.z*.3,"Headlights mount at the hull's front corners, a fifth of the width out, at the foremost surface there")
+ # Player lights use the same attachment frames as other vessels.
+ var frames: Array=view.player_model.headlight_frames()
+ expect(frames.size()==2 and app.abyss.lamps[0].global_transform.is_equal_approx(view.player_model.global_transform*frames[0]) and app.abyss.lamps[1].global_transform.is_equal_approx(view.player_model.global_transform*frames[1]),"Each player spotlight follows its original hull attachment and direction")
  var vessel=null
  for entry in view.objects.values():
   if entry.visual.find_children("*","SpotLight3D",true,false).size()>0: vessel=entry.visual;break

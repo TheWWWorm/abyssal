@@ -791,6 +791,8 @@ func apply_setting(section: String, key: String) -> void:
 	else is read when a dive starts."""
 	var config := ConfigFile.new();config.load(settings_path)
 	var audio=title_dock.dive_audio
+	if key in SettingsMenu.OceanOptions.VISUALS:
+		title_dock.apply_atmosphere(config)
 	match [section,key]:
 		["audio","music"]: title_dock.set_music(clampf(float(config.get_value("audio","music",0.65)),0,1))
 		["audio","effects"]: audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1);audio.apply_levels()
@@ -798,6 +800,8 @@ func apply_setting(section: String, key: String) -> void:
 		["graphics","audio"]: title_dock.set_audio_enabled(bool(config.get_value("graphics","audio",true)))
 		["graphics","modern"]: title_dock.set_lighting(bool(config.get_value("graphics","modern",true)))
 		["graphics","station_smoothing"]: title_dock.view.set_station_smoothing(bool(config.get_value("graphics","station_smoothing",false)))
+		["graphics","ship_smoothing"]: title_dock.view.set_ship_smoothing(bool(config.get_value("graphics","ship_smoothing",false)))
+		["graphics","headlight_mode"]: title_dock.view.set_headlight_mode(SettingsMenu.Headlights.read(config))
 		["graphics","volumetric"],["graphics","detail"]:
 			title_dock.wanted_volumetric=bool(config.get_value("graphics","volumetric",true)) and RenderingServer.get_current_rendering_method()=="forward_plus"
 			title_dock.wanted_detail=bool(config.get_value("graphics","detail",true));title_dock.apply_lighting()

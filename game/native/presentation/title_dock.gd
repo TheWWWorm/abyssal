@@ -11,6 +11,7 @@ const Terrain = preload("res://native/presentation/terrain.gd")
 const DiveAudio = preload("res://native/presentation/dive_audio.gd")
 const Session = preload("res://native/simulation/session.gd")
 const SaveStore = preload("res://native/simulation/save_store.gd")
+const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 var camera := Camera3D.new()
 var abyss := Abyss.new()
 var view := View.new()
@@ -57,6 +58,8 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	world.spacing_meters=spacing.meters()
 	view.modern_graphics=bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true)))
 	view.set_station_smoothing(bool(config.get_value("graphics","station_smoothing",false)))
+	view.set_ship_smoothing(bool(config.get_value("graphics","ship_smoothing",false)))
+	view.set_headlight_mode(preload("res://native/presentation/headlight_options.gd").read(config))
 	world.configure(session);world.build_docked_view();abyss.world=world
 	view.configure(world,content,camera);view.revision=-1
 	abyss.import_sky_ramp(content.root)
@@ -74,6 +77,11 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	dock_environment=sky_environment
 	if is_processing():abyss.environment.environment=sky_environment
 	built=true
+	apply_atmosphere(config)
+
+func apply_atmosphere(config: ConfigFile) -> void:
+	var choices := OceanOptions.read(config)
+	view.set_atmosphere(choices);abyss.set_atmosphere(choices)
 
 func set_active(value: bool) -> void:
 	"""The content inspector and the backdrop share the viewport; one of them
@@ -88,6 +96,7 @@ func set_lighting(modern: bool) -> void:
 	rebuilds the station in it at once."""
 	if not built or view.modern_graphics==modern:return
 	view.modern_graphics=modern;view.revision=-1
+	view.set_headlight_mode(view.library.headlight_mode)
 	apply_lighting()
 
 func apply_lighting() -> void:
@@ -95,6 +104,7 @@ func apply_lighting() -> void:
 	env.volumetric_fog_enabled=view.modern_graphics and wanted_volumetric
 	env.ssao_enabled=view.modern_graphics and wanted_detail
 	env.glow_enabled=view.modern_graphics
+	if built:abyss.set_atmosphere(abyss.atmosphere)
 
 static func title_choice(config: ConfigFile) -> int:
 	var value: Variant=config.get_value("audio","title_music",0)

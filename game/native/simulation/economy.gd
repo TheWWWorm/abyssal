@@ -141,20 +141,25 @@ func trade(station: Dictionary,id: int,buying: bool) -> bool:
 
 func has_equipment(id: int) -> bool:return session.ship.equipment.any(func(item):return item!=null and item.id==id)
 
-func buy_equipment(station: Dictionary,item) -> int:
+func buy_equipment_denial(station: Dictionary,item) -> int:
 	# The notice on refusal, -1 when bought. One of each kind but weapons
 	# and cargo units; one Eclipse ever.
 	if item not in station.equipment:return 144
 	if item.price>session.credits:return 85
 	if not session.ship.has_slot():return 145
 	if not session.ship.permits_kind(item.kind) or (item.id==42 and has_equipment(42)):return 144
+	return -1
+
+func buy_equipment(station: Dictionary,item) -> int:
+	var denial := buy_equipment_denial(station,item)
+	if denial>=0:return denial
 	var installed=item.copy_stack()
 	if not installed.discounted:session.counters.s+=1
 	installed.station_price(station.tech,true);installed.discounted=true
 	session.ship.equip(installed);session.credits-=item.price;station.equipment.erase(item)
 	session.medals.observe_credits(session.credits);return -1
 
-func sell_equipment(station: Dictionary,item) -> int:
+func sell_equipment_denial(station: Dictionary,item) -> int:
 	# The Eclipse stays until the war is won; a cargo unit cannot go while
 	# the hold needs it.
 	if item.id==42 and not session.campaign.finished():return 290
@@ -162,12 +167,17 @@ func sell_equipment(station: Dictionary,item) -> int:
 	if item.kind==5:
 		var without: int=int(Math.f32(float(session.ship.capacity())-Math.f32(Math.f32(float(item.parameters[0])/100.0)*float(session.ship.base_cargo))))
 		if without<session.ship.cargo_used:return 88
+	return -1
+
+func sell_equipment(station: Dictionary,item) -> int:
+	var denial := sell_equipment_denial(station,item)
+	if denial>=0:return denial
 	session.ship.remove(item);session.credits+=item.price
 	session.medals.observe_credits(session.credits)
 	var sale=item.copy_stack();sale.station_price(station.tech,true);sale.discounted=true
 	station.equipment.append(sale);return -1
 
-func buy_ship(station: Dictionary,offered) -> int:
+func buy_ship_denial(station: Dictionary,offered) -> int:
 	# The old hull is taken in part exchange at its own price; its gear and
 	# cargo move across, so the new hull needs the slots and the room.
 	var old=session.ship
@@ -177,6 +187,13 @@ func buy_ship(station: Dictionary,offered) -> int:
 	if offered.slots<installed.size():return 86
 	var room: int=int(Math.f32(float(offered.capacity())+Math.f32(Math.f32(float(old.cargo_percent)/100.0)*float(offered.capacity()))))
 	if room<old.cargo_used:return 87
+	return -1
+
+func buy_ship(station: Dictionary,offered) -> int:
+	var denial := buy_ship_denial(station,offered)
+	if denial>=0:return denial
+	var old=session.ship
+	var installed: Array=old.equipment.filter(func(item):return item!=null)
 	var index: int=station.ships.find(offered)
 	session.credits+=ship_price(old)-ship_price(offered)
 	session.medals.observe_credits(session.credits)

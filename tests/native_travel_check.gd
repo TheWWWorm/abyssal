@@ -38,6 +38,17 @@ func _initialize() -> void:
 	manual.fly_to_gate(0);manual.update_gates(1000)
 	expect(manual.gate_time[0]>=manual.GATE_OPEN_MS,"Explicit gate navigation opens the intended gate")
 	manual.dispose()
+	# Original co.a(III): 150 m along each axis, with strict boundaries.
+	var station_body=preload("res://native/simulation/station_body.gd").new()
+	for axis in 3:
+		for sign in [-1,1]:
+			var point: Array=[0,0,0];point[axis]=sign*14999
+			expect(station_body.can_dock(point),"A point just inside an original docking face is accepted")
+			point[axis]=sign*15000
+			expect(not station_body.can_dock(point),"The original docking boundary is strict on every face")
+			point[axis]=sign*15500
+			expect(not station_body.can_dock(point),"The remake's former 160 m spherical extension is gone")
+	expect(station_body.can_dock([14999,14999,14999]),"Original docking cube corners remain usable beyond a 150 m radial distance")
 	var docking=traveler()
 	var berth: Array=[]
 	for x in [-14000,-7000,0,7000,14000]:
@@ -92,6 +103,18 @@ func _initialize() -> void:
 		previous=point
 	var below: Array=navigation.cruise_detour(Vector3.ZERO,Vector3(100000,0,0),[obstruction],-1000,20000)
 	expect(not below.is_empty() and below[0].y>obstruction.end.y,"Pressure ceiling selects the lower bypass")
+	var bypass_slow=traveler();var bypass_fast=traveler()
+	for journey in [bypass_slow,bypass_fast]:
+		journey.region.player.pose.origin=[0,0,60000];journey.fly_to([0,0,800000])
+		var anchor3 := World.Math.vector(journey.station_origin(journey.session.station_id))
+		journey.avoidance_path=[anchor3+Vector3(30000,0,150000),anchor3+Vector3(30000,0,250000)]
+	bypass_fast.speed=16
+	for frame in 24:
+		bypass_fast.advance(.04)
+		for tick in 16:bypass_slow.advance(.04)
+		expect(bypass_fast.speed==16,"An intervening station detour preserves the selected 16x speed")
+		expect(bypass_fast.region.player.pose.values()==bypass_slow.region.player.pose.values(),"A station bypass at 16x retains the same collision-checked fixed steps as 1x")
+	for journey in [bypass_slow,bypass_fast]:journey.dispose()
 	var slow=traveler(); var fast=traveler()
 	for world in [slow,fast]:
 		world.region.player.pose.origin=[0,0,60000]; world.fly_to([0,0,400000])

@@ -10,7 +10,7 @@ are evaluated. Original constructors and methods are NOT invoked: the small
 record operations below are inert schema summaries. No bytecode is emitted.
 """
 import hashlib, json, math, pathlib, re, zipfile
-from class_data import ClassData, DataError, Reader, default, evaluate, modified_utf8
+from class_data import ClassData, DataError, Reader, default, evaluate, literal_matrices, modified_utf8
 
 TYPES={'I':'int','S':'short','B':'byte','Z':'boolean','J':'long','F':'float','D':'double','C':'char','Ljava/lang/String;':'java.lang.String'}
 def field_name(name,desc):return name+':'+TYPES.get(desc,desc.replace('/','.'))
@@ -169,6 +169,14 @@ def read_profile(jar,root,digest=None):
         habitats.append(habitat)
     out={'schema':1,'jar_sha256':digest or hashlib.sha256(pathlib.Path(jar).read_bytes()).hexdigest(),'importer':'native-6','language':language.name,'constants':constants,'tables':tables,'campaign':campaign,'timelines':timelines,'strings':strings,'name_pools':names,'habitats':habitats,'data_reader':'restricted-class-data-1','station_geometry':geometry}
     if music:out['music']=music
+    # Optional presentation metadata. Read only a complete literal palette;
+    # never evaluate the original scene setup or ecology code. Older caches
+    # and compatible builds without this table retain neutral regional colour.
+    try:
+        palettes=[matrix for matrix in literal_matrices(classes['cy'],'b','()V')
+                  if len(matrix)==5 and all(len(row)==3 and all(0<=v<=255 for v in row) for row in matrix)]
+        if len(palettes)==1:out['water_palette']=palettes[0]
+    except (DataError,KeyError):pass
     (root/'native-data.json').write_text(json.dumps(out,separators=(',',':')))
     return out
 

@@ -5,6 +5,7 @@ const Math = preload("res://native/simulation/fixed_math.gd")
 const Clock = preload("res://native/simulation/animation_clock.gd")
 const Special = preload("res://native/simulation/special_actor.gd")
 const Mods = preload("res://native/presentation/mods.gd")
+const Headlights = preload("res://native/presentation/headlight_options.gd")
 ## Every station module is turned half a turn about its socket axis: the
 ## imported station meshes stand the other way up and the other way round
 ## from the phone game, so a hangar's berth door read as a roof and each
@@ -35,6 +36,14 @@ var figure: Node3D
 var pattern_figures: Dictionary = {}
 var last_pattern := -1
 var sampled_frame := -1
+var posed_cabin_lights := true
+var posed_bioluminescence := true
+var posed_blue_headlights := false
+var posed_ship_smoothing := false
+var posed_headlight_mode := Headlights.DEFAULT
+var headlight_lenses_on := true
+var headlights_powered := true
+var headlight_materials := {}
 var current_bones: Array = []
 var elapsed := 0
 var machinery := false
@@ -68,7 +77,7 @@ func set_hinge(axis: int, bend: float) -> void:
 	"""Bends this part at its join with the body by a Godot-space angle
 	about its local X (pitch) or Y (yaw). Only a bending model owns these
 	material overrides; the shared poses and rigid models stay undeformed."""
-	hinge_axis=axis;hinge_bend=bend;apply_hinge()
+	hinge_axis=axis;hinge_bend=bend;apply_hinge();apply_headlight_lenses()
 
 func apply_hinge() -> void:
 	if figure==null:return
@@ -96,6 +105,7 @@ func set_stream_visibility(value: float) -> void:
 	stream_visibility=clampf(value,0.0,1.0)
 	apply_stream_visibility()
 	apply_hinge()
+	apply_headlight_lenses()
 
 func apply_stream_visibility() -> void:
 	if figure==null:return
@@ -120,7 +130,7 @@ func apply_stream_visibility() -> void:
 			original=fade_materials[key];mesh.set_surface_override_material(index,original)
 		original.set_shader_parameter("stream_visibility",stream_visibility)
 	if stream_visibility>=1.0:fade_materials.clear()
-	Library.set_lamp_visibility(figure,stream_visibility)
+	Library.set_lamp_visibility(figure,stream_visibility,library.cabin_lights)
 
 
 func configure(cache: String, entry: Dictionary, preview_frame_ms: int = 32) -> void:
@@ -128,6 +138,8 @@ func configure(cache: String, entry: Dictionary, preview_frame_ms: int = 32) -> 
 	library.enhanced=modern_graphics
 	library.ocean_strength=0.08 if modern_graphics else 0.0
 	record=entry
+	if has_meta("headlight_rig"):remove_meta("headlight_rig")
+	if has_meta("headlight_lens_faces"):remove_meta("headlight_lens_faces")
 	if pack!=null: material_look=pack.look_for(int(record.id))
 	source=library.data(record.model)
 	if material_look.get("biology",false): biological_look=preload("res://native/presentation/biological_surface.gd").definition(int(record.id),source)
@@ -260,13 +272,24 @@ func refresh_station_filtering() -> void:
 	fade_materials.clear();portal_materials.clear();sampled_frame=-1
 	refresh()
 
+func refresh_ship_filtering() -> void:
+	if not is_hull_id(int(record.id)):return
+	fade_materials.clear();portal_materials.clear();hinge_materials.clear();headlight_materials.clear();sampled_frame=-1
+	refresh()
+
 func refresh() -> void:
 	var sample := clock.sample()
 	var pattern := pattern_at(sample)
 	var motion:=int(elapsed*60/1000)%60 if machinery else -1
 	# effect_boost belongs here too: a gate holds one pose while its glow still
 	# rises with the player's approach, and skipping the re-pose freezes it.
-	if sample==sampled_frame and pattern==last_pattern and motion==machinery_sample and is_equal_approx(effect_boost,posed_boost): return
+	var atmosphere_changed: bool=posed_cabin_lights!=library.cabin_lights or posed_bioluminescence!=library.bioluminescence or posed_blue_headlights!=library.blue_headlights or posed_ship_smoothing!=library.ship_smoothing or posed_headlight_mode!=library.headlight_mode
+	if sample==sampled_frame and pattern==last_pattern and motion==machinery_sample and is_equal_approx(effect_boost,posed_boost) and not atmosphere_changed:return
+	posed_cabin_lights=library.cabin_lights;posed_bioluminescence=library.bioluminescence
+	posed_blue_headlights=library.blue_headlights
+	posed_ship_smoothing=library.ship_smoothing
+	posed_headlight_mode=library.headlight_mode
+	if atmosphere_changed:fade_materials.clear();portal_materials.clear();hinge_materials.clear();headlight_materials.clear()
 	posed_boost=effect_boost
 	machinery_sample=motion
 	sampled_frame=sample
@@ -286,9 +309,21 @@ func refresh() -> void:
 	var call := {"biology":biological_look,"replacement":material_look,"replacement_texture":pack.texture_for(int(record.id)) if pack!=null else null,"resource":record.model,"textures":record.textures,"pattern":pattern,"bones":current_bones,"layout":{"transform":[4096,0,0,0,0,4096,0,0,0,0,4096,0]},"effect":{"lit":true,"ambient":300 if modern_graphics else 1800,"intensity":512 if modern_graphics else 2200,"direction":[1134,3929,0]}}
 	call.pixelated_station=int(record.id)>=3300 and int(record.id)<3400 and not library.station_smoothing
 	call.smoothed_station=int(record.id)>=3300 and int(record.id)<3400 and library.station_smoothing
+	call.pixelated_ship=hull and not library.ship_smoothing
+	call.smoothed_ship=hull and library.ship_smoothing
 	call.station_coating=modern_graphics and int(record.id)>=3300 and int(record.id)<3400
 	call.hull_coating=modern_graphics and (call.station_coating or hull)
-	call.bioluminescence=.38 if modern_graphics and int(record.id)==4426 else 0.0
+	call.cabin_lamps=modern_graphics and hull
+	call.cabin_windows=call.cabin_lamps and library.cabin_lights
+	call.headlight_rig=headlight_rig() if hull else []
+	call.headlight_tints=call.headlight_rig.map(func(lamp):return headlight_tint(lamp.tint))
+	call.headlight_lenses=headlight_lens_faces() if modern_graphics and hull else {}
+	call.source_headlights={}
+	for lamp in call.headlight_rig:
+		for polygon in lamp.get("polygons",[]):call.source_headlights[polygon]=true
+	call.classic_headlights=modern_graphics and library.headlight_mode==Headlights.Mode.CLASSIC
+	call.headlights_powered=headlights_powered
+	call.bioluminescence=.38 if modern_graphics and library.bioluminescence and int(record.id)==4426 else 0.0
 	call.distance_haze=0.0015 if int(record.id)>=3300 and int(record.id)<3400 else 0.00032
 	# Ship glow geometry was a lighting approximation. Modern flight supplies
 	# actual headlights and wakes; these large meshes clip through front views.
@@ -298,7 +333,7 @@ func refresh() -> void:
 	# the flare in the aperture and the trails that stream off the arms.
 	call.source_glow_visible=not (modern_graphics and hull)
 	call.effect_boost=effect_boost
-	call.native_pose_key=str([record.id,sample,machinery_sample,pattern,material_look,modern_graphics,library.station_smoothing,library.ocean_strength,library.effect_glow,effect_boost])
+	call.native_pose_key=str([record.id,sample,machinery_sample,pattern,material_look,modern_graphics,library.station_smoothing,library.ship_smoothing,library.ocean_strength,library.effect_glow,effect_boost,call.cabin_windows,call.bioluminescence,library.blue_headlights,library.headlight_mode,headlights_powered])
 	if figure==null or pattern!=last_pattern:
 		if figure!=null: figure.hide()
 		if not pattern_figures.has(pattern):
@@ -306,12 +341,13 @@ func refresh() -> void:
 			add_child(pattern_figures[pattern])
 		figure=pattern_figures[pattern]; figure.show()
 		last_pattern=pattern
-	if (call.pixelated_station or call.smoothed_station) and figure.get_meta("station_smoothing",false)!=library.station_smoothing:
+	if ((call.pixelated_station or call.smoothed_station) and figure.get_meta("station_smoothing",false)!=library.station_smoothing) or (hull and figure.get_meta("ship_smoothing",false)!=library.ship_smoothing):
 		library.apply_figure_materials(figure,call)
 	library.pose(figure,call)
 	apply_stream_visibility();apply_hinge()
 	apply_portal_clip()
 	if is_hangar():apply_hangar_open()
+	apply_headlight_lenses()
 
 func set_full_detail(value: bool) -> void:
 	"""A streamed station is built compact and promoted when it is near: a
@@ -364,39 +400,60 @@ func solid_bounds() -> AABB:
 	solid_aabb=result; solid_aabb_ready=true
 	return result
 
+func headlight_rig() -> Array:
+	var source_rig=preload("res://native/presentation/headlight_rig.gd")
+	if replacement!=null and not replacement.get_meta("headlight_mounts",[]).is_empty():
+		var custom: Array=[]
+		var mounts: Array=replacement.get_meta("headlight_mounts")
+		for i in mounts.size():custom.append({"frame":Transform3D(Basis(Vector3.UP,deg_to_rad(12 if i==0 else -12)),mounts[i]),"tint":source_rig.DEFAULT_TINT})
+		return custom
+	if not has_meta("headlight_rig"):
+		var rig: Array=source_rig.describe(source,current_bones)
+		for lamp in rig:lamp["tint"]=source_rig.tint(lamp.texture_regions,library,record.textures)
+		set_meta("headlight_rig",rig)
+	return get_meta("headlight_rig")
+
+func headlight_frames() -> Array:
+	return headlight_rig().map(func(lamp):return lamp.frame)
+
+func headlight_tint(original: Color) -> Color:
+	return preload("res://native/presentation/headlight_rig.gd").display_tint(original,library.blue_headlights)
+
+func headlight_lens_faces() -> Dictionary:
+	if not has_meta("headlight_lens_faces"):
+		set_meta("headlight_lens_faces",preload("res://native/presentation/headlight_rig.gd").lens_faces(source,current_bones,headlight_rig()))
+	return get_meta("headlight_lens_faces")
+
+func set_headlight_power(on: bool) -> void:
+	if headlights_powered==on:return
+	headlights_powered=on
+	set_headlight_lenses(on and modern_graphics and Headlights.casts_light(library.headlight_mode))
+	sampled_frame=-1;refresh()
+
+func set_headlight_lenses(on: bool) -> void:
+	if headlight_lenses_on==on:return
+	headlight_lenses_on=on;headlight_materials.clear();apply_headlight_lenses()
+
+func apply_headlight_lenses() -> void:
+	if figure==null or not is_hull_id(int(record.id)):return
+	var mesh: MeshInstance3D=figure.get_node("Mesh")
+	for i in mesh.mesh.get_surface_count():
+		var material: ShaderMaterial=mesh.get_surface_override_material(i)
+		if not material.get_shader_parameter("headlight_lens") or material.get_shader_parameter("headlight_lens_enabled")==headlight_lenses_on:continue
+		# Pose materials can be shared by identical hulls. Switching the player's
+		# lamps must not extinguish the lenses of another vessel with that hull.
+		# Clipping and streaming can restore a previous override even without
+		# a new pose. Reuse a model-owned correction after every such restore.
+		var key := material.get_instance_id()
+		if not headlight_materials.has(key):
+			if headlight_materials.size()>=128:headlight_materials.clear()
+			var own: ShaderMaterial=material.duplicate()
+			own.set_shader_parameter("headlight_lens_enabled",headlight_lenses_on)
+			headlight_materials[key]=own
+		mesh.set_surface_override_material(i,headlight_materials[key])
+
 func headlight_mounts() -> Array:
-	"""Where the headlights sit: the two front corners of the hull, either
-	side of the cockpit, where the original draws them - not the pods. Each
-	is placed a fifth of the hull's width out from the centreline, a little
-	below the middle, on the foremost surface found there. Mods still name
-	their own mounts."""
-	if replacement!=null and not replacement.get_meta("headlight_mounts",[]).is_empty(): return replacement.get_meta("headlight_mounts")
-	if has_meta("lamp_mounts"): return get_meta("lamp_mounts")
-	var box := solid_bounds()
-	var bone_for_vertex: Array = []
-	for i in source.bones.size():
-		for _v in int(source.bones[i].vertices): bone_for_vertex.append(i)
-	var points := {}
-	for polygon in source.polygons:
-		if int(polygon.blend)!=0: continue
-		for raw_index in polygon.indices:
-			var index := int(raw_index)
-			if not points.has(index): points[index]=Library.matrix(current_bones[bone_for_vertex[index]])*Library.point(source.vertices,index*3)
-	var mounts: Array = []
-	for side in [-1,1]:
-		var target := Vector3(box.get_center().x+side*box.size.x*.22,box.get_center().y-box.size.y*.1,box.position.z)
-		# The foremost surface in a narrow column at the mount, widening the
-		# column only if nothing is there; a wide one caught the cockpit's
-		# nose and hung the lamp a metre ahead of the hull.
-		var front := INF
-		for width in [.04,.08,.16]:
-			for point in points.values():
-				if absf(point.x-target.x)<box.size.x*width and absf(point.y-target.y)<box.size.y*.25: front=minf(front,point.z)
-			if front!=INF: break
-		if front==INF: front=box.position.z
-		mounts.append(Vector3(target.x,target.y,front-.05))
-	set_meta("lamp_mounts",mounts)
-	return mounts
+	return headlight_frames().map(func(frame):return frame.origin)
 
 func replacement_bounds() -> AABB:
 	var result := solid_bounds()
@@ -415,7 +472,7 @@ func replacement_bounds() -> AABB:
 	return result
 
 func set_portal_clip(enabled: bool, plane: Vector4=Vector4.ZERO) -> void:
-	portal_enabled=enabled;portal_plane=plane;apply_portal_clip()
+	portal_enabled=enabled;portal_plane=plane;apply_portal_clip();apply_headlight_lenses()
 func apply_portal_clip() -> void:
 	if figure==null:return
 	var mesh: MeshInstance3D=figure.get_node("Mesh")

@@ -1,4 +1,5 @@
 extends Node3D
+const Headlights = preload("res://native/presentation/headlight_options.gd")
 const SpecialActor = preload("res://native/simulation/special_actor.gd")
 const DRAW_DISTANCE := 10000.0
 const DETAIL_DISTANCE := 2200.0
@@ -107,6 +108,7 @@ func configure_model(visual, id: int, frame_ms: int) -> void:
 	if pack.enabled and preload("res://native/presentation/replacement_geometry.gd").entry_for(id).get("assembled_creature",false) and registry.has(id+1):
 		visual.companion_resource=registry[id+1].model
 	visual.modern_graphics=modern_graphics
+	visual.set_headlight_lenses(modern_graphics and Headlights.casts_light(library.headlight_mode))
 	visual.configure(content.root,registry[id],frame_ms)
 func release_object(entry: Dictionary) -> void:
 	entry.visual.queue_free()
@@ -116,10 +118,38 @@ func set_station_smoothing(value: bool) -> void:
 	library.station_smoothing=value
 	refresh_station_filtering(self)
 
+func set_ship_smoothing(value: bool) -> void:
+	if library.ship_smoothing==value:return
+	library.ship_smoothing=value
+	refresh_ship_filtering(self)
+
+func refresh_ship_filtering(parent: Node) -> void:
+	for child in parent.get_children():
+		if child is Model:child.refresh_ship_filtering()
+		else:refresh_ship_filtering(child)
+
 func refresh_station_filtering(parent: Node) -> void:
 	for child in parent.get_children():
 		if child is Model:child.refresh_station_filtering()
 		else:refresh_station_filtering(child)
+
+func set_atmosphere(choices: Dictionary) -> void:
+	var cabins: bool=choices.get("cabin_lights",true)
+	var living: bool=choices.get("bioluminescence",true)
+	var blue: bool=choices.get("blue_headlights",false)
+	if library.cabin_lights!=cabins or library.bioluminescence!=living or library.blue_headlights!=blue:
+		library.cabin_lights=cabins;library.bioluminescence=living;library.blue_headlights=blue
+		refresh_atmosphere(self)
+		for entry in actor_beams:
+			if not is_instance_valid(entry.lamp) or not is_instance_valid(entry.beam):continue
+			var tint: Color=preload("res://native/presentation/headlight_rig.gd").display_tint(entry.tint,blue)
+			entry.lamp.light_color=tint;entry.beam.material_override.set_shader_parameter("tint",tint)
+	combat.set_aftermath(bool(choices.get("explosion_aftermath",true)))
+
+func refresh_atmosphere(parent: Node) -> void:
+	for child in parent.get_children():
+		if child is Model:child.refresh()
+		else:refresh_atmosphere(child)
 
 func rebuild() -> void:
 	clear_player_clip()
@@ -429,7 +459,9 @@ func _process(delta: float) -> void:
 		var node=objects[id].visual
 		node.apply_actor_animation(actor)
 		node.visible=actor.health.enabled or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
-		for lamp in objects[id].lamps:lamp.visible=actor.health.enabled and actor.state<3
+		var powered: bool=actor.health.enabled and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter")
+		if Model.is_hull_id(actor.model_id):node.set_headlight_power(powered)
+		for lamp in objects[id].lamps:lamp.visible=powered and Headlights.casts_light(library.headlight_mode)
 		if actor.is_creature:
 			# Newly set down, or new to the view, a creature is brought in out
 			# of the haze the way a streamed station is, not switched on.
@@ -660,22 +692,36 @@ func add_station_lights(visual) -> void:
 var actor_beams: Array = []
 var actor_beams_enabled := true
 var actor_beam_phase := 0
+func set_headlight_mode(mode: int) -> void:
+	library.headlight_mode=mode
+	refresh_headlights(self)
+	set_actor_beams(modern_graphics and mode==Headlights.Mode.LIGHT_BEAMS)
+	for entry in actor_beams:entry.lamp.visible=modern_graphics and Headlights.casts_light(mode) and entry.lamp.get_parent().headlights_powered
+
+func refresh_headlights(parent: Node) -> void:
+	for child in parent.get_children():
+		if child is Model:
+			child.set_headlight_lenses(child.headlights_powered and modern_graphics and Headlights.casts_light(library.headlight_mode))
+			child.refresh()
+		else:refresh_headlights(child)
+
 func add_actor_lights(visual, occluder=null) -> Array:
 	var lamps: Array=[]
 	if not modern_graphics:return lamps
-	var mounts: Array=visual.headlight_mounts()
-	for i in mini(2,mounts.size()):
+	var rig: Array=visual.headlight_rig()
+	for i in rig.size():
 		var lamp: SpotLight3D=Abyss.create_headlight(0.0);visual.add_child(lamp)
-		# A positive turn about +Y swings -Z towards -X: the port lamp turns outward.
-		lamp.transform=Transform3D(Basis(Vector3.UP,deg_to_rad(12 if i==0 else -12)),mounts[i])
+		lamp.visible=visual.headlights_powered and Headlights.casts_light(library.headlight_mode)
+		lamp.transform=rig[i].frame;lamp.light_color=visual.headlight_tint(rig[i].tint)
 		lamp.shadow_enabled=false
 		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=400;lamp.distance_fade_length=200
 		var beam: MeshInstance3D=Abyss.create_beam();lamp.add_child(beam)
+		beam.material_override.set_shader_parameter("tint",lamp.light_color)
 		beam.material_override.set_shader_parameter("fade_begin",400.0);beam.material_override.set_shader_parameter("fade_length",200.0)
 		beam.visible=actor_beams_enabled
 		var own: Array[RID]=[]
 		if occluder!=null: own.append(occluder.get_rid())
-		actor_beams.append({"lamp":lamp,"beam":beam,"exclude":own});lamps.append(lamp)
+		actor_beams.append({"lamp":lamp,"beam":beam,"exclude":own,"tint":rig[i].tint});lamps.append(lamp)
 	return lamps
 
 func set_actor_beams(on: bool) -> void:

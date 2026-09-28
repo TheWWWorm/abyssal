@@ -16,6 +16,8 @@ def main():
         "platform_input_check.gd":cache,
         "gamepad_ui_check.gd":cache,
         "readability_check.gd":cache,
+        "ocean_atmosphere_check.gd":cache,
+        "ocean_options_check.gd":cache,
         "content_pack_check.gd":portable,
         'native_session_check.gd':cache/'native-data.json',
         'modern_gameplay_check.gd':cache/'native-data.json',

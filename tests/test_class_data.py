@@ -1,7 +1,7 @@
 """Synthetic class-data fixtures. Original game classes are never test fixtures."""
 import pathlib, shutil, subprocess, sys, tempfile, unittest
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/'tools'))
-from class_data import ClassData, DataError, Reader, default, evaluate, modified_utf8
+from class_data import ClassData, DataError, Reader, default, evaluate, literal_matrices, modified_utf8
 
 @unittest.skipUnless(shutil.which('javac'),'JDK needed to compile synthetic class-file fixtures')
 class ClassDataTests(unittest.TestCase):
@@ -16,6 +16,14 @@ class ClassDataTests(unittest.TestCase):
         }
         class ForbiddenFixture { static String secret=System.getenv("PRIVATE_TEST_VALUE"); }
         class BudgetFixture { static int sum; static { for(int i=0;i<1000000;i++) sum+=i; } }
+        class PaletteFixture {
+          static short[][] palette() {
+            System.getenv("PRIVATE_TEST_VALUE");
+            short[][] colours={{7,129,253},{251,83,17}};
+            return colours;
+          }
+          static int[][] dynamic() { return new int[][]{{System.getenv("X").length(),2,3}}; }
+        }
         '''
         path=cls.root/'LiteralFixture.java';path.write_text(code)
         subprocess.run([shutil.which('javac'),'--release','8',str(path)],check=True,capture_output=True)
@@ -37,6 +45,10 @@ class ClassDataTests(unittest.TestCase):
         with self.assertRaisesRegex(DataError,'Unapproved method'):self.analyze('ForbiddenFixture')
     def test_instruction_limit(self):
         with self.assertRaisesRegex(DataError,'budget'):self.analyze('BudgetFixture',100)
+    def test_local_matrix_without_executing_surrounding_calls(self):
+        data=ClassData((self.root/'PaletteFixture.class').read_bytes())
+        self.assertEqual(literal_matrices(data,'palette','()[[S'),[[[7,129,253],[251,83,17]]])
+        self.assertEqual(literal_matrices(data,'dynamic','()[[I'),[])
     def test_truncated_file(self):
         with self.assertRaises(DataError):ClassData(b'\xca\xfe\xba\xbe')
     def test_modified_utf8(self):self.assertEqual(modified_utf8(b'a\xc0\x80b'),'a\0b')

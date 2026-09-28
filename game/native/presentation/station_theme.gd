@@ -42,10 +42,10 @@ static func button_state(gold: bool, state: String, primary := false, cut := 8) 
 	var colours := palette(gold)
 	var lit: bool=state in ["focus","hover","pressed"]
 	var style: StyleBoxFlat
-	if primary:
-		style=frame(colours.go_hi if lit else colours.go,colours.go_edge.lightened(.3) if lit else colours.go_edge,cut,2 if lit else 1,Color(colours.go_edge,.3),10 if lit else 5)
-	elif state=="disabled":
+	if state=="disabled":
 		style=frame(Color(colours.card,.4),Color(colours.edge,.45),cut)
+	elif primary:
+		style=frame(colours.go_hi if lit else colours.go,colours.go_edge.lightened(.3) if lit else colours.go_edge,cut,2 if lit else 1,Color(colours.go_edge,.3),10 if lit else 5)
 	else:
 		style=frame(colours.card_hi if lit else colours.card,colours.edge_hi if lit else colours.edge,cut,2 if lit else 1,colours.glow,8 if lit else 0)
 	style.content_margin_left=14;style.content_margin_right=16;style.content_margin_top=6;style.content_margin_bottom=6

@@ -83,3 +83,31 @@ ocean_upper_color={
 "type": "vec3",
 "value": Vector3(0.018, 0.08, 0.16)
 }
+
+ocean_haze_gain={
+"type": "float",
+"value": 1.0
+}
+
+ocean_water_tint={
+"type": "vec3",
+"value": Vector3(1, 1, 1)
+}
+
+ocean_sun_gain={
+"type": "float",
+"value": 1.0
+}
+ocean_sun_color={
+"type": "vec3",
+"value": Vector3(1, 1, 1)
+}
+ocean_shaft_gain={
+"type": "float",
+"value": 0.0
+}
+
+ocean_visual_time={
+"type": "float",
+"value": 0.0
+}

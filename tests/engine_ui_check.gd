@@ -184,10 +184,95 @@ func run():
  check_free_look(game)
  check_gate_effects(game)
  await check_dock_notices(game)
+ await check_station_availability(game)
+ check_continuous_catch(game)
+ check_source_weapon_audio(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
  quit(1 if failures else 0)
+
+func check_station_availability(game) -> void:
+ game.session.docked=true;game.session.notices.clear();game.gameplay_hints=false
+ game.session.campaign.chapter=1;game.session.campaign.rebel_stations[game.session.station_id]=false
+ game.show_station()
+ for i in 4:await process_frame
+ for key in ["MAP","TRADE"]:
+  var node=named_button(game,key)
+  expect(node!=null and not node.disabled and node.focus_mode==Control.FOCUS_ALL and not node.has_node("Availability"),"Locked station %s remains focusable and clickable without an extra status label"%key)
+  expect(node.get_theme_color("font_color")==game.colours().faint,"Locked station %s keeps its dimmed appearance"%key)
+  node.pressed.emit();await process_frame
+  expect(game.page=="station" and game.message.text==game.session.text(game.session.service_denial(key.to_lower())),"Selecting locked %s shows the original refusal without opening the service"%key)
+ game.show_station_missions();await process_frame
+ var contracts=game.column.find_children("*","Button",true,false).filter(func(node):return node.accessibility_name=="Available contracts")
+ expect(contracts.size()==1 and not contracts[0].disabled,"The dim contract board remains clickable")
+ if contracts.size()==1:
+  var reason: String=contracts[0].tooltip_text
+  contracts[0].pressed.emit();await process_frame
+  expect(game.message.text==reason and game.page!="market","The contract board answers its selection without opening an unavailable market")
+ game.session.campaign.chapter=12;game.session.campaign.rebel_stations[game.session.station_id]=true
+ game.show_station();await process_frame
+ expect(not named_button(game,"MAP").disabled and not named_button(game,"TRADE").disabled,"Unlocked station services become enabled again")
+ game.session.ship.equipment.clear()
+ for id in [15,18,21,24,27]:game.session.ship.equipment.append(game.session.make_equipment(id))
+ game.equipment_tab=1;game.market_category="";game.market_page=0
+ root.size=Vector2i(1280,600);game.layout();game.show_market("equipment")
+ for i in 6:await process_frame
+ var pager=game.overlay.find_child("Pagination",true,false)
+ expect(pager!=null,"A short equipment page offers pagination")
+ if pager!=null:
+  expect(not game.sheet_scroll.is_ancestor_of(pager) and game.overlay.get_global_rect().encloses(pager.get_global_rect()),"Equipment pagination stays in the visible footer outside scrolling content")
+  var position: Vector2=pager.global_position
+  game.sheet_scroll.scroll_vertical=100;await process_frame
+  expect(pager.global_position==position,"Scrolling a long item description cannot move the page buttons")
+ game.session.credits=0;game.equipment_tab=0;game.show_market("equipment")
+ for i in 4:await process_frame
+ var buy=named_button(game,"Buy ·")
+ if buy!=null:
+  expect(not buy.disabled and not buy.tooltip_text.is_empty() and game.column.find_child("UnavailableReason",true,false)==null,"An unavailable purchase remains clickable without extra status text")
+  var before: int=game.session.ship.equipment.size()
+  var reason: String=buy.tooltip_text
+  buy.pressed.emit();await process_frame
+  expect(game.message.text==reason and game.session.credits==0 and game.session.ship.equipment.size()==before,"A refused purchase shows its original explanation without charging or installing anything")
+ game.close_page()
+
+func check_continuous_catch(game) -> void:
+ var region=game.world.region
+ var fish=load("res://native/simulation/creature.gd").new()
+ fish.struggle_total=5000;fish.struggle_remaining=5000;fish.struggle_time=0
+ var hook=load("res://native/simulation/fishing.gd").new();hook.target=fish;hook.hooked=true
+ var original: Array=region.fishing;region.fishing=[hook]
+ game.update_catch_feedback(region,true)
+ var first: float=game.struggle.value
+ fish.struggle_time=800;game.update_catch_feedback(region,true)
+ expect(game.struggle.visible and game.struggle.value>first and fish.struggle_remaining==5000,"Catch progress advances inside the two-second strength interval")
+ var middle: float=game.struggle.value
+ fish.struggle_time=840;game.update_catch_feedback(region,true)
+ expect(game.struggle.value>middle and game.struggle.value-middle<1,"Catch progress resolves individual simulation steps rather than integer percentages")
+ fish.struggle_total=2100;fish.struggle_remaining=100;fish.struggle_time=200
+ game.update_catch_feedback(region,true)
+ expect(game.struggle.value<75 and game.catch_status.text.contains("1.8 s"),"The final partial strength budget still has a full struggle interval; the bar must not finish early")
+ hook.towing=true;hook.capture_distance=400;hook.tow_start_distance=10000
+ fish.pose.origin=region.player.pose.origin.duplicate();fish.pose.origin[0]+=5200
+ game.update_catch_feedback(region,true)
+ expect(game.struggle.visible and absf(game.struggle.value-50)<.1 and game.catch_status.text.begins_with("REELING IN"),"Reeling retains a progress bar through collection")
+ region.fishing=original;game.update_catch_feedback(region,false)
+
+func check_source_weapon_audio(game) -> void:
+ var audio=load("res://native/presentation/dive_audio.gd").new();root.add_child(audio);audio.set_process(false);audio.configure(game.world,game.content.root)
+ var loadout=game.world.region.loadout;var original: Array=loadout.groups
+ var weapons: Array=[]
+ for id in [0,3,12,15]:weapons.append(loadout.create(game.session.make_equipment(id),game.content.data))
+ loadout.groups=[weapons];audio.collect_launches(game.world.region)
+ for weapon in weapons:weapon.launch_serial+=1
+ var cues: Array=audio.collect_launches(game.world.region)
+ expect(cues.size()==1 and cues[0].kind=="harpoon","Only harpoon launch requests the original weapon cue; guns, beams and torpedoes stay silent")
+ var now:=0
+ for pair in [["harpoon","harpoon.amr.wav"],["harpoon_hit","harpoon_hit.amr.wav"],["tow","traktor.amr.wav"],["explosion","explosion.amr.wav"],["creature_death","tiertot.amr.wav"]]:
+  now+=5000;expect(audio.play_cue(pair[0],1,now),"Original %s cue remains playable"%pair[0])
+  expect(audio.played_log.back().source.get_file()==pair[1],"The %s event uses its own imported cue"%pair[0])
+ expect(not audio.play_cue("impact",1,now+5000),"A generic hit does not substitute a made-up sound for an original cue")
+ loadout.groups=original;audio.queue_free()
 
 func check_music_transitions(game) -> void:
  var music := MusicProbe.new();root.add_child(music);music.set_process(false)
@@ -291,13 +376,16 @@ func check_dock_notices(game) -> void:
  game.world.enter_region(0);game.view.rebuild()
  game.world.region.events=[];game.world.region.active_transmission=null
  var berth: Array=[]
- for candidate in [[0,15000,0],[0,-15000,0],[15000,0,0],[-15000,0,0],[0,0,15000],[0,0,-15000]]:
+ for candidate in [[0,14999,0],[0,-14999,0],[14999,0,0],[-14999,0,0],[0,0,14999],[0,0,-14999]]:
   if game.world.region.station.can_dock(candidate): berth=candidate;break
  expect(not berth.is_empty(),"There is a point off the hull the submarine can dock from")
  game.world.region.player.pose.origin=berth.duplicate()
  expect(not game.world.at_gate(0),"The berth is not a gate")
  game.clear_notices()
- game.notice("Approach the station to dock (within 160 m).")
+ var contacts: Array=game.station_contacts()
+ var station: Dictionary=contacts.filter(func(entry):return entry.key=="station")[0]
+ expect(station.distance_position==Vector3.ZERO and station.position!=station.distance_position,"Station range uses the station origin while its label stays above the roof")
+ game.notice("Approach the station's docking area.")
  game.notice("Route blocked by a station within safe depth")
  expect(game.pending_notices.size()==1 and not game.message.text.is_empty(),"Flight messages queue behind one another")
  game.perform("dock")
@@ -599,6 +687,8 @@ func toolbar_button(node: Node, caption: String) -> Button:
  return null
 
 func check_action_freeze(game) -> void:
+ var original_headlights: int=game.headlight_mode
+ game.headlight_mode=game.Headlights.Mode.CLASSIC;game.apply_headlights()
  game.session.docked=false;game.close_page()
  var before: Transform3D=game.camera.global_transform
  var elapsed: int=game.world.region.elapsed_ms
@@ -612,6 +702,8 @@ func check_action_freeze(game) -> void:
  root.size=Vector2i(1280,720);await process_frame;await process_frame
  expect(toolbar_button(bar,"Resume")!=null and toolbar_button(bar,"Back to pause")!=null,"Action freeze offers a way out that needs no keyboard")
  expect(game.view.process_mode==Node.PROCESS_MODE_DISABLED,"The flight view stops driving the camera while frozen")
+ game.freeze_view.toggle_lights()
+ expect(game.view.library.headlight_mode==game.Headlights.Mode.OFF and game.headlight_mode==game.Headlights.Mode.CLASSIC,"Action freeze can hide Classic beams without changing the saved choice")
  game.freeze_view.orbit(Vector2(120,0));game.freeze_view.zoom(1.4)
  expect(game.camera.global_transform!=before,"The frozen camera actually moves")
  game._process(0.2)
@@ -622,11 +714,13 @@ func check_action_freeze(game) -> void:
  expect(game.page=="pause" and game.freeze_view==null,"Escape leaves the freeze and returns to the pause menu")
  expect(game.view.process_mode==Node.PROCESS_MODE_INHERIT,"The flight view takes the camera back")
  expect(game.camera.global_transform.is_equal_approx(before),"Leaving restores the flight camera exactly")
+ expect(game.view.library.headlight_mode==game.Headlights.Mode.CLASSIC and not game.abyss.headlights_enabled,"Leaving action freeze restores Classic beams without adding enhanced lights")
  # And the on-screen button does the same thing, for players with no keyboard.
  game.close_page();game.show_action_freeze();await process_frame;await process_frame
  toolbar_button(game.freeze_view.toolbar,"Resume").pressed.emit();await process_frame;await process_frame
  expect(game.page=="" and game.freeze_view==null,"The Resume control returns to the dive")
  expect(game.camera.global_transform.is_equal_approx(before),"Resuming restores the flight camera exactly")
+ game.headlight_mode=original_headlights;game.apply_headlights()
 
 func check_save_transfer(game) -> void:
  var transfer=preload("res://native/simulation/save_transfer.gd").new()

@@ -19,13 +19,14 @@ var audio_events: Array=[]
 var tow_sound_started := false
 var capture_distance := 400
 var tow_speed := 10
+var tow_start_distance := 0
 var feedback: Array[String]=[]
 
 func detach(count_miss: bool) -> void:
 	if target!=null:target.release();target.towing=false
 	# Every catch that gets away, let go or lost, is one the log counts.
 	if count_miss:session.counters.i+=1
-	target=null;hooked=false;towing=false;tow_sound_started=false
+	target=null;hooked=false;towing=false;tow_sound_started=false;tow_start_distance=0
 	weapon.hooked_target=null;weapon.hook_busy=false;weapon.active=false;weapon.fired=false
 	for index in weapon.remaining.size():weapon.remaining[index]=-1
 
@@ -61,9 +62,10 @@ func advance(delta_ms: int) -> void:
 	var ready := ready_to_tow()
 	towing=ready;target.towing=ready
 	if not ready:return
-	if not tow_sound_started:audio_event("tow",target.pose.origin);tow_sound_started=true
 	var line: Array=Math.subtracted(player.pose.origin,target.pose.origin)
 	var distance: int=Math.length_of(line)
+	if not tow_sound_started:
+		audio_event("tow",target.pose.origin);tow_sound_started=true;tow_start_distance=distance
 	if distance<=capture_distance:
 		var collected: bool=target.capture(session)
 		if not collected:feedback.append("Cannot collect catch · cargo hold is full.")

@@ -20,6 +20,16 @@ var wake_timer := 0.0
 var wake_serial := 0
 var wake_previous: Array[Vector3]=[]
 var effect_bounds: Dictionary={}
+var wrecks := preload("res://native/presentation/wreck_effects.gd").new()
+var aftermath_enabled := true
+
+func set_aftermath(on: bool) -> void:
+	if aftermath_enabled==on:return
+	aftermath_enabled=on
+	if not is_node_ready():return
+	if not on:wrecks.reset()
+	if owner_view!=null and owner_view.world!=null and owner_view.world.region!=null:
+		update(owner_view.world.region,0,0.0)
 
 func pool(node: MultiMeshInstance3D, mesh: Mesh, capacity: int) -> void:
 	var instances := MultiMesh.new(); instances.transform_format=MultiMesh.TRANSFORM_3D
@@ -36,6 +46,7 @@ func refresh_bounds() -> void:
 	for node in [segments,bursts,bubbles]:
 		node.custom_aabb=effect_bounds.get(node,AABB(Vector3.ONE*-1,Vector3.ONE*2))
 func _ready() -> void:
+	add_child(wrecks)
 	var tube := CylinderMesh.new(); tube.top_radius=1; tube.bottom_radius=1; tube.height=1; tube.radial_segments=6; tube.rings=1
 	var glow := ShaderMaterial.new(); glow.shader=preload("res://native/presentation/combat_line.gdshader")
 	tube.material=glow; pool(segments,tube,128)
@@ -50,6 +61,7 @@ func _ready() -> void:
 func reset(keep_player_wake: bool=false) -> void:
 	effect_bounds.clear()
 	if not keep_player_wake:player_wake.clear();wake_previous.clear();wake_timer=0.0;wake_serial=0
+	if not keep_player_wake:wrecks.reset()
 	for node in projectile_nodes.values(): node.queue_free()
 	projectile_nodes.clear()
 	for node in [segments,bursts,bubbles]: node.multimesh.visible_instance_count=0
@@ -138,6 +150,7 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 	effect_bounds.clear()
 	segment_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0
 	update_player_wake(region,float(milliseconds) if render_milliseconds<0 else render_milliseconds)
+	wrecks.update(region,float(milliseconds) if render_milliseconds<0 else render_milliseconds,owner_view.world.geography.anchor,owner_view.camera.global_position,owner_view.modern_graphics and aftermath_enabled)
 	for light in lights: light.hide()
 	for node in projectile_nodes.values(): node.hide()
 	pose.math.sine_table=region.sine
@@ -190,10 +203,11 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 			if age_ms<400: burst(Library.point(event.position),3.0,float(age_ms)/400,Color("d2dfd7"),true)
 		else:
 			for i in event.delays.size():
-				var age: float = float(age_ms-int(event.delays[i]))/(1000.0 if event.delays.size()>1 else 4000.0)
+				var duration := 550.0 if owner_view.modern_graphics and aftermath_enabled and not event.creature else (1000.0 if event.delays.size()>1 else 4000.0)
+				var age: float = float(age_ms-int(event.delays[i]))/duration
 				if age<0 or age>=1: continue
 				var offset: Array = event.offsets[i] if i<event.offsets.size() else [0,0,0]
-				burst(Library.point(Math.added(event.position,offset)),14 if event.creature else (36 if event.delays.size()>1 else 24),age,Color("82d6ad") if event.creature else Color("ffbe85"),not event.creature)
+				burst(Library.point(Math.added(event.position,offset)),14 if event.creature else (36 if event.delays.size()>1 else 24),age,Color("82d6ad") if event.creature else Color("ffbe85"),not event.creature and not owner_view.modern_graphics)
 	segments.multimesh.visible_instance_count=segment_count
 	bursts.multimesh.visible_instance_count=burst_count
 	bubbles.multimesh.visible_instance_count=bubble_count

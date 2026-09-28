@@ -3,10 +3,11 @@ extends Control
 ## the simulation is not advanced, no state is written and resuming puts the
 ## camera back exactly where the flight view had it.
 signal closed(resume: bool)
+const Headlights = preload("res://native/presentation/headlight_options.gd")
 var game
 var saved_camera := Transform3D.IDENTITY
 var saved_fov := 0.0
-var saved_headlights := true
+var preview_headlight_mode := Headlights.DEFAULT
 var saved_audio: Array = []
 var restored := false
 var pivot := Vector3.ZERO
@@ -25,7 +26,7 @@ func configure(owner) -> void:
 	game=owner
 	saved_camera=game.camera.global_transform
 	saved_fov=game.camera.fov
-	saved_headlights=game.graphics.headlights
+	preview_headlight_mode=game.headlight_mode
 	hold_audio(game.dive_audio)
 	mouse_filter=Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -47,7 +48,7 @@ func restore_scene() -> void:
 	if is_instance_valid(game):
 		game.camera.global_transform=saved_camera
 		game.camera.fov=saved_fov
-		game.abyss.set_headlights(game.modern_graphics and saved_headlights)
+		game.apply_headlights()
 	for record in saved_audio:
 		if is_instance_valid(record[0]): record[0].stream_paused=record[1]
 
@@ -111,7 +112,11 @@ func toggle_panel() -> void:
 
 func toggle_lights() -> void:
 	# Cosmetic only while frozen; restore_scene() puts the player's choice back.
-	game.abyss.set_headlights(not game.abyss.headlights_enabled)
+	if not game.modern_graphics:return
+	preview_headlight_mode=(game.headlight_mode if game.headlight_mode!=Headlights.Mode.OFF else game.headlight_previous) if preview_headlight_mode==Headlights.Mode.OFF else Headlights.Mode.OFF
+	game.view.set_headlight_mode(preview_headlight_mode)
+	game.abyss.set_headlight_beams(preview_headlight_mode==Headlights.Mode.LIGHT_BEAMS)
+	game.abyss.set_headlights(Headlights.casts_light(preview_headlight_mode))
 
 func reset_camera() -> void:
 	pivot=home_pivot

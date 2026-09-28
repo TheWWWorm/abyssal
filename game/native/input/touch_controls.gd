@@ -35,6 +35,18 @@ var layout_preview := false:
 var unit := 1.0
 var active := false
 var fingers := {}
+const DOUBLE_TAP_MS := 320
+var automatic_weapons := {}
+var weapon_presses := {}
+var weapon_touches := {}
+var last_weapon_tap := ""
+var last_weapon_tap_ms := -1000000
+## Mirrors the throttle arc around the fire button without moving the button.
+var mirror_fire_control := false:
+	set(value):
+		if mirror_fire_control==value:return
+		mirror_fire_control=value
+		reset()
 var steer := Vector2.ZERO
 var look := Vector2.ZERO
 var zones := {}
@@ -113,6 +125,7 @@ func update_input(event: InputEvent, deadzone: float=.18) -> void:
 	if before!=enabled():
 		reset();refresh_visibility()
 func reset() -> void:
+	automatic_weapons.clear();weapon_presses.clear();weapon_touches.clear();last_weapon_tap=""
 	fingers.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;orbit_hold=false;queue_redraw()
 func orbit_held() -> bool:
 	"""Whether the camera should stay where a look drag swung it."""
@@ -196,7 +209,7 @@ func apply_layout(s: float) -> void:
 func harpoon_in_guns_place() -> bool:
 	return not has_guns and has_hook and not layout_preview
 func place_throttle() -> void:
-	"""The throttle curves round the upper left of the guns, wherever the
+	"""The throttle curves round the guns, wherever the
 	player has put them. A ship with no guns has its harpoon there instead,
 	at the guns' size."""
 	zones.hook=weapon_home.guns if harpoon_in_guns_place() else weapon_home.hook
@@ -215,16 +228,23 @@ func shown(key: String) -> bool:
 		"guns": return has_guns
 		"boost": return boost_mode!="absent"
 	return true
-## The arc spans the upper left quarter round the guns, empty at the left.
+## The default upper-left arc is reflected for a left-side fire control.
 const ARC_START := PI
 const ARC_SPAN := PI*.5
 func arc_radius(area: Rect2) -> float:
 	return area.size.x*.5-20*unit
+func arc_angle(level: float) -> float:
+	var angle := ARC_START+ARC_SPAN*level
+	return PI-angle if mirror_fire_control else angle
+func arc_offset(area: Rect2, point: Vector2) -> Vector2:
+	var offset := point-area.get_center()
+	if mirror_fire_control:offset.x=-offset.x
+	return offset
 func arc_level(area: Rect2, point: Vector2) -> float:
-	var angle:=wrapf((point-area.get_center()).angle(),0,TAU)
+	var angle:=wrapf(arc_offset(area,point).angle(),0,TAU)
 	return clampf((angle-ARC_START)/ARC_SPAN,0,1)
 func on_arc(area: Rect2, point: Vector2) -> bool:
-	var offset:=point-area.get_center();var radius:=arc_radius(area)
+	var offset:=arc_offset(area,point);var radius:=arc_radius(area)
 	var angle:=wrapf(offset.angle(),0,TAU)
 	return absf(offset.length()-radius)<26*unit and angle>ARC_START-.2 and angle<ARC_START+ARC_SPAN+.2
 func button_at(point: Vector2) -> String:
@@ -252,6 +272,13 @@ func handle(event: InputEvent) -> bool:
 			var key:=button_at(event.position)
 			if not key.is_empty() and key not in fingers.values():
 				fingers[event.index]=key
+				if key in ["guns","hook"]:
+					var stopping: bool=automatic_weapons.has(key)
+					if stopping:
+						automatic_weapons.erase(key);last_weapon_tap=""
+						action.emit("auto_"+key)
+					else:weapon_presses[key]=true
+					weapon_touches[event.index]={"started":Time.get_ticks_msec(),"position":event.position,"valid":not stopping}
 				if key=="throttle":slide(event.position)
 				queue_redraw();return true
 			var reach: bool=on_stick(event.position) if fixed_stick else steer_region.has_point(event.position)
@@ -267,12 +294,25 @@ func handle(event: InputEvent) -> bool:
 				fingers[event.index]="look";orbit_hold=true;return true
 		elif fingers.has(event.index):
 			var key: String=fingers[event.index];fingers.erase(event.index)
+			if key in ["guns","hook"]:
+				var gesture: Dictionary=weapon_touches.get(event.index,{})
+				weapon_touches.erase(event.index)
+				var now := Time.get_ticks_msec()
+				var tapped: bool=not event.canceled and gesture.get("valid",false) and now-int(gesture.get("started",0))<=DOUBLE_TAP_MS and shown(key) and button_at(event.position)==key
+				if event.canceled:weapon_presses.erase(key)
+				if tapped:
+					if last_weapon_tap==key and now-last_weapon_tap_ms<=DOUBLE_TAP_MS:
+						automatic_weapons[key]=true;last_weapon_tap="";action.emit("auto_"+key)
+					else:last_weapon_tap=key;last_weapon_tap_ms=now
+				else:last_weapon_tap=""
 			if key=="steer":steer=Vector2.ZERO;engaged=false;stick_center=stick_home
 			elif key=="look":look_released_ms=Time.get_ticks_msec()
 			elif key!="look" and key not in HOLD and not event.canceled and shown(key) and button_at(event.position)==key:action.emit(key)
 			queue_redraw();return true
 	if event is InputEventScreenDrag and fingers.has(event.index):
 		var key: String=fingers[event.index]
+		if weapon_touches.has(event.index) and event.position.distance_to(weapon_touches[event.index].position)>24*unit:
+			weapon_touches[event.index].valid=false
 		if key=="steer":move_stick(event.position)
 		elif key=="look":look+=event.relative
 		elif key=="throttle":slide(event.position)
@@ -303,18 +343,23 @@ func show_state(throttle: float, dock: bool, boost: Dictionary, autopilot: bool,
 	# A control that goes away lets go of the finger on it.
 	for index in fingers.keys():
 		if fingers[index] in zones and not shown(fingers[index]):fingers.erase(index)
+	for key in automatic_weapons.keys():
+		if not shown(key):automatic_weapons.erase(key)
+	for key in weapon_presses.keys():
+		if not shown(key):weapon_presses.erase(key)
 	if changed:queue_redraw()
 func snapshot() -> Dictionary:
 	var held:=fingers.values()
 	var drag:=look;look=Vector2.ZERO
-	return {"yaw":steer.x,"pitch":-steer.y,"look":drag,"guns":"guns" in held,"hook":"hook" in held,"boost":"boost" in held,"throttle":0}
+	var shots := weapon_presses.duplicate();weapon_presses.clear()
+	return {"yaw":steer.x,"pitch":-steer.y,"look":drag,"guns":"guns" in held or automatic_weapons.has("guns") or shots.has("guns"),"hook":"hook" in held or automatic_weapons.has("hook") or shots.has("hook"),"boost":"boost" in held,"throttle":0}
 func _draw() -> void:
 	if not active and not layout_preview:return
 	var held:=fingers.values()
 	if not drag_anywhere:draw_stick()
 	for key in zones:
 		if not shown(key):continue
-		var lit: bool=key in held or (key=="autopilot" and autopilot_on)
+		var lit: bool=key in held or automatic_weapons.has(key) or (key=="autopilot" and autopilot_on)
 		if key=="throttle":draw_throttle(zones[key],key in held)
 		else:draw_button(key,zones[key],lit)
 func glow_ring(center: Vector2, r: float, tint: Color, width: float) -> void:
@@ -374,6 +419,8 @@ func draw_button(key: String, area: Rect2, lit: bool) -> void:
 	icon(key,center,r*(.5 if large else .56),Color(tint,.5) if waiting else tint.lerp(Color.WHITE,.12))
 	if key=="time" and time_speed>1:
 		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+16*unit),"%d×"%time_speed,HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
+	if automatic_weapons.has(key):
+		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+18*unit),"AUTO",HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
 func fill_level(center: Vector2, r: float, fraction: float, color: Color) -> void:
 	"""The part of a disc below a level, as liquid in a round flask."""
 	if fraction<=0: return
@@ -385,15 +432,16 @@ func fill_level(center: Vector2, r: float, fraction: float, color: Color) -> voi
 func draw_throttle(area: Rect2, lit: bool) -> void:
 	var tint:=LIT if lit else IDLE
 	var c:=area.get_center();var radius:=arc_radius(area)
-	draw_arc(c,radius,ARC_START,ARC_START+ARC_SPAN,40,Color("031119cc"),16*unit,true)
-	draw_arc(c,radius,ARC_START,ARC_START+ARC_SPAN,40,Color(tint,.22),10*unit,true)
-	if throttle_level>0: draw_arc(c,radius,ARC_START,ARC_START+ARC_SPAN*throttle_level,40,Color(tint,.85),7*unit,true)
+	var start:=arc_angle(0);var end:=arc_angle(1);var fill:=arc_angle(throttle_level)
+	draw_arc(c,radius,minf(start,end),maxf(start,end),40,Color("031119cc"),16*unit,true)
+	draw_arc(c,radius,minf(start,end),maxf(start,end),40,Color(tint,.22),10*unit,true)
+	if throttle_level>0:draw_arc(c,radius,minf(start,fill),maxf(start,fill),40,Color(tint,.85),7*unit,true)
 	for step in 5:
-		var out:=Vector2.from_angle(ARC_START+ARC_SPAN*step*.25)
+		var out:=Vector2.from_angle(arc_angle(step*.25))
 		draw_line(c+out*(radius+9*unit),c+out*(radius+14*unit),Color(tint,.6),1.5*unit,true)
-	var knob:=c+Vector2.from_angle(ARC_START+ARC_SPAN*throttle_level)*radius
+	var knob:=c+Vector2.from_angle(arc_angle(throttle_level))*radius
 	draw_circle(knob,9*unit,Color("0b3446"));draw_arc(knob,9*unit,0,TAU,24,tint,2*unit,true)
-	var label_at:=c+Vector2.from_angle(ARC_START+ARC_SPAN*.5)*(radius+30*unit)
+	var label_at:=c+Vector2.from_angle(arc_angle(.5))*(radius+30*unit)
 	draw_string(ThemeDB.fallback_font,label_at+Vector2(-30*unit,5*unit),"%d%%"%roundi(throttle_level*100),HORIZONTAL_ALIGNMENT_CENTER,60*unit,roundi(12*unit),Color(tint,.85))
 
 func icon(key: String, c: Vector2, r: float, color: Color) -> void:

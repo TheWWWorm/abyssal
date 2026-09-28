@@ -261,12 +261,18 @@ func check_zone(app, target: int) -> void:
 	expect(app.map_destination==far.id and far.id in app.map_slice.ids and inside.call(),"Tapping a station moves the zone onto it and the side view lists only the zone")
 	# Open water beside stations: the zone moves, but nothing is chosen for the
 	# player until they pick one in the side view.
+	# At small viewport scales the marker's 24 px hit area fills the zone;
+	# zoom in so there is visible water between the marker and the zone edge.
+	chart.zoom=2.0
 	var water:=Vector2(-1,-1)
 	for x in range(2,99,2):
 		for y in range(2,99,2):
 			var spot:=Vector2(x,y)
 			var clear: bool=app.session.stations.all(func(station): return chart.point(station.x,station.y).distance_to(chart.point(spot.x,spot.y))>30)
-			if clear and not app.zone_stations(spot).is_empty():water=spot;break
+			# A current selection intentionally survives while inside the zone.
+			# Move away from it as well as from every station's clickable marker.
+			var covered: Array=app.zone_stations(spot)
+			if clear and not covered.is_empty() and far.id not in covered and Rect2(Vector2.ZERO,chart.size).has_point(chart.point(spot.x,spot.y)):water=spot;break
 		if water.x>=0:break
 	chart.select_at(chart.point(water.x,water.y))
 	expect(water.x>=0 and app.map_unchosen and chart.selected_id==-1 and app.map_route_button.disabled,"A zone moved onto open water chooses no station by itself")

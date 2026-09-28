@@ -22,15 +22,9 @@ uniform vec4 clip_plane=vec4(0.0);
 // its lamp does; the player's never fades.
 uniform float fade_begin=100000.0;
 uniform float fade_length=100.0;
-varying vec3 pos_local;
 varying vec3 cam_local;
-const int STEPS=8;
-
-float hash3(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
-float water_noise(vec3 p){
- vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
- return mix(mix(mix(hash3(i),hash3(i+vec3(1,0,0)),f.x),mix(hash3(i+vec3(0,1,0)),hash3(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash3(i+vec3(0,0,1)),hash3(i+vec3(1,0,1)),f.x),mix(hash3(i+vec3(0,1,1)),hash3(i+vec3(1)),f.x),f.y),f.z);
-}
+varying mat3 view_to_local;
+const int STEPS=16;
 
 // The part of [t_in,t_out] that lies between the lens plane and the end plane.
 bool clip_slab(vec3 o, vec3 d, inout float t_in, inout float t_out){
@@ -41,20 +35,30 @@ bool clip_slab(vec3 o, vec3 d, inout float t_in, inout float t_out){
 }
 
 void vertex(){
- pos_local=VERTEX;
- cam_local=(inverse(MODEL_MATRIX)*vec4(CAMERA_POSITION_WORLD,1.0)).xyz;
+ // Work in the camera-relative frame. Subtracting world positions after
+ // interpolation loses precision as the vessel travels across the map.
+ mat4 inverse_frame=inverse(MODELVIEW_MATRIX);
+ cam_local=inverse_frame[3].xyz;
+ view_to_local=mat3(inverse_frame);
 }
 
 void fragment(){
- vec3 o=cam_local;
- vec3 d=normalize(pos_local-cam_local);
+ // One camera ray per pixel, independent of the cone's raster triangles.
+ vec4 near_point=INV_PROJECTION_MATRIX*vec4(SCREEN_UV*2.0-1.0,1.0,1.0);
+ near_point.xyz/=near_point.w;
+ bool orthographic=PROJECTION_MATRIX[3][3]>.5;
+ vec3 eye=orthographic?vec3(near_point.xy,0.0):vec3(0.0);
+ vec3 view_ray=orthographic?vec3(0.0,0.0,-1.0):normalize(near_point.xyz);
+ vec3 o=cam_local+view_to_local*eye;
+ vec3 d=normalize(view_to_local*view_ray);
  float k2=half_tangent*half_tangent;
  // Inside the double cone x²+y²<k²z²; the slab keeps the nappe behind the lens.
  float a=d.x*d.x+d.y*d.y-k2*d.z*d.z;
  float b=2.0*(o.x*d.x+o.y*d.y-k2*o.z*d.z);
  float c=o.x*o.x+o.y*o.y-k2*o.z*o.z;
  float disc=b*b-4.0*a*c;
- float t_in=0.0,t_out=1e9;
+ float t_in=length(near_point.xyz-eye),t_out=1e9;
+ if(!clip_slab(o,d,t_in,t_out)){discard;}
  if(abs(a)<1e-7){
   // Along the surface direction: one crossing.
   if(abs(b)<1e-7){if(c>0.0){discard;}}
@@ -62,15 +66,16 @@ void fragment(){
  }else if(disc<0.0){
   if(a>0.0){discard;}
  }else{
-  float root=sqrt(disc);
-  float t0=(-b-root)/(2.0*a),t1=(-b+root)/(2.0*a);
+  // Avoid cancellation for rays nearly parallel to the cone wall.
+  float q=-.5*(b+(b<0.0?-1.0:1.0)*sqrt(disc));
+  float t0=q/a,t1=abs(q)>1e-7?c/q:-b/(2.0*a);
   float lo=min(t0,t1),hi=max(t0,t1);
   if(a>0.0){t_in=max(t_in,lo);t_out=min(t_out,hi);}
   else{
-   // Inside before the first crossing or after the second: the nearer part.
-   float near_in=0.0,near_out=lo,far_in=hi,far_out=1e9;
-   if(clip_slab(o,d,near_in,near_out)){t_in=near_in;t_out=near_out;}
-   else{t_in=far_in;t_out=far_out;}
+   // The finite, forward-only slab intersects only one nappe. Never let
+   // the second root move the start behind a camera already in the beam.
+   if(min(t_out,lo)>t_in){t_out=min(t_out,lo);}
+   else{t_in=max(t_in,hi);}
   }
  }
  if(!clip_slab(o,d,t_in,t_out)){discard;}
@@ -81,19 +86,30 @@ void fragment(){
  ndc.z=depth*2.0-1.0;
  #endif
  vec4 scene=INV_PROJECTION_MATRIX*vec4(ndc,1.0);scene.xyz/=scene.w;
- t_out=min(t_out,length(scene.xyz));
+ t_out=min(t_out,dot(scene.xyz-eye,view_ray));
  if(t_out<=t_in){discard;}
  // Path integral of the light the water scatters towards the camera: the
  // lamp's inverse-square falloff and absorption along the beam, a soft-edged
  // spot profile, and a forward-peaked phase function, so the beam is faint
  // looked at from behind the lamps and bright looked into, as light in
  // water is. Short paths in front of a wall stay faint; the wall itself is
- // lit by the real spotlight. A per-pixel offset hides the sampling.
- float jitter=fract(52.9829189*fract(dot(FRAGCOORD.xy,vec2(.06711056,.00583715))));
+ // lit by the real spotlight. Integrate in atan(depth/4) to put samples
+ // where the inverse-square light changes fastest, near the lens. Fixed
+ // midpoints avoid the checkerboard from jittering eight long intervals.
  float span=t_out-t_in;
+ float angle_in=atan(-(o.z+d.z*t_in)/4.0);
+ float angle_out=atan(-(o.z+d.z*t_out)/4.0);
  float light=0.0;
  for(int i=0;i<STEPS;i++){
-  vec3 p=o+d*(t_in+(float(i)+jitter)/float(STEPS)*span);
+  float fraction=(float(i)+.5)/float(STEPS);
+  float t=t_in+fraction*span;
+  float weight=span/float(STEPS);
+  if(abs(d.z)>.01){
+   float tangent=tan(mix(angle_in,angle_out,fraction));
+   t=(-4.0*tangent-o.z)/d.z;
+   weight=-4.0*(angle_out-angle_in)*(1.0+tangent*tangent)/(d.z*float(STEPS));
+  }
+  vec3 p=o+d*t;
   if(clip_enabled&&dot(clip_plane.xyz,(MODEL_MATRIX*vec4(p,1.0)).xyz)+clip_plane.w<0.0)continue;
   float along=-p.z;
   float across=length(p.xy)/max(half_tangent*along,1e-3);
@@ -102,16 +118,16 @@ void fragment(){
   vec2 direction_uv=p.xy/max(half_tangent*along,1e-3)*.5+.5;
   float reach=texture(occlusion,clamp(direction_uv,0.0,1.0)).r;
   float lit=1.0-smoothstep(reach-.6,reach+.6,along);
-  light+=radial*falloff*lit*(1.0-smoothstep(beam_length*.8,beam_length,along));
+  light+=radial*falloff*lit*(1.0-smoothstep(beam_length*.8,beam_length,along))*weight;
  }
- light*=span/float(STEPS)*26.0;
+ light*=26.0;
  // Henyey-Greenstein, g=.15: the scattering angle is between the light
  // travelling down -Z and the path back to the camera, -d.
  float g=.15;
  float phase=(1.0-g*g)/pow(1.0+g*g-2.0*g*d.z,1.5);
  light*=phase;
- vec3 middle=(MODEL_MATRIX*vec4(o+d*(t_in+t_out)*.5,1.0)).xyz;
- light*=mix(.85,1.15,water_noise(middle*.35+vec3(TIME*.05,-TIME*.03,TIME*.02)));
+ // Suspended particles provide movement. Modulating the entire integral
+ // from one midpoint creates false sheets when a wall shortens the path.
  // A soft knee, so a look straight down the beam is not white.
  light=light/(1.0+light);
  light*=1.0-smoothstep(fade_begin,fade_begin+fade_length,length(cam_local));

@@ -3,6 +3,8 @@ extends RefCounted
 const Layout=preload("res://native/simulation/station_layout.gd")
 const Shape=preload("res://native/simulation/collision_shape.gd")
 const Math=preload("res://native/simulation/fixed_math.gd")
+## co.a(III): strict bounds on each axis, rather than a spherical radius.
+const DOCK_HALF_EXTENT := 15000
 var parts: Array=[]
 var shapes: Array=[]
 var extent:=5000
@@ -38,4 +40,4 @@ func contains(point: Array) -> bool:
  return false
 func avoidance_normal(point: Array) -> Array:return shapes[contact].avoidance_normal(point)
 func can_dock(point: Array) -> bool:
- return Math.vector(point).length()<=16000 and not contains(point)
+ return point.all(func(axis):return absi(axis)<DOCK_HALF_EXTENT)

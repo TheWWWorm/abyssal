@@ -9,8 +9,7 @@ const SPECS := {
 	"water":["water.amr",0,2800], "creature_death":["tiertot.amr",100,1000],
 	"signal":["signal.amr",100,1000], "mine":["mine.amr",80,300],
 	"ambient_a":["amb02.amr",80,1500], "ambient_b":["amb03.amr",80,1500],
-	"harpoon_hit":["harpoon_hit.amr",90,150], "beep":["beep.amr",80,90],
-	"shot":["",40,200], "beam":["",40,300], "torpedo":["",40,450], "impact":["",30,120]
+	"harpoon_hit":["harpoon_hit.amr",90,150], "beep":["beep.amr",80,90]
 }
 const VOICES := 8
 const Mix = preload("res://native/presentation/audio_settings.gd")
@@ -57,7 +56,7 @@ func _ready() -> void:
 		playback_type=AudioServer.PLAYBACK_TYPE_SAMPLE
 		var factory=JavaScriptBridge.get_interface("AbyssalMusic")
 		if factory!=null:web_music=factory.create()
-	if ambience==null: ambience=synthesize(false)
+	if ambience==null: ambience=synthesize_ambience()
 	Mix.ensure_buses()
 	bus=Mix.MUSIC
 	for i in VOICES:
@@ -148,8 +147,10 @@ func collect_launches(region) -> Array:
 	for weapon in region.loadout.all_weapons():
 		var id: int = weapon.get_instance_id()
 		var count: int = maxi(0,weapon.launch_serial-int(observed_launches.get(id,weapon.launch_serial)))
-		if count>0:
-			result.append({"kind":"harpoon" if weapon.fishing else "torpedo" if weapon.homing else "beam" if weapon.beam else "shot","count":count,"gain":1.0})
+		# cm.a(IJZ) requests cue 5 only for the player's fishing weapon.
+		# Ordinary guns, beams and torpedoes have no source launch cue.
+		if count>0 and weapon.fishing:
+			result.append({"kind":"harpoon","count":count,"gain":1.0})
 		current[id]=weapon.launch_serial
 	observed_launches=current
 	return result
@@ -250,24 +251,21 @@ func _exit_tree() -> void:
 	if web_music!=null:web_music.dispose();web_music=null
 	stop()
 	for voice in voices: voice.stop()
-static func synthesize(is_shot: bool) -> AudioStreamWAV:
+static func synthesize_ambience() -> AudioStreamWAV:
 	var sound := AudioStreamWAV.new(); sound.mix_rate=22050; sound.format=AudioStreamWAV.FORMAT_16_BITS
-	var count := 4410 if is_shot else 44100
+	var count := 44100
 	var bytes := PackedByteArray(); bytes.resize(count*2)
-	var rng := RandomNumberGenerator.new(); rng.seed=64718
 	for i in count:
 		var time := float(i)/22050.0
 		var value := sin(time*TAU*43)*0.13+sin(time*TAU*64.5)*0.05
-		if is_shot: value=sin(TAU*(390*time-500*time*time))*0.4*pow(1.0-float(i)/count,3)
-		else: value*=minf(1.0,minf(i,count-1-i)/110.0)
+		value*=minf(1.0,minf(i,count-1-i)/110.0)
 		bytes.encode_s16(i*2,int(value*32767))
 	sound.data=bytes
-	if not is_shot: sound.loop_mode=AudioStreamWAV.LOOP_FORWARD; sound.loop_end=count
+	sound.loop_mode=AudioStreamWAV.LOOP_FORWARD; sound.loop_end=count
 	return sound
 
 static func synthesize_cue(kind: String) -> AudioStreamWAV:
-	if kind=="shot": return synthesize(true)
-	var seconds: float = {"beam":0.3,"torpedo":0.45,"impact":0.12,"sonar":1.3,"tow":1.5,"message":0.4,"gate":1.5,"pressure":0.8,"harpoon":0.2,"explosion":0.8,"boost":1.0,"water":2.0,"creature_death":0.5,"signal":0.5,"mine":0.1,"ambient_a":1.5,"ambient_b":1.5,"harpoon_hit":0.08,"beep":0.06}.get(kind,0.2)
+	var seconds: float = {"sonar":1.3,"tow":1.5,"message":0.4,"gate":1.5,"pressure":0.8,"harpoon":0.2,"explosion":0.8,"boost":1.0,"water":2.0,"creature_death":0.5,"signal":0.5,"mine":0.1,"ambient_a":1.5,"ambient_b":1.5,"harpoon_hit":0.08,"beep":0.06}.get(kind,0.2)
 	var sound := AudioStreamWAV.new(); sound.mix_rate=22050; sound.format=AudioStreamWAV.FORMAT_16_BITS
 	var count := roundi(seconds*sound.mix_rate); var bytes := PackedByteArray(); bytes.resize(count*2)
 	var rng := RandomNumberGenerator.new(); rng.seed=64718+absi(kind.hash()); var low := 0.0
@@ -276,9 +274,8 @@ static func synthesize_cue(kind: String) -> AudioStreamWAV:
 		var noise := rng.randf_range(-1,1); low=lerpf(low,noise,0.08)
 		var value := 0.0
 		match kind:
-			"beam": value=sin(TAU*(500*time-300*time*time))*0.27+sin(TAU*1030*time)*0.08
-			"torpedo","explosion": value=low*1.3+sin(TAU*65*time)*0.2
-			"impact","harpoon_hit": value=noise*0.3+sin(TAU*1200*time)*0.12
+			"explosion": value=low*1.3+sin(TAU*65*time)*0.2
+			"harpoon_hit": value=noise*0.3+sin(TAU*1200*time)*0.12
 			"sonar": value=sin(TAU*1180*time)*0.35*exp(-phase*5)
 			"tow","gate","boost": value=low*0.6+sin(TAU*(80*time+120*time*time))*0.22
 			"water","ambient_a","ambient_b": value=low*(0.4+sin(TAU*time*1.2)*0.2)

@@ -226,7 +226,6 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 			if not weapon.fishing:
 				# Presentation reads who was hit; the shot itself is unchanged.
 				visual_event({"kind":"impact","position":impact.position.duplicate(),"duration":400,"player":impact.target==player})
-				audio_event("impact",impact.position)
 		weapon.impacts.clear()
 	pressure(delta_ms)
 	recount(); session.update_rank()

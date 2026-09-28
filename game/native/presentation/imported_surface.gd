@@ -1,7 +1,9 @@
 extends RefCounted
 ## Runtime-only material hints inferred from the user's imported color atlas.
-## R: shallow relief, G: roughness, B: small warm lights. Albedo is untouched.
-static func derive(source: Image) -> Image:
+## R: shallow relief, G: roughness, B: small warm lights, A: dark glazing.
+## Vessel materials distinguish cabin glass from lamp lenses sharing this tile.
+## Albedo is untouched.
+static func derive(source: Image, atlas_size: Vector2=Vector2(128,128)) -> Image:
 	var width := source.get_width();var height := source.get_height()
 	var count := width*height
 	var luma := PackedFloat32Array();luma.resize(count)
@@ -40,6 +42,10 @@ static func derive(source: Image) -> Image:
 				for ox in range(-1,2):blurred+=luma[clampi(y+oy,0,height-1)*width+clampi(x+ox,0,width-1)]/9.0
 			var saturation := maxf(c.r,maxf(c.g,c.b))-minf(c.r,minf(c.g,c.b))
 			var roughness := clampf(.68-luma[i]*.16+saturation*.18,.48,.82)
-			result.set_pixel(x,y,Color(lerpf(blurred,.5,lights[i]),roughness,float(lights[i])*smoothstep(.35,.8,luma[i]),1))
+			# The original cockpit pane sits inside a metal frame, immediately
+			# above the separate grille tile. Scale UVs for higher-resolution mods.
+			var uv := (Vector2(x,y)+Vector2.ONE*.5)*atlas_size/Vector2(width,height)-Vector2.ONE*.5
+			var glass := float(uv.x>=50 and uv.x<=59 and uv.y>=99 and uv.y<=108)*(1.0-smoothstep(.10,.24,luma[i]))
+			result.set_pixel(x,y,Color(lerpf(blurred,.5,lights[i]),roughness,float(lights[i])*smoothstep(.35,.8,luma[i]),glass))
 	result.generate_mipmaps()
 	return result

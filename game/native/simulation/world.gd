@@ -316,7 +316,7 @@ func enter_region(id: int) -> void:
 		region.mission.briefing=false
 func dock() -> bool:
 	if session.docked: return true
-	if region==null or not region.station.can_dock(region.player.pose.origin): message="Approach the station to dock (within 160 m)."; return false
+	if region==null or not region.station.can_dock(region.player.pose.origin): message="Approach the station's docking area."; return false
 	if region.success!=null or region.failure!=null: message="Docking locked · finish the encounter. Open autopilot and choose the quest objective."; return false
 	var hull_percent := int(Math.f32(Math.f32(float(region.player.health.hull)/float(region.player.health.max_hull))*100.0)) if region.player.health.max_hull>0 else 0
 	session.medals.evaluate(session,hull_percent)
@@ -417,7 +417,7 @@ func reset_gates() -> void:
 	stream_destination=-1; gate_time=[0,0]; gate_closing=[0,0]; arrival_exit=-1
 func at_gate(index: int) -> bool:
 	if region==null or session.docked: return false
-	return Math.subtracted(region.player.pose.origin,region.gates[index]).all(func(v): return absi(v)<15000)
+	return Math.subtracted(region.player.pose.origin,region.gates[index]).all(func(v): return absi(v)<session.world_layout.GATE_ACTIVATION)
 func update_gates(milliseconds: int) -> void:
 	for i in 2:
 		if region.gate_index(i)!=i:
@@ -440,7 +440,7 @@ func stream_transfer() -> bool:
 	if region.failed or region.pending_mission!=null or region.active_transmission!=null: return false
 	message=stream_denial(stream_destination)
 	if not message.is_empty(): return false
-	if not at_gate(departure_gate): message="Approach the S.T.R.E.A.M. gate (within 160 m)."; return false
+	if not at_gate(departure_gate): message="Approach the S.T.R.E.A.M. gate's activation area."; return false
 	if gate_time[departure_gate]<GATE_OPEN_MS: message="S.T.R.E.A.M. gate opening…"; return false
 	var target: int = stream_destination
 	# bp.c's in-flight branch preserves health and f's expedition counters.
@@ -632,4 +632,5 @@ func avoid_cruise_stations() -> void:
 			region.player.set_throttle(0);cancel_autopilot("Route blocked by a station within safe depth · choose another approach");return
 	if not avoidance_path.is_empty():
 		region.player.autopilot_target=math.array(avoidance_path[0]-anchor)
-		speed=mini(speed,2)
+		# A detour uses the same collision-checked 40 ms steps at every rate.
+		# Passing an unrelated station must not replace the selected time speed.

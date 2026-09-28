@@ -64,6 +64,50 @@ class ClassData:
 def argument_types(desc):return re.findall(r'\[*L[^;]+;|\[*[ZBCSIJFD]',desc[1:desc.index(')')])
 def default(desc):return None if desc.startswith(('L','[')) else 0
 
+def literal_matrices(cls,name,desc):
+    """Read self-contained int/short matrix literals without evaluating a method.
+
+    Only the nested array-literal grammar is accepted, including every explicit
+    index and store. No surrounding calls, branches or field reads are followed.
+    Unknown compiler layouts simply yield no matrices.
+    """
+    code,_=cls.code(name,desc);result=[]
+    def integer(r):
+        op=r.u1()
+        if 2<=op<=8:return op-3
+        if op==16:return r.number('b')
+        if op==17:return r.number('h')
+        if op in (18,19):
+            index=r.u1() if op==18 else r.u2()
+            if cls.pool[index][0]==3:return cls.constant(index)
+        raise DataError('Not an integer literal')
+    def expect(r,op):
+        if r.u1()!=op:raise DataError('Not an array literal')
+    for start in range(len(code)):
+        try:
+            r=Reader(code);r.offset=start;rows=integer(r)
+            if not 1<=rows<=64:continue
+            expect(r,189);kind=cls.constant(r.u2())
+            if kind not in ('[S','[I'):continue
+            matrix=[];allocated=0
+            for y in range(rows):
+                expect(r,89)
+                if integer(r)!=y:raise DataError('Nonliteral row index')
+                columns=integer(r);allocated+=columns
+                if not 1<=columns<=256 or allocated>4096:raise DataError('Oversized matrix')
+                expect(r,188);expect(r,9 if kind=='[S' else 10)
+                row=[]
+                for x in range(columns):
+                    expect(r,89)
+                    if integer(r)!=x:raise DataError('Nonliteral column index')
+                    row.append(integer(r));expect(r,86 if kind=='[S' else 79)
+                expect(r,83);matrix.append(row)
+            # A completed local literal is stored or returned immediately.
+            if r.u1() not in (58,75,76,77,78,176):continue
+            if matrix not in result:result.append(matrix)
+        except (DataError,IndexError,KeyError,TypeError):continue
+    return result
+
 def evaluate(cls,name,desc,arguments,statics,summarize,limit=100000):
     code,size=cls.code(name,desc);r=Reader(code);local=[None]*size;local[:len(arguments)]=arguments;stack=[]
     def branch(offset):

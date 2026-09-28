@@ -19,6 +19,7 @@ const Spacing = preload("res://native/simulation/world_spacing.gd")
 const Region = preload("res://native/simulation/region.gd")
 const EquipmentInfo = preload("res://native/presentation/equipment_info.gd")
 const Library = preload("res://scripts/model_library.gd")
+const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 var content
 var imported_art := preload("res://native/presentation/imported_art.gd").new()
 var stream_prompted := false
@@ -139,7 +140,10 @@ var modern_graphics := true
 var catch_status := Label.new()
 var travel_status := Label.new()
 var pending_notices: Array[String] = []
-var graphics := {"audio":true,"materials":true,"headlights":true,"beams":true,"volumetric":true,"detail":true,"station_smoothing":false,"depth_limits":false}
+const Headlights = preload("res://native/presentation/headlight_options.gd")
+var headlight_mode := Headlights.DEFAULT
+var headlight_previous := Headlights.DEFAULT
+var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"station_smoothing":false,"ship_smoothing":false,"depth_limits":false}.merged(OceanOptions.defaults())
 var map_widget
 var map_info: RichTextLabel
 var map_title: Label
@@ -233,7 +237,7 @@ func _ready() -> void:
 	ui.add_child(bank_label); bank_label.add_theme_font_size_override("font_size",13); bank_label.add_theme_color_override("font_color",Color("a6ced7")); bank_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT; bank_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(hud); hud.position=Vector2(26,24); hud.clip_text=true; hud.add_theme_font_size_override("font_size",18); hud.add_theme_color_override("font_color",Color("c9e7ea"))
 	ui.add_child(objective_label); objective_label.position=Vector2(26,82); objective_label.bbcode_enabled=true; objective_label.scroll_active=false; objective_label.mouse_filter=Control.MOUSE_FILTER_IGNORE; objective_label.add_theme_color_override("default_color",Color("b7cbd0"))
-	ui.add_child(struggle); struggle.position=Vector2(26,150); struggle.size=Vector2(240,7); struggle.show_percentage=false; struggle.mouse_filter=Control.MOUSE_FILTER_IGNORE; struggle.hide()
+	ui.add_child(struggle); struggle.position=Vector2(26,150); struggle.size=Vector2(240,7); struggle.step=0.01; struggle.show_percentage=false; struggle.mouse_filter=Control.MOUSE_FILTER_IGNORE; struggle.hide()
 	for feedback in [catch_status,travel_status]:
 		ui.add_child(feedback);feedback.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;feedback.add_theme_font_size_override("font_size",15);feedback.mouse_filter=Control.MOUSE_FILTER_IGNORE
 		feedback.add_theme_color_override("font_color",Color("8bd6ee"));feedback.add_theme_color_override("font_shadow_color",Color.BLACK);feedback.add_theme_constant_override("shadow_offset_y",2)
@@ -347,7 +351,7 @@ func layout() -> void:
 	# Under the hull in the chase view (its keel sits near 71% of the height
 	# in landscape, 63% upright), clear of the helm strip below.
 	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*(.67 if ui.size.x<ui.size.y else .75),ui.size.y-(96.0*hud_scale()+64.0)));catch_status.size=Vector2(480,44)
-	struggle.position=Vector2(ui.size.x*.5-120,catch_status.position.y+42);struggle.size=Vector2(240,4)
+	struggle.position=Vector2(ui.size.x*.5-140,catch_status.position.y+42);struggle.size=Vector2(280,7)
 	travel_status.position=Vector2(ui.size.x*.5-240,ui.size.y-220);travel_status.size=Vector2(480,30)
 	objective_label.position=Vector2(30,103); objective_label.size=Vector2(minf(390,ui.size.x*.29),160); objective_label.add_theme_font_size_override("normal_font_size",12); objective_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	objective_label.position=Vector2(30,22+102*k);objective_label.scale=Vector2.ONE*k
@@ -505,8 +509,8 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.size_flags_vertical=Control.SIZE_SHRINK_BEGIN;back.custom_minimum_size=Vector2(128,48 if touch.enabled() else 40)
 		back.add_theme_font_override("font",heading_font(4))
 	var scroll := ScrollContainer.new();sheet_scroll=scroll;scroll.follow_focus=true; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
-	scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_AUTO if touch.enabled() or id in ["station","destinations","controls"] else ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	column=VBoxContainer.new(); column.size_flags_horizontal=Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",7); scroll.add_child(column)
+	scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_AUTO if touch.enabled() or id in ["station","destinations","controls","market","profile"] else ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	column=VBoxContainer.new(); column.size_flags_horizontal=Control.SIZE_EXPAND_FILL; column.size_flags_vertical=Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",7); scroll.add_child(column)
 	# Panels sized to their rows follow the rows once text has wrapped to width.
 	column.minimum_size_changed.connect(request_layout)
 	touch_scroll.scroll=scroll;touch_scroll.gesture_control=null;touch_scroll.release()
@@ -552,8 +556,10 @@ func fit_sheets() -> void:
 	sheet_bar.visible=sheet_pages.size()>1
 	if sheet_pages.size()>1:
 		var previous:=iconic(button("PREVIOUS",func():sheet_index=maxi(0,sheet_index-1);display_sheet(),sheet_bar),"back",16)
+		previous.name="SheetPrevious"
 		var number:=caption("",14,sheet_bar,2);number.name="SheetNumber";number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;number.add_theme_color_override("font_color",colours().text)
 		var following:=button("NEXT",func():sheet_index=mini(sheet_pages.size()-1,sheet_index+1);display_sheet(),sheet_bar);following.alignment=HORIZONTAL_ALIGNMENT_CENTER
+		following.name="SheetNext"
 		for node in [previous,following]:node.add_theme_font_override("font",heading_font(3))
 	display_sheet()
 func display_sheet() -> void:
@@ -562,6 +568,8 @@ func display_sheet() -> void:
 	for child in column.get_children():child.visible=child in sheet_pages[sheet_index]
 	var number=sheet_bar.get_node_or_null("SheetNumber")
 	if number!=null:number.text="%02d / %02d"%[sheet_index+1,sheet_pages.size()]
+	if sheet_bar.has_node("SheetPrevious"):sheet_bar.get_node("SheetPrevious").disabled=sheet_index==0
+	if sheet_bar.has_node("SheetNext"):sheet_bar.get_node("SheetNext").disabled=sheet_index+1>=sheet_pages.size()
 func close_page() -> void:
 	# Anything that closes the page under the opening ends the opening with it.
 	if opening.active:opening.finish(false)
@@ -709,7 +717,7 @@ func _process(delta: float) -> void:
 		dock_caption.visible=session.docked and page!="dialogue" and not overlay.visible
 		dock_caption.text=session.stations[session.station_id].name.to_upper()+" STATION\nBERTH SECURED  /  EXTERIOR VIEW"
 		dock_prompt.visible=page.is_empty() and not session.docked and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000)
-		dock_prompt.text=("[ %s ]  Dock at %s"%[control_name("dock"),session.stations[session.station_id].name]) if r.station.can_dock(r.player.pose.origin) else "[ %s ]  Dock · approach within 150 m"%control_name("dock")
+		dock_prompt.text=("[ %s ]  Dock at %s"%[control_name("dock"),session.stations[session.station_id].name]) if r.station.can_dock(r.player.pose.origin) else "[ %s ]  Dock · approach docking area"%control_name("dock")
 		if r.success!=null or r.failure!=null:
 			dock_prompt.text="Docking locked · encounter active  [ %s ] Mission waypoint"%control_name("autopilot")
 		elif world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation):
@@ -796,9 +804,15 @@ func update_catch_feedback(region, show_feedback: bool) -> void:
 			var distance: float=preload("res://native/simulation/fixed_math.gd").length_of(preload("res://native/simulation/fixed_math.gd").subtracted(region.player.pose.origin,hook.target.pose.origin))
 			var seconds := maxf(0,distance-hook.capture_distance)/maxf(1,hook.tow_speed*1000)
 			catch_status.text="REELING IN  ·  %.1f s TO COLLECTION"%seconds
+			struggle.value=100.0*(1.0-clampf((distance-hook.capture_distance)/maxf(1,hook.tow_start_distance-hook.capture_distance),0,1))
+			struggle.visible=show_feedback
 		elif hook.target.is_creature:
-			catch_status.text="CATCH  ·  %d s  ·  KEEP TARGET IN VIEW"%hook.target.countdown()
-			struggle.value=clampf(100.0*(1.0-float(hook.target.struggle_remaining)/maxi(1,hook.target.struggle_total)),0,100)
+			# The original spends strength once per two-second struggle. Show
+			# that same progress continuously without changing the simulation.
+			var total := maxf(2000,ceilf(hook.target.struggle_total/1000.0)*2000)
+			var remaining := maxf(0,ceilf(hook.target.struggle_remaining/1000.0)*2000-hook.target.struggle_time)
+			catch_status.text="CATCH  ·  %.1f s  ·  KEEP TARGET IN VIEW"%(remaining*.001)
+			struggle.value=clampf(100.0*(1.0-remaining/total),0,100)
 			struggle.visible=show_feedback
 		else:catch_status.text="HARPOON ATTACHED  ·  DISABLE TARGET TO RECOVER"
 		catch_status.visible=show_feedback
@@ -881,6 +895,11 @@ func touch_throttle(percent: int) -> void:
 func touch_action(action: String) -> void:
 	if action=="menu":show_pause()
 	elif action=="full":toggle_fullscreen()
+	elif action in ["auto_guns","auto_hook"] and page.is_empty():
+		var weapon := action.trim_prefix("auto_")
+		var enabled: bool=touch.automatic_weapons.has(weapon)
+		notice(("Auto guns" if weapon=="guns" else "Auto harpoon")+(" on · tap to stop" if enabled else " off"))
+		dive_audio.cue("beep")
 	elif page.is_empty():perform(action)
 func browser_flag(expression: String) -> bool:
 	if not OS.has_feature("web"): return false
@@ -991,7 +1010,10 @@ func perform(action: String) -> void:
 			show_destinations()
 		"time": world.cycle_speed()
 		"lights":
-			if modern_graphics:graphics.headlights=not graphics.headlights;abyss.set_headlights(graphics.headlights);save_settings()
+			if modern_graphics:
+				if headlight_mode!=Headlights.Mode.OFF:headlight_previous=headlight_mode;headlight_mode=Headlights.Mode.OFF
+				else:headlight_mode=headlight_previous
+				apply_headlights();save_settings()
 			else:notice("Headlights need Enhanced lighting.")
 func control_name(action: String) -> String:
 	"""What the player presses for action with the controls in use: the touch
@@ -1130,7 +1152,7 @@ func show_ship_status(back: Callable=Callable()) -> void:
 func split_row(parent: Node, gap: int) -> BoxContainer:
 	"""Side by side on a wide screen, one above the other on a narrow one."""
 	var row: BoxContainer=HBoxContainer.new() if ui.size.x>=900 else VBoxContainer.new()
-	row.add_theme_constant_override("separation",gap);row.size_flags_horizontal=Control.SIZE_EXPAND_FILL;parent.add_child(row);return row
+	row.add_theme_constant_override("separation",gap);row.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.size_flags_vertical=Control.SIZE_EXPAND_FILL;parent.add_child(row);return row
 func titled_glass(icon: String, title: String, parent: Node) -> VBoxContainer:
 	var body := VBoxContainer.new();body.add_theme_constant_override("separation",8);glass(parent,false,14).add_child(body)
 	var top := HBoxContainer.new();top.add_theme_constant_override("separation",12);body.add_child(top)
@@ -1207,7 +1229,7 @@ func show_profile(medal_view: bool=false) -> void:
 			label(session.text(int(content.data.constants.e["a:[[S"][id][0])),17,words).add_theme_color_override("font_color",palette.text if tier>0 else palette.dim)
 			var badge := label(TIER_NAMES[tier],13,words);badge.add_theme_color_override("font_color",TIER_COLOURS[tier])
 			if tier==0: line_icon("lock",22,cells,palette.faint)
-		pager(medal_page,ceili(float(count)/page_size),func(to):medal_page=to;medal_selection=to*page_size;show_profile(true),list)
+		pager(medal_page,ceili(float(count)/page_size),func(to):medal_page=to;medal_selection=to*page_size;show_profile(true))
 		var tier: int=session.medals.levels[medal_selection]
 		var detail := VBoxContainer.new();detail.name="SelectedMedal";detail.add_theme_constant_override("separation",10)
 		var frame := glass(body,true,16);frame.size_flags_horizontal=Control.SIZE_EXPAND_FILL;frame.add_child(detail)
@@ -1231,9 +1253,10 @@ func stock_row(id: String, selected: bool, height: int, action: Callable, parent
 	var cells := HBoxContainer.new();control.add_child(cells);cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	cells.offset_left=12;cells.offset_right=-14;cells.offset_top=5;cells.offset_bottom=-5;cells.add_theme_constant_override("separation",14);cells.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	return cells
-func pager(index: int, pages: int, turn: Callable, parent: Node) -> void:
+func pager(index: int, pages: int, turn: Callable) -> void:
 	if pages<=1: return
-	var bar := HBoxContainer.new();bar.add_theme_constant_override("separation",10);parent.add_child(bar)
+	# A fixed footer stays reachable even when an item's description scrolls.
+	var bar: HBoxContainer=sheet_bar;bar.name="Pagination";bar.show();bar.add_theme_constant_override("separation",10)
 	var previous := iconic(button("PREVIOUS",func():turn.call(index-1),bar),"back",16);previous.disabled=index==0
 	var number := caption("%02d / %02d"%[index+1,pages],14,bar,2);number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;number.add_theme_color_override("font_color",colours().text)
 	var following := button("NEXT",func():turn.call(index+1),bar);following.disabled=index+1>=pages;following.alignment=HORIZONTAL_ALIGNMENT_CENTER
@@ -1440,9 +1463,12 @@ func read_settings() -> void:
 		dive_audio.title_choice=setting_index(config,"audio","title_music",0,2)
 		view.camera_mode=setting_index(config,"view","camera",0,3)
 		dive_audio.apply_levels()
+	graphics.merge(OceanOptions.read(config),true)
+	headlight_mode=Headlights.read(config);headlight_previous=Headlights.previous(config)
 	touch.mode=setting_index(config,"input","touch",0,2)
 	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
 	touch.fixed_stick=bool(config.get_value("input","touch_fixed_stick",false))
+	touch.mirror_fire_control=bool(config.get_value("input","touch_mirror_fire",false))
 	controller.deadzone=setting_number(config,"input","deadzone",.18,.05,.45)
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
 	vibration=bool(config.get_value("input","vibration",true))
@@ -1483,6 +1509,8 @@ func save_settings() -> void:
 	config.set_value("world","split_gates",Region.split_gates)
 	for key in key_bindings: config.set_value("keys",key,key_bindings[key])
 	for key in graphics: config.set_value("graphics",key,graphics[key])
+	config.set_value("graphics","headlight_previous",headlight_previous)
+	Headlights.write(config,headlight_mode)
 	config.set_value("input","touch",touch.mode);config.set_value("input","deadzone",controller.deadzone);config.set_value("input","invert_gamepad",controller.invert)
 	config.set_value("input","vibration",vibration)
 	config.set_value("graphics","modern",modern_graphics)
@@ -1494,6 +1522,7 @@ func save_settings() -> void:
 	config.set_value("input","touch_look",touch_look_sensitivity)
 	config.set_value("input","touch_drag_anywhere",touch.drag_anywhere)
 	config.set_value("input","touch_fixed_stick",touch.fixed_stick)
+	config.set_value("input","touch_mirror_fire",touch.mirror_fire_control)
 	config.set_value("input","strafe",strafe_mode)
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
@@ -1514,11 +1543,12 @@ func apply_graphics() -> void:
 	var rebuild: bool=view.pack.enabled!=(false) or view.modern_graphics!=modern_graphics
 	view.modern_graphics=modern_graphics;view.pack.enabled=false
 	view.set_station_smoothing(graphics.station_smoothing)
+	view.set_ship_smoothing(graphics.ship_smoothing)
+	view.set_atmosphere(graphics)
+	abyss.set_atmosphere(graphics)
 	if rebuild:view.revision=-1
 	terrain.apply_pack(view.pack)
-	abyss.set_headlights(modern_graphics and graphics.headlights)
-	abyss.set_headlight_beams(modern_graphics and graphics.beams)
-	view.set_actor_beams(modern_graphics and graphics.beams)
+	apply_headlights()
 	view.set_depth_limits(graphics.depth_limits)
 	var env := abyss.environment.environment
 	env.volumetric_fog_enabled=modern_graphics and graphics.volumetric and RenderingServer.get_current_rendering_method()=="forward_plus"
@@ -1526,6 +1556,11 @@ func apply_graphics() -> void:
 	env.glow_enabled=modern_graphics;abyss.particles.visible=true
 	overlay.decorated=true;overlay.queue_redraw()
 	layout()
+func apply_headlights() -> void:
+	view.set_headlight_mode(headlight_mode)
+	abyss.set_headlight_beams(modern_graphics and headlight_mode==Headlights.Mode.LIGHT_BEAMS)
+	abyss.set_headlights(modern_graphics and Headlights.casts_light(headlight_mode))
+	if headlight_mode!=Headlights.Mode.OFF:headlight_previous=headlight_mode
 func station_identity(parent: Node) -> void:
 	var station: Dictionary=session.stations[session.station_id]
 	var identity:=HBoxContainer.new();identity.name="StationIdentity";identity.add_theme_constant_override("separation",16);parent.add_child(identity)
@@ -1568,6 +1603,47 @@ func service_card(title: String, text: String, icon: String, art: Texture2D, act
 		picture.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;picture.custom_minimum_size=Vector2(minf(150,ui.size.x*(.12 if roomy else .07)),0);picture.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(picture)
 	line_icon("next",22,cells)
 	return node
+func unavailable(node: Button, reason: String) -> void:
+	if reason.is_empty():return
+	# The original answers these selections with a refusal. Keep mouse, touch
+	# and keyboard activation, while making the unavailable action look dim.
+	node.set_meta("unavailable_reason",reason)
+	node.tooltip_text=reason;node.accessibility_description=reason
+	for connection in node.pressed.get_connections():node.pressed.disconnect(connection.callable)
+	node.pressed.connect(func():notice(reason))
+	var palette := colours()
+	for state in ["normal","hover","pressed"]:
+		var style := node.get_theme_stylebox(state).duplicate() as StyleBoxFlat
+		style.bg_color=Color(palette.card,.4)
+		style.border_color=Color(palette.edge,.45 if state=="normal" else .75)
+		style.shadow_size=0;node.add_theme_stylebox_override(state,style)
+	for state in ["font_color","font_hover_color","font_pressed_color","font_focus_color"]:
+		node.add_theme_color_override(state,palette.faint)
+	# Leave the focus outline visible for keyboard/controller navigation.
+	for child in node.get_children():
+		if child is CanvasItem:child.modulate=Color(.65,.68,.72,.6)
+func station_service_reason(kind: String) -> String:
+	var denial: int=session.service_denial(kind)
+	if denial>=0:return session.text(denial)
+	var station: Dictionary=session.stations[session.station_id]
+	match kind:
+		"ships":
+			if station.ships.is_empty():return "No ships for sale at this station."
+		"manufacture":
+			if session.is_colonist_station():return "Manufacturing is available at rebel stations."
+			if economy.recipes(station).is_empty():return "No recipes available at this station's technology level."
+		"missions":
+			if session.campaign.secondary.kind>=0:return "Finish or abandon the accepted contract first."
+			if station.missions.is_empty():return "No contracts on this station's board."
+	return ""
+func station_service(title: String, text: String, kind: String, icon: String, art: Texture2D, parent: Node) -> void:
+	var reason := station_service_reason(kind)
+	var node := service_card(title,text,icon,art,func():show_market(kind),parent)
+	unavailable(node,reason)
+func market_action(node: Button, denial: int) -> void:
+	if denial<0:return
+	var reason: String=session.text(denial)
+	unavailable(node,reason)
 func service_grid(parent: Node=null) -> GridContainer:
 	var grid := GridContainer.new();grid.columns=2 if ui.size.x>=900 else 1;grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation",16);grid.add_theme_constant_override("v_separation",16);(parent if parent!=null else column).add_child(grid)
@@ -1587,7 +1663,9 @@ func show_station() -> void:
 		["SYSTEM","Save, controls and settings","system",show_system]]
 	var grid:=GridContainer.new();grid.name="Services";grid.columns=3;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",10);column.add_child(grid)
 	for service in services:
-		tile(service[0],service[2],service[3],grid).tooltip_text=service[1]
+		var node := tile(service[0],service[2],service[3],grid);node.tooltip_text=service[1]
+		if service[2] in ["map","trade"]:
+			var reason := station_service_reason(service[2]);unavailable(node,reason)
 	var launch:=primary(iconic(button("DEPART",depart),"depart",30));launch.name="Depart"
 	launch.custom_minimum_size.y=64 if touch.enabled() else 58;launch.add_theme_font_override("font",heading_font(6));launch.add_theme_font_size_override("font_size",20)
 	if not session.notices.is_empty():
@@ -1613,9 +1691,9 @@ func show_hangar() -> void:
 	open_page("Hangar","hangar")
 	var station: Dictionary=session.stations[session.station_id]
 	var grid := service_grid()
-	service_card("Equipment shop","Buy and fit systems for your ship, or sell what is installed.","cart",first_art(station.equipment,"equipment"),func():show_market("equipment"),grid)
-	service_card("Ship dealer","Buy a new hull. Your current ship is traded in.","hangar",first_art(station.ships,"ships"),func():show_market("ships"),grid)
-	service_card("Workshop / Manufacture","Turn the cargo in your hold into products.","workshop",first_art(economy.recipes(station),"goods"),func():show_market("manufacture"),grid)
+	station_service("Equipment shop","Buy and fit systems for your ship, or sell what is installed.","equipment","cart",first_art(station.equipment,"equipment"),grid)
+	station_service("Ship dealer","Buy a new hull. Your current ship is traded in.","ships","hangar",first_art(station.ships,"ships"),grid)
+	station_service("Workshop / Manufacture","Turn the cargo in your hold into products.","manufacture","workshop",first_art(economy.recipes(station),"goods"),grid)
 	service_card("Your ship & cargo","Hull, cargo manifest and installed systems.","cargo",imported_art.item(session.ship.id,"ships"),func():show_ship_status(show_hangar),grid)
 func show_station_missions() -> void:
 	open_page("Missions","station_missions")
@@ -1623,8 +1701,8 @@ func show_station_missions() -> void:
 	var grid := service_grid()
 	service_card("Current objectives & journal","Story task and accepted contract.","journal",null,show_journal,grid)
 	var offers: int=station.missions.size()
-	service_card("Available contracts","%d on this station's board."%offers if session.campaign.secondary.kind<0 else "An accepted contract is already in your journal.","contracts",
-		imported_art.portrait(station.missions[0].portrait) if offers>0 else null,func():show_market("missions"),grid)
+	station_service("Available contracts","%d on this station's board."%offers,"missions","contracts",
+		imported_art.portrait(station.missions[0].portrait) if offers>0 else null,grid)
 func show_station_status() -> void:
 	open_page("Status","station_status")
 	var grid := service_grid()
@@ -2218,6 +2296,7 @@ func station_contacts() -> Array:
 	var result: Array=[]
 	for id in ids:
 		var position: Vector3=world.geography.stations[id]-world.geography.anchor
+		var distance_position := position
 		var nodes: Array=view.station_nodes if id==session.station_id else (view.neighbors[id].root.get_children() if view.neighbors.has(id) else [])
 		var bounds := AABB();var first := true
 		for node in nodes:
@@ -2225,7 +2304,7 @@ func station_contacts() -> Array:
 			var box: AABB=node.global_transform*node.solid_bounds()
 			bounds=box if first else bounds.merge(box);first=false
 		if not first:position=Vector3(bounds.get_center().x,bounds.end.y+8,bounds.get_center().z)
-		result.append({"key":"station" if id==session.station_id else "station:"+str(id),"p":[0,0,0],"position":position,"name":session.stations[id].name,"color":Color("e5ce86") if quest_ids.has(id) else Color("7bd2d6"),"edge":id==session.station_id or quest_ids.has(id),"hull":-1.0,"station_contact":true,"quest":quest_ids.has(id)})
+		result.append({"key":"station" if id==session.station_id else "station:"+str(id),"p":[0,0,0],"position":position,"distance_position":distance_position,"name":session.stations[id].name,"color":Color("e5ce86") if quest_ids.has(id) else Color("7bd2d6"),"edge":id==session.station_id or quest_ids.has(id),"hull":-1.0,"station_contact":true,"quest":quest_ids.has(id)})
 	return result
 
 func update_markers() -> void:
@@ -2281,7 +2360,9 @@ func update_markers() -> void:
 	for target in targets:
 		if shown.size()>=MAX_CONTACT_LABELS and target.get("role","")!="enemy":continue
 		var position: Vector3 = world.render_pose(target.actor).origin if target.has("actor") else target.get("position",preload("res://scripts/model_library.gd").point(target.p))
-		var distance: float = position.distance_to(preload("res://scripts/model_library.gd").point(region.player.pose.origin))
+		# Labels sit above station roofs; range is to the station origin, never
+		# to that decorative label anchor. Other contacts use their actual pose.
+		var distance: float = target.get("distance_position",position).distance_to(preload("res://scripts/model_library.gd").point(region.player.pose.origin))
 		var camera_space: Vector3 = camera.global_transform.affine_inverse()*position
 		# Perspective projection is undefined exactly on the camera plane.
 		var screen: Vector2 = ui.size/2+Vector2(camera_space.x,-camera_space.y).normalized()*ui.size.length()*2 if absf(camera_space.z)<0.001 else camera.unproject_position(position)-ui.position
@@ -2718,7 +2799,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var value := label("%d cr"%price if entry.buy else "INSTALLED",15,cells);value.custom_minimum_size.x=96;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value if entry.buy else palette.good);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 		control.tooltip_text=title+"\n"+stats
-	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind),list)
+	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind))
 	if ships:
 		var stage := glass(row,false,16);stage.size_flags_stretch_ratio=1.3 if ui.size.x>=1400 else .8
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
@@ -2748,7 +2829,8 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var balance: int=session.credits+economy.ship_price(session.ship)-economy.ship_price(item)
 		figure_rows([["","Trade-in for your %s"%content.ship_name(session.ship.id),"%d cr"%economy.ship_price(session.ship),palette.value],
 			["","Balance after exchange","%d cr"%balance,palette.value if balance>=0 else palette.bad]],detail)
-		primary(iconic(button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item));show_market(kind),detail),"depart",22))
+		var purchase := primary(iconic(button("Buy · %d cr"%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item));show_market(kind),detail),"depart",22))
+		market_action(purchase,economy.buy_ship_denial(station,item))
 	else:
 		# A phone held landscape has the row's own icon to go by.
 		if ui.size.y>=700:
@@ -2767,8 +2849,11 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 					caption("Currently equipped",11,current,3)
 					label(item_name(installed.id,"equipment"),15,current).add_theme_color_override("font_color",palette.text)
 					label(EquipmentInfo.stats(installed),13,current).add_theme_color_override("font_color",palette.dim)
-			primary(iconic(button("Buy · %d cr"%item.price,func():transaction_result(economy.buy_equipment(station,item));show_market(kind),detail),"cart",22))
-		else:iconic(button("Sell · %d cr"%item.price,func():transaction_result(economy.sell_equipment(station,item));show_market(kind),detail),"credits",22).alignment=HORIZONTAL_ALIGNMENT_CENTER
+			var purchase := primary(iconic(button("Buy · %d cr"%item.price,func():transaction_result(economy.buy_equipment(station,item));show_market(kind),detail),"cart",22))
+			market_action(purchase,economy.buy_equipment_denial(station,item))
+		else:
+			var sale := iconic(button("Sell · %d cr"%item.price,func():transaction_result(economy.sell_equipment(station,item));show_market(kind),detail),"credits",22);sale.alignment=HORIZONTAL_ALIGNMENT_CENTER
+			market_action(sale,economy.sell_equipment_denial(station,item))
 func header_chip(icon: String, value: String, note: String) -> void:
 	"""A figure beside the page title, as the reference shows the purse."""
 	if ui.size.x<700: return
@@ -2786,15 +2871,17 @@ func rule(parent: Node) -> void:
 func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var kind: String="manufacture" if manufacturing else "trade"
 	var palette := colours()
+	# Leave room for the fixed pager and recipe actions on shorter screens.
+	var compact := ui.size.y<800
 	var entries: Array=economy.recipes(station) if manufacturing else economy.market(station)
 	entries.sort_custom(func(a,b):return a.id<b.id)
 	if entries.is_empty():label("No recipes available here." if manufacturing else "No cargo available for exchange.").add_theme_color_override("font_color",palette.dim);return
 	market_selection=clampi(market_selection,0,entries.size()-1)
 	# The hold, as a gauge: how much there is room for decides both trades.
-	if ui.size.y<700:
+	if compact:
 		header_chip("cargo","%d / %d t"%[session.ship.cargo_used,session.ship.capacity()],"Cargo hold")
 	var hold := HBoxContainer.new();hold.add_theme_constant_override("separation",16)
-	if ui.size.y>=700: glass(column,false,10).add_child(hold)
+	if not compact: glass(column,false,10).add_child(hold)
 	line_icon("cargo",32,hold)
 	var hold_words := VBoxContainer.new();hold_words.add_theme_constant_override("separation",0);hold.add_child(hold_words)
 	caption("Cargo hold",14,hold_words,4).add_theme_color_override("font_color",palette.text)
@@ -2824,15 +2911,15 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
 		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d cr"%item.price,16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
-	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind),list)
+	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind))
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
 	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)
 	var item=entries[market_selection]
 	label(item_name(item.id),26,detail).add_theme_color_override("font_color",palette.text)
-	if ui.size.y>=700: caption("Product" if manufacturing else "Cargo",12,detail,4)
+	if not compact: caption("Product" if manufacturing else "Cargo",12,detail,4)
 	var about := HBoxContainer.new();about.add_theme_constant_override("separation",14);detail.add_child(about)
 	var holder := glass(about,false,8);holder.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
-	var art := art_image(imported_art.item(item.id),holder,80) if ui.size.y>=700 else null
+	var art := art_image(imported_art.item(item.id),holder,80) if not compact else null
 	var described := label(item_description(item.id),14,about);described.add_theme_color_override("font_color",palette.text);described.size_flags_vertical=Control.SIZE_SHRINK_CENTER
 	if art==null: holder.hide()
 	if manufacturing:
