@@ -555,7 +555,12 @@ func run():
  expect([mine,salvage,sinking,vessel_actor].all(func(actor):return view.objects[actor.get_instance_id()].occluder.collision_layer==0),"Departed and hidden models stop no headlight beam")
  app.abyss._process(0)
  expect(app.abyss.beams.size()==2 and app.abyss.beams[0].get_parent()==app.abyss.lamps[0] and app.abyss.beams[1].get_parent()==app.abyss.lamps[1],"Each headlight carries its own visible beam cone: two beams, not one blob")
- expect(app.abyss.beams.all(func(beam):return beam.visible and beam.material_override.shader.resource_path.ends_with("headlight_beam.gdshader") and beam.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF),"Beam cones are on by default, drawn by the beam shader and cast no shadow")
+ expect(app.abyss.beams.all(func(beam):return beam.visible and beam.material_override.shader in [preload("res://native/presentation/headlight_beam.gdshader"),app.abyss.beam_shader(true)] and beam.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF),"Beam cones are on by default, drawn by the beam shader and cast no shadow")
+ var tested: Shader=app.abyss.beam_shader(true)
+ expect(tested.code.contains("cull_back") and not tested.code.contains("depth_test_disabled") and app.abyss.beam_shader(false).code.contains("depth_test_disabled"),"Seen from outside, a beam is drawn depth tested so a nearer hull hides it on any GPU")
+ var cone_probe:=Node3D.new();app.add_child(cone_probe)
+ expect(app.abyss.camera_near_beam(cone_probe,Vector3(0,0,-20)) and not app.abyss.camera_near_beam(cone_probe,Vector3(0,15,-20)) and not app.abyss.camera_near_beam(cone_probe,Vector3(0,0,30)),"A camera inside a cone keeps the untested far-side pass; outside it does not")
+ cone_probe.queue_free()
  var beam_box: AABB=app.abyss.beams[0].mesh.get_aabb()
  expect(beam_box.position.z<-60 and beam_box.end.z>=-0.01 and absf(beam_box.size.x-2*app.abyss.BEAM_LENGTH*app.abyss.BEAM_HALF_TANGENT)<.5,"The beam cone opens from the lamp along its -Z for the beam length")
  # The beam is shadowed: a wall across the cone stops the drawn light as it stops the real light.

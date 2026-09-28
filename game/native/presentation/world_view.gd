@@ -313,7 +313,8 @@ func _process(delta: float) -> void:
 	var ms: int = maxi(0,region.elapsed_ms-previous_time)
 	previous_time=region.elapsed_ms
 	camera.h_offset=0
-	if player_model!=null: player_model.visible=not world.session.docked
+	# A hull that has exploded is gone; its debris is the explosion's own.
+	if player_model!=null: player_model.visible=not world.session.docked and region.player.health.hull>0
 	var player_pose: Transform3D = world.render_pose(region.player)
 	if player_model!=null:
 		# Brief steering bank is cosmetic; the camera uses the simulation attitude.
@@ -435,6 +436,7 @@ func _process(delta: float) -> void:
 	# after the camera has moved into the new frame, including transit shots.
 	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
 	var frustum: Array[Plane] = camera.get_frustum()
+	choose_actor_beam_passes()
 	# A model only stops a beam while it is shown for an actor still here: a
 	# detonated mine or a collected wreck keeps its node but not its shadow.
 	var present := {}
@@ -748,6 +750,14 @@ func set_actor_beams(on: bool) -> void:
 	actor_beams=actor_beams.filter(func(entry):return is_instance_valid(entry.lamp) and is_instance_valid(entry.beam))
 	for entry in actor_beams: entry.beam.visible=on
 
+func choose_actor_beam_passes() -> void:
+	"""Other vessels' beams are drawn depth tested unless the camera is in
+	one, so they stay behind the player's hull wherever the hull is nearer."""
+	for entry in actor_beams:
+		if not is_instance_valid(entry.beam) or not entry.beam.is_visible_in_tree():continue
+		var shader: Shader=Abyss.beam_shader(not Abyss.camera_near_beam(entry.beam,camera.global_position))
+		var material: ShaderMaterial=entry.beam.material_override
+		if material.shader!=shader:material.shader=shader
 func shade_actor_beams() -> void:
 	# One vessel's beam per frame, nearest the camera first would be nicer;
 	# in turn is enough, a wall is current within a few frames.

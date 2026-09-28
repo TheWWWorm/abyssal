@@ -13,14 +13,20 @@ const SPECS := {
 }
 const VOICES := 8
 const Mix = preload("res://native/presentation/audio_settings.gd")
+const Mods = preload("res://native/presentation/mods.gd")
 static var ambience: AudioStreamWAV
 static var wave_cache := {}
 var world
 var sounds := {}
 var source_paths := {}
-var station_music: AudioStreamWAV
-## Imported MIDI conversions by track name ("intro", "station").
+var station_music: AudioStream
+## Imported MIDI conversions by track name ("intro", "station"), or the
+## player's replacements from the mods folder.
 var music_tracks := {}
+## The mods file behind each replaced track; the browser decodes it itself.
+var music_sources := {}
+## A track the Mods page is playing in place of the title's own.
+var preview_track := ""
 ## The title menu and opening track: 0 follows the JAR, 1 intro, 2 station.
 const TITLE_CHOICES := ["Auto","Intro","Station"]
 var title_choice := 0
@@ -75,7 +81,19 @@ func configure(owner_world, directory: String) -> void:
 			key="procedural:"+cue
 			if not wave_cache.has(key): wave_cache[key]=synthesize_cue(cue)
 		sounds[cue]=wave_cache[key]; source_paths[cue]=key
-	music_tracks.clear()
+	load_music(directory)
+	# Upload once during content loading, never on the first shot in flight.
+	if OS.has_feature("web"):
+		for sound in sounds.values():
+			if sound!=null and not AudioServer.is_stream_registered_as_sample(sound):
+				AudioServer.register_stream_as_sample(sound)
+	prepare_web_music("ocean",ambience)
+	for track in music_tracks:prepare_web_music(track,music_tracks[track])
+	previous_bed=""
+func load_music(directory: String) -> void:
+	"""The converted MIDI tracks, then any replacement in the mods folder,
+	which is read afresh each time so a new one plays at once."""
+	music_tracks.clear();music_sources.clear()
 	for track in ["intro","station"]:
 		var music_path := directory.path_join("data/sound/%s.mid.wav"%track)
 		if not FileAccess.file_exists(music_path):continue
@@ -85,14 +103,20 @@ func configure(owner_world, directory: String) -> void:
 				music.loop_mode=AudioStreamWAV.LOOP_FORWARD; music.loop_end=roundi(music.get_length()*music.mix_rate)
 			wave_cache[music_path]=music
 		if wave_cache[music_path]!=null:music_tracks[track]=wave_cache[music_path]
+	for track in ["intro","station"]:
+		var replacement := Mods.music_path(track)
+		if replacement.is_empty():continue
+		var music := Mods.load_music(replacement)
+		if music==null:push_warning("Could not read replacement music: "+replacement);continue
+		music_tracks[track]=music;music_sources[track]=replacement
 	station_music=music_tracks.get("station")
-	# Upload once during content loading, never on the first shot in flight.
-	if OS.has_feature("web"):
-		for sound in sounds.values():
-			if sound!=null and not AudioServer.is_stream_registered_as_sample(sound):
-				AudioServer.register_stream_as_sample(sound)
-	prepare_web_music("ocean",ambience)
-	for track in music_tracks:prepare_web_music(track,music_tracks[track])
+func reload_music(directory: String) -> void:
+	"""After the Mods page changes a track: the new one plays from the start."""
+	load_music(directory)
+	if web_music!=null:
+		web_music.stop()
+		for track in ["intro","station"]:web_music.forget(track)
+		for track in music_tracks:prepare_web_music(track,music_tracks[track])
 	previous_bed=""
 func read_title_track(data: Dictionary) -> void:
 	"""Imports that predate the recorded music table keep the 1.0.8 track."""
@@ -116,6 +140,12 @@ func apply_music_pause(paused: bool) -> void:
 func prepare_web_music(key: String, sound: AudioStream) -> bool:
 	if web_music==null or sound==null:return false
 	if web_music.has(key):return true
+	# A replacement that is not 16-bit PCM goes to the browser as the file
+	# itself, which it decodes; playback starts once that has finished.
+	if music_sources.has(key) and not (sound is AudioStreamWAV and sound.format==AudioStreamWAV.FORMAT_16_BITS):
+		var encoded := FileAccess.get_file_as_bytes(music_sources[key])
+		if encoded.is_empty():return false
+		web_music.prepareEncoded(key,Marshalls.raw_to_base64(encoded));return true
 	if not sound is AudioStreamWAV or sound.format!=AudioStreamWAV.FORMAT_16_BITS:return false
 	web_music.prepare(key,Marshalls.raw_to_base64(sound.data),sound.mix_rate,sound.stereo)
 	return true
@@ -214,6 +244,7 @@ func _process(_delta: float) -> void:
 	# The menu and opening play the JAR's first track (intro.mid in 1.0.3,
 	# station.mid in 1.0.8) unless the player picked one; docking plays station.
 	var bed := title_track() if context=="title" or opening_music else "station" if context=="station" else ""
+	if context=="title" and music_tracks.has(preview_track):bed=preview_track
 	if not bed.is_empty() and not music_tracks.has(bed):bed="ocean"
 	if previous_bed!=bed:
 		if web_music!=null and not previous_bed.is_empty():web_music.stop()

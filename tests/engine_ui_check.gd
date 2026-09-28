@@ -555,11 +555,20 @@ func check_departure(game) -> void:
  expect(game.page in ["dialogue",""] and game.view.departure_progress<0,"Skip completes the departure and opens its pending briefing")
  if game.page=="dialogue":expect(Input.mouse_mode==Input.MOUSE_MODE_VISIBLE,"Post-departure briefing keeps the cursor visible")
  game.close_page()
+ # An encounter's end waits for the explosion that ended it.
+ var region_now=game.world.region
+ region_now.visual_events.append({"kind":"explosion","creature":false,"time":region_now.elapsed_ms,"duration":4000,"position":[0,0,0],"delays":[0],"offsets":[[0,0,0]]})
+ region_now.events.append({"kind":"mission_failed","text":"Mission failed."})
+ game.consume_events()
+ expect(game.page=="" and region_now.events.size()==1,"A failure waits while the explosion that caused it plays")
+ region_now.elapsed_ms+=game.AFTERMATH_MS;game.consume_events()
+ expect(game.page=="failure" and region_now.events.is_empty(),"The failure page follows the explosion")
+ game.close_page();region_now.visual_events.pop_back();region_now.elapsed_ms-=game.AFTERMATH_MS
  # The chart opens at the dock from the seventh chapter.
  var chapter_before: int=game.session.campaign.chapter;game.session.campaign.chapter=maxi(chapter_before,7)
  game.session.docked=true;game.show_map();game.select_station(game.session.station_id)
  for action in game.column.find_children("*","Button",true,false):
-  if action.text=="Set station autopilot":action.pressed.emit();break
+  if action.get_meta("option","")=="map_route":action.pressed.emit();break
  game.session.campaign.chapter=chapter_before
  expect(game.page=="departure" and game.departure_destination==game.map_destination,"Map autopilot queues its destination through departure")
  game.finish_departure()

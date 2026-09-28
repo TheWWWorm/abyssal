@@ -90,6 +90,7 @@ func run():
 	expect(compact.replacement==null and compact.figure!=null,"Compact distant models keep the imported figure")
 	for node in [model,compact]: node.release_mesh();node.queue_free()
 	await process_frame;await process_frame
+	check_music(Mods,content,folder)
 	for name in ["textures/deep.png","models/u0.glb"]: DirAccess.remove_absolute(folder.path_join(name))
 	for sub in ["textures","models",""]: DirAccess.remove_absolute(folder.path_join(sub))
 	for template in Mods.templates.values(): template.free()
@@ -97,3 +98,37 @@ func run():
 	await process_frame
 	print("MODS %d failures"%failures)
 	quit(1 if failures>0 else 0)
+func tone(path: String, seconds: float) -> void:
+	"""A short code-made sine as 16-bit PCM WAV, standing in for a player's file."""
+	var wave := AudioStreamWAV.new();wave.format=AudioStreamWAV.FORMAT_16_BITS;wave.mix_rate=22050;wave.stereo=false
+	var data := PackedByteArray();data.resize(int(22050*seconds)*2)
+	for i in int(22050*seconds): data.encode_s16(i*2,int(sin(i*TAU*440.0/22050.0)*8000))
+	wave.data=data;wave.save_to_wav(ProjectSettings.globalize_path(path))
+func check_music(Mods, content, folder: String) -> void:
+	"""A music file replaces a converted track, loops, and restores."""
+	DirAccess.make_dir_recursive_absolute(folder.path_join("music"))
+	expect(Mods.music_path("station").is_empty(),"No music mod means the converted track plays")
+	var audio=load("res://native/presentation/dive_audio.gd").new();root.add_child(audio)
+	audio.configure(null,content.root)
+	var converted=audio.music_tracks.get("station")
+	tone(folder.path_join("music/station.wav"),1.5)
+	expect(Mods.music_path("station")==folder.path_join("music/station.wav") and Mods.audio_kind(Mods.music_path("station"))=="wav","A WAV is found under music/ by the track name")
+	audio.reload_music(content.root)
+	var replaced=audio.music_tracks.get("station")
+	expect(replaced is AudioStreamWAV and replaced!=converted and absf(replaced.get_length()-1.5)<.01,"The replacement stands for the station track")
+	expect(replaced.loop_mode==AudioStreamWAV.LOOP_FORWARD and replaced.loop_end==roundi(1.5*22050),"The replacement loops over its whole length")
+	expect(audio.music_sources.get("station","")==folder.path_join("music/station.wav") and audio.station_music==replaced,"The docked track is the replacement")
+	var status: Dictionary=Mods.music_status(content.root,Mods.TRACKS[1])
+	expect(status.replaced and status.readable and absf(status.length-1.5)<.01,"The music status reports the replacement and its length")
+	var junk := folder.path_join("junk.ogg");var file := FileAccess.open(junk,FileAccess.WRITE);file.store_string("not audio");file.close()
+	expect(Mods.audio_kind(junk)=="" and Mods.install_music("intro",ProjectSettings.globalize_path(junk))!="","A file that is not audio is refused whatever its name")
+	# A picked file arrives under a staging name, not its own.
+	var sample := folder.path_join("sample.bin");tone(folder.path_join("sample.wav"),.5);DirAccess.rename_absolute(folder.path_join("sample.wav"),sample)
+	expect(Mods.install_music("intro",ProjectSettings.globalize_path(sample))=="" and FileAccess.file_exists(Mods.user_music_path("intro","wav")),"Installing a WAV places it in the user mods folder by its content")
+	# The check reads only its own root, so the installed copy is removed here.
+	DirAccess.remove_absolute(Mods.user_music_path("intro","wav"))
+	expect(Mods.remove_music("station") and Mods.music_path("station").is_empty(),"Restoring removes the replacement file")
+	audio.reload_music(content.root)
+	expect(audio.music_tracks.get("station")==converted and not audio.music_sources.has("station"),"After the restore the converted track plays again")
+	audio.queue_free()
+	for name in ["junk.ogg","sample.bin","music"]: DirAccess.remove_absolute(folder.path_join(name))

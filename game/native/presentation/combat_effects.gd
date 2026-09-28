@@ -123,7 +123,8 @@ func update_player_wake(region, milliseconds: float) -> void:
 		local.z=bounds.end.z+.5
 		outlets.append(frame*local+anchor)
 	if wake_previous.is_empty():wake_previous=outlets.duplicate()
-	if dt>0:
+	# A lost hull runs no engines; the bubbles already out rise on.
+	if dt>0 and region.player.health.hull>0:
 		var power: float=clampf(region.player.throttle/100.0,0,1)
 		var interval := lerpf(.24,.035,power)
 		wake_timer=minf(wake_timer+dt,interval*8)

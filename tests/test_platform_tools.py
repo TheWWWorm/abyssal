@@ -78,7 +78,7 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertEqual(export_game.PLATFORMS[platform][1],'abyssal.'+architecture)
             self.assertIn('texture_format/etc2_astc=true',(pathlib.Path(folder)/'linux-arm64/export_presets.cfg').read_text())
             android=(pathlib.Path(folder)/'android/export_presets.cfg').read_text()
-            for option in ['permissions/internet=false','permissions/manage_external_storage=false',
+            for option in ['permissions/internet=false','permissions/manage_external_storage=false','permissions/vibrate=true',
                            'architectures/arm64-v8a=true','architectures/x86_64=true',
                            'gradle_build/use_gradle_build=true']:
                 self.assertIn(option,android)

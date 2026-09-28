@@ -37,6 +37,12 @@ func _ready() -> void:
 	clip_contents=true
 func point(x: float,y: float) -> Vector2:
 	return size*0.5+(Vector2(x,y)-Vector2(50,50))*minf(size.x,size.y)*0.0085*zoom+pan
+func label_at(marker: Vector2, text: String, font_size: int, rise: float) -> Vector2:
+	"""A name goes right of its marker, or left of it where the right would
+	run past the chart's edge and be cut off."""
+	var width: float=ThemeDB.fallback_font.get_string_size(text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size).x
+	var left: bool=marker.x+10+width>size.x-4 and marker.x-10-width>=4
+	return marker.round()+Vector2(-10-width if left else 10.0,rise)
 func chart_at(position: Vector2) -> Vector2:
 	return (position-size*0.5-pan)/(minf(size.x,size.y)*0.0085*zoom)+Vector2(50,50)
 func place_lens(target: Vector2) -> Vector2:
@@ -92,11 +98,11 @@ func _draw() -> void:
 		# does not do, but which reads before the colours are compared.
 		pixel_square(self,p,9.0 if discovered else 7.0,3.0,mark.body,mark.core)
 		if zoom>1.7 or station.id==selected_id or objective:
-			draw_string(ThemeDB.fallback_font,p.round()+Vector2(10,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
+			draw_string(ThemeDB.fallback_font,label_at(p,station.name,14,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
 		if objective:
 			var line := 0
 			for title in objectives(world,station.id):
-				draw_string(ThemeDB.fallback_font,p.round()+Vector2(10,8+line*14),title,HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color("ff9c9c"));line+=1
+				draw_string(ThemeDB.fallback_font,label_at(p,title,12,8+line*14),title,HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color("ff9c9c"));line+=1
 	var encounter = world.encounter_navigation_point()
 	if encounter!=null:
 		var anchor: Array=world.station_origin(session.station_id)

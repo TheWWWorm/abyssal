@@ -66,6 +66,9 @@ var loading_tip: Label
 var modal_origin: Control=null
 ## The Mods page: its picker, the atlas a chosen PNG is for, and its last word.
 var images := preload("res://native/platform/image_file.gd").new()
+## The same picker for a music file, and the track it is for.
+var music_files := preload("res://native/platform/image_file.gd").new()
+var music_target := ""
 var mods_target := ""
 var mods_notice := ""
 var load_path := ""
@@ -150,6 +153,9 @@ func _ready() -> void:
 	add_child(images)
 	images.chosen.connect(install_texture)
 	images.failed.connect(func(message):mods_notice=message;show_mod_textures())
+	music_files.kind="audio";add_child(music_files)
+	music_files.chosen.connect(install_music)
+	music_files.failed.connect(func(message):mods_notice=message;show_mod_music())
 	ui.add_child(panel)
 	panel.add_theme_stylebox_override("panel",style(Color("091720f5"),Color("254451")))
 	var scroll := ScrollContainer.new()
@@ -488,6 +494,7 @@ func refresh_systems() -> void:
 	trade_label.text="Credits %d  ·  Cargo %d / 2  ·  Stock %d\nTest item: 100 credits each" % [credits,trade.owned,trade.stock]
 
 func close_modal() -> void:
+	stop_music_preview()
 	modal.hide()
 	scrim.hide()
 	if inspector_open: catalog.grab_focus()
@@ -634,15 +641,18 @@ func show_help(topic: int=-1) -> void:
 	(first if first!=null else back).grab_focus.call_deferred()
 
 func show_mods() -> void:
-	"""Mods: the sections of player-supplied art. Textures for now."""
+	"""Mods: the sections of player-supplied art and music."""
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
 	box.add_child(label("MODS",24,Color("8bd6ee")))
-	var intro := label("Replace the game's textures with your own PNGs. Remove a replacement to restore the original.",13,Color("a2c3d3"))
+	stop_music_preview()
+	var intro := label("Replace the game's textures and music with your own files. Remove a replacement to restore the original.",13,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=560;box.add_child(intro)
 	var textures := button("Textures",show_mod_textures,box)
 	box.add_child(label("The two texture atlases used by all models.",12,Color("89a6a6")))
+	button("Music",show_mod_music,box)
+	box.add_child(label("The menu and station tracks, as OGG, MP3 or WAV.",12,Color("89a6a6")))
 	var back := button("Back",close_modal,box)
 	scrim.show();modal.show();layout_ui();textures.grab_focus.call_deferred()
 
@@ -731,6 +741,71 @@ func install_texture(path: String) -> void:
 	mods_notice=trouble if not trouble.is_empty() else "%s.png replaced."%mods_target
 	if trouble.is_empty():apply_textures()
 	show_mod_textures()
+
+func show_mod_music() -> void:
+	"""Mods · Music: the JAR's two tracks, what plays for each now, and the
+	ways to hear it, replace it with a file of the player's own, or have the
+	converted MIDI back; on desktop, the folders themselves."""
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
+	box.add_child(label("MODS · MUSIC",22,Color("8bd6ee")))
+	var Mods=preload("res://native/presentation/mods.gd")
+	if not ready_for_preview:
+		box.add_child(label("Import your DEEP JAR first; the music comes from it.",15))
+		var only := button("Back",show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
+	var intro := label("An OGG Vorbis, MP3 or WAV file replaces a track and loops wherever it would play. Changes apply immediately.",12,Color("a2c3d3"))
+	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=580;box.add_child(intro)
+	var first: Button=null
+	for track in Mods.TRACKS:
+		var status: Dictionary=Mods.music_status(content.root,track)
+		var card := PanelContainer.new();card.add_theme_stylebox_override("panel",style(Color("0b1b22aa"),Color("2f4d57")));box.add_child(card)
+		var words := VBoxContainer.new();words.add_theme_constant_override("separation",2);card.add_child(words)
+		words.add_child(label("%s · %s.mid"%[track.title,track.name],15))
+		var about := label(track.about,11,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;about.custom_minimum_size.x=520;words.add_child(about)
+		var standing := "Not in this JAR · a replacement adds it"
+		if status.replaced: standing="Replacement · %s · %s"%[status.path.get_file(),clock(status.length)] if status.readable else "Replacement · %s · cannot be read"%status.path.get_file()
+		elif status.in_jar: standing="Original · converted MIDI · %s"%clock(status.length)
+		words.add_child(label(standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
+		var playing: bool=title_dock.dive_audio.preview_track==track.name
+		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",4);words.add_child(actions)
+		for entry in [["Stop" if playing else "Listen",func():
+			title_dock.dive_audio.preview_track="" if playing else track.name;show_mod_music(),status.readable],
+			["Replace…",func():music_target=track.name;mods_notice="";music_files.choose(),music_files.available()],
+			["Restore original",func():
+				mods_notice=("Restored the original %s track."%track.name) if Mods.remove_music(track.name) else "Could not remove the replacement."
+				apply_music();show_mod_music(),status.replaced]]:
+			var act := button(entry[0],entry[1],actions);act.custom_minimum_size.y=28;act.add_theme_font_size_override("font_size",13);act.disabled=not entry[2]
+			for state in ["normal","hover","focus","pressed"]:
+				var box_style := act.get_theme_stylebox(state).duplicate();box_style.content_margin_top=4;box_style.content_margin_bottom=4;act.add_theme_stylebox_override(state,box_style)
+			if first==null:first=act
+	var folders := HBoxContainer.new();folders.add_theme_constant_override("separation",8);box.add_child(folders)
+	if not OS.has_feature("android") and not OS.has_feature("web"):
+		var music_dir := ProjectSettings.globalize_path(Mods.user_music_path("station","ogg").get_base_dir())
+		button("Open mods folder",func():DirAccess.make_dir_recursive_absolute(music_dir);OS.shell_open(music_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button("Open original music",func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/sound"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var back := button("Back",show_mods,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	if not mods_notice.is_empty():
+		var note := label(mods_notice,12,Color("d7c399"));note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;note.custom_minimum_size.x=560;box.add_child(note)
+	scrim.show();modal.show();layout_ui()
+	(first if first!=null else back).grab_focus.call_deferred()
+
+static func clock(seconds: float) -> String:
+	return "%d:%02d"%[int(seconds)/60,int(seconds)%60]
+
+func install_music(path: String) -> void:
+	var Mods=preload("res://native/presentation/mods.gd")
+	var trouble: String=Mods.install_music(music_target,path) if not music_target.is_empty() else "Choose a track first."
+	if path.begins_with("user://") or path.begins_with(OS.get_cache_dir()):DirAccess.remove_absolute(path)
+	mods_notice=trouble if not trouble.is_empty() else "The %s track is replaced."%music_target
+	if trouble.is_empty():apply_music()
+	show_mod_music()
+
+func apply_music() -> void:
+	if ready_for_preview:title_dock.dive_audio.reload_music(content.root)
+
+func stop_music_preview() -> void:
+	title_dock.dive_audio.preview_track=""
 
 func apply_textures() -> void:
 	title_dock.view.library.reload_textures()

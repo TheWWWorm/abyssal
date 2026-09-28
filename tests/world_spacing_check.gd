@@ -129,7 +129,7 @@ func check_ui(cache: String) -> void:
 	expect(old_neighbors.all(func(node):return node.is_queued_for_deletion()),"Changing scale discards streamed station positions from the old dive")
 	expect(game.world.session.world_layout.spacing_meters==2000,"Checkpoint reload uses the saved spacing preference")
 	game.world.depart();game.show_map();await process_frame;game.select_station(1)
-	expect(game.map_info.get_parsed_text().contains("%.1f / %.1f km"%[game.world.map_kilometers(game.world.stream_distance(1)),game.world.map_kilometers(game.world.stream_range())]),"Map distance and reach match the active scale")
+	expect(game.map_info.get_parsed_text().contains("%.1f / %.1f\u00a0km"%[game.world.map_kilometers(game.world.stream_distance(1)),game.world.map_kilometers(game.world.stream_range())]),"Map distance and reach match the active scale")
 	game.close_page()
 	var mission=game.session.campaign.primary;mission.kind=8;mission.completed=false;mission.failed=false;mission.destination=1;mission.destination_name=game.session.stations[1].name
 	var target: Array=Math.subtracted(game.world.station_origin(1),game.world.station_origin(game.session.station_id))

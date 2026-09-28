@@ -1,11 +1,12 @@
-/* Engine-authored music transport. Owner-imported PCM stays in memory; no fetch.
+/* Engine-authored music transport. Owner-imported PCM, or an owner-supplied
+ * replacement file the browser decodes, stays in memory; no fetch.
  * Keep one decoded buffer per track and use the audio clock, not game frames.
  * Short effects remain on Godot's sample player. */
 (function(scope) {
   'use strict';
   class Music {
     constructor(context) {
-      this.context=context;this.buffers=new Map();this.source=null;
+      this.context=context;this.buffers=new Map();this.pending=new Map();this.source=null;
       this.key='';this.offset=0;this.started=0;this.paused=true;
       this.gain=context.createGain();this.gain.connect(context.destination);
       this.unlock=()=>{if(!this.paused)this.context.resume().catch(()=>{});};
@@ -28,7 +29,24 @@
       }
       this.buffers.set(key,buffer);
     }
-    has(key) {return this.buffers.has(key);}
+    prepareEncoded(key,base64) {
+      // OGG, MP3 or WAV bytes. Decoding is asynchronous: until it finishes the
+      // track stays silent, and play() starts it on the next update.
+      if(this.buffers.has(key)||this.pending.has(key))return;
+      const raw=atob(base64),bytes=new Uint8Array(raw.length);
+      for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+      const token={};this.pending.set(key,token);
+      this.context.decodeAudioData(bytes.buffer).then(buffer=>{
+        if(this.pending.get(key)!==token)return;
+        this.pending.delete(key);this.buffers.set(key,buffer);
+        if(key===this.key&&!this.paused)this.play();
+      },()=>{if(this.pending.get(key)===token)this.pending.delete(key);});
+    }
+    forget(key) {
+      if(key===this.key)this.stop();
+      this.buffers.delete(key);this.pending.delete(key);
+    }
+    has(key) {return this.buffers.has(key)||this.pending.has(key);}
     update(key,volume,paused) {
       if(key!==this.key){this.stop();this.key=key;}
       this.gain.gain.setTargetAtTime(Math.max(0,Math.min(1,volume)),this.context.currentTime,.01);
@@ -49,7 +67,7 @@
     }
     stop() {this.pause();this.offset=0;this.paused=true;}
     dispose() {
-      this.stop();this.buffers.clear();this.gain.disconnect();
+      this.stop();this.buffers.clear();this.pending.clear();this.gain.disconnect();
       scope.removeEventListener?.('pointerdown',this.unlock);
       scope.removeEventListener?.('keydown',this.unlock);
       this.context.close().catch(()=>{});

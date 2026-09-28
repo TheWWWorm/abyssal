@@ -706,6 +706,9 @@ func _process(delta: float) -> void:
 		if session.docked: finish_docking()
 		else:
 			collect_damage_bearings();check_hull_buzz()
+			# The simulation stops at a death or at the end of an encounter;
+			# its clock runs on alone while the explosion that ended it plays.
+			if world.region.failed or world.region.pending_mission!=null:world.region.elapsed_ms+=int(minf(delta,.1)*1000.0)
 			consume_events()
 			if page.is_empty():
 				flight_ms+=int(delta*1000)
@@ -1813,9 +1816,19 @@ func dialogue_page() -> void:
 	focus_if_visible.call_deferred(next)
 func focus_if_visible(control) -> void:
 	if is_instance_valid(control) and control.is_inside_tree() and control.is_visible_in_tree(): control.grab_focus()
+## How long a death, a failure or a finished encounter waits for the
+## explosion that caused it: past the flash, into the falling debris.
+const AFTERMATH_MS := 2800
+func aftermath_pending() -> bool:
+	var r=world.region
+	for event in r.visual_events:
+		if event.kind=="explosion" and not event.get("creature",false) and r.elapsed_ms-int(event.time)<AFTERMATH_MS:return true
+	return false
 func consume_events() -> void:
 	while not world.region.events.is_empty():
 		var entry: Dictionary = world.region.events.pop_front()
+		if entry.kind in ["death","mission_failed","mission_complete"] and aftermath_pending():
+			world.region.events.push_front(entry);break
 		match entry.kind:
 			"briefing": show_dialogue(session.dialogue(entry.mission,0),close_page)
 			"credits": show_dialogue([{"speaker":"Credits","text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)}],func(): world.region.acknowledge_credits(); close_page())
@@ -1827,7 +1840,10 @@ func consume_events() -> void:
 				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":session.text(entry.entry.text_id,session.name),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],func(): world.region.acknowledge_transmission(); close_page(),"signal")
 			"death","mission_failed":
 				dive_audio.cue("pressure")
-				open_page(entry.text,"failure")
+				# The heading names what happened; what to do next is the
+				# body's, where a long line wraps instead of being cut off.
+				open_page("Game over" if entry.kind=="death" else "Mission failed","failure")
+				if entry.kind=="death":label(entry.text,17).add_theme_color_override("font_color",colours().text)
 				if entry.kind=="mission_failed" and not world.region.mission.story:
 					button("Continue",func():
 						session.abandon_contract(); world.region.mission=session.campaign.active; world.region.success=null; world.region.failure=null; world.region.time_limit=0; world.region.failed=false; close_page())
@@ -1990,10 +2006,13 @@ func show_map(autopilot_only: bool=false) -> void:
 		show_station_card(-1,prompt[1],prompt[0])
 		for node in [map_route_button,stream_button]:
 			if is_instance_valid(node):node.disabled=true)
-	var search := LineEdit.new(); search.placeholder_text="Find a station…"; search.custom_minimum_size.x=170; actions.add_child(search)
+	# A phone held landscape has too little width for the full labels in one
+	# row; a wrapped second row fell below the page's foot.
+	var tight: bool=ui.size.x<(1240 if touch.enabled() else 1000)
+	var search := LineEdit.new(); search.placeholder_text="Search" if tight else "Find a station…"; search.custom_minimum_size.x=130 if tight else 170; actions.add_child(search)
 	StationTheme.style_field(search,golden(),touch.enabled())
 	search.text_changed.connect(func(value): map_widget.filtered=value.to_lower(); map_widget.queue_redraw())
-	var picker := OptionButton.new(); map_picker=picker; picker.custom_minimum_size.x=190
+	var picker := OptionButton.new(); map_picker=picker; picker.custom_minimum_size.x=160 if tight else 190
 	StationTheme.style_option(picker,golden(),touch.enabled())
 	for station in session.stations: picker.add_item(station.name,station.id)
 	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); actions.add_child(picker)
@@ -2007,11 +2026,12 @@ func show_map(autopilot_only: bool=false) -> void:
 				if session.docked:return
 				if page=="departure":departure_route="encounter";return
 			world.navigate_encounter();close_page(),actions).tooltip_text="Local encounter active · follow its waypoint before travelling to the next story station."
-	map_route_button=bar_button("Set station autopilot",map_autopilot,actions)
+	map_route_button=bar_button("Autopilot" if tight else "Set station autopilot",map_autopilot,actions)
+	if tight: map_route_button.tooltip_text="Set station autopilot"
 	# A pad opens on the chart's main action, not on the station list.
 	map_route_button.set_meta("option","map_route")
 	if focus_option.is_empty():focus_option="map_route"
-	stream_button=bar_button("Plan S.T.R.E.A.M. transfer",map_stream,actions)
+	stream_button=bar_button("S.T.R.E.A.M. transfer" if tight else "Plan S.T.R.E.A.M. transfer",map_stream,actions)
 	stream_button.visible=not atlas_autopilot_only
 	bar_button("Back",dock_back,actions)
 	back_row(show_station if session.docked else close_page)
@@ -2096,13 +2116,21 @@ func station_chart(selection: int) -> HFlowContainer:
 	# The side view and the station share the column evenly, so the station
 	# is shown at a size that reads rather than as a thumbnail.
 	var card := PanelContainer.new(); card.add_theme_stylebox_override("panel",chart_panel()); card.size_flags_vertical=Control.SIZE_EXPAND_FILL; side.add_child(card)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",12); card.add_child(row)
+	# Short of rows, the side view gives up more of the column than the card.
+	if compact: card.size_flags_stretch_ratio=1.8
+	# The card scrolls on its own, so a long warning or the species list
+	# shortens nothing but itself instead of pushing the key and the actions
+	# below the page's foot.
+	var card_scroll := ScrollContainer.new(); card_scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED; card.add_child(card_scroll)
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation",12); row.size_flags_horizontal=Control.SIZE_EXPAND_FILL; row.size_flags_vertical=Control.SIZE_EXPAND_FILL; card_scroll.add_child(row)
 	var facts := VBoxContainer.new(); facts.custom_minimum_size.x=190 if compact else 230; facts.size_flags_horizontal=Control.SIZE_FILL; facts.size_flags_vertical=Control.SIZE_SHRINK_BEGIN; facts.add_theme_constant_override("separation",2); row.add_child(facts)
 	map_title=label("",20 if compact else 24,facts); map_title.modulate=Color("eef6ff")
 	# Rich text, so a figure the ship cannot manage can be picked out in red.
 	map_info=RichTextLabel.new(); map_info.bbcode_enabled=true; map_info.fit_content=true; map_info.scroll_active=false; map_info.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	map_info.add_theme_font_size_override("normal_font_size",14 if compact else 15); map_info.add_theme_color_override("default_color",Color("b9d4f2")); map_info.mouse_filter=Control.MOUSE_FILTER_PASS; facts.add_child(map_info)
 	map_showcase=VBoxContainer.new(); map_showcase.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_showcase.custom_minimum_size.y=90 if compact else 120; row.add_child(map_showcase)
+	# Clear of the card's scroll bar, which is drawn over its content.
+	var bar_room := Control.new(); bar_room.custom_minimum_size.x=10; bar_room.mouse_filter=Control.MOUSE_FILTER_IGNORE; row.add_child(bar_room)
 	var key := PanelContainer.new(); key.add_theme_stylebox_override("panel",chart_panel()); body.add_child(key)
 	var legend := VBoxContainer.new(); legend.add_theme_constant_override("separation",2); key.add_child(legend)
 	map_key(legend)
@@ -2257,7 +2285,7 @@ func select_station(id: int) -> void:
 	elif figures.far: status=""
 	elif not denial.is_empty(): status="Locked by the current mission"
 	elif figures.unsafe: status=session.text(255)
-	show_station_card(id,"%s · %s\nTec Level: %s · Depth: %s\nS.T.R.E.A.M. %s / %.1f km%s"%[
+	show_station_card(id,"%s · %s\nTec Level: %s · Depth: %s\nS.T.R.E.A.M. %s / %.1f\u00a0km%s"%[
 		"Rebels" if session.campaign.rebel_stations[id] else "Colonists","Discovered" if session.discovered[id] else "Unexplored",tech_text(id),figures.depth,
 		figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 	map_info.tooltip_text=denial
@@ -2642,7 +2670,7 @@ func show_stream_menu() -> void:
 		# depth. The reach and distance are this engine's own, and matter here.
 		var figures:=station_figures(id)
 		var status: String=(session.text(255) if figures.unsafe else "Exit ready") if denial.is_empty() else "" if figures.far else denial
-		show_station_card(id,"%s\nTec Level: %s · Depth: %s\nDistance %s km · reach %.1f km%s"%[
+		show_station_card(id,"%s\nTec Level: %s · Depth: %s\nDistance %s\u00a0km · reach %.1f\u00a0km%s"%[
 			"Rebels" if session.campaign.rebel_stations[id] else "Colonists",tech_text(id),figures.depth,
 			figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 		confirm.disabled=not denial.is_empty()
@@ -2659,8 +2687,10 @@ func show_habitat(id: int, parent: Node) -> void:
 	constant weight; only the species half is meaningful to a reader."""
 	var habitat: Array = content.data.habitats[id] if id>=0 and id<content.data.habitats.size() else []
 	label("SPECIES FOUND HERE",13,parent).modulate=Color("93b5aa")
-	# Two columns, so the six fit beside the card's figures.
-	var grid := GridContainer.new();grid.columns=2;grid.add_theme_constant_override("h_separation",14);grid.add_theme_constant_override("v_separation",2);parent.add_child(grid)
+	# Two columns where they fit beside the card's figures; one on a narrow
+	# card, where two broke the names in the middle of a word.
+	var grid := GridContainer.new();grid.columns=2 if parent.size.x>=460 else 1;
+	parent.resized.connect(func():if is_instance_valid(grid):grid.columns=2 if parent.size.x>=460 else 1);grid.add_theme_constant_override("h_separation",14);grid.add_theme_constant_override("v_separation",2);parent.add_child(grid)
 	var seen := {}
 	for index in range(0,habitat.size(),2):
 		var species := int(habitat[index])
@@ -2675,7 +2705,8 @@ func show_habitat(id: int, parent: Node) -> void:
 		var name_label := label(item_name(species) if known else "Unrecorded",15,line)
 		name_label.modulate=Color("d7edf1") if known else Color("6d8894")
 		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-		if known: label("caught",12,line).modulate=Color("c9ae79")
+		if known:
+			var caught := label("caught",12,line);caught.modulate=Color("c9ae79");caught.autowrap_mode=TextServer.AUTOWRAP_OFF;caught.size_flags_horizontal=Control.SIZE_SHRINK_END
 var safety_confirmed := -1
 func ask_outside_safety(id: int, go: Callable, back: Callable) -> bool:
 	"""The original's chart asks before a trip outside the hull's depth

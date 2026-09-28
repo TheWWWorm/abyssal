@@ -13,7 +13,7 @@ import java.util.zip.ZipFile;
 
 /** Offline transport for the shared data-only JAR decoder. No network permission. */
 public final class AbyssalImporter extends GodotPlugin {
-    private static final int PICK = 4821, CONVERT = 4822, SAVE_PICK = 4823, SAVE_WRITE = 4824, IMAGE_PICK = 4825;
+    private static final int PICK = 4821, CONVERT = 4822, SAVE_PICK = 4823, SAVE_WRITE = 4824, IMAGE_PICK = 4825, AUDIO_PICK = 4826;
     private static final int LIMIT = 128 * 1024 * 1024, SAVE_LIMIT = 8 * 1024 * 1024;
     private volatile int generation;
     private volatile boolean busy;
@@ -31,40 +31,45 @@ public final class AbyssalImporter extends GodotPlugin {
             new SignalInfo("save_exported", String.class),
             new SignalInfo("save_failed", String.class),
             new SignalInfo("image_selected", String.class),
-            new SignalInfo("image_failed", String.class)));
+            new SignalInfo("image_failed", String.class),
+            new SignalInfo("audio_selected", String.class),
+            new SignalInfo("audio_failed", String.class)));
     }
     /** A PNG for the Mods page, staged into cache like a chosen save. */
-    @UsedByGodot public void choose_image() {
+    @UsedByGodot public void choose_image() { pickMedia("image", IMAGE_PICK); }
+    /** An OGG, MP3 or WAV for the Mods page's music; the engine reads its bytes, not its name. */
+    @UsedByGodot public void choose_audio() { pickMedia("audio", AUDIO_PICK); }
+    private void pickMedia(String kind, int request) {
         getActivity().runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("image/*");
-            try { getActivity().startActivityForResult(intent, IMAGE_PICK); }
-            catch (Exception e) { emitSignal("image_failed", "No file picker is available: " + e.getMessage()); }
+            intent.setType(kind + "/*");
+            try { getActivity().startActivityForResult(intent, request); }
+            catch (Exception e) { emitSignal(kind + "_failed", "No file picker is available: " + e.getMessage()); }
         });
     }
-    private void receiveImage(Uri uri) {
+    private void receiveMedia(Uri uri, String kind) {
         new Thread(() -> {
             File staged = null;
             try {
-                staged = File.createTempFile("abyssal-image-", ".png", getActivity().getCacheDir());
+                staged = File.createTempFile("abyssal-" + kind + "-", kind.equals("image") ? ".png" : ".audio", getActivity().getCacheDir());
                 try (InputStream src = getActivity().getContentResolver().openInputStream(uri);
                      OutputStream dst = new FileOutputStream(staged)) {
                     byte[] buffer = new byte[65536]; int count; long total = 0;
                     while ((count = src.read(buffer)) != -1) {
                         total += count;
-                        if (total > LIMIT) throw new IOException("Image exceeds 128 MiB.");
+                        if (total > LIMIT) throw new IOException("The file exceeds 128 MiB.");
                         dst.write(buffer, 0, count);
                     }
                 }
                 final File ready = staged;
                 staged = null;
-                getActivity().runOnUiThread(() -> emitSignal("image_selected", ready.getAbsolutePath()));
+                getActivity().runOnUiThread(() -> emitSignal(kind + "_selected", ready.getAbsolutePath()));
             } catch (Exception e) {
                 final String reason = String.valueOf(e.getMessage());
-                getActivity().runOnUiThread(() -> emitSignal("image_failed", "Cannot read this image: " + reason));
+                getActivity().runOnUiThread(() -> emitSignal(kind + "_failed", "Cannot read this file: " + reason));
             } finally { if (staged != null) staged.delete(); }
-        }, "abyssal-image-import").start();
+        }, "abyssal-" + kind + "-import").start();
     }
     @UsedByGodot public void choose() {
         getActivity().runOnUiThread(() -> {
@@ -145,8 +150,8 @@ public final class AbyssalImporter extends GodotPlugin {
     }
 
     @Override public void onMainActivityResult(int request, int result, Intent data) {
-        if (request == IMAGE_PICK) {
-            if (result == Activity.RESULT_OK && data != null && data.getData() != null) receiveImage(data.getData());
+        if (request == IMAGE_PICK || request == AUDIO_PICK) {
+            if (result == Activity.RESULT_OK && data != null && data.getData() != null) receiveMedia(data.getData(), request == IMAGE_PICK ? "image" : "audio");
             return;
         }
         if (request == SAVE_PICK) {

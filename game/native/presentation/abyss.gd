@@ -127,6 +127,27 @@ func _ready() -> void:
 	particles.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(particles)
 
+static var tested_beam: Shader
+static func beam_shader(tested: bool) -> Shader:
+	"""The beam as drawn from outside it: the cone's near surface, depth
+	tested, so a beam behind a hull is hidden by the hardware on every GPU,
+	not only where the scene depth reads back (some phones' Compatibility
+	drivers return none, and another vessel's beams then showed over the
+	player's hull). From inside the cone there is no near surface, so the
+	far one is drawn untested, as the shader file itself does."""
+	var untested: Shader=preload("res://native/presentation/headlight_beam.gdshader")
+	if not tested: return untested
+	if tested_beam==null:
+		tested_beam=Shader.new()
+		tested_beam.code=untested.code.replace("cull_front, depth_draw_never, depth_test_disabled","cull_back, depth_draw_never")
+	return tested_beam
+static func camera_near_beam(beam: Node3D, camera_position: Vector3, margin: float=1.5) -> bool:
+	"""Whether the camera is inside the beam's cone or close enough to its
+	surface that the near plane could cut the near side away."""
+	var local: Vector3=beam.global_transform.affine_inverse()*camera_position
+	var along: float=-local.z
+	if along<-margin or along>BEAM_LENGTH+margin: return false
+	return Vector2(local.x,local.y).length()<=BEAM_HALF_TANGENT*maxf(along,0.0)+margin
 static func create_beam() -> MeshInstance3D:
 	var beam := MeshInstance3D.new()
 	beam.mesh=beam_mesh(BEAM_LENGTH,BEAM_LENGTH*BEAM_HALF_TANGENT)
@@ -200,13 +221,16 @@ func _process(delta: float) -> void:
 			beams[i].material_override.set_shader_parameter("tint",lamps[i].light_color)
 		for i in lamps.size():
 			var lamp := lamps[i]
-			lamp.visible=i<rig.size() and headlights_enabled and not world.session.docked
+			lamp.visible=i<rig.size() and headlights_enabled and not world.session.docked and world.region.player.health.hull>0
 			# A lamp still inside the berth or the gate, behind the plane the
 			# hull is clipped by, lights nothing: it comes on crossing the sill.
 			if lamp.visible and view!=null and view.player_clip_enabled:
 				var plane: Vector4=view.player_clip_plane
 				lamp.visible=Vector3(plane.x,plane.y,plane.z).dot(lamp.global_position)+plane.w>=0.0
 			beams[i].visible=beams_enabled
+			if lamp.visible and beams_enabled:
+				var pass_shader: Shader=beam_shader(not camera_near_beam(beams[i],camera.global_position))
+				if beams[i].material_override.shader!=pass_shader:beams[i].material_override.shader=pass_shader
 			# Snow uses the same reach map even when the visible cone is hidden.
 			if lamp.visible and (beams_enabled or enhanced()):
 				shade_beam(lamp,beams[i],i)
