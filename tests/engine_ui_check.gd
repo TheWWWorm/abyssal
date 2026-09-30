@@ -134,7 +134,7 @@ func run():
  game.session.campaign.primary.kind=8;game.session.campaign.primary.destination=game.session.station_id
  game.show_destinations()
  for i in 6:await process_frame
- expect(not game.sheet_bar.visible and game.sheet_pages.is_empty(),"Autopilot is one page")
+ expect(named_button(game,"NEXT")==null and game.overlay.find_child("Pagination",true,false)==null,"Autopilot is one page")
  expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains("Hold R")),"Quest destination includes hold-R navigation guidance")
  expect(not game.column.find_children("*","Button",true,false).any(func(node):return node.text=="Back to flight"),"No redundant return-to-flight action")
  game.close_page()
@@ -215,16 +215,21 @@ func check_station_availability(game) -> void:
  expect(not named_button(game,"MAP").disabled and not named_button(game,"TRADE").disabled,"Unlocked station services become enabled again")
  game.session.ship.equipment.clear()
  for id in [15,18,21,24,27]:game.session.ship.equipment.append(game.session.make_equipment(id))
- game.equipment_tab=1;game.market_category="";game.market_page=0
+ game.equipment_tab=1;game.market_category=""
  root.size=Vector2i(1280,600);game.layout();game.show_market("equipment")
  for i in 6:await process_frame
- var pager=game.overlay.find_child("Pagination",true,false)
- expect(pager!=null,"A short equipment page offers pagination")
- if pager!=null:
-  expect(not game.sheet_scroll.is_ancestor_of(pager) and game.overlay.get_global_rect().encloses(pager.get_global_rect()),"Equipment pagination stays in the visible footer outside scrolling content")
-  var position: Vector2=pager.global_position
-  game.sheet_scroll.scroll_vertical=100;await process_frame
-  expect(pager.global_position==position,"Scrolling a long item description cannot move the page buttons")
+ var stock=game.column.find_child("StockRows_equipment1",true,false) as ScrollContainer
+ expect(stock!=null and stock.find_children("Stock_*","Button",true,false).size()==5 and named_button(game,"NEXT")==null,"Fitted systems are one scrolling list without page buttons")
+ if stock!=null:
+  expect(game.overlay.get_global_rect().encloses(stock.get_global_rect()),"The list scrolls inside the frame")
+  var bar: VScrollBar=stock.get_v_scroll_bar()
+  if bar.max_value>bar.page:
+   stock.scroll_vertical=int(bar.max_value);await process_frame
+   var bottom: int=stock.scroll_vertical
+   stock.find_child("Stock_4",true,false).pressed.emit()
+   for i in 3:await process_frame
+   stock=game.column.find_child("StockRows_equipment1",true,false)
+   expect(game.market_selection==4 and stock.scroll_vertical==bottom,"Picking a row keeps the list where it was scrolled")
  game.session.credits=0;game.equipment_tab=0;game.show_market("equipment")
  for i in 4:await process_frame
  var buy=named_button(game,"Buy ·")
@@ -894,7 +899,7 @@ func check_outside_safety(game) -> void:
  expect(game.page=="confirm" and not game.world.autopilot,"Choosing it asks first and sets no course yet")
  expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text.contains(game.session.text(255))),"The question carries the original warning")
  for frame in 4:await process_frame
- expect(game.sheet_pages.size()<=1 and not game.sheet_bar.visible,"A two-answer question fits on one sheet")
+ expect(named_button(game,"NEXT")==null and named_button(game,"Cancel")!=null,"A two-answer question has both answers on one page")
  named_button(game,"Cancel").pressed.emit();await process_frame
  expect(game.page=="map" and not game.world.autopilot,"Cancel returns to the chart without a course")
  game.map_destination=target;game.map_autopilot();await process_frame

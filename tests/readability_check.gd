@@ -175,18 +175,18 @@ func run():
   app.touch.mode=mode
   app.show_station();await settle()
   var footer=app.column.get_child(app.column.get_child_count()-1)
-  expect(app.sheet_scroll.get_global_rect().encloses(footer.get_global_rect()),"Dock footer fits without clipping; touch mode "+str(mode))
-  expect(not app.sheet_scroll.get_v_scroll_bar().visible,"Dock menu does not need a scrollbar at 720p; touch mode "+str(mode))
+  expect(app.page_scroll.get_global_rect().encloses(footer.get_global_rect()),"Dock footer fits without clipping; touch mode "+str(mode))
+  expect(not app.page_scroll.get_v_scroll_bar().visible,"Dock menu does not need a scrollbar at 720p; touch mode "+str(mode))
   if args.size()>1:
    root.get_texture().get_image().save_png(args[1]+"/dock-"+str(mode)+".png")
   for kind in ["trade","manufacture"]:
    app.show_market(kind);await settle()
-   var list=app.column.find_child("StockRows",true,false)
+   var list=app.column.find_child("StockList",true,false)
    var detail=app.column.find_child("SelectedItem",true,false)
    expect(list!=null and detail!=null,kind+" uses the shared list/detail presentation")
    if detail==null:continue
-   expect(app.sheet_scroll.get_global_rect().encloses(detail.get_global_rect()),kind+" detail and actions fit at 720p; touch mode "+str(mode))
-   var choices=list.get_children().filter(func(node):return node is Button)
+   expect(app.page_scroll.get_global_rect().encloses(detail.get_global_rect()),kind+" detail and actions fit at 720p; touch mode "+str(mode))
+   var choices=list.find_children("Stock_*","Button",true,false)
    if choices.size()>1:
     choices[1].pressed.emit();await settle()
     expect(app.market_selection==1,"Choosing a row updates "+kind+" selection")
@@ -198,7 +198,7 @@ func run():
    for index in count:
     app.market_selection=index;app.show_market(kind);await settle()
     detail=app.column.find_child("SelectedItem",true,false)
-    expect(app.sheet_scroll.get_global_rect().encloses(detail.get_global_rect()),"Detail fits for %s item %d touch %d"%[kind,index,mode])
+    expect(app.page_scroll.get_global_rect().encloses(detail.get_global_rect()),"Detail fits for %s item %d touch %d"%[kind,index,mode])
  # Exercise the actual new transaction buttons, not just the economy methods.
  app.touch.mode=2;app.market_selection=0;app.show_market("trade");await settle()
  var station: Dictionary=app.session.stations[app.session.station_id]

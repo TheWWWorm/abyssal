@@ -45,6 +45,16 @@ func label_at(marker: Vector2, text: String, font_size: int, rise: float) -> Vec
 	return marker.round()+Vector2(-10-width if left else 10.0,rise)
 func chart_at(position: Vector2) -> Vector2:
 	return (position-size*0.5-pan)/(minf(size.x,size.y)*0.0085*zoom)+Vector2(50,50)
+func zoom_about(factor: float, anchor: Vector2) -> void:
+	"""Zooms keeping the chart point under the anchor, in the chart's own
+	pixels, where it is."""
+	var old := zoom; zoom=clampf(zoom*factor,0.75,6)
+	pan=anchor-size*0.5-(anchor-size*0.5-pan)*zoom/old; queue_redraw()
+func keep_in_view(target: Vector2, margin: float) -> void:
+	"""Pans just enough to keep a chart point the margin inside the edges."""
+	var at := point(target.x,target.y)
+	var inset := Vector2(minf(margin,size.x*.5),minf(margin,size.y*.5))
+	pan+=at.clamp(inset,size-inset)-at; queue_redraw()
 func place_lens(target: Vector2) -> Vector2:
 	"""Moves the zone as far towards the target as it may go: inside the reach
 	when it is bounded, and on the ocean."""
@@ -233,8 +243,7 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index==MOUSE_BUTTON_RIGHT: dragging=event.pressed
 		if event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN]:
-			var old := zoom; zoom=clampf(zoom*(1.2 if event.button_index==MOUSE_BUTTON_WHEEL_UP else 1/1.2),0.75,6)
-			pan=event.position-size*0.5-(event.position-size*0.5-pan)*zoom/old; queue_redraw()
+			zoom_about(1.2 if event.button_index==MOUSE_BUTTON_WHEEL_UP else 1/1.2,event.position)
 		if event.button_index==MOUSE_BUTTON_LEFT:
 			if lens_radius<=0:
 				if event.pressed:select_at(event.position)

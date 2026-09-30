@@ -15,6 +15,7 @@ const Spacing = preload("res://native/simulation/world_spacing.gd")
 const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 const Quality = preload("res://native/presentation/graphics_quality.gd")
+const Pad = preload("res://native/input/flight_controls.gd")
 
 ## Tabs in order of how often they are reached for: sound first, input last
 ## but one, and the world rules that only matter between dives at the end.
@@ -591,6 +592,19 @@ func gamepad_page() -> void:
 		rebuild())
 	slider("Gamepad deadzone","input","deadzone",.18,.05,.45,.01)
 	note("Raise if the ship drifts with the sticks at rest.")
+	group("Sticks")
+	var roles: Array=Pad.read_roles(load_config())
+	for axis in 4:
+		var key: String=Pad.AXIS_KEYS[axis]
+		chooser(Pad.AXIS_NAMES[axis],Pad.ROLE_NAMES,roles[axis],key,func(next): put("input",key,next))
+	note("Turn or strafe follows Steering › Left/right keys and stick. Throttle steps the speed as D-pad up and down do. Camera swings the view round the ship.")
+	note("Hold D-pad left to turn the camera with the right stick; tap it to change the camera.")
+	var reset := row("Reset sticks","","pad_reset",func():
+		var config := load_config()
+		for axis in 4: config.set_value("input",Pad.AXIS_KEYS[axis],Pad.DEFAULT_ROLES[axis])
+		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
+		changed.emit("input","pad_left_x");rebuild(true))
+	reset.disabled=roles==Pad.DEFAULT_ROLES
 
 func touch_page() -> void:
 	chooser("Touch controls",TOUCH_MODES,index("input","touch",0,2),"touch_mode",func(next): put("input","touch",next))
@@ -626,8 +640,8 @@ func bindings_page() -> void:
 func reference_page() -> void:
 	for line in ["Mouse turns · Left-click guns · Right-click harpoon · W/S throttle",
 		"Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation.",
-		"Gamepad: right stick turns · left stick strafes or turns · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",
-		"X bank · Y dock · LB route · RB time · View map · D-pad left camera / right lights · Start/B menu"]:
+		"Gamepad: right stick turns · left stick strafes or turns (sticks can be reassigned in Gamepad) · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",
+		"X bank · Y dock · LB route · RB time · View map · D-pad left camera, hold to look with the right stick · D-pad right lights · Start/B menu"]:
 		plain(line,16,column).add_theme_color_override("font_color",colours().text)
 
 func gameplay_page() -> void:

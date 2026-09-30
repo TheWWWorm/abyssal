@@ -58,7 +58,6 @@ var player_face: Array = [85,65,75,16,43,-1]
 var dock_prompt := Label.new()
 var dock_caption := Label.new()
 var market_selection := 0
-var market_page := 0
 var equipment_tab := 0
 ## How many tonnes one press of Buy or Sell moves. Kept between rows so a run of
 ## identical trades is set up once rather than once per commodity.
@@ -84,11 +83,11 @@ var stream_exit_frame := Transform3D.IDENTITY
 var atlas_autopilot_only := false
 var autopilot_pressed_at := -1
 var autopilot_hold_used := false
-var sheet_full_height := 0.0
-var sheet_index := 0
-var sheet_pages: Array = []
-var sheet_bar: HBoxContainer
-var sheet_scroll: ScrollContainer
+## Where each long list was scrolled to, so picking a row, which rebuilds the
+## page, leaves the list where it was.
+var list_offsets := {}
+## The open page's scroller.
+var page_scroll: ScrollContainer
 var market_category := ""
 var original_ui_size := Vector2i.ZERO
 var hud := Label.new()
@@ -324,15 +323,15 @@ func layout() -> void:
 	if page=="destinations":
 		overlay.size=Vector2(minf(700,ui.size.x-48),minf(ui.size.y-48,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="pause":
-		overlay.size=Vector2(minf(430,ui.size.x-48),minf(ui.size.y-64,overlay.get_combined_minimum_size().y+maxf(sheet_full_height,column.get_combined_minimum_size().y)+2));overlay.position=Vector2(64,(ui.size.y-overlay.size.y)*.5)
+		overlay.size=Vector2(minf(430,ui.size.x-48),minf(ui.size.y-64,fitted_height()));overlay.position=Vector2(64,(ui.size.y-overlay.size.y)*.5)
 	elif page in ["hangar","station_missions","station_status"]:
 		overlay.size=Vector2(minf(1120,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page in ["ship_status","profile"]:
 		overlay.size=Vector2(minf(1240,ui.size.x-48),minf(ui.size.y-48,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="system":
 		overlay.size=Vector2(minf(880,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
-	elif page in ["controls","graphics","journal","failure","confirm","transfer"]:
-		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,overlay.get_combined_minimum_size().y+maxf(sheet_full_height,column.get_combined_minimum_size().y)+2));overlay.position=(ui.size-overlay.size)*.5
+	elif page in ["controls","graphics","journal","failure","confirm","transfer","help","save_slots"]:
+		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page=="medal":
 		# A short notice: centred, and only as tall as its rows.
 		overlay.size=Vector2(minf(560,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
@@ -501,7 +500,6 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 	overlay.add_theme_stylebox_override("panel",box_style())
 	auto_fire=false
 	for child in overlay.get_children(): overlay.remove_child(child); child.queue_free()
-	sheet_index=0;sheet_full_height=0;sheet_pages.clear()
 	var shell := VBoxContainer.new();shell.add_theme_constant_override("separation",12);overlay.add_child(shell)
 	var header := HBoxContainer.new();header.add_theme_constant_override("separation",12);shell.add_child(header)
 	var titles := VBoxContainer.new();titles.size_flags_horizontal=Control.SIZE_EXPAND_FILL;titles.add_theme_constant_override("separation",4);header.add_child(titles)
@@ -517,13 +515,13 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		var back := iconic(button("CLOSE" if id=="destinations" else "BACK",dock_back,header),"back",18)
 		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.size_flags_vertical=Control.SIZE_SHRINK_BEGIN;back.custom_minimum_size=Vector2(128,48 if touch.enabled() else 40)
 		back.add_theme_font_override("font",heading_font(4))
-	var scroll := ScrollContainer.new();sheet_scroll=scroll;scroll.follow_focus=true; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
-	scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_AUTO if touch.enabled() or id in ["station","destinations","controls","market","profile"] else ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	column=VBoxContainer.new(); column.size_flags_horizontal=Control.SIZE_EXPAND_FILL; column.size_flags_vertical=Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",7); scroll.add_child(column)
+	var scroll := ScrollContainer.new();page_scroll=scroll;scroll.follow_focus=true; scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
+	# A page longer than its frame scrolls; it is never cut into sheets.
+	var gutter := scroll_gutter(scroll)
+	column=VBoxContainer.new(); column.size_flags_horizontal=Control.SIZE_EXPAND_FILL; column.size_flags_vertical=Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",7); gutter.add_child(column)
 	# Panels sized to their rows follow the rows once text has wrapped to width.
 	column.minimum_size_changed.connect(request_layout)
 	touch_scroll.scroll=scroll;touch_scroll.gesture_control=null;touch_scroll.release()
-	sheet_bar=HBoxContainer.new();shell.add_child(sheet_bar);sheet_bar.hide()
 	# The keys, as the reference's footer shows them; a touch screen has none.
 	var legend := HBoxContainer.new();legend.name="KeyLegend";legend.add_theme_constant_override("separation",8);shell.add_child(legend)
 	legend.visible=not touch.enabled()
@@ -532,53 +530,48 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		var key := caption(entry[0],10,legend,1);key.add_theme_stylebox_override("normal",boxed);key.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
 		var meaning := caption(entry[1],10,legend,2);meaning.add_theme_color_override("font_color",colours().faint);meaning.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
 		meaning.custom_minimum_size.x=meaning.get_minimum_size().x+14
-	overlay.show(); layout();layout.call_deferred();fit_sheets.call_deferred();focus_page.call_deferred()
+	overlay.show(); layout();layout.call_deferred();focus_page.call_deferred();settle_scroll.call_deferred(scroll)
 	if id!="dialogue":
 		for control in [classic_frame,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
 	for marker in markers:marker.hide()
-func fit_sheets() -> void:
-	# Content pages replace overflowing lists; no hidden clipping or tiny scrollbars.
-	var source_column=column
+func settle_scroll(scroll: ScrollContainer) -> void:
+	"""A page opens at its top, or as far down as its focused row needs.
+	Focus is taken before the frame has its final size, and the scroll that
+	followed it was measured against the page it replaced."""
 	await get_tree().process_frame
-	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
-	if not is_instance_valid(column) or not overlay.visible:return
-	# Pages laid out as panels side by side scroll instead of splitting into sheets.
-	if page in ["station","destinations","controls","map","stream","hangar","station_missions","station_status","system","ship_status","profile","journal"] or (page=="market" and market_category in ["equipment","ships","trade","manufacture"]):return
-	for child in column.get_children():child.show()
-	await get_tree().process_frame
-	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
-	if not is_instance_valid(column):return
-	sheet_full_height=column.get_combined_minimum_size().y;layout()
-	await get_tree().process_frame
-	if not is_instance_valid(source_column) or source_column!=column or not is_instance_valid(sheet_scroll):return
-	var available: float=sheet_scroll.size.y
-	if column.get_combined_minimum_size().y>available:available-=48
-	sheet_pages.clear();var batch: Array=[];var height:=0.0
-	# The separation falls between rows only, not after the last one.
-	for child in column.get_children():
-		if not child.visible:continue
-		var next: float=child.get_combined_minimum_size().y+(7.0 if not batch.is_empty() else 0.0)
-		if height+next>available+.5 and not batch.is_empty():sheet_pages.append(batch);batch=[];height=0;next=child.get_combined_minimum_size().y
-		batch.append(child);height+=next
-	if not batch.is_empty():sheet_pages.append(batch)
-	for child in sheet_bar.get_children():sheet_bar.remove_child(child);child.queue_free()
-	sheet_bar.visible=sheet_pages.size()>1
-	if sheet_pages.size()>1:
-		var previous:=iconic(button("PREVIOUS",func():sheet_index=maxi(0,sheet_index-1);display_sheet(),sheet_bar),"back",16)
-		previous.name="SheetPrevious"
-		var number:=caption("",14,sheet_bar,2);number.name="SheetNumber";number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;number.add_theme_color_override("font_color",colours().text)
-		var following:=button("NEXT",func():sheet_index=mini(sheet_pages.size()-1,sheet_index+1);display_sheet(),sheet_bar);following.alignment=HORIZONTAL_ALIGNMENT_CENTER
-		following.name="SheetNext"
-		for node in [previous,following]:node.add_theme_font_override("font",heading_font(3))
-	display_sheet()
-func display_sheet() -> void:
-	if sheet_pages.is_empty():return
-	sheet_index=clampi(sheet_index,0,sheet_pages.size()-1)
-	for child in column.get_children():child.visible=child in sheet_pages[sheet_index]
-	var number=sheet_bar.get_node_or_null("SheetNumber")
-	if number!=null:number.text="%02d / %02d"%[sheet_index+1,sheet_pages.size()]
-	if sheet_bar.has_node("SheetPrevious"):sheet_bar.get_node("SheetPrevious").disabled=sheet_index==0
-	if sheet_bar.has_node("SheetNext"):sheet_bar.get_node("SheetNext").disabled=sheet_index+1>=sheet_pages.size()
+	if not is_instance_valid(scroll):return
+	scroll.scroll_vertical=0
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused!=null and scroll.is_ancestor_of(focused):scroll.ensure_control_visible(focused)
+func scroll_gutter(scroll: ScrollContainer) -> MarginContainer:
+	"""The scroller's content, kept clear of its bar while the bar shows and
+	full width while everything fits."""
+	var gutter := MarginContainer.new();gutter.name="Gutter";gutter.size_flags_horizontal=Control.SIZE_EXPAND_FILL;gutter.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	scroll.add_child(gutter)
+	var bar: VScrollBar=scroll.get_v_scroll_bar()
+	var fit := func():if is_instance_valid(gutter):gutter.add_theme_constant_override("margin_right",10 if bar.visible else 0)
+	bar.visibility_changed.connect(fit);fit.call()
+	return gutter
+func scrolled_rows(parent: Node, key: String) -> VBoxContainer:
+	"""A list that scrolls on its own beside a fixed detail panel. Each row
+	rebuilds the page when picked, so the list returns to where it was."""
+	var scroll := ScrollContainer.new();scroll.name=key;scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;parent.add_child(scroll)
+	var rows := VBoxContainer.new();rows.name="Rows";rows.size_flags_horizontal=Control.SIZE_EXPAND_FILL;rows.add_theme_constant_override("separation",6);scroll_gutter(scroll).add_child(rows)
+	var offset: int=list_offsets.get(key,0)
+	scroll.get_v_scroll_bar().value_changed.connect(func(value: float):list_offsets[key]=int(value))
+	restore_scroll(scroll,offset)
+	return rows
+func restore_scroll(scroll: ScrollContainer, offset: int) -> void:
+	# Applied each time the rows are measured, so the first frame drawn is
+	# already at the offset, until the list has settled.
+	if offset<=0:return
+	var bar: VScrollBar=scroll.get_v_scroll_bar()
+	var apply := func():if is_instance_valid(scroll):scroll.scroll_vertical=offset
+	bar.changed.connect(apply)
+	for _frame in 2:await get_tree().process_frame
+	if not is_instance_valid(bar):return
+	bar.changed.disconnect(apply);apply.call()
 func close_page() -> void:
 	# Anything that closes the page under the opening ends the opening with it.
 	if opening.active:opening.finish(false)
@@ -677,7 +670,7 @@ func _process(delta: float) -> void:
 	view.stabilize_touch_horizon=touch.enabled()
 	if world.region!=null:world.region.player.touch_horizon_assist=touch.enabled()
 	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:release_flight_mouse()
-	view.look_held=(free_look_held() and mouse_steering_enabled()) or (touch.enabled() and not touch.drag_anywhere and touch.orbit_held())
+	view.look_held=(free_look_held() and mouse_steering_enabled()) or (touch.enabled() and not touch.drag_anywhere and touch.orbit_held()) or (page.is_empty() and controller.snapshot().camera!=Vector2.ZERO)
 	watch_browser_capture()
 	if autopilot_pressed_at>=0 and not autopilot_hold_used and Time.get_ticks_msec()-autopilot_pressed_at>=450:
 		autopilot_hold_used=true;autonavigate_objective()
@@ -746,7 +739,7 @@ func _process(delta: float) -> void:
 		hud.visible=false;hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
 		hints.text="LMB guns · RMB hook · %s fire · %s destination · %s chart"%[OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map)]
 		if touch.enabled():hints.text="Drag anywhere to look" if touch.drag_anywhere else ("Left thumb strafes" if strafe_enabled() else "Left thumb steers")+" · drag the screen to look"
-		elif controller.device>=0:hints.text=("Left stick strafe · right stick turn" if strafe_enabled() else "Left stick steer")+" · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu"
+		elif controller.device>=0:hints.text=(("Left stick strafe · right stick turn" if strafe_enabled() else "Left stick steer") if controller.default_roles() else "Sticks as set in Gamepad settings")+" · hold D-pad left to look · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu"
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
 		# The fitted weapons are the player's own knowledge; the HUD keeps quiet.
 		bank_label.visible=false
@@ -858,18 +851,22 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 		view.turn_look(-screen.look*rate*Vector2(1,-1 if invert_mouse else 1))
 	# The vertical inversion covers the stick too, not only the drag.
 	if invert_mouse: screen.pitch=-screen.pitch
-	horizontal=clampf(horizontal+pad.yaw+screen.yaw,-1,1)
+	horizontal=clampf(horizontal+pad.horizontal+screen.yaw,-1,1)
 	var strafe := 0.0
-	var yaw := clampf(pad.look.x,-1,1)
+	var yaw: float=pad.yaw
 	if strafe_enabled(): strafe=horizontal
 	else: yaw=clampf(yaw+horizontal,-1,1)
+	strafe=clampf(strafe+pad.strafe,-1,1)
+	# A stick given to the camera swings it round the hull, a full turn in
+	# about two and a half seconds; it swings back once let go.
+	if pad.camera!=Vector2.ZERO: view.turn_look(pad.camera*2.5*seconds)
 	if motion_steering:
 		# Tilt turns; it never strafes. A device held level reports nothing, so
 		# this sits alongside the stick rather than replacing it.
 		var tilted := motion.look(seconds,motion_sensitivity)
 		yaw=clampf(yaw+tilted.x,-1,1)
 		pitch=clampf(pitch+tilted.y*(-1.0 if invert_motion_pitch else 1.0),-1,1)
-	pitch=clampf(pitch+pad.pitch+screen.pitch+pad.look.y,-1,1)
+	pitch=clampf(pitch+pad.pitch+screen.pitch,-1,1)
 	throttle=clampi(throttle+pad.throttle+screen.throttle,-1,1)
 	fire=fire or pad.fire;guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
 	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point()}
@@ -898,8 +895,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not page.is_empty(): return
 		for action in key_bindings:
 			if event.physical_keycode==key_bindings[action]: perform(action)
-	if event is InputEventJoypadButton and event.pressed and page.is_empty():
-		if controller.ACTIONS.has(event.button_index):perform(controller.ACTIONS[event.button_index])
+	if event is InputEventJoypadButton and page.is_empty() and controller.ACTIONS.has(event.button_index):
+		# The camera button acts on release: held, it lends the right stick
+		# to the camera instead.
+		if event.button_index==controller.LOOK_BUTTON:
+			if not event.pressed and not controller.look_hold_used:perform(controller.ACTIONS[event.button_index])
+		elif event.pressed:perform(controller.ACTIONS[event.button_index])
 func touch_throttle(percent: int) -> void:
 	if not page.is_empty() or world.region==null or session.docked: return
 	if world.autopilot: world.cancel_autopilot()
@@ -958,6 +959,8 @@ func _input(event: InputEvent) -> void:
 			else:opening.skip()
 		get_viewport().set_input_as_handled();return
 	controller.accept(event)
+	# A camera button pressed in a menu is not a tap in flight when let go.
+	if event is InputEventJoypadButton and event.pressed and event.button_index==controller.LOOK_BUTTON and not page.is_empty():controller.look_hold_used=true
 	if event is InputEventMouseButton and not event.pressed:
 		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(key_bindings.fire):suppress_fire_until_release=false
 	if page.is_empty() and not suppress_fire_until_release:
@@ -1192,7 +1195,6 @@ func compact_manifest(texture: Texture2D, title: String, stats: String, descript
 	var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",1);row.add_child(words)
 	label(title,17,words).add_theme_color_override("font_color",colours().text);label(stats,13,words).add_theme_color_override("font_color",colours().dim)
 var medal_selection := 0
-var medal_page := 0
 const TIER_NAMES := ["Locked","Gold","Silver","Bronze"]
 const TIER_COLOURS := [Color("85939b"),Color("e7c77f"),Color("b6d0de"),Color("ce9b7b")]
 func show_profile(medal_view: bool=false) -> void:
@@ -1228,11 +1230,10 @@ func show_profile(medal_view: bool=false) -> void:
 		var count: int=session.medals.levels.size()
 		medal_selection=clampi(medal_selection,0,count-1)
 		var body := split_row(column,18)
-		var list := VBoxContainer.new();list.name="MedalRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",6);body.add_child(list)
 		var row_height: int=64 if touch.enabled() else 58
-		var page_size: int=clampi(int((ui.size.y-(300 if ui.size.x>=900 else 760))/(row_height+6)),3,9)
-		medal_page=clampi(medal_page,0,(count-1)/page_size)
-		for id in range(medal_page*page_size,mini(count,(medal_page+1)*page_size)):
+		var list := scrolled_rows(body,"MedalRows")
+		list.get_parent().get_parent().custom_minimum_size.y=list_height(count,row_height,body)
+		for id in count:
 			var tier: int=session.medals.levels[id]
 			var cells := stock_row("Medal_%d"%id,id==medal_selection,row_height,func():medal_selection=id;focus_option="medal_%d"%id;show_profile(true),list)
 			(cells.get_parent() as Button).set_meta("option","medal_%d"%id)
@@ -1241,7 +1242,6 @@ func show_profile(medal_view: bool=false) -> void:
 			label(session.text(int(content.data.constants.e["a:[[S"][id][0])),17,words).add_theme_color_override("font_color",palette.text if tier>0 else palette.dim)
 			var badge := label(TIER_NAMES[tier],13,words);badge.add_theme_color_override("font_color",TIER_COLOURS[tier])
 			if tier==0: line_icon("lock",22,cells,palette.faint)
-		pager(medal_page,ceili(float(count)/page_size),func(to):medal_page=to;medal_selection=to*page_size;show_profile(true))
 		var tier: int=session.medals.levels[medal_selection]
 		var detail := VBoxContainer.new();detail.name="SelectedMedal";detail.add_theme_constant_override("separation",10)
 		var frame := glass(body,true,16);frame.size_flags_horizontal=Control.SIZE_EXPAND_FILL;frame.add_child(detail)
@@ -1265,14 +1265,12 @@ func stock_row(id: String, selected: bool, height: int, action: Callable, parent
 	var cells := HBoxContainer.new();control.add_child(cells);cells.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	cells.offset_left=12;cells.offset_right=-14;cells.offset_top=5;cells.offset_bottom=-5;cells.add_theme_constant_override("separation",14);cells.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	return cells
-func pager(index: int, pages: int, turn: Callable) -> void:
-	if pages<=1: return
-	# A fixed footer stays reachable even when an item's description scrolls.
-	var bar: HBoxContainer=sheet_bar;bar.name="Pagination";bar.show();bar.add_theme_constant_override("separation",10)
-	var previous := iconic(button("PREVIOUS",func():turn.call(index-1),bar),"back",16);previous.disabled=index==0
-	var number := caption("%02d / %02d"%[index+1,pages],14,bar,2);number.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;number.add_theme_color_override("font_color",colours().text)
-	var following := button("NEXT",func():turn.call(index+1),bar);following.disabled=index+1>=pages;following.alignment=HORIZONTAL_ALIGNMENT_CENTER
-	for node in [previous,following]: node.add_theme_font_override("font",heading_font(3))
+func list_height(count: int, row_height: int, row: BoxContainer) -> float:
+	"""Beside the detail a list takes the height the detail leaves it, down
+	to a few rows. Above the detail it shows three and a half rows, so a cut
+	row says there are more."""
+	if row is HBoxContainer:return 2.5*(row_height+6)
+	return minf(count,3.5)*(row_height+6)
 func medal_icon(tier: int, parent: Node, height: int=32) -> TextureRect:
 	"""The original's medal sprite: medal_1 to medal_3 for gold, silver and
 	bronze (n, y), and for one not yet won the empty frame of the station's
@@ -1485,6 +1483,7 @@ func read_settings() -> void:
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
 	vibration=bool(config.get_value("input","vibration",true))
 	strafe_mode=setting_index(config,"input","strafe",0,2)
+	controller.roles=controller.read_roles(config)
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
@@ -1533,6 +1532,7 @@ func save_settings() -> void:
 	config.set_value("input","touch_fixed_stick",touch.fixed_stick)
 	config.set_value("input","touch_mirror_fire",touch.mirror_fire_control)
 	config.set_value("input","strafe",strafe_mode)
+	for index in 4: config.set_value("input",controller.AXIS_KEYS[index],controller.roles[index])
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
 	config.set_value("input","motion_invert",invert_motion_pitch)
@@ -1912,7 +1912,7 @@ func trade_amount(station: Dictionary, item, buying: bool, count: int) -> void:
 	if moved<1: notice("Insufficient credits, cargo space or stock."); return
 	notice("%s %d t of %s for %d cr"%["Bought" if buying else "Sold",moved,item_name(item.id),absi(session.credits-before)])
 func show_market(kind: String) -> void:
-	if market_category!=kind: market_selection=0;market_page=0;market_category=kind
+	if market_category!=kind: market_selection=0;list_offsets.clear();market_category=kind
 	var denial: int = session.service_denial(kind)
 	if denial>=0: notice(session.text(denial)); return
 	open_page({"equipment":"Equipment shop","ships":"Ship dealer","trade":"Trade","manufacture":"Workshop","missions":"Available contracts"}.get(kind,kind),"market",
@@ -1927,7 +1927,7 @@ func show_market(kind: String) -> void:
 			ship_strip=bar if ui.size.x>=1100 else column
 			for index in 2:
 				var tab := iconic(button("SHOP" if index==0 else "SHIP EQUIPMENT",func():
-					equipment_tab=index;market_selection=0;market_page=0;show_market("equipment"),tabs),"cart" if index==0 else "wrench",24)
+					equipment_tab=index;market_selection=0;list_offsets.clear();show_market("equipment"),tabs),"cart" if index==0 else "wrench",24)
 				tab.name="ShopTab" if index==0 else "ShipEquipmentTab"
 				tab.toggle_mode=true
 				tab.button_pressed=equipment_tab==index
@@ -2051,21 +2051,29 @@ func pad_axis(axis: int) -> float:
 	return float(controller.axes.get(axis,0.0))
 func map_pad(delta: float) -> void:
 	"""A pad walks the chart's zone with the left stick, as the original's
-	direction keys do, and zooms on the triggers, whatever holds focus; the
-	D-pad stays free to move between the buttons."""
+	direction keys do, pans the chart with the right and zooms on the
+	triggers about the zone, whatever holds focus; the D-pad stays free to
+	move between the buttons. A zone walked towards the edge takes the chart
+	with it."""
 	if not is_instance_valid(map_widget) or map_widget.lens_radius<=0: return
-	var stick := Vector2(pad_axis(JOY_AXIS_LEFT_X),pad_axis(JOY_AXIS_LEFT_Y))
-	if stick.length()<maxf(controller.deadzone,.2): stick=Vector2.ZERO
+	var stick := controller.stick()
+	var zone: Vector2=map_widget.lens_center
 	if stick!=Vector2.ZERO:
 		map_stick_moving=true
-		map_widget.zone_dragged.emit(map_widget.place_lens(map_widget.lens_center+stick*map_widget.lens_radius*3.0*delta))
+		# The same pace on screen at any zoom.
+		zone=map_widget.place_lens(zone+stick*map_widget.lens_radius*3.0*delta/sqrt(map_widget.zoom))
+		map_widget.keep_in_view(zone,map_widget.lens_radius*minf(map_widget.size.x,map_widget.size.y)*.0085*map_widget.zoom+16)
+		map_widget.zone_dragged.emit(zone)
 	elif map_stick_moving:
 		# Letting go settles the zone, as lifting a finger does.
-		map_stick_moving=false;map_widget.zone_moved.emit(map_widget.lens_center,-1)
-	var zooming := pad_axis(JOY_AXIS_TRIGGER_RIGHT)-pad_axis(JOY_AXIS_TRIGGER_LEFT)
+		map_stick_moving=false;map_widget.zone_moved.emit(zone,-1)
+	var panning := controller.stick(JOY_AXIS_RIGHT_X,JOY_AXIS_RIGHT_Y)
+	if panning!=Vector2.ZERO:
+		map_widget.pan-=panning*minf(map_widget.size.x,map_widget.size.y)*1.2*delta;map_widget.queue_redraw()
+	# Some pads report a trigger at rest as -1.
+	var zooming := maxf(0,pad_axis(JOY_AXIS_TRIGGER_RIGHT))-maxf(0,pad_axis(JOY_AXIS_TRIGGER_LEFT))
 	if absf(zooming)>.2:
-		var old: float=map_widget.zoom
-		map_widget.zoom=clampf(old*exp(zooming*delta*1.5),.75,6);map_widget.pan*=map_widget.zoom/old;map_widget.queue_redraw()
+		map_widget.zoom_about(exp(zooming*delta*1.5),map_widget.point(zone.x,zone.y))
 func map_autopilot() -> void:
 	if ask_outside_safety(map_destination,map_autopilot,func():show_map(atlas_autopilot_only)):return
 	if session.docked:
@@ -2146,7 +2154,7 @@ func station_chart(selection: int) -> HFlowContainer:
 		# Its own line, wrapping, so a narrow window does not widen the chart.
 		var gestures := label(map_widget.tooltip_text,13,legend); gestures.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; gestures.modulate=Color("7f96ad")
 		if controller.device>=0 or not Input.get_connected_joypads().is_empty():
-			gestures.text="Pad: left stick moves the zone · LB / RB station · LT / RT zoom"
+			gestures.text="Pad: left stick moves the zone · right stick pans · LB / RB station · LT / RT zoom on the zone"
 	# A flow, so a narrow window wraps the actions onto a second row instead
 	# of pushing the whole chart off the side.
 	var actions := HFlowContainer.new(); actions.add_theme_constant_override("h_separation",10); actions.add_theme_constant_override("v_separation",8)
@@ -2822,18 +2830,18 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 	if entries.is_empty(): label("No ships available at this station." if ships else "No equipment for sale at this station." if equipment_tab==0 else "No equipment installed. Choose Shop to fit a system.").add_theme_color_override("font_color",palette.dim);return
 	market_selection=clampi(market_selection,0,entries.size()-1)
 	var row := split_row(column,18)
-	var list := VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",6);row.add_child(list)
+	var list := VBoxContainer.new();list.name="StockList";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.add_theme_constant_override("separation",6);row.add_child(list)
 	var headings := HBoxContainer.new();list.add_child(headings)
 	caption("SHIPS FOR SALE" if ships else "SHOP STOCK" if equipment_tab==0 else "INSTALLED SYSTEMS",12,headings,3)
 	var value_heading := caption("VALUE",12,headings,3);value_heading.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	var row_height: int=(76 if ships else 64) if touch.enabled() else (72 if ships else 60)
-	var page_size := clampi(int((ui.size.y-(330 if ui.size.x>=900 else 900))/(row_height+6)),3,8)
-	market_page=clampi(market_page,0,(entries.size()-1)/page_size)
-	for index in range(market_page*page_size,mini(entries.size(),(market_page+1)*page_size)):
+	var stock := scrolled_rows(list,"StockRows_"+kind+str(equipment_tab))
+	stock.get_parent().get_parent().custom_minimum_size.y=list_height(entries.size(),row_height,row)
+	for index in entries.size():
 		var entry: Dictionary=entries[index];var item=entry.item
 		var title: String=content.ship_name(item.id) if ships else item_name(item.id,"equipment")
 		var price: int=economy.ship_price(item) if ships else item.price
-		var cells := stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),list)
+		var cells := stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),stock)
 		var control := cells.get_parent() as Button;control.accessibility_name=title
 		var icon := TextureRect.new();icon.texture=imported_art.item(item.id,kind);icon.custom_minimum_size=Vector2(72 if ships else 56,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
 		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",1);words.alignment=BoxContainer.ALIGNMENT_CENTER;cells.add_child(words);words.mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -2843,7 +2851,6 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var value := label("%d cr"%price if entry.buy else "INSTALLED",15,cells);value.custom_minimum_size.x=96;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value if entry.buy else palette.good);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 		control.tooltip_text=title+"\n"+stats
-	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind))
 	if ships:
 		var stage := glass(row,false,16);stage.size_flags_stretch_ratio=1.3 if ui.size.x>=1400 else .8
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
@@ -2915,7 +2922,7 @@ func rule(parent: Node) -> void:
 func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var kind: String="manufacture" if manufacturing else "trade"
 	var palette := colours()
-	# Leave room for the fixed pager and recipe actions on shorter screens.
+	# Leave room for the recipe actions on shorter screens.
 	var compact := ui.size.y<800
 	var entries: Array=economy.recipes(station) if manufacturing else economy.market(station)
 	entries.sort_custom(func(a,b):return a.id<b.id)
@@ -2937,16 +2944,16 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	caption("%d%%"%roundi(100.0*session.ship.cargo_used/maxi(1,session.ship.capacity())),14,hold,1).add_theme_color_override("font_color",palette.text)
 	if hold.get_parent()==null: hold.free()
 	var row:=split_row(column,18)
-	var list:=VBoxContainer.new();list.name="StockRows";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.size_flags_stretch_ratio=1.25;list.add_theme_constant_override("separation",6);row.add_child(list)
+	var list:=VBoxContainer.new();list.name="StockList";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.size_flags_stretch_ratio=1.25;list.add_theme_constant_override("separation",6);row.add_child(list)
 	var headings:=HBoxContainer.new();list.add_child(headings)
 	caption("RECIPE & MATERIALS" if manufacturing else "CARGO & AVAILABILITY",12,headings,3)
 	caption("CAN MAKE" if manufacturing else "UNIT PRICE",12,headings,3).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	var row_height:=64 if touch.enabled() else 56
-	var page_size:=clampi(int((ui.size.y-(360 if ui.size.x>=900 else 980))/(row_height+6)),3,7)
-	market_page=clampi(market_page,0,(entries.size()-1)/page_size)
-	for index in range(market_page*page_size,mini(entries.size(),(market_page+1)*page_size)):
+	var stock := scrolled_rows(list,"StockRows_"+kind)
+	stock.get_parent().get_parent().custom_minimum_size.y=list_height(entries.size(),row_height,row)
+	for index in entries.size():
 		var item=entries[index];var title:=item_name(item.id)
-		var cells:=stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),list)
+		var cells:=stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),stock)
 		(cells.get_parent() as Button).accessibility_name=title
 		var icon:=TextureRect.new();icon.texture=imported_art.item(item.id);icon.custom_minimum_size=Vector2(48,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
 		var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",0);words.alignment=BoxContainer.ALIGNMENT_CENTER;words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
@@ -2955,7 +2962,6 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
 		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d cr"%item.price,16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
-	pager(market_page,ceili(float(entries.size())/page_size),func(to):market_page=to;market_selection=to*page_size;show_market(kind))
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
 	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)
 	var item=entries[market_selection]

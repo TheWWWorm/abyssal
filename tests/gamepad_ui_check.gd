@@ -188,6 +188,38 @@ func run() -> void:
  expect(game.touch.enabled() and not game.touch.visible,"Touch in a menu selects touch mode without overlaying flight controls")
  await tap(JOY_BUTTON_START);await settle()
  expect(game.page.is_empty() and not game.touch.visible,"Resuming with a pad keeps touch controls hidden")
+ # D-pad left: a tap changes the camera; held, the right stick turns it.
+ var mode: int=game.view.camera_mode
+ await tap(JOY_BUTTON_DPAD_LEFT)
+ expect(game.view.camera_mode==(mode+1)%4,"A tap on D-pad left changes the camera")
+ game.view.camera_mode=0;mode=0;game.view.look_offset=Vector2.ZERO
+ var hold:=InputEventJoypadButton.new();hold.device=3;hold.button_index=JOY_BUTTON_DPAD_LEFT;hold.pressed=true
+ Input.parse_input_event(hold);await process_frame
+ await tilt(JOY_AXIS_RIGHT_X,.9)
+ # The game's own frame step is off here; run it by hand.
+ for i in 8:game._process(.05)
+ expect(game.view.look_offset.x>.1 and game.view.look_held,"Holding D-pad left turns the camera with the right stick")
+ expect(game.flight_input(.016).yaw==0,"The held right stick does not steer the hull")
+ await tilt(JOY_AXIS_RIGHT_X,0)
+ hold=hold.duplicate();hold.pressed=false;Input.parse_input_event(hold);await settle()
+ expect(game.view.camera_mode==mode,"Letting go after looking does not change the camera")
+ # The chart zooms about the zone and the right stick pans it.
+ game.show_map();await settle()
+ var chart=game.map_widget
+ var ring: Vector2=chart.point(chart.lens_center.x,chart.lens_center.y);var zoom: float=chart.zoom
+ await tilt(JOY_AXIS_TRIGGER_RIGHT,1)
+ for i in 8:game._process(.05)
+ await tilt(JOY_AXIS_TRIGGER_RIGHT,0)
+ expect(chart.zoom>zoom and chart.point(chart.lens_center.x,chart.lens_center.y).distance_to(ring)<1.0,"The triggers zoom about the zone, not the chart's middle")
+ var lens: Vector2=chart.lens_center;var pan: Vector2=chart.pan
+ await tilt(JOY_AXIS_RIGHT_X,.9)
+ for i in 8:game._process(.05)
+ await tilt(JOY_AXIS_RIGHT_X,0)
+ expect(chart.pan.x<pan.x and chart.lens_center==lens,"The right stick pans the chart and leaves the zone")
+ await tap(JOY_BUTTON_B);await settle()
+ game.show_settings("gamepad");await settle()
+ var labels: Array=game.settings_panel.find_children("*","",true,false).filter(func(node):return node is Label or node is Button).map(func(node):return node.text)
+ expect(labels.has("Left stick up/down") and labels.has("Right stick left/right"),"Each stick axis can be reassigned")
  game.queue_free();await settle()
  for name in ["gamepad-ui-check.cfg","gamepad-ui-check.json","gamepad-ui-check.json.bak"]:DirAccess.remove_absolute("user://"+name)
  print("GAMEPAD_UI ",checks," checks; ",failures," failures");quit(1 if failures else 0)

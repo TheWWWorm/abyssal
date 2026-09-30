@@ -44,16 +44,37 @@ func check_weapon_taps(touch) -> void:
 
 func run() -> void:
  var pad=preload("res://native/input/flight_controls.gd").new()
- axis(pad,JOY_AXIS_LEFT_X,.1);expect(pad.snapshot().yaw==0,"Controller drift stays inside deadzone")
- axis(pad,JOY_AXIS_LEFT_X,.5);expect(pad.snapshot().yaw>0 and pad.snapshot().yaw<.5,"Analog steering retains partial deflection")
+ axis(pad,JOY_AXIS_LEFT_X,.1);expect(pad.snapshot().horizontal==0,"Controller drift stays inside deadzone")
+ axis(pad,JOY_AXIS_LEFT_X,.5);expect(pad.snapshot().horizontal>0 and pad.snapshot().horizontal<.5,"Analog steering retains partial deflection")
  axis(pad,JOY_AXIS_LEFT_Y,-1);expect(pad.snapshot().pitch>0,"Forward stick pitches upward")
  pad.invert=true;expect(pad.snapshot().pitch<0,"Invert setting applies to controller")
  pad.invert=false
- axis(pad,JOY_AXIS_RIGHT_X,.9);axis(pad,JOY_AXIS_RIGHT_Y,-.9)
- expect(pad.snapshot().look.x>.6 and pad.snapshot().look.y>.6,"Right stick aims independently of the left stick")
- pad.invert=true;expect(pad.snapshot().look.y<0,"Invert setting reaches the right stick as well")
+ axis(pad,JOY_AXIS_LEFT_X,0);axis(pad,JOY_AXIS_LEFT_Y,0)
+ axis(pad,JOY_AXIS_RIGHT_X,.9);axis(pad,JOY_AXIS_RIGHT_Y,-.6)
+ expect(pad.snapshot().yaw>.6 and pad.snapshot().pitch>.3 and pad.snapshot().horizontal==0,"Right stick aims independently of the left stick")
+ pad.invert=true;expect(pad.snapshot().pitch<0,"Invert setting reaches the right stick as well")
+ pad.invert=false
+ # Reassigned sticks: left up/down on the throttle, left/right on turning,
+ # the right stick on the camera.
+ pad.roles=[pad.Role.TURN,pad.Role.THROTTLE,pad.Role.CAMERA,pad.Role.CAMERA]
+ var mapped: Dictionary=pad.snapshot()
+ expect(mapped.yaw==0 and mapped.pitch==0 and mapped.camera.x>.6 and mapped.camera.y<0,"A stick given to the camera turns the view, not the ship")
+ axis(pad,JOY_AXIS_LEFT_Y,-.9);axis(pad,JOY_AXIS_LEFT_X,.8);mapped=pad.snapshot()
+ expect(mapped.throttle==1 and mapped.pitch==0 and mapped.yaw>.5 and mapped.horizontal==0,"Throttle and turning can sit on the left stick")
+ axis(pad,JOY_AXIS_LEFT_Y,.3);expect(pad.snapshot().throttle==0,"A throttle stick steps only past half way")
+ pad.roles=pad.DEFAULT_ROLES.duplicate();axis(pad,JOY_AXIS_LEFT_X,0);axis(pad,JOY_AXIS_LEFT_Y,0)
+ # Held, the camera button lends the right stick to the camera; a tap does not.
+ press(pad,pad.LOOK_BUTTON)
+ mapped=pad.snapshot()
+ expect(pad.looking() and mapped.camera.x>.6 and mapped.yaw==0 and pad.look_hold_used,"Holding D-pad left turns the camera with the right stick")
+ press(pad,pad.LOOK_BUTTON,false)
+ expect(pad.snapshot().camera==Vector2.ZERO and pad.snapshot().yaw>.6,"Letting go gives the right stick back to steering")
  axis(pad,JOY_AXIS_RIGHT_X,0);axis(pad,JOY_AXIS_RIGHT_Y,0)
- expect(pad.snapshot().look==Vector2.ZERO,"A centred right stick contributes nothing")
+ press(pad,pad.LOOK_BUTTON);pad.snapshot();expect(not pad.look_hold_used,"A tap on D-pad left stays a tap")
+ press(pad,pad.LOOK_BUTTON,false)
+ var config:=ConfigFile.new();config.set_value("input","pad_left_y",4);config.set_value("input","pad_right_x",99);config.set_value("input","pad_right_y","x")
+ expect(pad.read_roles(config)==[pad.Role.TURN_OR_STRAFE,pad.Role.THROTTLE,pad.ROLE_NAMES.size()-1,pad.Role.PITCH],"Stick roles are read with bounds and defaults")
+ expect(pad.snapshot().camera==Vector2.ZERO and pad.snapshot().yaw==0,"A centred right stick contributes nothing")
  axis(pad,JOY_AXIS_TRIGGER_RIGHT,.8);axis(pad,JOY_AXIS_TRIGGER_LEFT,.8)
  expect(pad.snapshot().guns and pad.snapshot().hook,"Independent triggers can fire both banks")
  pad.blocked=true;expect(not pad.snapshot().guns,"Menu closure suppresses held weapons")
@@ -62,7 +83,7 @@ func run() -> void:
  axis(pad,JOY_AXIS_LEFT_X,.7,1);expect(not pad.snapshot().fire and pad.device==1,"Taking over from another controller clears prior buttons")
  press(pad,JOY_BUTTON_DPAD_UP);expect(pad.snapshot().throttle==1,"Controller can accelerate")
  press(pad,JOY_BUTTON_DPAD_DOWN);expect(pad.snapshot().throttle==0,"Opposing throttle inputs cancel")
- pad.reset();expect(pad.snapshot().yaw==0 and pad.snapshot().throttle==0,"Disconnect/focus reset clears movement")
+ pad.reset();expect(pad.snapshot().horizontal==0 and pad.snapshot().throttle==0,"Disconnect/focus reset clears movement")
  var touch=preload("res://native/input/touch_controls.gd").new();root.add_child(touch);touch.mode=1;touch.set_active(true)
  await process_frame
  check_weapon_taps(touch)
@@ -324,7 +345,7 @@ func run() -> void:
  game.touch.mode=1;game.session.docked=true;game.show_station()
  for i in 4:await process_frame
  var footer: Node=game.column.get_child(game.column.get_child_count()-1)
- expect(game.sheet_scroll.get_global_rect().encloses(footer.get_global_rect()),"Touch station footer stays visible at 720p")
+ expect(game.page_scroll.get_global_rect().encloses(footer.get_global_rect()),"Touch station footer stays visible at 720p")
  await check_touch_placement(game)
  game.queue_free();touch.queue_free();await process_frame
  for name in ["platform-check.cfg","platform-check.json","platform-check.json.bak"]:DirAccess.remove_absolute("user://"+name)
