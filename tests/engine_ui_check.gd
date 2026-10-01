@@ -429,6 +429,14 @@ func check_free_look(game) -> void:
  var hull:Transform3D=game.view.player_model.global_transform
  var behind:Vector3=hull.affine_inverse()*game.view.camera.global_position
  expect(behind.z>0 and absf(behind.x)<1,"The chase camera starts behind the hull")
+ # j.a: the reticle marks the hull's line of fire 204.8 m ahead, and shots
+ # converge on whatever lies under it, or on that point.
+ var pose:Transform3D=game.world.render_pose(game.world.region.player)
+ var mark:Vector3=game.view.reticle_point()
+ expect(absf((mark-pose.origin).dot(-pose.basis.z.normalized())-204.8)<.01 and (mark-pose.origin).cross(-pose.basis.z).length()<.01,"The reticle sits on the hull's line of fire")
+ var aim=game.view.aim_point()
+ var eye:Vector3=game.view.camera.global_position
+ expect(aim is Array and (Vector3(aim[0],-aim[1],-aim[2])*.01-eye).normalized().dot((mark-eye).normalized())>.9999,"Shots converge under the reticle")
  game.view.look_held=true;game.view.turn_look(Vector2(PI/2,0));game.view._process(.04)
  var beside:Vector3=hull.affine_inverse()*game.view.camera.global_position
  expect(beside.x>10 and absf(beside.z)<10,"Mouse right swings the camera round to the hull's starboard side")
@@ -694,6 +702,33 @@ func check_damage_bearings(game) -> void:
  expect(feedback.marks.is_empty(),"Bearings fade instead of accumulating")
  feedback.record(null,here,here)
  expect(feedback.marks.is_empty(),"No camera means no invented bearing")
+ # bd: a drop in hull percentage blinks the readout for three seconds.
+ feedback.update_hull(100,true);feedback.update_hull(58,true)
+ expect(feedback.readout_time>2.9 and not feedback.low,"A hull drop shows its percentage")
+ feedback.update_hull(20,true)
+ expect(feedback.low,"A nearly lost hull pulses the edges")
+ feedback.update_hull(0,false)
+ expect(not feedback.low and feedback.readout_time==0.0,"A lost hull ends the warnings")
+ feedback.update_hull(100,true)
+ feedback.hit(.8)
+ expect(feedback.flash>=.8,"Any damage flashes the edges")
+ feedback.clear()
+ feedback.readout_enabled=false;feedback.pulse_enabled=false
+ feedback.update_hull(100,true);feedback.update_hull(20,true)
+ expect(feedback.readout_time==0.0 and not feedback.low,"The hull readout and pulse can be turned off")
+ feedback.readout_enabled=true;feedback.pulse_enabled=true;feedback.update_hull(100,true)
+ # A hit the shield takes shows lighter than one that reaches the hull.
+ if game.world.region!=null:
+  var health=game.world.region.player.health
+  var saved:=[health.hull,health.shield,health.armor]
+  health.shield=maxi(health.shield,20);health.hull=maxi(health.hull,20)
+  game.hull_seen=-1;game.check_hull_buzz();feedback.clear()
+  health.shield-=10;game.check_hull_buzz()
+  var light: float=feedback.flash
+  feedback.clear();health.shield=0;health.armor=0;game.check_hull_buzz();feedback.clear()
+  health.hull-=10;game.check_hull_buzz()
+  expect(light>0.0 and light<=.5 and feedback.flash>=.45,"Shield hits flash lightly, hull hits fully")
+  health.hull=saved[0];health.shield=saved[1];health.armor=saved[2];game.hull_seen=-1;feedback.clear();game.view.jolt_strength=0.0
 
 func toolbar_button(node: Node, caption: String) -> Button:
  for child in node.find_children("*","Button",true,false):

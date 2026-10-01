@@ -746,6 +746,10 @@ func _process(delta: float) -> void:
 		instruments.update(r,OS.get_keycode_string(key_bindings.boost))
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
 		hazard_warning.update(r,flight_visible and page.is_empty(),not modern_graphics)
+		damage_feedback.visible=flight_visible
+		# bd draws the hull readout in the depth warning's place; over a
+		# warning that is showing, it moves up into the gap above it.
+		damage_feedback.readout_top=hazard_warning.position.y-(40.0 if hazard_warning.visible else 0.0)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
 		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost))
 		instruments.visible=flight_visible
@@ -781,6 +785,11 @@ func _process(delta: float) -> void:
 		# The way out of a gate is a camera shot, not the chase view: its centre
 		# is not where the guns point, so the reticle waits for the hand-back.
 		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
+		if crosshair.visible:
+			# On the hull's line of fire, where the original draws it (j.a).
+			var aim_mark: Vector3=view.reticle_point()
+			crosshair.visible=not camera.is_position_behind(aim_mark)
+			crosshair.position=(camera.unproject_position(aim_mark)-ui.position-crosshair.size*.5).round()
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text=tr("AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED")%[world.speed,OS.get_keycode_string(key_bindings.time)]
 		travel_status.visible=flight_visible and world.autopilot
@@ -1524,6 +1533,10 @@ func read_settings() -> void:
 	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
 	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
 	gameplay_hints=bool(config.get_value("interface","hints",true))
+	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
+	hit_shake=bool(config.get_value("interface","hit_shake",true))
+	damage_feedback.pulse_enabled=bool(config.get_value("interface","low_hull_pulse",true))
+	damage_feedback.readout_enabled=bool(config.get_value("interface","hull_readout",true))
 	world_spacing.read_config(config);world.spacing_meters=world_spacing.meters()
 	Region.split_gates=bool(config.get_value("world","split_gates",true))
 func setting_number(config: ConfigFile, section: String, key: String, fallback: float, low: float, high: float) -> float:
@@ -2632,19 +2645,35 @@ func check_dock_hints() -> void:
 	if session.medals.gold_set() and say_hint("all_gold",session.text(351)):return
 	if session.campaign.finished() and not session.medals.complete_set() and say_hint("hero",session.text(352)):return
 var hold_full_seen := false
-## The phone game's Vibration option: a buzz of 110 ms when the hull takes
-## a hit (bb), on a pad's rumble or a handheld's motor.
+## The phone game's Vibration option: a buzz of 110 ms whenever shield,
+## armour and hull together drop (bb), on a pad's rumble or a handheld's
+## motor. Screens without a motor see it: the view jolts and the edges flash,
+## each optional, and a hit the shield or armour absorbs shows only lightly.
 var vibration := true
+var hit_shake := true
 var hull_seen := -1
+var hull_only_seen := -1
 func buzz(duration_ms: int) -> void:
 	if not vibration:return
 	if controller.device>=0:Input.start_joy_vibration(controller.device,0.6,0.9,duration_ms/1000.0)
 	if OS.has_feature("mobile") or OS.has_feature("android"):Input.vibrate_handheld(duration_ms)
 func check_hull_buzz() -> void:
 	var r=world.region
-	if r==null:hull_seen=-1;return
-	if hull_seen>=0 and r.player.health.hull<hull_seen:buzz(110)
-	hull_seen=r.player.health.hull
+	if r==null:hull_seen=-1;hull_only_seen=-1;return
+	var health=r.player.health
+	var total: int=health.hull+health.shield+health.armor
+	if hull_seen>=0 and total<hull_seen:
+		buzz(110)
+		var whole: float=maxf(1.0,health.max_hull+session.ship.shield+session.ship.armor)
+		var lost: float=float(hull_seen-total)/whole
+		var strength: float
+		if hull_only_seen>=0 and health.hull<hull_only_seen:strength=clampf(.45+lost*6.0,.45,1.0)
+		else:strength=clampf(.2+lost*3.0,.2,.5)
+		damage_feedback.hit(strength)
+		if hit_shake:view.jolt(strength)
+	hull_seen=total
+	hull_only_seen=health.hull
+	damage_feedback.update_hull(int(float(health.hull)/maxf(1.0,health.max_hull)*100.0),health.hull>0)
 func check_stream_proximity() -> void:
 	# The chart must not reopen over the shot of the submarine leaving the far
 	# aperture: it arrives at a gate that is already open, and inside range of it.

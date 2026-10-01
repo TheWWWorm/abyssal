@@ -453,6 +453,15 @@ func _process(delta: float) -> void:
 	# A scripted shot (the opening) is laid over whatever the frame would have
 	# been, and hands back to it by its blend, so the chase is where it lands.
 	if cinematic_override:camera.global_transform=cinematic_transform.interpolate_with(camera.global_transform,cinematic_blend)
+	# A hit jolts the view. The offsets move the rendered eye only, never the
+	# camera node, so the chase smoothing and the aim ray are left alone.
+	camera.v_offset=0.0
+	if jolt_strength>0.0 and not world.session.docked:
+		jolt_strength=maxf(0.0,jolt_strength-delta*JOLT_DECAY)
+		var swing: float=jolt_strength*jolt_strength*JOLT_METRES
+		var t: float=Time.get_ticks_msec()*.001
+		camera.h_offset+=sin(t*71.0)*swing
+		camera.v_offset=sin(t*59.0+1.3)*swing*.8
 	previous_camera_mode=camera_mode
 	# Region entry rebases local coordinates. Measure streaming distances only
 	# after the camera has moved into the new frame, including transit shots.
@@ -872,31 +881,51 @@ func turn_look(relative: Vector2) -> void:
 	look_offset.x=wrapf(look_offset.x+relative.x,-PI,PI)
 	look_offset.y=clampf(look_offset.y+relative.y,-1.25,1.25)
 
+## j.a: the phone's crosshair is drawn over the hull origin plus five forward
+## axes (5 × 4096 units, 204.8 m), a point on the line the shots fly along.
+## The chase camera sits well above the launchers, so a reticle fixed to the
+## screen centre showed shots and the harpoon passing far below it.
+const RETICLE_RANGE := 204.8
+
+## How far the view is thrown at a full-strength hit, and how fast it settles.
+const JOLT_METRES := 0.55
+const JOLT_DECAY := 3.2
+var jolt_strength := 0.0
+
+func jolt(strength: float) -> void:
+	jolt_strength=maxf(jolt_strength,clampf(strength,0.0,1.0))
+
+func reticle_point() -> Vector3:
+	var pose: Transform3D=world.render_pose(world.region.player)
+	return pose.origin-pose.basis.z.normalized()*RETICLE_RANGE
+
 func aim_point():
-	# Only the chase camera looks where the launchers point. The front and
-	# side views look back at, or across, the submarine: a shot converged on
-	# their screen centre leaves the hull backwards or sideways. With no aim
-	# the weapons fire straight ahead, which is what the original always did.
+	# Only the chase camera shows the reticle. The front and side views look
+	# back at, or across, the submarine; with no aim the weapons fire straight
+	# ahead, which is what the original always did.
 	if camera_mode!=0 or departure_progress>=0 or transit_progress>=0 or not world.region.cinematic_camera.is_empty() or looking_around(): return null
-	var center := camera.get_viewport().get_visible_rect().size*.5
-	var origin := camera.project_ray_origin(center)
-	var direction := camera.project_ray_normal(center).normalized()
-	# The chase camera sits behind the ship. Ignore intersections before the
-	# launchers, including the near face of a nearby actor's collision bounds.
+	var reticle := reticle_point()
+	if camera.is_position_behind(reticle): return null
+	var origin := camera.global_position
+	var direction := (reticle-origin).normalized()
+	# Ignore intersections before the launchers, including the near face of a
+	# nearby actor's collision bounds.
 	var minimum_distance := camera.near
-	# With nothing under the reticle, converge where the shots run out rather
-	# than a kilometre beyond it, so a burst into open water ends on the
-	# reticle instead of visibly short of it; the launchers sit under the eye.
-	var distance := 0.0
+	var reach := 0.0
 	for weapon in world.region.loadout.all_weapons():
 		var pose=world.region.player.pose
 		var muzzle: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(pose.origin,pose.rotate_direction(weapon.mount)))
 		minimum_distance=maxf(minimum_distance,(muzzle-origin).dot(direction)+1.0)
-		distance=maxf(distance,weapon.speed*weapon.lifetime*.01)
-	distance=clampf(distance,200.0,1800.0)
-	var query := PhysicsRayQueryParameters3D.create(origin,origin+direction*distance,2)
+		reach=maxf(reach,weapon.speed*weapon.lifetime*.01)
+	# With nothing under the reticle the shots converge on it, on the hull's
+	# own line of fire. Anything the reticle covers, nearer or out to the
+	# longest reach, takes the convergence instead.
+	var distance := origin.distance_to(reticle)
+	var search := maxf(distance,clampf(reach,200.0,1800.0))
+	var nearest := search
+	var query := PhysicsRayQueryParameters3D.create(origin,origin+direction*search,2)
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if not hit.is_empty() and origin.distance_to(hit.position)>=minimum_distance: distance=origin.distance_to(hit.position)
+	if not hit.is_empty() and origin.distance_to(hit.position)>=minimum_distance: nearest=origin.distance_to(hit.position)
 	# Actors use the exact same capture / damage bounds as the simulation.
 	for actor in world.region.creatures+world.region.enemies+world.region.friends:
 		if not actor.health.enabled: continue
@@ -905,8 +934,8 @@ func aim_point():
 		var hit_point = AABB(point-Vector3.ONE*radius,Vector3.ONE*radius*2).intersects_ray(origin,direction)
 		if hit_point is Vector3:
 			var t: float = (hit_point-origin).dot(direction)
-			if t>=minimum_distance and t<distance: distance=t
-
+			if t>=minimum_distance and t<nearest: nearest=t
+	if nearest<search: distance=nearest
 	var point := origin+direction*distance
 	return [roundi(point.x*100),roundi(-point.y*100),roundi(-point.z*100)]
 
