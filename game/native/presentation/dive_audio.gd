@@ -126,7 +126,15 @@ func read_title_track(data: Dictionary) -> void:
 		jar_title=table[0].get_basename()
 func title_choice_text() -> String:
 	"""Auto names the track it resolves to, so the choice is never a guess."""
-	return "Auto · "+title_track().capitalize() if title_choice==0 else TITLE_CHOICES[title_choice]
+	if title_choice==0:
+		match title_track():
+			"intro":return tr("Auto · Intro")
+			"station":return tr("Auto · Station")
+		return "Auto · "+title_track().capitalize()
+	return title_choice_names()[title_choice]
+func title_choice_names() -> Array:
+	"""TITLE_CHOICES in the engine's language."""
+	return [tr("Auto"),tr("Intro"),tr("Station")]
 func title_track() -> String:
 	"""The chosen menu track, or the station track where this JAR has none."""
 	var wanted: String=jar_title if title_choice==0 else "intro" if title_choice==1 else "station"

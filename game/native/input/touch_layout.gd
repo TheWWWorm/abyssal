@@ -3,6 +3,7 @@ extends RefCounted
 ## composition puts it rather than an absolute position. A different screen size
 ## keeps the arrangement it was designed for and moves only what a player moved.
 ## Offsets are in the 1280x720 layout units arrange() works in.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const MIN_SCALE := 0.6
 const MAX_SCALE := 2.0
 const SCALE_STEP := 0.1
@@ -13,6 +14,10 @@ const MAX_OFFSET := 4096.0
 const IDS: Array[String] = ["time","autopilot","boost","map","menu","dock","hook","guns","stick"]
 const NAMES := {"menu":"Pause","map":"Map","autopilot":"Route","time":"Time","dock":"Dock",
 	"boost":"Boost","hook":"Harpoon","guns":"Guns","stick":"Steering stick"}
+static func names() -> Dictionary:
+	"""NAMES in the engine's language."""
+	return {"menu":EngineLanguage.translate("Pause"),"map":EngineLanguage.translate("Map"),"autopilot":EngineLanguage.translate("Route"),"time":EngineLanguage.translate("Time"),"dock":EngineLanguage.translate("Dock"),
+		"boost":EngineLanguage.translate("Boost"),"hook":EngineLanguage.translate("Harpoon"),"guns":EngineLanguage.translate("Guns"),"stick":EngineLanguage.translate("Steering stick")}
 
 static func number(value, fallback: float=0.0) -> float:
 	if value is not float and value is not int: return fallback

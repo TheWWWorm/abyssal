@@ -84,6 +84,9 @@ const DEPTH_LABEL := 50.0
 const HOLD := ["guns","hook","boost","throttle"]
 const ROUND := ["menu","map","time","autopilot","dock","boost","hook","guns"]
 const LABELS := {"guns":"GUNS","hook":"HOOK","boost":"BOOST","throttle":"THROTTLE","dock":"DOCK","map":"MAP","autopilot":"ROUTE","time":"TIME","menu":"PAUSE"}
+func labels() -> Dictionary:
+	"""LABELS in the engine's language."""
+	return {"guns":tr("Guns").to_upper(),"hook":tr("Hook").to_upper(),"boost":tr("Boost").to_upper(),"throttle":tr("Throttle").to_upper(),"dock":tr("Dock").to_upper(),"map":tr("Map").to_upper(),"autopilot":tr("Route").to_upper(),"time":tr("Time").to_upper(),"menu":tr("Pause").to_upper()}
 const IDLE := Color("5fc4df")
 const LIT := Color("aef0ff")
 const FACE := Color("06202ecc")
@@ -406,7 +409,7 @@ func draw_button(key: String, area: Rect2, lit: bool) -> void:
 		var t: float=pulse/1.4
 		draw_arc(center,r+t*22*unit,0,TAU,56,Color(LIT,.55*(1.0-t)),3*unit,true)
 		tint=IDLE.lerp(Color.WHITE,.35+.25*sin(t*TAU))
-		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+20*unit),"DOCK",HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
+		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+20*unit),tr("Dock").to_upper(),HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
 	draw_circle(center,r,Color("1a5f78cc") if lit else FACE)
 	var waiting: bool=key=="boost" and boost_mode=="charging"
 	if key=="boost" and boost_mode in ["charging","active"]:
@@ -420,7 +423,7 @@ func draw_button(key: String, area: Rect2, lit: bool) -> void:
 	if key=="time" and time_speed>1:
 		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+16*unit),"%d×"%time_speed,HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
 	if automatic_weapons.has(key):
-		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+18*unit),"AUTO",HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
+		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+18*unit),tr("Auto").to_upper(),HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
 func fill_level(center: Vector2, r: float, fraction: float, color: Color) -> void:
 	"""The part of a disc below a level, as liquid in a round flask."""
 	if fraction<=0: return

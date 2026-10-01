@@ -47,7 +47,7 @@ func _ready() -> void:
 	caption.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;caption.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	add_child(logo);logo.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;logo.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;logo.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	add_child(hint);hint.text="Enter / click to skip";hint.add_theme_font_size_override("font_size",13);hint.modulate=Color("7fa5b3")
+	add_child(hint);hint.text=tr("Enter / click to skip");hint.add_theme_font_size_override("font_size",13);hint.modulate=Color("7fa5b3")
 	hint.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;hint.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	resized.connect(layout);layout();hide()
 

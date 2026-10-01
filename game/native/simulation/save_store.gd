@@ -1,6 +1,7 @@
 extends RefCounted
 ## Native save schema. Only data is read; no scripts/resources are instantiated
 ## from file paths in a save. The owner's content profile must match on load.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Session = preload("res://native/simulation/session.gd")
 const Mission = preload("res://native/simulation/mission.gd")
 const Ship = preload("res://native/simulation/ship_stats.gd")
@@ -84,8 +85,8 @@ static func load_mission(value: Dictionary):
 
 func restore(data: Dictionary, value: Dictionary):
 	if int(value.get("schema",0)) not in [1,2] or value.get("jar_sha256","")!=data.jar_sha256:
-		failure="This save needs a matching DEEP content profile."; return null
-	if not validate(value,data): failure="The native save is incomplete or invalid."; return null
+		failure=tr("This save needs a matching DEEP content profile."); return null
+	if not validate(value,data): failure=tr("The native save is incomplete or invalid."); return null
 	var session := Session.new(); session.new_game(data,str(value.name),0)
 	restore_fields(session,value,SESSION_FIELDS)
 	# Optional, as saves from before it existed have none: those start the
@@ -173,13 +174,13 @@ func write(path: String, session) -> bool:
 	failure=""
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var file := FileAccess.open(path+".tmp",FileAccess.WRITE)
-	if file==null: failure="Could not write the save file."; return false
+	if file==null: failure=tr("Could not write the save file."); return false
 	file.store_string(JSON.stringify(capture(session))); file.flush(); file.close()
 	if FileAccess.file_exists(path):
 		var backup_error := DirAccess.copy_absolute(path,path+".bak")
-		if backup_error!=OK: failure="Could not preserve the previous checkpoint."; return false
+		if backup_error!=OK: failure=tr("Could not preserve the previous checkpoint."); return false
 	var error := DirAccess.rename_absolute(path+".tmp",path)
-	if error!=OK: failure="Could not finish saving."; return false
+	if error!=OK: failure=tr("Could not finish saving."); return false
 	return true
 
 static func quiet_parse(text: String):
@@ -189,9 +190,9 @@ static func quiet_parse(text: String):
 	return reader.data if reader.parse(text)==OK else null
 func read_one(path: String, data: Dictionary):
 	var file := FileAccess.open(path,FileAccess.READ)
-	if file==null: failure="No native save was found."; return null
+	if file==null: failure=tr("No native save was found."); return null
 	var value = quiet_parse(file.get_as_text())
-	if value is not Dictionary: failure="The save file could not be read."; return null
+	if value is not Dictionary: failure=tr("The save file could not be read."); return null
 	return restore(data,value)
 
 func read(path: String, data: Dictionary):
@@ -221,7 +222,7 @@ const AUTOSAVE_PATH := "user://native/campaign.json"
 const SLOT_PATHS := ["user://native/slot-1.json","user://native/slot-2.json","user://native/slot-3.json"]
 
 static func slot_title(index: int) -> String:
-	return "Autosave" if index>=SLOT_PATHS.size() else "Slot %d"%(index+1)
+	return EngineLanguage.translate("Autosave") if index>=SLOT_PATHS.size() else EngineLanguage.translate("Slot %d")%(index+1)
 
 static func slot_path(index: int) -> String:
 	return AUTOSAVE_PATH if index>=SLOT_PATHS.size() else SLOT_PATHS[index]
@@ -240,6 +241,6 @@ static func summary(path: String,data: Dictionary) -> Dictionary:
 		"modified":FileAccess.get_modified_time(path)}
 
 static func describe(entry: Dictionary) -> String:
-	if entry.is_empty():return "- BLANK -"
+	if entry.is_empty():return "- %s -"%EngineLanguage.translate("Blank").to_upper()
 	var minutes: int=int(entry.elapsed_ms)/60000
-	return "%s · Chapter %d · %s · %d h %02d min"%[entry.name,entry.chapter,entry.station,minutes/60,minutes%60]
+	return EngineLanguage.translate("%s · Chapter %d · %s · %d h %02d min")%[entry.name,entry.chapter,entry.station,minutes/60,minutes%60]

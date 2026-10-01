@@ -214,7 +214,7 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 				if actor.faction==2: session.counters.o+=1; session.medals.pirates+=1
 			if event=="killed" and actor.is_creature: session.counters.g+=1
 			if event=="capsule_destroyed": special_destroyed+=1
-			if event in ["caught","cargo_full","salvaged","rescued","meat_collected"]: events.append({"kind":"notice","text":"Cannot collect catch · cargo hold is full. Make room at a station." if event=="cargo_full" else event.replace("_"," ").capitalize()})
+			if event in ["caught","cargo_full","salvaged","rescued","meat_collected"]: events.append({"kind":"notice","text":tr("Cannot collect catch · cargo hold is full. Make room at a station.") if event=="cargo_full" else {"caught":tr("Caught"),"salvaged":tr("Salvaged"),"rescued":tr("Rescued"),"meat_collected":tr("Meat Collected")}[event]})
 		actor.events.clear()
 	var all_weapons: Array = weapons.duplicate()
 	for weapon in loadout.all_weapons():
@@ -232,9 +232,9 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	session.hull=player.health.hull; session.shield=player.health.shield; session.armor=player.health.armor
 	if player.health.hull<=0:
 		visual_event({"kind":"explosion","position":player.pose.origin.duplicate(),"creature":false,"delays":[0],"offsets":[[0,0,0]],"duration":4000})
-		failed=true; events.append({"kind":"death","text":"Hull lost. Reload your last station save."}); return
+		failed=true; events.append({"kind":"death","text":tr("Hull lost. Reload your last station save.")}); return
 	if failure!=null and failure.evaluate(self,elapsed_ms) or time_limit>0 and elapsed_ms>time_limit:
-		mission.failed=true;failed=true;events.append({"kind":"mission_failed","text":"Mission failed."});return
+		mission.failed=true;failed=true;events.append({"kind":"mission_failed","text":tr("Mission failed.")});return
 	encounter_resolved=success!=null and success.evaluate(self,elapsed_ms)
 	update_radio()
 	scripted_events(delta_ms)

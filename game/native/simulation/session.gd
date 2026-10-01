@@ -137,7 +137,7 @@ func arrive() -> void:
  docked=true
  # ch.e: each medal won or bettered on the trip is announced on its own.
  for id in medals.commit():
-  notices.append({"kind":"medal","id":id,"tier":int(medals.levels[id]),"text":"New medal: "+text(int(data.constants.e["a:[[S"][id][0]))})
+  notices.append({"kind":"medal","id":id,"tier":int(medals.levels[id]),"text":tr("New medal: %s")%text(int(data.constants.e["a:[[S"][id][0]))})
  # The bounty on the trip's pirates grows with the square of their number,
  # a hundred a head at a colonist holding and fifty at a rebel one.
  if medals.pirates>0 and pending_bounty==0:
@@ -166,7 +166,7 @@ func settle_colonist_cargo() -> void:
   if stack.id<fish_found.size():fish+=stack.owned
  ship.set_cargo([])
  credits+=payment;medals.observe_credits(credits)
- cargo_receipt=text(257)+" %d $"%payment+"\n"+("Fish" if fish==count else "Cargo")+" · %d t"%count
+ cargo_receipt=text(257)+" %d $"%payment+"\n"+(tr("Fish · %d t") if fish==count else tr("Cargo · %d t"))%count
  notices.append({"kind":"cargo_settlement","text":cargo_receipt})
 
 func station_story_stock() -> void:

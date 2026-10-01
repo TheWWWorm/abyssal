@@ -1,4 +1,5 @@
 extends Node3D
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 const SpecialActor = preload("res://native/simulation/special_actor.gd")
 const DRAW_DISTANCE := 10000.0
@@ -24,6 +25,9 @@ var world
 var content
 var camera: Camera3D
 const CAMERA_NAMES := ["Chase","Front","Starboard","Port"]
+static func camera_names() -> Array:
+	"""CAMERA_NAMES in the engine's language."""
+	return [EngineLanguage.translate("Chase"),EngineLanguage.translate("Front"),EngineLanguage.translate("Starboard"),EngineLanguage.translate("Port")]
 var camera_mode := 0
 ## A thumb can hold yaw and pitch together long enough to accumulate a large
 ## simulation roll. Keep the touch chase view level during ordinary steering;

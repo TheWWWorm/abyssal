@@ -56,9 +56,9 @@ func advance(delta_ms: int) -> void:
 	weapon.positions[0]=target.pose.origin.duplicate()
 	var visible: bool=not visible_to_camera.is_valid() or visible_to_camera.call(target.pose.origin)
 	if target.health.hull<original_hull:
-		feedback.append("Catch lost · target was damaged.");release();return
+		feedback.append(tr("Catch lost · target was damaged."));release();return
 	if target.is_creature and not target.subdued and not visible:
-		feedback.append("Catch lost · keep the target in view until subdued.");release();return
+		feedback.append(tr("Catch lost · keep the target in view until subdued."));release();return
 	var ready := ready_to_tow()
 	towing=ready;target.towing=ready
 	if not ready:return
@@ -68,7 +68,7 @@ func advance(delta_ms: int) -> void:
 		audio_event("tow",target.pose.origin);tow_sound_started=true;tow_start_distance=distance
 	if distance<=capture_distance:
 		var collected: bool=target.capture(session)
-		if not collected:feedback.append("Cannot collect catch · cargo hold is full.")
+		if not collected:feedback.append(tr("Cannot collect catch · cargo hold is full."))
 		# A wreck or a mine is spent by the attempt either way; a creature that
 		# would not fit stays on the water, off the line.
 		detach(false);return

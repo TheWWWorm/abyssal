@@ -1,4 +1,5 @@
 extends Control
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 signal selected(id: int)
 ## A tap placed the zone: where it ended up, and the station tapped, if any.
 signal zone_moved(center: Vector2, near: int)
@@ -118,7 +119,7 @@ func _draw() -> void:
 		var anchor: Array=world.station_origin(session.station_id)
 		var waypoint := point(float(anchor[0]+encounter[0])/world.map_scale(),float(anchor[2]+encounter[2])/world.map_scale())
 		draw_arc(waypoint,6,0,TAU,16,Color("91e4d4"),2,true)
-		draw_string(ThemeDB.fallback_font,waypoint+Vector2(12,20),"Local encounter",HORIZONTAL_ALIGNMENT_LEFT,-1,13,Color("91e4d4"))
+		draw_string(ThemeDB.fallback_font,waypoint+Vector2(12,20),tr("Local encounter"),HORIZONTAL_ALIGNMENT_LEFT,-1,13,Color("91e4d4"))
 	var position: Array = world.global_position()
 	var p := point(float(position[0])/world.map_scale(),float(position[2])/world.map_scale())
 	if world.autopilot and world.destination>=0:
@@ -168,9 +169,9 @@ static func nice_distance(meters: float) -> float:
 static func distance_text(meters: float) -> String:
 	if meters>=1000.0:
 		var kilometers: float=meters/1000.0
-		if is_equal_approx(kilometers,roundf(kilometers)):return "%d km"%roundi(kilometers)
-		return "%.1f km"%kilometers
-	return "%d m"%roundi(meters)
+		if is_equal_approx(kilometers,roundf(kilometers)):return EngineLanguage.translate("%d km")%roundi(kilometers)
+		return EngineLanguage.translate("%.1f km")%kilometers
+	return EngineLanguage.translate("%d m")%roundi(meters)
 static func marker(world, station: Dictionary) -> Dictionary:
 	"""A station's colours on the chart and the side view alike.
 

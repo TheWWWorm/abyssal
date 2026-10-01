@@ -60,7 +60,7 @@ window.abyssalFiles = {
 		browser=JavaScriptBridge.get_interface("abyssalFiles")
 	else:
 		add_child(dialog);dialog.access=FileDialog.ACCESS_FILESYSTEM;dialog.file_mode=FileDialog.FILE_MODE_OPEN_FILE
-		dialog.use_native_dialog=true;dialog.filters=PackedStringArray(["*.abyss ; Private Abyssal content pack ; application/octet-stream,application/zip"])
+		dialog.use_native_dialog=true;dialog.filters=PackedStringArray(["*.abyss ; "+tr("Private Abyssal content pack")+" ; application/octet-stream,application/zip"])
 		dialog.file_selected.connect(func(path):selected.emit(path))
 func choose() -> void:
 	if android!=null:android.choose()
@@ -78,11 +78,11 @@ func received(args: Array) -> void:
 	var bytes:=JavaScriptBridge.js_buffer_to_packed_byte_array(args[1])
 	var path:="user://selected.abyss"
 	var file:=FileAccess.open(path,FileAccess.WRITE)
-	if file==null:failed.emit("Browser storage is unavailable.");return
+	if file==null:failed.emit(tr("Browser storage is unavailable."));return
 	file.store_buffer(bytes)
 	var result:=file.get_error();file.close()
 	if result!=OK:
-		DirAccess.remove_absolute(path);failed.emit("Browser storage is full. Free space and try again.");return
+		DirAccess.remove_absolute(path);failed.emit(tr("Browser storage is full. Free space and try again."));return
 	selected.emit(path);DirAccess.remove_absolute(path)
 func _exit_tree() -> void:
 	if android!=null and busy:android.cancel()

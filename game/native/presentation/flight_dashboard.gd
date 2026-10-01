@@ -21,6 +21,8 @@ const AMBER=Color("d7ae6a")
 const DIM=Color("789997")
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE;font.font_names=PackedStringArray(["DejaVu Sans Mono","Liberation Mono"])
+	# Glyphs the mono face lacks, such as CJK engine text, come from the interface font.
+	font.fallbacks=[ThemeDB.fallback_font]
 	resized.connect(queue_redraw)
 func _process(delta: float) -> void:
 	clock+=delta;redraw_clock+=delta
@@ -28,7 +30,7 @@ func _process(delta: float) -> void:
 func update(owner_world) -> void:
 	world=owner_world
 	depth=world.region.player.depth;safe_min=world.session.ship.minimum_depth;safe_max=world.session.ship.maximum_depth;stopped=world.region.player.stopped
-	navigation="AUTOPILOT %d×"%world.speed if world.autopilot else "MANUAL"
+	navigation=(tr("Autopilot %d×")%world.speed).to_upper() if world.autopilot else tr("Manual").to_upper()
 func text(at: Vector2,value: String,color: Color=INK,pixels: int=13,width: float=-1) -> void:
 	draw_string(font,at,value,HORIZONTAL_ALIGNMENT_LEFT,width,pixels,color)
 func center_text(at: Vector2,value: String,color: Color,pixels: int) -> void:
@@ -53,7 +55,7 @@ func _draw() -> void:
 	var y=h-112
 	draw_line(Vector2(left,y+2),Vector2(right,y+2),Color("92795388"),1,true)
 	draw_rect(Rect2(left,y,width,88),Color("03151b55"))
-	text(Vector2(left+18,y+19),"THROTTLE",MINT,11)
+	text(Vector2(left+18,y+19),tr("Throttle").to_upper(),MINT,11)
 	text(Vector2(left+25,y+45),"%d %%"%roundi(player.throttle),INK,22)
 	for i in 20:
 		var x=left+16+i*4.7
@@ -69,14 +71,14 @@ func _draw() -> void:
 		var weapon=slots[i][0];var id: int=weapon.equipment_id
 		if imported_art!=null and not icons.has(id):icons[id]=imported_art.item(id,"equipment")
 		if icons.get(id)!=null:draw_texture_rect(icons[id],Rect2(at+Vector2(14,24),Vector2(slot_width-28,30)),false,Color(.70,.86,.82))
-		text(at+Vector2(5,67),"HARPOON" if weapon.fishing else "%d GUN%s"%[slots[i].size(),"S" if slots[i].size()>1 else ""],AMBER,9)
+		text(at+Vector2(5,67),tr("Harpoon").to_upper() if weapon.fishing else ((tr("%d guns") if slots[i].size()>1 else tr("%d gun"))%slots[i].size()).to_upper(),AMBER,9)
 		if i==r.loadout.selected:draw_line(at+Vector2(7,77),at+Vector2(slot_width-12,77),MINT,1,true)
 	var nx=right-108
-	text(Vector2(nx,y+22),"MANUAL" if not world.autopilot else "AUTO %d×"%world.speed,MINT,10)
+	text(Vector2(nx,y+22),tr("Manual").to_upper() if not world.autopilot else (tr("Auto %d×")%world.speed).to_upper(),MINT,10)
 	draw_circle(Vector2(right-18,y+18),3,MINT)
-	text(Vector2(nx,y+46),"FULL STOP" if stopped else "%04.1f m/s"%(player.speed_factor*10.0*player.throttle/100.0),INK,12)
+	text(Vector2(nx,y+46),tr("Full stop").to_upper() if stopped else tr("%04.1f m/s")%(player.speed_factor*10.0*player.throttle/100.0),INK,12)
 	var boost=preload("res://native/presentation/flight_instruments.gd").boost_state(player)
-	text(Vector2(nx,y+65),("BOOST %.1f s"%boost.seconds if boost.mode in ["active","charging"] else "BOOST "+str(boost.mode).to_upper()),DIM,8)
+	text(Vector2(nx,y+65),((tr("Boost %.1f s")%boost.seconds).to_upper() if boost.mode in ["active","charging"] else tr("Boost ready").to_upper() if boost.mode=="ready" else tr("Boost absent").to_upper() if boost.mode=="absent" else "BOOST "+str(boost.mode).to_upper()),DIM,8)
 	meter(Vector2(nx,y+71),88,boost.fraction,AMBER)
 	draw_top_console(w)
 	draw_depth(h);draw_sonar(Vector2(w-140,h-145),108)
@@ -89,12 +91,12 @@ func draw_top_console(w: float) -> void:
 	# Keep critical instruments together even on ultrawide displays.
 	draw_line(Vector2(left,19),Vector2(center+480,19),Color("9b805288"),1,true)
 	draw_line(Vector2(left,22),Vector2(center+480,22),Color("9b805233"),1,true)
-	text(Vector2(left+10,41),"01 / OBJECTIVE",AMBER,10)
+	text(Vector2(left+10,41),"01 / "+tr("Objective").to_upper(),AMBER,10)
 	var lines := objective_text.split("\n")
-	text(Vector2(left+10,64),lines[0] if not lines.is_empty() else "Explore the ocean",INK,15,280)
+	text(Vector2(left+10,64),lines[0] if not lines.is_empty() else tr("Explore the ocean"),INK,15,280)
 	text(Vector2(left+10,86),lines[1] if lines.size()>1 else world.session.stations[world.session.station_id].name.to_upper(),MINT,12,280)
 	if lines.size()>2:text(Vector2(left+10,126),lines[2],AMBER,11,280)
-	text(Vector2(left+10,106),"CARGO %d/%d   •   %d CR"%[world.session.ship.cargo_used,world.session.ship.capacity(),world.session.credits],DIM,11,290)
+	text(Vector2(left+10,106),(tr("Cargo %d/%d   •   %d cr")%[world.session.ship.cargo_used,world.session.ship.capacity(),world.session.credits]).to_upper(),DIM,11,290)
 	var f: Array=world.region.player.pose.forward
 	var heading=fposmod(rad_to_deg(atan2(f[0],f[2])),360)
 	var pivot=Vector2(center-50,64)
@@ -102,7 +104,7 @@ func draw_top_console(w: float) -> void:
 	for i in 13:
 		var a=-PI+i*PI/12;draw_line(pivot+Vector2.from_angle(a)*39,pivot+Vector2.from_angle(a)*(34 if i%3==0 else 36),DIM,1,true)
 	center_text(pivot+Vector2(0,9),"%03d°"%roundi(heading),MINT,21)
-	center_text(pivot+Vector2(0,30),"HEADING",AMBER,9)
+	center_text(pivot+Vector2(0,30),tr("Heading").to_upper(),AMBER,9)
 	var values := [health.hull,health.shield,health.armor]
 	var maximum := [health.max_hull,world.session.ship.shield,world.session.ship.armor]
 	for i in 3:
@@ -112,15 +114,15 @@ func draw_top_console(w: float) -> void:
 		draw_arc(at,30,PI*.8,PI*2.2,48,Color("2c4746"),3,true)
 		draw_arc(at,30,PI*.8,PI*.8+PI*1.4*ratio,48,color,3,true)
 		draw_arc(at,35,PI*.8,PI*2.2,48,Color("98815488"),1,true)
-		center_text(at+Vector2(0,-39),["HULL","SHIELD","ARMOR"][i],AMBER,11)
+		center_text(at+Vector2(0,-39),[tr("Hull"),tr("Shield"),tr("Armor")][i].to_upper(),AMBER,11)
 		center_text(at+Vector2(0,7),"%d"%values[i] if maximum[i]>0 else "—",color,22)
-		center_text(at+Vector2(0,44),"/ %d"%maximum[i] if maximum[i]>0 else "ABSENT",DIM,10)
+		center_text(at+Vector2(0,44),"/ %d"%maximum[i] if maximum[i]>0 else tr("Absent").to_upper(),DIM,10)
 	draw_set_transform(Vector2.ZERO)
 func draw_depth(h: float) -> void:
 	var top=182.0;var bottom=h-285;var span=maxf(170,bottom-top)
 	var low=mini(safe_min-1000,depth-1000);var high=maxi(safe_max+1000,depth+1000)
 	low=maxi(0,int(floor(low/1000.0))*1000);high=int(ceil(high/1000.0))*1000
-	text(Vector2(30,148),"DEPTH",AMBER,15);text(Vector2(31,168),"m",DIM,11)
+	text(Vector2(30,148),tr("Depth").to_upper(),AMBER,15);text(Vector2(31,168),"m",DIM,11)
 	draw_line(Vector2(33,top),Vector2(33,top+span),AMBER,2,true)
 	var a=clampf(float(safe_min-low)/(high-low),0,1);var b=clampf(float(safe_max-low)/(high-low),0,1)
 	draw_line(Vector2(28,top+a*span),Vector2(28,top+b*span),Color("83cdb9"),2,true)
@@ -133,7 +135,7 @@ func draw_depth(h: float) -> void:
 	var points=PackedVector2Array([Vector2(34,cursor),Vector2(47,cursor-14),Vector2(111,cursor-14),Vector2(118,cursor-7),Vector2(118,cursor+14),Vector2(47,cursor+14)])
 	draw_colored_polygon(points,Color("10332ff2"));var edge=points.duplicate();edge.append(points[0]);draw_polyline(edge,color,1,true)
 	text(Vector2(49,cursor+6),str(depth),color,18)
-	text(Vector2(29,top+span+27),"SAFE %d–%d"%[safe_min,safe_max],DIM,9)
+	text(Vector2(29,top+span+27),(tr("Safe %d–%d")%[safe_min,safe_max]).to_upper(),DIM,9)
 func draw_compass(w: float) -> void:
 	var f: Array=world.region.player.pose.forward
 	var heading=fposmod(rad_to_deg(atan2(f[0],f[2])),360)
@@ -146,10 +148,10 @@ func draw_compass(w: float) -> void:
 			var v=posmod(angle,360);var value={0:"N",90:"E",180:"S",270:"W"}.get(v,str(v))
 			text(Vector2(x-8,26),value,AMBER,11)
 	draw_colored_polygon(PackedVector2Array([Vector2(center,48),Vector2(center-4,43),Vector2(center+4,43)]),MINT)
-	text(Vector2(center-40,67),"HDG %03d°"%roundi(heading),MINT,12)
-	if world.autopilot:text(Vector2(center-150,89),world.session.stations[world.destination].name.to_upper() if world.destination>=0 else "LOCAL APPROACH",INK,12,300)
+	text(Vector2(center-40,67),tr("HDG %03d°")%roundi(heading),MINT,12)
+	if world.autopilot:text(Vector2(center-150,89),world.session.stations[world.destination].name.to_upper() if world.destination>=0 else tr("Local approach").to_upper(),INK,12,300)
 func draw_sonar(center: Vector2,radius: float) -> void:
-	text(center+Vector2(-24,-radius-15),"SONAR",AMBER,11)
+	text(center+Vector2(-24,-radius-15),tr("Sonar").to_upper(),AMBER,11)
 	draw_circle(center,radius,Color("04182040"));draw_arc(center,radius,0,TAU,96,AMBER,1.0,true)
 	draw_arc(center,radius+3,0,TAU,96,Color("5b695d66"),1,true)
 	draw_arc(center,radius-7,0,TAU,96,Color("75633e"),1,true)
@@ -170,5 +172,5 @@ func draw_sonar(center: Vector2,radius: float) -> void:
 	for contact in contacts:
 		var local: Vector3=inverse*(contact.at-pose.origin);var point=Vector2(local.x,local.z)*radius/1200
 		if point.length()<radius-4:draw_circle(center+point,2.8,contact.color)
-	text(center+Vector2(-89,radius-40),"RNG 1.2 km",AMBER,10)
-	text(center+Vector2(-89,radius-24),"SCAN" if world.session.ship.passive_radar>0 else "NAV ONLY",DIM,10)
+	text(center+Vector2(-89,radius-40),tr("RNG 1.2 km"),AMBER,10)
+	text(center+Vector2(-89,radius-24),tr("Scan").to_upper() if world.session.ship.passive_radar>0 else tr("Nav only").to_upper(),DIM,10)

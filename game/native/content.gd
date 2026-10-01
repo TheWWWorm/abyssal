@@ -18,27 +18,27 @@ func load_cache(directory: String) -> bool:
 	failure=""
 	var path := directory.path_join("native-data.json")
 	if not FileAccess.file_exists(path):
-		failure="Import your DEEP JAR to prepare the native content."
+		failure=tr("Import your DEEP JAR to prepare the native content.")
 		return false
 	var parsed=JSON.parse_string(FileAccess.get_file_as_string(path))
 	if parsed is not Dictionary or not is_digest(parsed.get("jar_sha256","")) or parsed.get("schema",0)!=1:
-		failure="The content profile is unsupported. Reimport your JAR."
+		failure=tr("The content profile is unsupported. Reimport your JAR.")
 		return false
 	if parsed.get("importer","")!="native-6":
-		failure="This native content cache needs an update. Reimport your JAR."
+		failure=tr("This native content cache needs an update. Reimport your JAR.")
 		return false
 	var registry_path := directory.path_join("resource_registry.json")
 	if not FileAccess.file_exists(registry_path):
-		failure="The resource index is missing. Reimport your JAR.";return false
+		failure=tr("The resource index is missing. Reimport your JAR.");return false
 	var entries=JSON.parse_string(FileAccess.get_file_as_string(registry_path))
 	if entries is not Array or entries.is_empty() or not parsed.has_all(["tables","constants","strings","campaign","habitats","timelines"]):
-		failure="The content cache is incomplete. Reimport your JAR.";return false
+		failure=tr("The content cache is incomplete. Reimport your JAR.");return false
 	for entry in entries:
 		if entry is not Dictionary or not entry.has_all(["id","model","textures"]) or entry.textures is not Array:
-			failure="The resource index is invalid. Reimport your JAR.";return false
+			failure=tr("The resource index is invalid. Reimport your JAR.");return false
 		for resource in [entry.model]+entry.textures:
 			if resource is not String or not resource.begins_with("data/") or resource.contains("..") or resource.contains("\\"):
-				failure="The resource index contains an unsafe path.";return false
+				failure=tr("The resource index contains an unsafe path.");return false
 	root=directory;data=parsed;registry=entries;profile=str(parsed.jar_sha256)
 	return true
 

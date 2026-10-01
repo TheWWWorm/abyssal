@@ -13,6 +13,10 @@ Source commit: `9b0fa48a0a0d1e61376c0b9af28b3d2caec0a4cc`. Exact upstream URLs a
 
 Modifications remove Android logging and collection dependencies, adapt the decoder to the local Java compatibility layer, and add structural validation. The rest of J2ME-Loader has not been incorporated. Licenses elsewhere in that repository must not be assumed to match these three files.
 
+## Interface fonts for Chinese, Japanese and Korean
+
+`game/native/locale/noto_sans_sc.otf`, `noto_sans_jp.otf` and `noto_sans_kr.otf` are subsets of **Noto Sans CJK** (Regular, version 2.004, SC, JP and KR faces), copyright 2014-2021 Adobe, with Reserved Font Name 'Source', licensed under the [SIL Open Font License 1.1](licenses/OFL-1.1.txt). Each subset holds only the characters the matching engine text catalog uses; `tools/engine_text.py fonts` writes them from the unmodified upstream collection. Source: https://github.com/notofonts/noto-cjk . Keep the license with every distribution that includes these files.
+
 ## External development and execution tools
 
 Godot, the JDK, Python and FFmpeg are external execution/development tools. Their binaries are not included in this source package. The parent development workflow also used other tools, including a private decompiler; those are not dependencies of this edition. Standalone exports embed Godot and include `GODOT_LICENSES.txt`, generated from the actual Godot binary’s license/copyright inventory. Keep this file with the exported build. Developer source conversion uses external Python, Java and FFmpeg. Prepared desktop releases instead bundle Node.js and the portable runtimes below; no Java or FFmpeg binary is distributed.

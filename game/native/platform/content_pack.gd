@@ -37,7 +37,7 @@ func preflight(bytes: PackedByteArray) -> Dictionary:
 	if offset!=end:return {}
 	return sizes
 func install(path: String, base: String="user://content") -> String:
-	failure="Invalid or unsupported content pack. Prepare a new .abyss file on your desktop."
+	failure=tr("Invalid or unsupported content pack. Prepare a new .abyss file on your desktop.")
 	var file:=FileAccess.open(path,FileAccess.READ)
 	if file==null or file.get_length()>LIMIT:return ""
 	var bytes:=file.get_buffer(file.get_length());file.close()
@@ -52,7 +52,7 @@ func install(path: String, base: String="user://content") -> String:
 	var digest:=HashingContext.new();digest.start(HashingContext.HASH_SHA256);digest.update(manifest_bytes)
 	var destination:=base.path_join(digest.finish().hex_encode())
 	var stage:=base.path_join("incoming-"+str(Time.get_ticks_usec()))
-	if DirAccess.make_dir_recursive_absolute(stage)!=OK:zip.close();failure="Cannot create local content storage.";return ""
+	if DirAccess.make_dir_recursive_absolute(stage)!=OK:zip.close();failure=tr("Cannot create local content storage.");return ""
 	var valid:=true
 	for name: String in manifest.files:
 		var record=manifest.files[name]
@@ -81,7 +81,7 @@ func install(path: String, base: String="user://content") -> String:
 		if existing_valid and content.load_cache(destination):remove_tree(stage);failure="";return destination
 	# A new unique destination makes replacement non-destructive even if an old pack is corrupt.
 	if DirAccess.dir_exists_absolute(destination):destination+="-"+str(Time.get_ticks_usec())
-	if DirAccess.rename_absolute(stage,destination)!=OK:remove_tree(stage);failure="Cannot activate local content.";return ""
+	if DirAccess.rename_absolute(stage,destination)!=OK:remove_tree(stage);failure=tr("Cannot activate local content.");return ""
 	failure="";return destination
 func remove_tree(path: String) -> void:
 	var directory:=DirAccess.open(path)

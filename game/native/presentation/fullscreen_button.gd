@@ -2,6 +2,7 @@ extends Button
 ## The browser build's fullscreen switch in the top-right corner, as video
 ## players place it. The title and the pause menu show it; its press is the
 ## user gesture a browser requires before it grants fullscreen.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const StationTheme = preload("res://native/presentation/station_theme.gd")
 const StationIcon = preload("res://native/presentation/station_icon.gd")
 
@@ -16,8 +17,8 @@ func _init(action: Callable) -> void:
 
 func _ready() -> void:
 	name="FullscreenButton"
-	accessibility_name="Fullscreen"
-	tooltip_text="Fullscreen"
+	accessibility_name=tr("Fullscreen")
+	tooltip_text=tr("Fullscreen")
 	# Pointer and touch only; a pad reaches fullscreen through Settings.
 	focus_mode=Control.FOCUS_NONE
 	for state in ["normal","hover","pressed","focus","disabled"]: add_theme_stylebox_override(state,StationTheme.button_state(false,state))
@@ -39,7 +40,7 @@ static func browser_supported() -> bool:
 static func toggle(notice: Callable) -> void:
 	"""The same switch as the pause menu's: fullscreen, or the reason there is none."""
 	if not browser_supported():
-		notice.call(NO_FULLSCREEN)
+		notice.call(EngineLanguage.translate("This browser does not support fullscreen. Open the game in Safari and use Share → Add to Home Screen to play without browser bars."))
 		return
 	var mode := DisplayServer.window_get_mode()
 	var full: bool=mode in [DisplayServer.WINDOW_MODE_FULLSCREEN,DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN]

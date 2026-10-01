@@ -86,10 +86,10 @@ func depart() -> bool:
 	region.player.pose.face(Math.normalize_vector(region.player.pose.origin))
 	return true
 func route_denial(id: int) -> String:
-	if id<0 or id>=session.stations.size() or region==null:return "This destination is unavailable."
+	if id<0 or id>=session.stations.size() or region==null:return tr("This destination is unavailable.")
 	if id!=session.station_id:
 		if tutorial_travel_locked():return session.text(291)
-		if region.success!=null or region.failure!=null:return "Finish the active encounter before leaving this area."
+		if region.success!=null or region.failure!=null:return tr("Finish the active encounter before leaving this area.")
 	return ""
 func outside_safety(id: int) -> bool:
 	"""A destination deeper or shallower than the hull's limits. The original
@@ -108,7 +108,7 @@ func route_to(id: int) -> bool:
 	encounter_autopilot=false;gate_navigation=false;avoidance_path=[]
 	destination=id; autopilot=true; approach_path=[]; approach_planned=false; course_start=global_position()
 	local_target=Math.subtracted(station_origin(id),station_origin(session.station_id))
-	region.player.autopilot_target=local_target; message="Autopilot · "+session.stations[id].name
+	region.player.autopilot_target=local_target; message=tr("Autopilot · %s")%session.stations[id].name
 	update_approach()
 	return true
 func tutorial_travel_locked() -> bool:
@@ -127,7 +127,7 @@ func cycle_speed() -> void:
 	if region==null or session.docked:return
 	var available: Array=SPEEDS if autopilot and not region.danger() else [1,2]
 	speed=available[(available.find(speed)+1)%available.size()]
-	message="Time · %d×"%speed
+	message=tr("Time · %d×")%speed
 func refresh_local_encounter() -> void:
 	if region==null or session.docked or region.failed or region.pending_mission!=null or region.active_transmission!=null:return
 	if region.success!=null or region.failure!=null or not region.events.is_empty():return
@@ -145,7 +145,7 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 	# Steering keys, throttle, weapons or the explicit Disengage button do.
 	if not autopilot: mouse_pending+=Vector2(input.get("mouse_x",0.0),input.get("mouse_y",0.0))
 	else: mouse_pending=Vector2.ZERO
-	if autopilot and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("boost",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot("Manual control")
+	if autopilot and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("boost",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot(tr("Manual control"))
 	for action in ["fire","guns","hook"]:
 		if input.get(action,false):weapon_pending[action]=true
 	# Danger only changes accelerated time. At the ordinary 1x/2x rates there
@@ -203,13 +203,13 @@ func navigate_encounter() -> bool:
 	if point==null:return false
 	fly_to(point)
 	encounter_autopilot=true
-	message="Autopilot · mission waypoint"
+	message=tr("Autopilot · mission waypoint")
 	return true
 func update_autopilot() -> void:
 	if encounter_autopilot:
 		var point = encounter_navigation_point()
 		if point==null:
-			cancel_autopilot("Encounter complete · manual control"); return
+			cancel_autopilot(tr("Encounter complete · manual control")); return
 		if point!=local_target:
 			local_target=point; approach_path=[]; approach_planned=false
 	if local_target==null: return
@@ -224,7 +224,7 @@ func update_autopilot() -> void:
 	if distance<25000: speed=1
 	var dockable: bool = destination==session.station_id and region.station.can_dock(region.player.pose.origin)
 	if dockable:
-		if dock(): message="Docked · "+session.stations[session.station_id].name
+		if dock(): message=tr("Docked · %s")%session.stations[session.station_id].name
 		else: cancel_autopilot(message)
 		return
 	# Patrol waypoints use a strict 20 m trigger. Once the route ends, hand
@@ -234,7 +234,7 @@ func update_autopilot() -> void:
 	if distance>arrival_distance and not dockable:
 		update_approach(); avoid_cruise_stations(); return
 	var arriving := destination
-	cancel_autopilot("Arrived · manual control")
+	cancel_autopilot(tr("Arrived · manual control"))
 	if arriving>=0 and arriving!=session.station_id: enter_region(arriving)
 func update_approach() -> void:
 	if destination<0 and stream_destination<0 and local_target!=null:
@@ -310,14 +310,14 @@ func enter_region(id: int) -> void:
 	physical_neighbors.clear();station_repellers.clear();collision_scan_origin=[];nearby_station_ids=[];attach_geography()
 	region.player.depth=session.stations[id].depth+(int(pose.origin[1])>>3)
 	revision+=1; speed=1; reset_gates()
-	message="Entered "+session.stations[id].name
+	message=tr("Entered %s")%session.stations[id].name
 	if region.mission.story and region.mission.briefing and region.success!=null:
 		region.events.append({"kind":"briefing","mission":region.mission})
 		region.mission.briefing=false
 func dock() -> bool:
 	if session.docked: return true
-	if region==null or not region.station.can_dock(region.player.pose.origin): message="Approach the station's docking area."; return false
-	if region.success!=null or region.failure!=null: message="Docking locked · finish the encounter. Open autopilot and choose the quest objective."; return false
+	if region==null or not region.station.can_dock(region.player.pose.origin): message=tr("Approach the station's docking area."); return false
+	if region.success!=null or region.failure!=null: message=tr("Docking locked · finish the encounter. Open autopilot and choose the quest objective."); return false
 	var hull_percent := int(Math.f32(Math.f32(float(region.player.health.hull)/float(region.player.health.max_hull))*100.0)) if region.player.health.max_hull>0 else 0
 	session.medals.evaluate(session,hull_percent)
 	# The station panel says where you are; no notice repeats it over it.
@@ -384,20 +384,20 @@ func stream_distance(id: int) -> float:
 	var b: Dictionary = session.stations[id]
 	return Vector2(a.x,a.y).distance_to(Vector2(b.x,b.y))
 func stream_denial(id: int) -> String:
-	if id<0 or id>=session.stations.size(): return "Select a station."
-	if id==session.station_id: return "Already in this area."
+	if id<0 or id>=session.stations.size(): return tr("Select a station.")
+	if id==session.station_id: return tr("Already in this area.")
 	if tutorial_travel_locked(): return session.text(291)
 	if session.docked and session.depart_denial()>=0: return session.text(session.depart_denial())
-	if not session.docked and region!=null and (region.success!=null or region.failure!=null): return "Complete the encounter before using S.T.R.E.A.M."
-	if stream_distance(id)>=stream_range(): return "Beyond S.T.R.E.A.M. reach. Fit a longer-range engine or use continuous autopilot."
+	if not session.docked and region!=null and (region.success!=null or region.failure!=null): return tr("Complete the encounter before using S.T.R.E.A.M.")
+	if stream_distance(id)>=stream_range(): return tr("Beyond S.T.R.E.A.M. reach. Fit a longer-range engine or use continuous autopilot.")
 	return ""
 func plan_stream(id: int) -> bool:
 	message=stream_denial(id)
 	if not message.is_empty() or session.docked or region==null: return false
 	departure_gate=nearest_safe_gate()
-	if departure_gate<0: message="No S.T.R.E.A.M. gate in this area.";return false
+	if departure_gate<0: message=tr("No S.T.R.E.A.M. gate in this area.");return false
 	fly_to_gate(departure_gate); stream_destination=id; update_approach()
-	message="Approach the S.T.R.E.A.M. gate for "+session.stations[id].name
+	message=tr("Approach the S.T.R.E.A.M. gate for %s")%session.stations[id].name
 	return true
 func fly_to_gate(index: int) -> void:
 	departure_gate=region.gate_index(index)
@@ -440,8 +440,8 @@ func stream_transfer() -> bool:
 	if region.failed or region.pending_mission!=null or region.active_transmission!=null: return false
 	message=stream_denial(stream_destination)
 	if not message.is_empty(): return false
-	if not at_gate(departure_gate): message="Approach the S.T.R.E.A.M. gate's activation area."; return false
-	if gate_time[departure_gate]<GATE_OPEN_MS: message="S.T.R.E.A.M. gate opening…"; return false
+	if not at_gate(departure_gate): message=tr("Approach the S.T.R.E.A.M. gate's activation area."); return false
+	if gate_time[departure_gate]<GATE_OPEN_MS: message=tr("S.T.R.E.A.M. gate opening…"); return false
 	var target: int = stream_destination
 	# bp.c's in-flight branch preserves health and f's expedition counters.
 	# dj.d increments journeys; it does not call the departure/count-jump path.
@@ -453,7 +453,7 @@ func stream_transfer() -> bool:
 	region.player.pose.set_euler(0,region.gate_yaw(arrival_gate),0)
 	region.player.depth=session.stations[target].depth
 	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0; arrival_exit=arrival_gate
-	message="S.T.R.E.A.M. arrival · "+session.stations[target].name
+	message=tr("S.T.R.E.A.M. arrival · %s")%session.stations[target].name
 	return true
 
 func render_pose(actor) -> Transform3D:
@@ -629,7 +629,7 @@ func avoid_cruise_stations() -> void:
 			obstacles.append(obstacle_bodies[station.id])
 		avoidance_path=preload("res://native/simulation/station_navigation.gd").cruise_detour(start,finish,obstacles,session.ship.minimum_depth*8+1000,session.ship.maximum_depth*8-1000)
 		if avoidance_path.is_empty() and obstacles.any(func(box):return box.intersects_segment(start,finish)!=null):
-			region.player.set_throttle(0);cancel_autopilot("Route blocked by a station within safe depth · choose another approach");return
+			region.player.set_throttle(0);cancel_autopilot(tr("Route blocked by a station within safe depth · choose another approach"));return
 	if not avoidance_path.is_empty():
 		region.player.autopilot_target=math.array(avoidance_path[0]-anchor)
 		# A detour uses the same collision-checked 40 ms steps at every rate.

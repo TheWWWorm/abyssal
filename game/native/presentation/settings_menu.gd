@@ -16,6 +16,7 @@ const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 const Quality = preload("res://native/presentation/graphics_quality.gd")
 const Pad = preload("res://native/input/flight_controls.gd")
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 
 ## Tabs in order of how often they are reached for: sound first, input last
 ## but one, and the world rules that only matter between dives at the end.
@@ -23,9 +24,6 @@ const TABS := [["audio","Audio","audio"],["graphics","Graphics","graphics"],["di
 	["controls","Controls","controls"],["gameplay","Gameplay","world"]]
 const CONTROL_PAGES := {"steering":"Steering","gamepad":"Gamepad","touch":"Touch controls","bindings":"Key bindings","reference":"Control reference"}
 const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L}
-const TITLE_MUSIC := ["Auto","Intro","Station"]
-const STRAFE := ["Auto · strafe unless on touch","Always strafe","Always turn"]
-const TOUCH_MODES := ["Auto","On","Off"]
 
 ## Reopening settings returns to the tab last used, in the title or a dive.
 static var last_section := "audio"
@@ -35,7 +33,8 @@ var golden := false
 var touch := false
 ## What only the host can do, each optional: "fullscreen", "layout_editor",
 ## "touch_active", "calibrate", "motion_enable", "buzz", "world_note",
-## "auto_title" (the track Auto resolves to) and "text" (imported game text).
+## "auto_title" (the track Auto resolves to), "text" (imported game text) and
+## "content_language" (the imported game's language code).
 var host := {}
 var section := "audio"
 var subpage := ""
@@ -77,6 +76,33 @@ func open(first := "") -> void:
 
 func tab_ids() -> Array:
 	return TABS.map(func(tab): return tab[0])
+
+func tab_name(id: String) -> String:
+	match id:
+		"audio": return tr("Audio")
+		"graphics": return tr("Graphics")
+		"display": return tr("Display")
+		"controls": return tr("Controls")
+		"gameplay": return tr("Gameplay")
+	return id.capitalize()
+
+func control_page_name(id: String) -> String:
+	match id:
+		"steering": return tr("Steering")
+		"gamepad": return tr("Gamepad")
+		"touch": return tr("Touch controls")
+		"bindings": return tr("Key bindings")
+		"reference": return tr("Control reference")
+	return id.capitalize()
+
+func title_music_names() -> Array:
+	return [tr("Auto"),tr("Intro"),tr("Station")]
+
+func strafe_names() -> Array:
+	return [tr("Auto · strafe unless on touch"),tr("Always strafe"),tr("Always turn")]
+
+func touch_mode_names() -> Array:
+	return [tr("Auto"),tr("On"),tr("Off")]
 
 func colours() -> Dictionary:
 	return StationTheme.palette(golden)
@@ -166,18 +192,18 @@ func build_chrome() -> void:
 	var shell := VBoxContainer.new();shell.add_theme_constant_override("separation",12);add_child(shell)
 	var header := HBoxContainer.new();header.add_theme_constant_override("separation",12);shell.add_child(header)
 	var titles := VBoxContainer.new();titles.size_flags_horizontal=Control.SIZE_EXPAND_FILL;titles.add_theme_constant_override("separation",4);header.add_child(titles)
-	var heading := plain("SETTINGS",26,titles);heading.name="Heading"
+	var heading := plain(tr("Settings").to_upper(),26,titles);heading.name="Heading"
 	heading.add_theme_font_override("font",spaced(7));heading.add_theme_color_override("font_color",colours().text);heading.autowrap_mode=TextServer.AUTOWRAP_OFF
 	var rule := ColorRect.new();rule.color=colours().accent;rule.custom_minimum_size=Vector2(56,2);rule.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN;titles.add_child(rule)
 	subtitle=caption("",11,titles,3);subtitle.name="Subtitle"
-	back_button=styled_button("BACK",back,header);back_button.name="Back"
+	back_button=styled_button(tr("Back").to_upper(),back,header);back_button.name="Back"
 	icon_on(back_button,"back",18)
 	back_button.size_flags_horizontal=Control.SIZE_SHRINK_END;back_button.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
 	back_button.custom_minimum_size=Vector2(128,48 if touch else 40);back_button.add_theme_font_override("font",spaced(4))
 	back_button.set_meta("option","back")
 	tab_bar=GridContainer.new();tab_bar.name="Tabs";tab_bar.add_theme_constant_override("h_separation",8);tab_bar.add_theme_constant_override("v_separation",8);shell.add_child(tab_bar)
 	for tab in TABS:
-		var node := styled_button(tab[1],func(): switch_to(tab[0],true),tab_bar)
+		var node := styled_button(tab_name(tab[0]),func(): switch_to(tab[0],true),tab_bar)
 		node.name="Tab_"+tab[0];node.set_meta("option","tab_"+tab[0]);node.set_meta("tab",tab[0])
 		icon_on(node,tab[2],22)
 		node.add_theme_font_override("font",spaced(2));node.add_theme_font_size_override("font_size",17 if touch else 16)
@@ -189,7 +215,7 @@ func build_chrome() -> void:
 	column=VBoxContainer.new();column.name="Rows";column.size_flags_horizontal=Control.SIZE_EXPAND_FILL;column.add_theme_constant_override("separation",8);gutter.add_child(column)
 	legend=HFlowContainer.new();legend.name="KeyLegend";legend.add_theme_constant_override("h_separation",8);legend.add_theme_constant_override("v_separation",6);shell.add_child(legend)
 	legend.visible=not touch
-	for entry in [["ESC / B","BACK"],["LB / RB","SECTION"],["D-PAD / ARROWS","NAVIGATE"],["ENTER / A","SELECT"]]:
+	for entry in [["ESC / B",tr("Back")],["LB / RB",tr("Section")],["D-PAD / ARROWS",tr("Navigate")],["ENTER / A",tr("Select")]]:
 		var boxed := StationTheme.frame(Color(0,0,0,0),colours().edge,0);boxed.set_content_margin_all(3);boxed.content_margin_left=7;boxed.content_margin_right=7
 		var key := caption(entry[0],10,legend,1);key.add_theme_stylebox_override("normal",boxed)
 		var meaning := caption(entry[1],10,legend,2);meaning.add_theme_color_override("font_color",colours().faint)
@@ -203,8 +229,8 @@ func refresh_tabs() -> void:
 		node.add_theme_stylebox_override("normal",skin)
 		node.add_theme_color_override("font_color",colours().text if current else colours().dim)
 		node.custom_minimum_size.y=56 if touch else 44
-	var place: String=section.capitalize()
-	if not subpage.is_empty(): place+="  ›  "+CONTROL_PAGES[subpage]
+	var place: String=tab_name(section)
+	if not subpage.is_empty(): place+="  ›  "+control_page_name(subpage)
 	subtitle.text=place.to_upper()
 
 func switch_to(id: String, keep_tab_focus := false) -> void:
@@ -240,7 +266,7 @@ func _input(event: InputEvent) -> void:
 			binding="";rebuild();return
 		for action in DEFAULT_KEYS:
 			if action!=binding and keycode(action)==event.physical_keycode:
-				binding_notice="%s is already assigned to %s."%[OS.get_keycode_string(event.physical_keycode),action_name(action)];rebuild();return
+				binding_notice=tr("%s is already assigned to %s.")%[OS.get_keycode_string(event.physical_keycode),action_name(action)];rebuild();return
 		var action := binding;binding="";binding_notice="";focus_key="key_"+action
 		put("keys",action,event.physical_keycode)
 		return
@@ -310,8 +336,10 @@ func row(title: String, value: String, key: String, action: Callable, parent: No
 		node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	return node
 
-func toggle(title: String, section_name: String, key: String, fallback: bool, on_text := "On", off_text := "Off", parent: Node=null) -> Button:
+func toggle(title: String, section_name: String, key: String, fallback: bool, on_text := "", off_text := "", parent: Node=null) -> Button:
 	var value := flag(section_name,key,fallback)
+	if on_text.is_empty(): on_text=tr("On")
+	if off_text.is_empty(): off_text=tr("Off")
 	return row(title,on_text if value else off_text,key,func(): put(section_name,key,not value),parent)
 
 func chooser(title: String, names: Array, current: int, key: String, choose: Callable, parent: Node=null, shown_text := "") -> Button:
@@ -431,41 +459,41 @@ func find_option(node: Node, key: String) -> Control:
 	return null
 
 func audio_page() -> void:
-	group("Volume")
-	slider("Music","audio","music",0.65,0.0,1.0,0.05,true)
-	slider("Sound effects","audio","effects",0.75,0.0,1.0,0.05,true)
-	toggle("Game audio","graphics","audio",true)
-	group("Music")
+	group(tr("Volume"))
+	slider(tr("Music"),"audio","music",0.65,0.0,1.0,0.05,true)
+	slider(tr("Sound effects"),"audio","effects",0.75,0.0,1.0,0.05,true)
+	toggle(tr("Game audio"),"graphics","audio",true)
+	group(tr("Music"))
 	var choice := index("audio","title_music",0,2)
 	var auto_track: String=host.auto_title.call() if can("auto_title") else ""
-	var names := TITLE_MUSIC.duplicate()
-	if not auto_track.is_empty(): names[0]="Auto · "+auto_track.capitalize()
-	chooser("Menu and opening music",names,choice,"title_music",func(next): put("audio","title_music",next))
-	note("Auto: Intro for version 1.0.3 JARs, Station for 1.0.8. Stations always play Station.")
+	var names := title_music_names()
+	if not auto_track.is_empty(): names[0]=tr("Auto · %s")%{"intro":names[1],"station":names[2]}.get(auto_track,auto_track.capitalize())
+	chooser(tr("Menu and opening music"),names,choice,"title_music",func(next): put("audio","title_music",next))
+	note(tr("Auto: Intro for version 1.0.3 JARs, Station for 1.0.8. Stations always play Station."))
 
 func graphics_page() -> void:
 	var enhanced := modern()
 	var preset := Quality.current(load_config())
-	var presets: Array=Quality.PRESETS.duplicate()
+	var presets: Array=Quality.preset_names()
 	var best := Quality.recommended(load_config())
-	if best>=0: presets[best]+=" (Recommended)"
-	chooser("Preset",presets,preset,"preset",choose_preset,null,"Custom")
-	note("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.")
-	group("Performance")
+	if best>=0: presets[best]=tr("%s (Recommended)")%presets[best]
+	chooser(tr("Preset"),presets,preset,"preset",choose_preset,null,tr("Custom"))
+	note(tr("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom."))
+	group(tr("Performance"))
 	performance_options()
-	group("Enhanced lighting")
+	group(tr("Enhanced lighting"))
 	graphics_options(["headlight_mode","blue_headlights","cabin_lights","cool_lighting","filtered_sunlight"])
-	var strength := slider("Headlight brightness","graphics","headlight_strength",Quality.HEADLIGHT_HIGH,Quality.HEADLIGHT_LOW,Quality.HEADLIGHT_HIGH,0.05,true)
+	var strength := slider(tr("Headlight brightness"),"graphics","headlight_strength",Quality.HEADLIGHT_HIGH,Quality.HEADLIGHT_LOW,Quality.HEADLIGHT_HIGH,0.05,true)
 	strength.editable=enhanced and Headlights.casts_light(Headlights.read(load_config()))
-	strength.tooltip_text="How strongly the headlights light the water and nearby surfaces."
-	group("Ocean atmosphere")
+	strength.tooltip_text=tr("How strongly the headlights light the water and nearby surfaces.")
+	group(tr("Ocean atmosphere"))
 	graphics_options(["volumetric","deep_darkness","regional_water","marine_snow","bioluminescence","explosion_aftermath"])
-	group("Surfaces and textures")
+	group(tr("Surfaces and textures"))
 	graphics_options(["detail"])
 	var textures := graphics_grid()
 	for kind in ["station","ship"]:
-		var node := toggle(kind.capitalize()+" texture smoothing","graphics",kind+"_smoothing",false,"On","Off",textures)
-		node.tooltip_text="On: smoothly filtered textures. Off: original pixelated textures."
+		var node := toggle(tr("Station texture smoothing") if kind=="station" else tr("Ship texture smoothing"),"graphics",kind+"_smoothing",false,tr("On"),tr("Off"),textures)
+		node.tooltip_text=tr("On: smoothly filtered textures. Off: original pixelated textures.")
 
 func choose_preset(preset: int) -> void:
 	var config := load_config();Quality.write(config,preset)
@@ -477,19 +505,19 @@ func performance_options() -> void:
 	var enhanced := modern()
 	var quality := Quality.read(load_config())
 	var grid := graphics_grid()
-	var shadows := chooser("Shadow quality",Quality.SHADOWS,quality.shadows if enhanced else -1,"shadows",func(next): put("graphics","shadows",next),grid,"Classic")
+	var shadows := chooser(tr("Shadow quality"),Quality.shadow_names(),quality.shadows if enhanced else -1,"shadows",func(next): put("graphics","shadows",next),grid,tr("Classic"))
 	shadows.disabled=not enhanced
-	shadows.tooltip_text="Shadows from station lamps, headlights and overhead light. Low and Medium use faster station-lamp shadows that can let a little light through close to a lamp."
+	shadows.tooltip_text=tr("Shadows from station lamps, headlights and overhead light. Low and Medium use faster station-lamp shadows that can let a little light through close to a lamp.")
 	var scales: Array=Quality.SCALES
-	var resolution := chooser("3D resolution",scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
-	resolution.tooltip_text="Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp."
-	var msaa := chooser("Multisample antialiasing",Quality.MSAA,quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
-	msaa.tooltip_text="Smooths the edges of models."
+	var resolution := chooser(tr("3D resolution"),scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
+	resolution.tooltip_text=tr("Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp.")
+	var msaa := chooser(tr("Multisample antialiasing"),Quality.msaa_names(),quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
+	msaa.tooltip_text=tr("Smooths the edges of models.")
 	var taa: Button
-	if forward_plus(): taa=toggle("Temporal antialiasing","view","temporal_aa",false,"On","Off",grid)
-	else: taa=row("Temporal antialiasing","Needs Vulkan","temporal_aa",func():pass,grid)
+	if forward_plus(): taa=toggle(tr("Temporal antialiasing"),"view","temporal_aa",false,tr("On"),tr("Off"),grid)
+	else: taa=row(tr("Temporal antialiasing"),tr("Needs Vulkan"),"temporal_aa",func():pass,grid)
 	taa.disabled=not enhanced or not forward_plus()
-	taa.tooltip_text="Smooths edges further; slightly blurs motion."
+	taa.tooltip_text=tr("Smooths edges further; slightly blurs motion.")
 
 func graphics_grid() -> GridContainer:
 	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1
@@ -500,106 +528,116 @@ func graphics_options(keys: Array) -> void:
 	var enhanced := modern()
 	var grid := graphics_grid()
 	var lighting := {
-		"volumetric":["Volumetric light","Light and shadow in the surrounding water."],
-		"detail":["Surface shading detail","Fine shading and contact shadows on hulls and structures."]
+		"volumetric":[tr("Volumetric light"),tr("Light and shadow in the surrounding water.")],
+		"detail":[tr("Surface shading detail"),tr("Fine shading and contact shadows on hulls and structures.")]
 	}
 	for key in keys:
 		if key=="headlight_mode":
 			var mode := Headlights.read(load_config())
-			var lamps := chooser("Headlights",Headlights.NAMES,mode if enhanced else -1,key,func(next):
+			var lamps := chooser(tr("Headlights"),Headlights.names(),mode if enhanced else -1,key,func(next):
 				var config := load_config();Headlights.write(config,next)
 				DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
-				changed.emit("graphics","headlight_mode");rebuild(true),grid,"Classic")
+				changed.emit("graphics","headlight_mode");rebuild(true),grid,tr("Classic"))
 			lamps.disabled=not enhanced
-			lamps.tooltip_text="Off: no headlight glow or beams. Light only: lit lenses and surface illumination. Light + beams: adds visible light in the water. Classic: the original textured beams and colours."
+			lamps.tooltip_text=tr("Off: no headlight glow or beams. Light only: lit lenses and surface illumination. Light + beams: adds visible light in the water. Classic: the original textured beams and colours.")
 			continue
-		var option: Array=OceanOptions.VISUALS.get(key,lighting.get(key,[]))
+		var option: Array=OceanOptions.visuals().get(key,lighting.get(key,[]))
 		var needs_forward: bool=key in ["volumetric","detail"] and not forward_plus()
 		var node: Button
-		if needs_forward:node=row(option[0],"Needs Vulkan",key,func():pass,grid)
-		else:node=toggle(option[0],"graphics",key,OceanOptions.default_on(key),"Blue" if key=="blue_headlights" else "On","White" if key=="blue_headlights" else "Off",grid)
+		if needs_forward:node=row(option[0],tr("Needs Vulkan"),key,func():pass,grid)
+		else:node=toggle(option[0],"graphics",key,OceanOptions.default_on(key),tr("Blue") if key=="blue_headlights" else tr("On"),tr("White") if key=="blue_headlights" else tr("Off"),grid)
 		node.tooltip_text=option[1];node.disabled=not enhanced or needs_forward
 		if not enhanced and not needs_forward:
-			node.get_node("Value").text="Classic" if key=="blue_headlights" else "Off"
-			node.accessibility_name=option[0]+": unavailable in Classic lighting"
+			node.get_node("Value").text=tr("Classic") if key=="blue_headlights" else tr("Off")
+			node.accessibility_name=tr("%s: unavailable in Classic lighting")%option[0]
 		elif key=="blue_headlights" and not Headlights.casts_light(Headlights.read(load_config())):
 			node.disabled=true
-			if Headlights.read(load_config())==Headlights.Mode.CLASSIC:node.get_node("Value").text="Original"
-			node.tooltip_text="Choose Light only or Light + beams to change the colour. Classic keeps the original beam colours."
+			if Headlights.read(load_config())==Headlights.Mode.CLASSIC:node.get_node("Value").text=tr("Original")
+			node.tooltip_text=tr("Choose Light only or Light + beams to change the colour. Classic keeps the original beam colours.")
 
 func display_page() -> void:
+	var codes := EngineLanguage.codes()
+	var chosen: String=str(load_config().get_value("interface","language",EngineLanguage.AUTO))
+	var game_language: String=host.content_language.call() if can("content_language") else ""
+	var automatic := EngineLanguage.resolve(EngineLanguage.AUTO,game_language)
+	var names: Array=[tr("Auto · %s")%EngineLanguage.native_name(automatic)]+codes.map(func(code): return EngineLanguage.native_name(code))
+	chooser(tr("Language"),names,codes.find(chosen)+1,"language",func(next):
+		put("interface","language",EngineLanguage.AUTO if next==0 else codes[next-1],false)
+		# Every caption on the frame is in the old language until it is redrawn.
+		build_chrome();rebuild())
+	note(tr("Menus and messages the engine adds. Auto matches the imported game's language."))
 	if not OS.has_feature("mobile") or OS.has_feature("web"):
 		var mode := DisplayServer.window_get_mode()
 		var full: bool=mode in [DisplayServer.WINDOW_MODE_FULLSCREEN,DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN]
-		row("Fullscreen","On" if full else "Off","fullscreen",func():
+		row(tr("Fullscreen"),tr("On") if full else tr("Off"),"fullscreen",func():
 			if can("fullscreen"): host.fullscreen.call()
 			else: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
 			# The window reports its new mode a frame later.
 			await get_tree().process_frame
 			focus_key="fullscreen";rebuild())
-		if not OS.has_feature("web"): note("F11 toggles fullscreen.")
+		if not OS.has_feature("web"): note(tr("F11 toggles fullscreen."))
 	if Display.orientation_setting_available():
-		chooser("Screen orientation",Display.ORIENTATIONS,index("view","orientation",0,2),"orientation",func(next): put("view","orientation",next))
-		note("Auto rotates with the device.")
+		chooser(tr("Screen orientation"),Display.orientation_names(),index("view","orientation",0,2),"orientation",func(next): put("view","orientation",next))
+		note(tr("Auto rotates with the device."))
 	var ratio: String=Display.valid(str(load_config().get_value("view","aspect_ratio","auto")))
 	var ratios: Array=Display.names()
-	chooser("Aspect ratio",ratios.map(func(item): return str(item).capitalize()),maxi(0,ratios.find(ratio)),"aspect",func(next): put("view","aspect_ratio",ratios[next]))
+	chooser(tr("Aspect ratio"),ratios.map(func(item): return tr("Auto") if item=="auto" else str(item)),maxi(0,ratios.find(ratio)),"aspect",func(next): put("view","aspect_ratio",ratios[next]))
 	var quality := Quality.read(load_config())
 	var screen: int=DisplayServer.screen_get_size(get_window().current_screen).y
 	var heights: Array=Quality.heights_for(maxi(screen,get_window().size.y))
 	if not quality.height in heights: heights.append(quality.height)
-	var shown := chooser("Resolution",heights.map(func(height): return Quality.height_name(height)),heights.find(quality.height),"resolution",func(next): put("view","resolution_height",heights[next]))
-	shown.tooltip_text="The resolution the game is drawn at. The interface stays at the screen's own resolution."
-	note("3D resolution and antialiasing are in Graphics.")
-	toggle("Show FPS","view","show_fps",false).tooltip_text="Frames per second at the top of the screen."
+	var shown := chooser(tr("Resolution"),heights.map(func(height): return Quality.height_name(height)),heights.find(quality.height),"resolution",func(next): put("view","resolution_height",heights[next]))
+	shown.tooltip_text=tr("The resolution the game is drawn at. The interface stays at the screen's own resolution.")
+	note(tr("3D resolution and antialiasing are in Graphics."))
+	toggle(tr("Show FPS"),"view","show_fps",false).tooltip_text=tr("Frames per second at the top of the screen.")
 
 func controls_page() -> void:
-	sub_row("Steering","steering")
-	sub_row("Gamepad","gamepad")
-	sub_row("Touch controls","touch")
-	sub_row("Key bindings","bindings")
-	sub_row("Control reference","reference")
+	sub_row(tr("Steering"),"steering")
+	sub_row(tr("Gamepad"),"gamepad")
+	sub_row(tr("Touch controls"),"touch")
+	sub_row(tr("Key bindings"),"bindings")
+	sub_row(tr("Control reference"),"reference")
 
 func steering_page() -> void:
-	chooser("Helm response",["Direct","Smooth"],1 if flag("input","smooth_steering",false) else 0,"smooth_steering",func(next): put("input","smooth_steering",next==1))
-	note("Smooth: eased turns, mouse limited by the ship's steering rate. Direct: instant, as in the original.")
-	chooser("Left/right keys and stick",STRAFE,index("input","strafe",0,2),"strafe",func(next): put("input","strafe",next))
-	slider("Mouse sensitivity","keys","mouse_sensitivity",0.8,0.2,2.0,0.1)
-	toggle("Invert vertical mouse and touch","keys","invert_mouse",false)
-	group("Tilt steering")
+	chooser(tr("Helm response"),[tr("Direct"),tr("Smooth")],1 if flag("input","smooth_steering",false) else 0,"smooth_steering",func(next): put("input","smooth_steering",next==1))
+	note(tr("Smooth: eased turns, mouse limited by the ship's steering rate. Direct: instant, as in the original."))
+	chooser(tr("Left/right keys and stick"),strafe_names(),index("input","strafe",0,2),"strafe",func(next): put("input","strafe",next))
+	slider(tr("Mouse sensitivity"),"keys","mouse_sensitivity",0.8,0.2,2.0,0.1)
+	toggle(tr("Invert vertical mouse and touch"),"keys","invert_mouse",false)
+	group(tr("Tilt steering"))
 	var tilt := flag("input","motion",false)
-	var tilt_row := row("Steer by tilting","On" if tilt else "Off","motion",func():
+	var tilt_row := row(tr("Steer by tilting"),tr("On") if tilt else tr("Off"),"motion",func():
 		put("input","motion",not tilt,false)
 		# A browser grants the sensor only inside the press that asked for it.
 		if not tilt and can("motion_enable"): host.motion_enable.call()
 		rebuild())
 	if OS.has_feature("web") and not can("motion_enable") and not tilt:
-		tilt_row.disabled=true;tilt_row.tooltip_text="Turn on during gameplay; the browser asks for sensor access then."
-	note("Needs a motion sensor.")
+		tilt_row.disabled=true;tilt_row.tooltip_text=tr("Turn on during gameplay; the browser asks for sensor access then.")
+	note(tr("Needs a motion sensor."))
 	if tilt:
-		slider("Tilt sensitivity","input","motion_sensitivity",0.5,0.0,1.0,0.05)
-		toggle("Invert tilt pitch","input","motion_invert",false)
+		slider(tr("Tilt sensitivity"),"input","motion_sensitivity",0.5,0.0,1.0,0.05)
+		toggle(tr("Invert tilt pitch"),"input","motion_invert",false)
 		if can("calibrate"):
-			row("Calibrate tilt","","motion_centre",func(): host.calibrate.call())
+			row(tr("Calibrate tilt"),"","motion_centre",func(): host.calibrate.call())
 
 func gamepad_page() -> void:
-	note("Gamepad connected." if not Input.get_connected_joypads().is_empty() else "No gamepad connected.")
-	toggle("Invert gamepad pitch","input","invert_gamepad",false)
+	note(tr("Gamepad connected.") if not Input.get_connected_joypads().is_empty() else tr("No gamepad connected."))
+	toggle(tr("Invert gamepad pitch"),"input","invert_gamepad",false)
 	var vibration := flag("input","vibration",true)
-	row(text(10,"Vibration"),text(14,"On") if vibration else text(15,"Off"),"vibration",func():
+	row(text(10,tr("Vibration")),text(14,tr("On")) if vibration else text(15,tr("Off")),"vibration",func():
 		put("input","vibration",not vibration,false)
 		if not vibration and can("buzz"): host.buzz.call()
 		rebuild())
-	slider("Gamepad deadzone","input","deadzone",.18,.05,.45,.01)
-	note("Raise if the ship drifts with the sticks at rest.")
-	group("Sticks")
+	slider(tr("Gamepad deadzone"),"input","deadzone",.18,.05,.45,.01)
+	note(tr("Raise if the ship drifts with the sticks at rest."))
+	group(tr("Sticks"))
 	var roles: Array=Pad.read_roles(load_config())
 	for axis in 4:
 		var key: String=Pad.AXIS_KEYS[axis]
-		chooser(Pad.AXIS_NAMES[axis],Pad.ROLE_NAMES,roles[axis],key,func(next): put("input",key,next))
-	note("Turn or strafe follows Steering › Left/right keys and stick. Throttle steps the speed as D-pad up and down do. Camera swings the view round the ship.")
-	note("Hold D-pad left to turn the camera with the right stick; tap it to change the camera.")
-	var reset := row("Reset sticks","","pad_reset",func():
+		chooser(Pad.axis_names()[axis],Pad.role_names(),roles[axis],key,func(next): put("input",key,next))
+	note(tr("Turn or strafe follows Steering › Left/right keys and stick. Throttle steps the speed as D-pad up and down do. Camera swings the view round the ship."))
+	note(tr("Hold D-pad left to turn the camera with the right stick; tap it to change the camera."))
+	var reset := row(tr("Reset sticks"),"","pad_reset",func():
 		var config := load_config()
 		for axis in 4: config.set_value("input",Pad.AXIS_KEYS[axis],Pad.DEFAULT_ROLES[axis])
 		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
@@ -607,26 +645,27 @@ func gamepad_page() -> void:
 	reset.disabled=roles==Pad.DEFAULT_ROLES
 
 func touch_page() -> void:
-	chooser("Touch controls",TOUCH_MODES,index("input","touch",0,2),"touch_mode",func(next): put("input","touch",next))
+	chooser(tr("Touch controls"),touch_mode_names(),index("input","touch",0,2),"touch_mode",func(next): put("input","touch",next))
 	var active: bool=can("touch_active") and host.touch_active.call()
-	var placement := row("Adjust control placement","","touch_layout",func():
+	var placement := row(tr("Adjust control placement"),"","touch_layout",func():
 		if can("layout_editor"): host.layout_editor.call())
 	placement.disabled=not (can("layout_editor") and active)
-	placement.tooltip_text="Move and resize the on-screen controls." if not placement.disabled else ("Turn touch controls on first." if can("layout_editor") else "Available during gameplay.")
-	toggle("Mirror fire control","input","touch_mirror_fire",false).tooltip_text="Put the throttle arc on the right of the fire button, for a button placed on the left."
-	toggle("Touch look area","input","touch_drag_anywhere",false,"Whole screen","Outside analog area")
-	toggle("Steering stick","input","touch_fixed_stick",false,"Fixed in place","Moves to thumb")
-	toggle("Invert vertical steering","keys","invert_mouse",false)
-	slider("Touch look sensitivity","input","touch_look",0.7,0.2,2.0,0.1)
-	note("Outside analog area: the left stick steers, dragging elsewhere turns the camera. Whole screen: dragging anywhere steers.")
+	placement.tooltip_text=tr("Move and resize the on-screen controls.") if not placement.disabled else (tr("Turn touch controls on first.") if can("layout_editor") else tr("Available during gameplay."))
+	toggle(tr("Mirror fire control"),"input","touch_mirror_fire",false).tooltip_text=tr("Put the throttle arc on the right of the fire button, for a button placed on the left.")
+	toggle(tr("Touch look area"),"input","touch_drag_anywhere",false,tr("Whole screen"),tr("Outside analog area"))
+	toggle(tr("Steering stick"),"input","touch_fixed_stick",false,tr("Fixed in place"),tr("Moves to thumb"))
+	toggle(tr("Invert vertical steering"),"keys","invert_mouse",false)
+	slider(tr("Touch look sensitivity"),"input","touch_look",0.7,0.2,2.0,0.1)
+	note(tr("Outside analog area: the left stick steers, dragging elsewhere turns the camera. Whole screen: dragging anywhere steers."))
 
 func action_name(action: String) -> String:
-	return {"autopilot":"Autopilot (tap / hold)","time":"Time acceleration","throttle_up":"Throttle up","throttle_down":"Throttle down","auto_fire":"Auto fire","up":"Pitch up","down":"Pitch down","left":"Left","right":"Right"}.get(action,action.capitalize())
+	return {"autopilot":tr("Autopilot (tap / hold)"),"time":tr("Time acceleration"),"throttle_up":tr("Throttle up"),"throttle_down":tr("Throttle down"),"auto_fire":tr("Auto fire"),"up":tr("Pitch up"),"down":tr("Pitch down"),"left":tr("Left"),"right":tr("Right"),
+		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"bank":tr("Bank"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights")}.get(action,action.capitalize())
 
 func bindings_page() -> void:
-	if binding!="": note("Press a key for %s. Esc cancels."%action_name(binding)).add_theme_color_override("font_color",colours().value)
+	if binding!="": note(tr("Press a key for %s. Esc cancels.")%action_name(binding)).add_theme_color_override("font_color",colours().value)
 	elif not binding_notice.is_empty(): note(binding_notice).add_theme_color_override("font_color",colours().bad)
-	else: note("Select an action, then press its new key. Esc cancels.")
+	else: note(tr("Select an action, then press its new key. Esc cancels."))
 	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
 	# Travel first: tap-or-hold autopilot is the binding players look for.
 	var order: Array=["autopilot","time"]
@@ -638,24 +677,24 @@ func bindings_page() -> void:
 			binding=action;binding_notice="";focus_key="key_"+action;rebuild(),grid)
 
 func reference_page() -> void:
-	for line in ["Mouse turns · Left-click guns · Right-click harpoon · W/S throttle",
-		"Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation.",
-		"Gamepad: right stick turns · left stick strafes or turns (sticks can be reassigned in Gamepad) · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost",
-		"X bank · Y dock · LB route · RB time · View map · D-pad left camera, hold to look with the right stick · D-pad right lights · Start/B menu"]:
+	for line in [tr("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle"),
+		tr("Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation."),
+		tr("Gamepad: right stick turns · left stick strafes or turns (sticks can be reassigned in Gamepad) · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost"),
+		tr("X bank · Y dock · LB route · RB time · View map · D-pad left camera, hold to look with the right stick · D-pad right lights · Start/B menu")]:
 		plain(line,16,column).add_theme_color_override("font_color",colours().text)
 
 func gameplay_page() -> void:
-	toggle("Gameplay tips & control hints","interface","hints",true)
-	note("Loading tips, M.A.I. guidance and the control reminder.")
-	toggle("Depth limit markers","graphics","depth_limits",false)
-	note("Shows when the ship nears its depth limits.")
-	group("World")
+	toggle(tr("Gameplay tips & control hints"),"interface","hints",true)
+	note(tr("Loading tips, M.A.I. guidance and the control reminder."))
+	toggle(tr("Depth limit markers"),"graphics","depth_limits",false)
+	note(tr("Shows when the ship nears its depth limits."))
+	group(tr("World"))
 	var spacing := Spacing.new();spacing.read_config(load_config())
 	var controls := WorldSettings.new();controls.configure(spacing);column.add_child(controls)
 	for label in controls.find_children("*","Label",true,false): label.add_theme_color_override("font_color",colours().dim)
 	var current := note("")
 	var describe := func():
-		current.text=host.world_note.call() if can("world_note") else "Applies on next departure."
+		current.text=host.world_note.call() if can("world_note") else tr("Applies on next departure.")
 	describe.call()
 	controls.changed.connect(func():
 		var config := load_config();spacing.write_config(config)
@@ -664,4 +703,4 @@ func gameplay_page() -> void:
 	var split := flag("world","split_gates",true)
 	var words: PackedStringArray=WorldSettings.gate_text(split).split(" · ",true,1)
 	row(words[0],words[1],"split_gates",func(): put("world","split_gates",not split))
-	note("Applies from the next area.")
+	note(tr("Applies from the next area."))

@@ -66,7 +66,7 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     for name in names:
         if not name.startswith('game/'):continue
         source=ROOT/name
-        if source.is_symlink() or source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg'}:raise ValueError('Unexpected runtime source: '+name)
+        if source.is_symlink() or source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'}:raise ValueError('Unexpected runtime source: '+name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text()
@@ -161,6 +161,6 @@ def main():
     subprocess.run([args.godot,'--headless','--script',str(ROOT/'tools/export_notices.gd'),'--',str(output/'GODOT_LICENSES.txt')],check=True)
     shutil.copyfile(ROOT/'THIRD_PARTY_NOTICES.md',output/'THIRD_PARTY_NOTICES.md')
     (output/'licenses').mkdir(exist_ok=True)
-    shutil.copyfile(ROOT/'licenses/Apache-2.0.txt',output/'licenses/Apache-2.0.txt')
+    for name in ['Apache-2.0.txt','OFL-1.1.txt']:shutil.copyfile(ROOT/'licenses'/name,output/'licenses'/name)
     print(output/PLATFORMS[args.platform][1])
 if __name__=='__main__':main()

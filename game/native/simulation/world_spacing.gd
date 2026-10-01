@@ -1,5 +1,6 @@
 extends RefCounted
 ## Horizontal metres per atlas unit; local models and depths keep their scale.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const MIN_METERS := 400
 const DEFAULT_METERS := 600
 const ORIGINAL_METERS := 18850
@@ -11,6 +12,10 @@ const PRESETS := {Preset.SHORT:MIN_METERS,Preset.MEDIUM_SHORT:DEFAULT_METERS,Pre
 ## size players can picture, so the settings speak in squares.
 const GRID_UNITS := 25
 const NAMES := {Preset.SHORT:"Short · 10 km squares",Preset.MEDIUM_SHORT:"Medium short · 15 km squares",Preset.NORMAL:"Normal · 25 km squares",Preset.HIGH:"High · 50 km squares",Preset.ORIGINAL:"Original · 471 km squares",Preset.CUSTOM:"Custom"}
+
+static func names() -> Dictionary:
+	"""NAMES in the engine's language."""
+	return {Preset.SHORT:EngineLanguage.translate("Short · 10 km squares"),Preset.MEDIUM_SHORT:EngineLanguage.translate("Medium short · 15 km squares"),Preset.NORMAL:EngineLanguage.translate("Normal · 25 km squares"),Preset.HIGH:EngineLanguage.translate("High · 50 km squares"),Preset.ORIGINAL:EngineLanguage.translate("Original · 471 km squares"),Preset.CUSTOM:EngineLanguage.translate("Custom")}
 var preset := Preset.MEDIUM_SHORT
 var custom_meters := DEFAULT_METERS
 
@@ -25,8 +30,8 @@ static func square_kilometers(meters_per_unit: float) -> float:
 
 static func square_text(meters_per_unit: float) -> String:
 	var km: float=square_kilometers(meters_per_unit)
-	if km>=100 or is_equal_approx(km,roundf(km)):return "%d km"%roundi(km)
-	return "%.1f km"%km
+	if km>=100 or is_equal_approx(km,roundf(km)):return EngineLanguage.translate("%d km")%roundi(km)
+	return EngineLanguage.translate("%.1f km")%km
 
 func meters() -> int:
 	return valid_meters(custom_meters) if preset==Preset.CUSTOM else PRESETS.get(preset,DEFAULT_METERS)

@@ -2,6 +2,7 @@ extends RefCounted
 ## The picture fills the window by default. A fixed ratio letterboxes instead,
 ## for players whose display would otherwise stretch the composition or who
 ## record at a set shape. Heights match so a switch keeps the same detail.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const RATIOS := {"auto":Vector2i(1600,900),"4:3":Vector2i(1200,900),
 	"16:9":Vector2i(1600,900),"16:10":Vector2i(1440,900),"21:9":Vector2i(2100,900)}
 
@@ -42,6 +43,9 @@ static func responsive_size(pixels: Vector2i, touch: bool) -> Vector2i:
 	return size
 
 const ORIENTATIONS := ["Auto · any direction","Landscape","Portrait"]
+static func orientation_names() -> Array:
+	"""ORIENTATIONS in the engine's language."""
+	return [EngineLanguage.translate("Auto · any direction"),EngineLanguage.translate("Landscape"),EngineLanguage.translate("Portrait")]
 static func orientation_setting_available() -> bool:
 	"""Only an installed phone app turns its own screen; a browser tab cannot."""
 	return OS.has_feature("mobile") and not OS.has_feature("web")

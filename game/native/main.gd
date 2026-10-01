@@ -5,6 +5,7 @@ const Model = preload("res://native/presentation/model.gd")
 const Health = preload("res://native/simulation/health.gd")
 const Trade = preload("res://native/simulation/trade.gd")
 const StationTheme = preload("res://native/presentation/station_theme.gd")
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 var content := Content.new()
 var camera := Camera3D.new()
 var abyss := preload("res://native/presentation/abyss.gd").new()
@@ -54,6 +55,10 @@ var title_menu := preload("res://native/presentation/title_menu.gd").new()
 var inspector_open := false
 var save_path := "user://native/campaign.json"
 var settings_path := "user://native/settings.cfg"
+## The imported game's language, which engine text on Auto follows.
+var content_language := ""
+## The settings tab to reopen after a language change redraws the title.
+static var reopen_settings := ""
 var inspector_environment: Environment
 var tools_status: Label
 var title_dock := preload("res://native/presentation/title_dock.gd").new()
@@ -87,6 +92,47 @@ var graphics_probe: Node
 var fps_counter := preload("res://native/presentation/fps_counter.gd").new()
 ## Lists the finger drags, on the title as in the dive.
 var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
+
+func face_part_name(part: String) -> String:
+	match part:
+		"Backdrop": return tr("Backdrop")
+		"Face": return tr("Face")
+		"Suit": return tr("Suit")
+		"Eyes": return tr("Eyes")
+		"Hair": return tr("Hair")
+		"Accessory": return tr("Accessory")
+	return part
+
+func importer_messages() -> Array:
+	"""The importers' fixed progress and failure text (desktop/import.js,
+	android/import.js, browser/worker.js, browser/import_jar.py and
+	tools/import_native.py). It arrives in English and is listed here so it is
+	translated; importer_message() matches it."""
+	return [tr("Loading the bundled offline importer…"),tr("Loading local importer…"),tr("Converting audio: %d / %d"),
+		tr("Preparing your local game content…"),tr("Preparing browser content cache…"),tr("Decoding resources: %d%%"),
+		tr("Reading game data…"),tr("Could not decode audio: %s"),tr("Damaged JAR entry: %s"),tr("JAR exceeds 16 MiB."),
+		tr("Unsupported JAR: not a readable MIDlet archive."),tr("Unsupported JAR: this is not a DEEP MIDlet."),
+		tr("Unsupported JAR: this DEEP build renders with JSR-184 (M3G) models under data/3d. Only the Mascot Capsule builds with MBAC models under data/v3d are supported, such as the Sony Ericsson release."),
+		tr("JAR exceeds import limits"),tr("Unsafe JAR entry"),tr("Unsupported JAR entry"),tr("Invalid BMP"),
+		tr("Importer files are missing. Re-export the complete Web build."),tr("Content import failed."),tr("Import failed."),
+		tr("Expected a JAR path and output pack path.")]
+
+func importer_message(message: String) -> String:
+	"""An importer's English progress or failure text in the engine language;
+	text it does not know stays as it came."""
+	var text := message.strip_edges()
+	for prefix in ["ValueError: ","Error: "]:
+		if text.begins_with(prefix): return prefix+importer_message(text.trim_prefix(prefix))
+	var found := RegEx.create_from_string("^Converting audio: (\\d+) / (\\d+)$").search(text)
+	if found!=null: return tr("Converting audio: %d / %d")%[int(found.get_string(1)),int(found.get_string(2))]
+	found=RegEx.create_from_string("^Decoding resources: (\\d+)%$").search(text)
+	if found!=null: return tr("Decoding resources: %d%%")%int(found.get_string(1))
+	for pattern in ["Could not decode audio: ","Damaged JAR entry: "]:
+		if text.begins_with(pattern):
+			var subject := text.trim_prefix(pattern)
+			return (tr("Could not decode audio: %s") if pattern.begins_with("Could") else tr("Damaged JAR entry: %s"))%subject
+	var translated := tr(text)
+	return message if translated==text else translated
 
 func label(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
 	var node := Label.new()
@@ -139,6 +185,10 @@ func _ready() -> void:
 	canvas.add_child(ui)
 	ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	# The title is built in the engine's language, which follows the game
+	# opened last until this start's game is read.
+	content_language=str(start_config_now().get_value("interface","content_language",""))
+	apply_language()
 	ui.add_child(title_menu)
 	title_menu.continued.connect(show_load)
 	title_menu.started.connect(show_start)
@@ -164,23 +214,23 @@ func _ready() -> void:
 	column.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scroll.add_child(column)
 	column.add_theme_constant_override("separation",8)
-	column.add_child(label("CONTENT",26,Color("8bd6ee")))
-	column.add_child(label("LOCAL GAME RESOURCES",13,Color("73a6b3")))
+	column.add_child(label(tr("Content").to_upper(),26,Color("8bd6ee")))
+	column.add_child(label(tr("Local game resources").to_upper(),13,Color("73a6b3")))
 	column.add_child(HSeparator.new())
-	column.add_child(label("Model inspector",22))
+	column.add_child(label(tr("Model inspector"),22))
 	status=title_menu.status
 	tools_status=label("",14,Color("89a6a6"));tools_status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;column.add_child(tools_status)
 	catalog.custom_minimum_size.y=44
 	catalog.add_theme_font_size_override("font_size",17)
 	catalog.item_selected.connect(show_model)
 	column.add_child(catalog)
-	button("Back to main menu",hide_tools)
-	button("Ship systems · native rule checks",show_systems)
-	button("Headlights  ·  L",toggle_lights)
-	button("Choose game content",choose_content)
+	button(tr("Back to main menu"),hide_tools)
+	button(tr("Ship systems · native rule checks"),show_systems)
+	button(tr("Headlights  ·  L"),toggle_lights)
+	button(tr("Choose game content"),choose_content)
 	
 	column.add_child(HSeparator.new())
-	details=label("Orbit: drag right mouse / right stick\nZoom: mouse wheel\nFullscreen: F11",14,Color("81a2b0"))
+	details=label(tr("Orbit: drag right mouse / right stick\nZoom: mouse wheel\nFullscreen: F11"),14,Color("81a2b0"))
 	column.add_child(details)
 	panel.hide()
 	model_name=label("",24)
@@ -211,15 +261,15 @@ func _ready() -> void:
 	loading_tip=label("",14,Color("a2c3d3"));loading_tip.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;loading_tip.custom_minimum_size.x=420;loading_column.add_child(loading_tip)
 	add_child(portable)
 	portable.selected.connect(import_pack)
-	portable.failed.connect(func(message):status.text=message)
-	portable.progress.connect(func(message):status.text=message)
+	portable.failed.connect(func(message):status.text=importer_message(message))
+	portable.progress.connect(func(message):status.text=importer_message(message))
 	portable.busy_changed.connect(func(active):
-		title_menu.footer.text="Cancel import" if active else content_picker_label()
+		title_menu.footer.text=tr("Cancel import") if active else content_picker_label()
 		refresh_title())
 	add_child(chooser)
 	chooser.file_mode=FileDialog.FILE_MODE_OPEN_FILE
 	chooser.access=FileDialog.ACCESS_FILESYSTEM
-	chooser.filters=PackedStringArray(["*.jar,*.abyss ; Game JAR or private content pack"])
+	chooser.filters=PackedStringArray(["*.jar,*.abyss ; %s"%tr("Game JAR or private content pack")])
 	chooser.file_selected.connect(func(path):import_pack(path) if path.get_extension().to_lower()=="abyss" else import_jar(path))
 	# A window that ignores a dropped JAR looks broken. Only the desktop builds
 	# have a filesystem to drop from; the browser and Android reach their files
@@ -243,12 +293,14 @@ func _ready() -> void:
 	if not cache_path.is_empty():
 		selected_jar=jar_path
 		open_cache(cache_path)
-	elif "--choose-jar" in args: status.text="Choose your DEEP JAR to begin."; chooser.popup_centered_ratio(0.65)
+	elif "--choose-jar" in args: status.text=tr("Choose your DEEP JAR to begin."); chooser.popup_centered_ratio(0.65)
 	elif source_import_available() and FileAccess.file_exists(jar_path): import_jar(jar_path)
-	else: status.text="Choose your DEEP JAR to begin."
+	else: status.text=tr("Choose your DEEP JAR to begin.")
 	title_menu.footer.text=content_picker_label()
-	if not ready_for_preview:status.text="Choose your private .abyss content pack." if not source_import_available() and not OS.has_feature("web") and portable.android==null else "Choose your JAR or private .abyss content pack."
+	if not ready_for_preview:status.text=tr("Choose your private .abyss content pack.") if not source_import_available() and not OS.has_feature("web") and portable.android==null else tr("Choose your JAR or private .abyss content pack.")
 	refresh_title()
+	if not reopen_settings.is_empty():
+		show_settings(reopen_settings);reopen_settings="";settings_panel.focus_key="language"
 
 func dropped_files(paths: PackedStringArray) -> void:
 	"""A dropped file is the same request the picker makes, so it takes the same
@@ -258,10 +310,10 @@ func dropped_files(paths: PackedStringArray) -> void:
 	match path.get_extension().to_lower():
 		"abyss": import_pack(path)
 		"jar": import_jar(path)
-		_: status.text="Drop a DEEP .jar, or an .abyss content pack prepared on a computer."
+		_: status.text=tr("Drop a DEEP .jar, or an .abyss content pack prepared on a computer.")
 
 func content_picker_label() -> String:
-	return "Choose JAR / content pack…" if source_import_available() or OS.has_feature("web") or portable.android!=null else "Choose content pack…"
+	return tr("Choose JAR / content pack…") if source_import_available() or OS.has_feature("web") or portable.android!=null else tr("Choose content pack…")
 
 func desktop_importer_root() -> String:
 	var folder:=OS.get_executable_path().get_base_dir()
@@ -285,7 +337,7 @@ func choose_content() -> void:
 
 func import_pack(path: String) -> void:
 	if import_busy:return
-	status.text="Installing local content…"
+	status.text=tr("Installing local content…")
 	var cache:=pack_importer.install(path)
 	if cache.is_empty():status.text=pack_importer.failure;return
 	selected_jar="";open_cache(cache)
@@ -319,10 +371,10 @@ func layout_ui() -> void:
 
 func import_jar(path: String) -> void:
 	if import_busy: return
-	if not source_import_available():status.text="Prepare a .abyss content pack on desktop first.";return
+	if not source_import_available():status.text=tr("Prepare a .abyss content pack on desktop first.");return
 	import_busy=true
 	selected_jar=path
-	status.text="Importing your game content…"
+	status.text=tr("Importing your game content…")
 	title_menu.new_button.disabled=true
 	title_menu.continue_button.disabled=true
 	# The packaged converter runs offline in its own process. Developer source
@@ -345,6 +397,11 @@ func open_cache(path: String) -> void:
 	status.text=""
 	set_preference("content","cache",path)
 	if not selected_jar.is_empty():set_preference("content","jar",selected_jar)
+	content_language=EngineLanguage.content_language(str(content.data.get("language","")),content.data.strings)
+	set_preference("interface","content_language",content_language)
+	if apply_language():
+		# Another game's language: the title is drawn again in it.
+		get_tree().reload_current_scene.call_deferred();return
 	catalog.clear()
 	for record: Dictionary in content.registry: catalog.add_item(content.record_name(record))
 	ready_for_preview=true
@@ -390,7 +447,7 @@ func _process(delta: float) -> void:
 	if loading.visible:loading_spinner.text=["◐","◓","◑","◒"][int(Time.get_ticks_msec()/160)%4]
 	if import_busy and bundled_import and FileAccess.file_exists(import_progress):
 		var progress:=FileAccess.get_file_as_string(import_progress)
-		if not progress.is_empty():status.text=progress
+		if not progress.is_empty():status.text=importer_message(progress)
 	if import_busy and not importer.is_alive():
 		var result: Dictionary = importer.wait_to_finish()
 		import_busy=false
@@ -401,7 +458,7 @@ func _process(delta: float) -> void:
 				else:open_cache(cache)
 			else:open_cache(str(result.text).strip_edges().split("\n")[-1])
 		else:
-			status.text="Import failed. "+str(result.text).strip_edges().split("\n")[-1] if bundled_import else "Import failed. Check your JAR and local converter dependencies."
+			status.text=tr("Import failed. %s")%importer_message(str(result.text).strip_edges().split("\n")[-1]) if bundled_import else tr("Import failed. Check your JAR and local converter dependencies.")
 			push_error(result.text)
 		if bundled_import:
 			for temporary in [import_output,import_output+".partial",import_progress]:
@@ -466,23 +523,23 @@ func show_systems() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation",16)
 	modal.add_child(box)
-	box.add_child(label("Native ship systems",28))
-	var explanation := label("Verification workbench: isolated test inputs.\nThese are ported rules, not a playable campaign.",16,Color("93b4c1"))
+	box.add_child(label(tr("Native ship systems"),28))
+	var explanation := label(tr("Verification workbench: isolated test inputs.\nThese are ported rules, not a playable campaign."),16,Color("93b4c1"))
 	box.add_child(explanation)
 	health.configure(75,30,20)
 	health_label=label("",20)
 	box.add_child(health_label)
-	button("Apply 35 combined damage",func(): health.damage(35); refresh_systems(),box)
-	button("Restore test hull",func(): health.configure(75,30,20); refresh_systems(),box)
+	button(tr("Apply 35 combined damage"),func(): health.damage(35); refresh_systems(),box)
+	button(tr("Restore test hull"),func(): health.configure(75,30,20); refresh_systems(),box)
 	trade.price=100; trade.owned=0; trade.stock=3; credits=1000
 	trade_label=label("",18)
 	box.add_child(trade_label)
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation",12)
 	box.add_child(actions)
-	button("Buy one",func(): credits+=trade.transact(true,credits,trade.owned,2); refresh_systems(),actions)
-	button("Sell one",func(): credits+=trade.transact(false,credits,trade.owned,2); refresh_systems(),actions)
-	var ok := button("OK  ·  Enter / Esc",close_modal,box)
+	button(tr("Buy one"),func(): credits+=trade.transact(true,credits,trade.owned,2); refresh_systems(),actions)
+	button(tr("Sell one"),func(): credits+=trade.transact(false,credits,trade.owned,2); refresh_systems(),actions)
+	var ok := button(tr("OK  ·  Enter / Esc"),close_modal,box)
 	refresh_systems()
 	scrim.show()
 	modal.show()
@@ -490,8 +547,8 @@ func show_systems() -> void:
 	ok.grab_focus.call_deferred()
 
 func refresh_systems() -> void:
-	health_label.text="Hull %d    Shield %d    Armor %d" % [health.hull,health.shield,health.armor]
-	trade_label.text="Credits %d  ·  Cargo %d / 2  ·  Stock %d\nTest item: 100 credits each" % [credits,trade.owned,trade.stock]
+	health_label.text=tr("Hull %d    Shield %d    Armor %d") % [health.hull,health.shield,health.armor]
+	trade_label.text=tr("Credits %d  ·  Cargo %d / 2  ·  Stock %d\nTest item: 100 credits each") % [credits,trade.owned,trade.stock]
 
 func close_modal() -> void:
 	stop_music_preview()
@@ -504,13 +561,14 @@ func close_modal() -> void:
 func _exit_tree() -> void:
 	if importer.is_started(): importer.wait_to_finish()
 
-func show_start(player_name: String="Pilot") -> void:
+func show_start(player_name: String="") -> void:
 	if not ready_for_preview: return
+	if player_name.is_empty(): player_name=tr("Pilot")
 	face_art.root=content.root
 	for child in modal.get_children(): modal.remove_child(child); child.queue_free()
 	var shell := VBoxContainer.new();shell.name="CharacterSheet";shell.add_theme_constant_override("separation",12); modal.add_child(shell)
-	shell.add_child(label("CREATE YOUR CHARACTER",26,Color("8bd6ee")))
-	shell.add_child(label("Choose your name and portrait.",15))
+	shell.add_child(label(tr("Create your character").to_upper(),26,Color("8bd6ee")))
+	shell.add_child(label(tr("Choose your name and portrait."),15))
 	# Scrolls only where a phone's height cannot hold it all.
 	var scroll:=ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
@@ -522,29 +580,29 @@ func show_start(player_name: String="Pilot") -> void:
 	var portrait := VBoxContainer.new();portrait.add_theme_constant_override("separation",8);row.add_child(portrait)
 	face_preview=TextureRect.new();face_preview.custom_minimum_size=Vector2(160,160);face_preview.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;face_preview.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;face_preview.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;portrait.add_child(face_preview)
 	var choices := VBoxContainer.new();choices.size_flags_horizontal=Control.SIZE_EXPAND_FILL;choices.add_theme_constant_override("separation",8);row.add_child(choices)
-	var name_field := LineEdit.new(); name_field.placeholder_text="Your name"; name_field.text=player_name; name_field.max_length=32;name_field.custom_minimum_size.y=40; choices.add_child(name_field)
-	var random := button(content.text(302) if not content.text(302).is_empty() else "Generate face",func(): random_face();show_start(name_field.text),portrait)
+	var name_field := LineEdit.new(); name_field.placeholder_text=tr("Your name"); name_field.text=player_name; name_field.max_length=32;name_field.custom_minimum_size.y=40; choices.add_child(name_field)
+	var random := button(content.text(302) if not content.text(302).is_empty() else tr("Generate face"),func(): random_face();show_start(name_field.text),portrait)
 	random.alignment=HORIZONTAL_ALIGNMENT_CENTER
 	var grid := GridContainer.new();grid.columns=4;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);choices.add_child(grid)
 	for entry in FACE_PARTS:
-		var caption := label(entry[0],14);caption.custom_minimum_size.x=80;grid.add_child(caption)
+		var caption := label(face_part_name(entry[0]),14);caption.custom_minimum_size.x=80;grid.add_child(caption)
 		var picker := OptionButton.new();picker.size_flags_horizontal=Control.SIZE_EXPAND_FILL;picker.custom_minimum_size=Vector2(150,32);grid.add_child(picker)
-		for i in entry[2].size(): picker.add_item("None" if entry[2][i]<0 else "%s %02d"%[entry[0],i+1])
+		for i in entry[2].size(): picker.add_item(tr("None") if entry[2][i]<0 else tr("%s %02d")%[face_part_name(entry[0]),i+1])
 		picker.select(maxi(0,entry[2].find(face_layers[entry[1]])))
 		picker.item_selected.connect(func(index): face_layers[entry[1]]=entry[2][index]; refresh_face())
 	refresh_face()
-	box.add_child(label("WORLD SPACING",18,Color("8bd6ee")))
+	box.add_child(label(tr("World spacing").to_upper(),18,Color("8bd6ee")))
 	var config:=ConfigFile.new();config.load(settings_path)
 	var spacing:=preload("res://native/simulation/world_spacing.gd").new();spacing.read_config(config)
 	var controls:=preload("res://native/presentation/world_settings.gd").new();controls.configure(spacing);box.add_child(controls)
 	controls.changed.connect(func():
 		var saved:=ConfigFile.new();saved.load(settings_path);spacing.write_config(saved)
 		DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
-		if saved.save(settings_path)!=OK:status.text="Could not save settings. Check your user folder.")
-	box.add_child(label("Change later in Options → Gameplay.",14,Color("89a6a6")))
-	shell.add_child(label("Your previous checkpoint is kept as a backup.",12,Color("89a6a6")))
-	button("START GAME",func(): launch_game(false,name_field.text.strip_edges()),shell)
-	button("Back",close_modal,shell)
+		if saved.save(settings_path)!=OK:status.text=tr("Could not save settings. Check your user folder."))
+	box.add_child(label(tr("Change later in Options → Gameplay."),14,Color("89a6a6")))
+	shell.add_child(label(tr("Your previous checkpoint is kept as a backup."),12,Color("89a6a6")))
+	button(tr("Start game").to_upper(),func(): launch_game(false,name_field.text.strip_edges()),shell)
+	button(tr("Back"),close_modal,shell)
 	scrim.show(); modal.show();layout_ui();name_field.grab_focus.call_deferred()
 func random_face() -> void:
 	"""The original's "Generate face" (ch: 302). Every part comes from one
@@ -594,7 +652,7 @@ func show_load() -> void:
 		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():launch_game(true,"Pilot",path),box)
 		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT;choice.disabled=entry.is_empty()
 		if first==null and not entry.is_empty():first=choice
-	var back := button("Back",close_modal,box)
+	var back := button(tr("Back"),close_modal,box)
 	scrim.show();modal.show();layout_ui()
 	(first if first!=null else back).grab_focus.call_deferred()
 
@@ -613,9 +671,9 @@ func show_help(topic: int=-1) -> void:
 		var text := label(topics[topic].text,15);text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=540;body.add_child(text)
 		if topic==0:
 			var keys := label(guide.key_note(),13,Color("a2c3d3"));keys.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;keys.custom_minimum_size.x=540;body.add_child(keys)
-		var back := button("Back",func():show_help(),box)
+		var back := button(tr("Back"),func():show_help(),box)
 		scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred();return
-	box.add_child(label(("HELP" if not ready_for_preview else content.text(4).to_upper()),24,Color("8bd6ee")))
+	box.add_child(label((tr("Help").to_upper() if not ready_for_preview else content.text(4).to_upper()),24,Color("8bd6ee")))
 	var first: Button=null
 	if not topics.is_empty():box.add_child(label(content.text(18),16,Color("aedbec")))
 	var grid := GridContainer.new();grid.columns=2;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",6);box.add_child(grid)
@@ -629,9 +687,9 @@ func show_help(topic: int=-1) -> void:
 			var roll := VBoxContainer.new();roll.add_theme_constant_override("separation",10);modal.add_child(roll)
 			var scroller := ScrollContainer.new();scroller.custom_minimum_size=Vector2(560,340);roll.add_child(scroller)
 			var text := label(content.text(26)+"\n\n"+content.text(28)+"\n\n"+content.text(25),15);text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=540;scroller.add_child(text)
-			var back := button("Back",func():show_help(),roll);layout_ui();back.grab_focus.call_deferred(),box)
+			var back := button(tr("Back"),func():show_help(),roll);layout_ui();back.grab_focus.call_deferred(),box)
 		credits.alignment=HORIZONTAL_ALIGNMENT_LEFT
-	var back := button("Back",close_modal,box)
+	var back := button(tr("Back"),close_modal,box)
 	if ready_for_preview:
 		# Credits and Back share a row to keep the page inside a 720p window.
 		var last := HBoxContainer.new();last.add_theme_constant_override("separation",10);box.add_child(last)
@@ -645,15 +703,15 @@ func show_mods() -> void:
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
-	box.add_child(label("MODS",24,Color("8bd6ee")))
+	box.add_child(label(tr("Mods").to_upper(),24,Color("8bd6ee")))
 	stop_music_preview()
-	var intro := label("Replace the game's textures and music with your own files. Remove a replacement to restore the original.",13,Color("a2c3d3"))
+	var intro := label(tr("Replace the game's textures and music with your own files. Remove a replacement to restore the original."),13,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=560;box.add_child(intro)
-	var textures := button("Textures",show_mod_textures,box)
-	box.add_child(label("The two texture atlases used by all models.",12,Color("89a6a6")))
-	button("Music",show_mod_music,box)
-	box.add_child(label("The menu and station tracks, as OGG, MP3 or WAV.",12,Color("89a6a6")))
-	var back := button("Back",close_modal,box)
+	var textures := button(tr("Textures"),show_mod_textures,box)
+	box.add_child(label(tr("The two texture atlases used by all models."),12,Color("89a6a6")))
+	button(tr("Music"),show_mod_music,box)
+	box.add_child(label(tr("The menu and station tracks, as OGG, MP3 or WAV."),12,Color("89a6a6")))
+	var back := button(tr("Back"),close_modal,box)
 	scrim.show();modal.show();layout_ui();textures.grab_focus.call_deferred()
 
 func checkered(image: Image, side: float) -> Control:
@@ -679,30 +737,30 @@ func show_mod_textures() -> void:
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
-	box.add_child(label("MODS · TEXTURES",22,Color("8bd6ee")))
+	box.add_child(label(tr("Mods · Textures").to_upper(),22,Color("8bd6ee")))
 	var Mods=preload("res://native/presentation/mods.gd")
 	if not ready_for_preview:
-		box.add_child(label("Import your DEEP JAR first; the textures come from it.",15))
-		var only := button("Back",show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
-	var intro := label("A PNG of any size replaces an atlas; keep the original layout. Pure white or transparent areas are see-through. Changes apply immediately.",12,Color("a2c3d3"))
+		box.add_child(label(tr("Import your DEEP JAR first; the textures come from it."),15))
+		var only := button(tr("Back"),show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
+	var intro := label(tr("A PNG of any size replaces an atlas; keep the original layout. Pure white or transparent areas are see-through. Changes apply immediately."),12,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=580;box.add_child(intro)
 	var first: Button=null
-	for atlas in Mods.ATLASES:
+	for atlas in Mods.atlases():
 		var status: Dictionary=Mods.texture_status(content.root,atlas)
 		var card := PanelContainer.new();card.add_theme_stylebox_override("panel",style(Color("0b1b22aa"),Color("2f4d57")));box.add_child(card)
 		var row := HBoxContainer.new();row.add_theme_constant_override("separation",10);card.add_child(row)
-		for form in [["As painted",status.image],["Cut-outs see-through",Mods.cut_out(status.image,256)]]:
+		for form in [[tr("As painted"),status.image],[tr("Cut-outs see-through"),Mods.cut_out(status.image,256)]]:
 			var column_box := VBoxContainer.new();column_box.add_theme_constant_override("separation",2);row.add_child(column_box)
 			column_box.add_child(checkered(form[1],84))
 			column_box.add_child(label(form[0],10,Color("89a6a6")))
 		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",2);row.add_child(words)
 		words.add_child(label("%s · %s.png"%[atlas.title,atlas.name],15))
 		var about := label(atlas.about,11,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;about.custom_minimum_size.x=360;words.add_child(about)
-		var standing := ("Replacement · %d×%d" if status.replaced else "Original · %d×%d")%[status.size.x,status.size.y]
+		var standing := (tr("Replacement · %d×%d") if status.replaced else tr("Original · %d×%d"))%[status.size.x,status.size.y]
 		words.add_child(label(standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
 		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",4);words.add_child(actions)
-		for entry in [["View",func():show_texture(atlas),true],["Replace…",func():mods_target=atlas.name;mods_notice="";images.choose(),images.available()],["Restore original",func():
-			mods_notice=("Restored the original %s."%atlas.name) if Mods.remove_texture(atlas.name) else "Could not remove the replacement."
+		for entry in [[tr("View"),func():show_texture(atlas),true],[tr("Replace…"),func():mods_target=atlas.name;mods_notice="";images.choose(),images.available()],[tr("Restore original"),func():
+			mods_notice=(tr("Restored the original %s.")%atlas.name) if Mods.remove_texture(atlas.name) else tr("Could not remove the replacement.")
 			apply_textures();show_mod_textures(),status.replaced]]:
 			var act := button(entry[0],entry[1],actions);act.custom_minimum_size.y=28;act.add_theme_font_size_override("font_size",13);act.disabled=not entry[2]
 			for state in ["normal","hover","focus","pressed"]:
@@ -711,9 +769,9 @@ func show_mod_textures() -> void:
 	var folders := HBoxContainer.new();folders.add_theme_constant_override("separation",8);box.add_child(folders)
 	if not OS.has_feature("android") and not OS.has_feature("web"):
 		var mods_dir := ProjectSettings.globalize_path(Mods.user_texture_path("deep").get_base_dir())
-		button("Open mods folder",func():DirAccess.make_dir_recursive_absolute(mods_dir);OS.shell_open(mods_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-		button("Open original textures",func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/textures"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	var back := button("Back",show_mods,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button(tr("Open mods folder"),func():DirAccess.make_dir_recursive_absolute(mods_dir);OS.shell_open(mods_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button(tr("Open original textures"),func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/textures"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var back := button(tr("Back"),show_mods,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	if not mods_notice.is_empty():
 		var note := label(mods_notice,12,Color("d7c399"));note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;note.custom_minimum_size.x=560;box.add_child(note)
 	scrim.show();modal.show();layout_ui()
@@ -726,19 +784,19 @@ func show_texture(atlas: Dictionary, cut: bool=false) -> void:
 	var status: Dictionary=Mods.texture_status(content.root,atlas)
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
-	box.add_child(label("%s · %s · %d×%d"%[atlas.title.to_upper(),"CUT-OUTS SEE-THROUGH" if cut else "AS PAINTED",status.size.x,status.size.y],18,Color("8bd6ee")))
+	box.add_child(label("%s · %s · %d×%d"%[atlas.title.to_upper(),tr("Cut-outs see-through").to_upper() if cut else tr("As painted").to_upper(),status.size.x,status.size.y],18,Color("8bd6ee")))
 	var big := checkered(Mods.cut_out(status.image,1024) if cut else status.image,420);big.size_flags_horizontal=Control.SIZE_SHRINK_CENTER;box.add_child(big)
-	box.add_child(label(status.path.get_file()+("  ·  replacement" if status.replaced else "  ·  original"),12,Color("a2c3d3")))
+	box.add_child(label((tr("%s  ·  replacement") if status.replaced else tr("%s  ·  original"))%status.path.get_file(),12,Color("a2c3d3")))
 	var row := HBoxContainer.new();row.add_theme_constant_override("separation",8);box.add_child(row)
-	var other := button("Show cut-outs" if not cut else "Show as painted",func():show_texture(atlas,not cut),row);other.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	var back := button("Back",show_mod_textures,row);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var other := button(tr("Show cut-outs") if not cut else tr("Show as painted"),func():show_texture(atlas,not cut),row);other.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var back := button(tr("Back"),show_mod_textures,row);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
 
 func install_texture(path: String) -> void:
 	var Mods=preload("res://native/presentation/mods.gd")
-	var trouble: String=Mods.install_texture(mods_target,path) if not mods_target.is_empty() else "Choose an atlas first."
+	var trouble: String=Mods.install_texture(mods_target,path) if not mods_target.is_empty() else tr("Choose an atlas first.")
 	if path.begins_with("user://") or path.begins_with(OS.get_cache_dir()):DirAccess.remove_absolute(path)
-	mods_notice=trouble if not trouble.is_empty() else "%s.png replaced."%mods_target
+	mods_notice=trouble if not trouble.is_empty() else tr("%s.png replaced.")%mods_target
 	if trouble.is_empty():apply_textures()
 	show_mod_textures()
 
@@ -749,31 +807,31 @@ func show_mod_music() -> void:
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
-	box.add_child(label("MODS · MUSIC",22,Color("8bd6ee")))
+	box.add_child(label(tr("Mods · Music").to_upper(),22,Color("8bd6ee")))
 	var Mods=preload("res://native/presentation/mods.gd")
 	if not ready_for_preview:
-		box.add_child(label("Import your DEEP JAR first; the music comes from it.",15))
-		var only := button("Back",show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
-	var intro := label("An OGG Vorbis, MP3 or WAV file replaces a track and loops wherever it would play. Changes apply immediately.",12,Color("a2c3d3"))
+		box.add_child(label(tr("Import your DEEP JAR first; the music comes from it."),15))
+		var only := button(tr("Back"),show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
+	var intro := label(tr("An OGG Vorbis, MP3 or WAV file replaces a track and loops wherever it would play. Changes apply immediately."),12,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=580;box.add_child(intro)
 	var first: Button=null
-	for track in Mods.TRACKS:
+	for track in Mods.tracks():
 		var status: Dictionary=Mods.music_status(content.root,track)
 		var card := PanelContainer.new();card.add_theme_stylebox_override("panel",style(Color("0b1b22aa"),Color("2f4d57")));box.add_child(card)
 		var words := VBoxContainer.new();words.add_theme_constant_override("separation",2);card.add_child(words)
 		words.add_child(label("%s · %s.mid"%[track.title,track.name],15))
 		var about := label(track.about,11,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;about.custom_minimum_size.x=520;words.add_child(about)
-		var standing := "Not in this JAR · a replacement adds it"
-		if status.replaced: standing="Replacement · %s · %s"%[status.path.get_file(),clock(status.length)] if status.readable else "Replacement · %s · cannot be read"%status.path.get_file()
-		elif status.in_jar: standing="Original · converted MIDI · %s"%clock(status.length)
+		var standing := tr("Not in this JAR · a replacement adds it")
+		if status.replaced: standing=tr("Replacement · %s · %s")%[status.path.get_file(),clock(status.length)] if status.readable else tr("Replacement · %s · cannot be read")%status.path.get_file()
+		elif status.in_jar: standing=tr("Original · converted MIDI · %s")%clock(status.length)
 		words.add_child(label(standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
 		var playing: bool=title_dock.dive_audio.preview_track==track.name
 		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",4);words.add_child(actions)
-		for entry in [["Stop" if playing else "Listen",func():
+		for entry in [[tr("Stop") if playing else tr("Listen"),func():
 			title_dock.dive_audio.preview_track="" if playing else track.name;show_mod_music(),status.readable],
-			["Replace…",func():music_target=track.name;mods_notice="";music_files.choose(),music_files.available()],
-			["Restore original",func():
-				mods_notice=("Restored the original %s track."%track.name) if Mods.remove_music(track.name) else "Could not remove the replacement."
+			[tr("Replace…"),func():music_target=track.name;mods_notice="";music_files.choose(),music_files.available()],
+			[tr("Restore original"),func():
+				mods_notice=(tr("Restored the original %s track.")%track.name) if Mods.remove_music(track.name) else tr("Could not remove the replacement.")
 				apply_music();show_mod_music(),status.replaced]]:
 			var act := button(entry[0],entry[1],actions);act.custom_minimum_size.y=28;act.add_theme_font_size_override("font_size",13);act.disabled=not entry[2]
 			for state in ["normal","hover","focus","pressed"]:
@@ -782,9 +840,9 @@ func show_mod_music() -> void:
 	var folders := HBoxContainer.new();folders.add_theme_constant_override("separation",8);box.add_child(folders)
 	if not OS.has_feature("android") and not OS.has_feature("web"):
 		var music_dir := ProjectSettings.globalize_path(Mods.user_music_path("station","ogg").get_base_dir())
-		button("Open mods folder",func():DirAccess.make_dir_recursive_absolute(music_dir);OS.shell_open(music_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-		button("Open original music",func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/sound"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	var back := button("Back",show_mods,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button(tr("Open mods folder"),func():DirAccess.make_dir_recursive_absolute(music_dir);OS.shell_open(music_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button(tr("Open original music"),func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/sound"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var back := button(tr("Back"),show_mods,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	if not mods_notice.is_empty():
 		var note := label(mods_notice,12,Color("d7c399"));note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;note.custom_minimum_size.x=560;box.add_child(note)
 	scrim.show();modal.show();layout_ui()
@@ -795,9 +853,9 @@ static func clock(seconds: float) -> String:
 
 func install_music(path: String) -> void:
 	var Mods=preload("res://native/presentation/mods.gd")
-	var trouble: String=Mods.install_music(music_target,path) if not music_target.is_empty() else "Choose a track first."
+	var trouble: String=Mods.install_music(music_target,path) if not music_target.is_empty() else tr("Choose a track first.")
 	if path.begins_with("user://") or path.begins_with(OS.get_cache_dir()):DirAccess.remove_absolute(path)
-	mods_notice=trouble if not trouble.is_empty() else "The %s track is replaced."%music_target
+	mods_notice=trouble if not trouble.is_empty() else tr("The %s track is replaced.")%music_target
 	if trouble.is_empty():apply_music()
 	show_mod_music()
 
@@ -826,7 +884,7 @@ func refresh_title() -> void:
 			if not FileAccess.file_exists(path):continue
 			if store.read(path,content.data)!=null:
 				title_menu.continue_button.disabled=false
-				if store.recovered and index==3:status.text="Latest autosave is damaged; the previous save was loaded."
+				if store.recovered and index==3:status.text=tr("Latest autosave is damaged; the previous save was loaded.")
 			elif index==3:status.text=store.failure
 	focus_title()
 
@@ -851,7 +909,7 @@ func hide_tools() -> void:
 func set_preference(section: String, key: String, value: Variant) -> void:
 	var config := ConfigFile.new();config.load(settings_path);config.set_value(section,key,value)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
-	if config.save(settings_path)!=OK: status.text="Could not save settings. Check your user folder."
+	if config.save(settings_path)!=OK: status.text=tr("Could not save settings. Check your user folder.")
 
 func apply_render_quality(quality: Dictionary={}) -> void:
 	"""The backdrop draws what the dive will: resolution, antialiasing,
@@ -894,7 +952,7 @@ func start_graphics_probe() -> void:
 	graphics_probe.trying.connect(try_graphics_preset)
 	title_dock.view.backdrop_close=true
 	graphics_probe.finished.connect(finish_graphics_probe)
-	status.text="Choosing graphics settings for this device…"
+	status.text=tr("Choosing graphics settings for this device…")
 	graphics_probe.begin()
 
 func try_graphics_preset(preset: int) -> void:
@@ -911,7 +969,7 @@ func cancel_graphics_probe() -> void:
 	if not probing():return
 	graphics_probe.stop();graphics_probe.queue_free()
 	title_dock.view.backdrop_close=false
-	if status.text=="Choosing graphics settings for this device…":status.text=""
+	if status.text==tr("Choosing graphics settings for this device…"):status.text=""
 	apply_render_quality()
 
 func finish_graphics_probe(preset: int) -> void:
@@ -924,9 +982,9 @@ func finish_graphics_probe(preset: int) -> void:
 	config.set_value("graphics","recommended",preset)
 	config.set_value("graphics","detection",GraphicsQuality.DETECTION_VERSION)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
-	if config.save(settings_path)!=OK: status.text="Could not save settings. Check your user folder.";return
+	if config.save(settings_path)!=OK: status.text=tr("Could not save settings. Check your user folder.");return
 	apply_render_quality()
-	if status.text=="Choosing graphics settings for this device…":status.text=""
+	if status.text==tr("Choosing graphics settings for this device…"):status.text=""
 	if first:show_graphics_choice(preset)
 
 func show_graphics_choice(preset: int) -> void:
@@ -936,11 +994,11 @@ func show_graphics_choice(preset: int) -> void:
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.name="GraphicsChoice";box.add_theme_constant_override("separation",12);modal.add_child(box)
-	box.add_child(label("GRAPHICS",24,Color("8bd6ee")))
-	var text := label("The %s preset suits this device best, so the game now uses it.\n\nYou can choose another preset or change single settings in Settings > Graphics."%GraphicsQuality.PRESETS[preset],16)
+	box.add_child(label(tr("Graphics").to_upper(),24,Color("8bd6ee")))
+	var text := label(tr("The %s preset suits this device best, so the game now uses it.\n\nYou can choose another preset or change single settings in Settings > Graphics.")%GraphicsQuality.preset_names()[preset],16)
 	text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=480;box.add_child(text)
-	var ok := button("OK",close_modal,box)
-	button("Open graphics settings",func():close_modal();show_settings("graphics"),box)
+	var ok := button(tr("OK"),close_modal,box)
+	button(tr("Open graphics settings"),func():close_modal();show_settings("graphics"),box)
 	scrim.show();modal.show();layout_ui();ok.grab_focus.call_deferred()
 
 func show_settings(section: String="") -> void:
@@ -957,6 +1015,7 @@ func show_settings(section: String="") -> void:
 	modal_origin=get_viewport().gui_get_focus_owner()
 	settings_panel.configure(settings_path,{
 		"text":content.text,
+		"content_language":func():return content_language,
 		"auto_title":func():return title_dock.dive_audio.title_track() if title_dock.dive_audio.title_choice==0 and ready_for_preview else ""},
 		false,TouchControls.last_input=="touch" or (TouchControls.last_input.is_empty() and DisplayServer.is_touchscreen_available()))
 	scrim.show();settings_panel.open(section)
@@ -966,10 +1025,20 @@ func close_settings() -> void:
 	if is_instance_valid(modal_origin) and modal_origin.is_visible_in_tree(): modal_origin.grab_focus.call_deferred();modal_origin=null
 	else: focus_title()
 
+func apply_language() -> bool:
+	"""Engine text in the chosen language, or the game's on Auto. True when
+	that changed the language."""
+	var before: String=EngineLanguage.current
+	EngineLanguage.apply(EngineLanguage.resolve(str(start_config_now().get_value("interface","language",EngineLanguage.AUTO)),content_language))
+	return EngineLanguage.current!=before
+
 func apply_setting(section: String, key: String) -> void:
 	"""The title's backdrop and music follow the choices at once; everything
 	else is read when a dive starts."""
 	var config := ConfigFile.new();config.load(settings_path)
+	if [section,key]==["interface","language"] and apply_language():
+		# The menus behind the settings are drawn again in the new language.
+		reopen_settings="display";get_tree().reload_current_scene.call_deferred();return
 	var audio=title_dock.dive_audio
 	if key in SettingsMenu.OceanOptions.VISUALS:
 		title_dock.apply_atmosphere(config)
@@ -1004,11 +1073,11 @@ func launch_game(resume: bool=false, player_name: String="Pilot", path: String="
 	# Building the dive is one long synchronous stretch: the region, every
 	# model in it and every shader variant. Say so on screen first, and let
 	# a frame draw it, so the last thing seen is not a menu that stopped.
-	show_loading(content.text(229) if not content.text(229).is_empty() else "Loading…",chapter)
+	show_loading(content.text(229) if not content.text(229).is_empty() else tr("Loading…"),chapter)
 	await get_tree().process_frame
 	if not is_inside_tree():return
 	get_viewport().disable_3d=false
 	var gameplay=load("res://native/gameplay.gd").new()
 	gameplay.save_path=save_path;gameplay.load_path=path;gameplay.settings_path=settings_path
-	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_name="Pilot" if player_name.is_empty() else player_name
+	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_name=tr("Pilot") if player_name.is_empty() else player_name
 	get_tree().root.add_child(gameplay); get_tree().current_scene=gameplay; queue_free()

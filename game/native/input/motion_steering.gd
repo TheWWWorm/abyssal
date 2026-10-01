@@ -103,7 +103,7 @@ static func angles(gravity: Vector3) -> Vector2:
 func calibrate() -> bool:
 	var gravity := reading()
 	if gravity.length_squared()<REST or not gravity.is_finite():
-		notice.emit("No motion sensor reading. Tilt steering needs a device with motion sensors, and permission to use them.")
+		notice.emit(tr("No motion sensor reading. Tilt steering needs a device with motion sensors, and permission to use them."))
 		return false
 	neutral=angles(gravity); calibrated=true; filtered=Vector2.ZERO
 	return true

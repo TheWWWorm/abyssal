@@ -45,7 +45,7 @@ func choose() -> void:
 	if android!=null:android.call("choose_"+kind)
 	elif OS.has_feature("web"):JavaScriptBridge.get_interface("abyssalImages").choose(callback,".png,image/png" if kind=="image" else ".ogg,.oga,.mp3,.wav,audio/*")
 	elif available():open_dialog.popup_centered_ratio(.8)
-	else:failed.emit("No file picker is available on this device.")
+	else:failed.emit(tr("No file picker is available on this device."))
 
 func received(args: Array) -> void:
 	if args.size()<2:return
@@ -53,7 +53,7 @@ func received(args: Array) -> void:
 	var bytes:=JavaScriptBridge.js_buffer_to_packed_byte_array(args[1])
 	var path:="user://chosen-texture.png" if kind=="image" else "user://chosen-music"
 	var file:=FileAccess.open(path,FileAccess.WRITE)
-	if file==null:failed.emit("Browser storage is unavailable.");return
+	if file==null:failed.emit(tr("Browser storage is unavailable."));return
 	file.store_buffer(bytes);var result:=file.get_error();file.close()
-	if result!=OK:DirAccess.remove_absolute(path);failed.emit("Browser storage is full.");return
+	if result!=OK:DirAccess.remove_absolute(path);failed.emit(tr("Browser storage is full."));return
 	chosen.emit(path)

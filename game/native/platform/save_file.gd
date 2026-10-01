@@ -62,7 +62,7 @@ window.abyssalSaves = {
 			add_child(dialog)
 			dialog.access=FileDialog.ACCESS_FILESYSTEM
 			dialog.use_native_dialog=true
-			dialog.filters=PackedStringArray(["*.abyssave ; Abyssal save export"])
+			dialog.filters=PackedStringArray(["*.abyssave ; "+tr("Abyssal save export")])
 		open_dialog.file_mode=FileDialog.FILE_MODE_OPEN_FILE
 		open_dialog.file_selected.connect(func(path):chosen.emit(path))
 		save_dialog.file_mode=FileDialog.FILE_MODE_SAVE_FILE
@@ -88,35 +88,35 @@ func write_chosen(path: String) -> void:
 	if path.get_extension().to_lower()!=EXTENSION_NAME: path+="."+EXTENSION_NAME
 	var file := FileAccess.open(path,FileAccess.WRITE)
 	if file==null:
-		failed.emit("Could not write to that folder.")
+		failed.emit(tr("Could not write to that folder."))
 		return
 	file.store_string(pending_text)
 	file.flush()
 	var ok := file.get_error()==OK
 	file.close()
-	if ok: delivered.emit("Save exported to "+path.get_file())
+	if ok: delivered.emit(tr("Save exported to %s")%path.get_file())
 	else:
 		DirAccess.remove_absolute(path)
-		failed.emit("Could not finish writing the export.")
+		failed.emit(tr("Could not finish writing the export."))
 
 func received(args: Array) -> void:
 	if args.size()<2: return
 	match str(args[0]):
 		"cancel": return
 		"error": failed.emit(str(args[1]))
-		"saved": delivered.emit("Save downloaded as "+str(args[1]))
+		"saved": delivered.emit(tr("Save downloaded as %s")%str(args[1]))
 		"file":
 			var bytes := JavaScriptBridge.js_buffer_to_packed_byte_array(args[1])
 			var file := FileAccess.open(STAGED,FileAccess.WRITE)
 			if file==null:
-				failed.emit("Browser storage is unavailable.")
+				failed.emit(tr("Browser storage is unavailable."))
 				return
 			file.store_buffer(bytes)
 			var result := file.get_error()
 			file.close()
 			if result!=OK:
 				DirAccess.remove_absolute(STAGED)
-				failed.emit("Browser storage is full. Free space and try again.")
+				failed.emit(tr("Browser storage is full. Free space and try again."))
 				return
 			chosen.emit(STAGED)
 			DirAccess.remove_absolute(STAGED)

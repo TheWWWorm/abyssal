@@ -36,7 +36,7 @@ func update(health, stats) -> void:
 	var capacities := [stats.hull,stats.shield,stats.armor]
 	for index in labels.size():
 		var ratio := clampf(float(values[index])/maxi(1,capacities[index]),0,1)
-		labels[index].text=["HULL","SHIELD","ARMOR"][index]+(" %d / %d"%[values[index],capacities[index]] if capacities[index]>0 else " —")
+		labels[index].text=[tr("Hull"),tr("Shield"),tr("Armor")][index].to_upper()+(" %d / %d"%[values[index],capacities[index]] if capacities[index]>0 else " —")
 		var color: Color = Color("f5a58b") if index==0 and ratio<=0.25 else colors[index]
 		if capacities[index]<=0: color=Color("82969e")
 		labels[index].modulate=color; fills[index].bg_color=color; bars[index].value=ratio*100

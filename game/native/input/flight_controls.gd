@@ -5,6 +5,7 @@ extends RefCounted
 ##
 ## D-pad left cycles the camera on a tap. Held, it lends the right stick to the
 ## camera, which swings back behind the hull once both are let go.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 var device := -1
 var axes := {}
 var buttons := {}
@@ -17,10 +18,16 @@ var roles: Array = DEFAULT_ROLES.duplicate()
 ## of the button is not a tap.
 var look_hold_used := false
 const ROLE_NAMES := ["Turn or strafe","Turn","Strafe","Pitch","Throttle","Camera","Off"]
+static func role_names() -> Array:
+	"""ROLE_NAMES in the engine's language."""
+	return [EngineLanguage.translate("Turn or strafe"),EngineLanguage.translate("Turn"),EngineLanguage.translate("Strafe"),EngineLanguage.translate("Pitch"),EngineLanguage.translate("Throttle"),EngineLanguage.translate("Camera"),EngineLanguage.translate("Off")]
 enum Role {TURN_OR_STRAFE,TURN,STRAFE,PITCH,THROTTLE,CAMERA,OFF}
 const DEFAULT_ROLES := [Role.TURN_OR_STRAFE,Role.PITCH,Role.TURN,Role.PITCH]
 const AXIS_KEYS := ["pad_left_x","pad_left_y","pad_right_x","pad_right_y"]
 const AXIS_NAMES := ["Left stick left/right","Left stick up/down","Right stick left/right","Right stick up/down"]
+static func axis_names() -> Array:
+	"""AXIS_NAMES in the engine's language."""
+	return [EngineLanguage.translate("Left stick left/right"),EngineLanguage.translate("Left stick up/down"),EngineLanguage.translate("Right stick left/right"),EngineLanguage.translate("Right stick up/down")]
 const LOOK_BUTTON := JOY_BUTTON_DPAD_LEFT
 const ACTIONS := {JOY_BUTTON_X:"bank",JOY_BUTTON_Y:"dock",JOY_BUTTON_LEFT_SHOULDER:"autopilot",JOY_BUTTON_RIGHT_SHOULDER:"time",JOY_BUTTON_BACK:"map",JOY_BUTTON_DPAD_LEFT:"camera",JOY_BUTTON_DPAD_RIGHT:"lights"}
 func reset() -> void:

@@ -9,6 +9,7 @@ extends RefCounted
 ## and centred onto the imported model's own extent, so it stands where the
 ## original stood, and if it carries animations the first one loops. The
 ## simulation still uses the imported geometry for collision, aim and camera.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 static var templates: Dictionary = {}
 static var missing: Dictionary = {}
 ## Set by the engine checks, so a test never reads a player's real mods.
@@ -104,6 +105,17 @@ const ATLASES := [
 	{"name":"deep","resource":"data/textures/deep.bmp","title":"Hulls and stations","about":"Every submarine, every station module, mines, torpedoes, boxes, capsules and the S.T.R.E.A.M. gate."},
 	{"name":"fx","resource":"data/textures/fx.bmp","title":"Creatures and effects","about":"Every creature and the algae, explosions, shots, the harpoon and the Eclipse."}]
 
+static func atlases() -> Array:
+	"""ATLASES with the title and about in the engine's language."""
+	var shown := {"deep":[EngineLanguage.translate("Hulls and stations"),EngineLanguage.translate("Every submarine, every station module, mines, torpedoes, boxes, capsules and the S.T.R.E.A.M. gate.")],
+		"fx":[EngineLanguage.translate("Creatures and effects"),EngineLanguage.translate("Every creature and the algae, explosions, shots, the harpoon and the Eclipse.")]}
+	return ATLASES.map(func(atlas): return shown_entry(atlas,shown))
+
+static func shown_entry(entry: Dictionary, shown: Dictionary) -> Dictionary:
+	var result := entry.duplicate()
+	result.title=shown[entry.name][0];result.about=shown[entry.name][1]
+	return result
+
 static func user_texture_path(name: String) -> String:
 	return "user://mods/textures/"+name+".png"
 
@@ -138,13 +150,13 @@ static func cut_out(image: Image, side: int) -> Image:
 static func install_texture(name: String, source: String) -> String:
 	"""Copies an image into the user mods folder as the atlas. Returns the
 	trouble, or nothing when it is in place."""
-	if not FileAccess.file_exists(source): return "There is no file at "+source+"."
+	if not FileAccess.file_exists(source): return EngineLanguage.translate("There is no file at %s.")%source
 	var img := Image.load_from_file(source)
-	if img==null: return "That file is not an image the engine can read. Use a PNG."
-	if img.get_width()<8 or img.get_height()<8: return "That image is too small to be an atlas."
+	if img==null: return EngineLanguage.translate("That file is not an image the engine can read. Use a PNG.")
+	if img.get_width()<8 or img.get_height()<8: return EngineLanguage.translate("That image is too small to be an atlas.")
 	var target := user_texture_path(name)
 	DirAccess.make_dir_recursive_absolute(target.get_base_dir())
-	if img.save_png(target)!=OK: return "Could not write into the mods folder."
+	if img.save_png(target)!=OK: return EngineLanguage.translate("Could not write into the mods folder.")
 	return ""
 
 static func remove_texture(name: String) -> bool:
@@ -159,6 +171,12 @@ static func remove_texture(name: String) -> bool:
 const TRACKS := [
 	{"name":"intro","title":"Menu and opening","about":"The title menu and a new game's opening. Plays when Settings → Audio → Menu and opening music resolves to Intro."},
 	{"name":"station","title":"Station","about":"Docked at every station, and the menu and opening where they use the station track."}]
+
+static func tracks() -> Array:
+	"""TRACKS with the title and about in the engine's language."""
+	var shown := {"intro":[EngineLanguage.translate("Menu and opening"),EngineLanguage.translate("The title menu and a new game's opening. Plays when Settings → Audio → Menu and opening music resolves to Intro.")],
+		"station":[EngineLanguage.translate("Station"),EngineLanguage.translate("Docked at every station, and the menu and opening where they use the station track.")]}
+	return TRACKS.map(func(track): return shown_entry(track,shown))
 const MUSIC_TYPES := ["ogg","mp3","wav"]
 const MUSIC_LIMIT := 64*1024*1024
 
@@ -215,20 +233,20 @@ static func music_status(content_root: String, track: Dictionary) -> Dictionary:
 static func install_music(name: String, source: String) -> String:
 	"""Copies an audio file into the user mods folder as the track, in place
 	of any earlier replacement. Returns the trouble, or nothing."""
-	if not FileAccess.file_exists(source): return "There is no file at "+source+"."
+	if not FileAccess.file_exists(source): return EngineLanguage.translate("There is no file at %s.")%source
 	var kind := audio_kind(source)
-	if kind.is_empty(): return "That file is not audio the engine can read. Use OGG Vorbis, MP3 or WAV."
+	if kind.is_empty(): return EngineLanguage.translate("That file is not audio the engine can read. Use OGG Vorbis, MP3 or WAV.")
 	var bytes := FileAccess.get_file_as_bytes(source)
-	if bytes.size()>MUSIC_LIMIT: return "That file is larger than 64 MiB."
-	if load_music(source)==null: return "That %s file could not be decoded."%kind.to_upper()
+	if bytes.size()>MUSIC_LIMIT: return EngineLanguage.translate("That file is larger than 64 MiB.")
+	if load_music(source)==null: return EngineLanguage.translate("That %s file could not be decoded.")%kind.to_upper()
 	var target := user_music_path(name,kind)
 	DirAccess.make_dir_recursive_absolute(target.get_base_dir())
 	for extension in MUSIC_TYPES:
 		if extension!=kind and FileAccess.file_exists(user_music_path(name,extension)): DirAccess.remove_absolute(user_music_path(name,extension))
 	var file := FileAccess.open(target,FileAccess.WRITE)
-	if file==null: return "Could not write into the mods folder."
+	if file==null: return EngineLanguage.translate("Could not write into the mods folder.")
 	file.store_buffer(bytes);var result := file.get_error();file.close()
-	if result!=OK: DirAccess.remove_absolute(target);return "Could not write into the mods folder."
+	if result!=OK: DirAccess.remove_absolute(target);return EngineLanguage.translate("Could not write into the mods folder.")
 	return ""
 
 static func remove_music(name: String) -> bool:

@@ -71,7 +71,7 @@ func _draw() -> void:
 		var y := depth_y(limit,gauge,span)
 		draw_line(Vector2(rail_x,gauge.position.y if limit==safe_minimum else y),Vector2(rail_x,y if limit==safe_minimum else gauge.end.y),SHALLOW_RAIL if limit==safe_minimum else DEEP_RAIL,2)
 		draw_line(Vector2(gauge.position.x-(8 if compact else 14),y),Vector2(gauge.position.x-2,y),Color("72dae8"),1)
-		var caption := str(int(limit)) if compact else ("MIN " if limit==safe_minimum else "MAX ")+str(int(limit))
+		var caption := str(int(limit)) if compact else (tr("MIN %d") if limit==safe_minimum else tr("MAX %d"))%int(limit)
 		draw_string(ThemeDB.fallback_font,Vector2(gauge.position.x-(96*text_scale if compact else 102),y+(4*text_scale if compact else (-6 if limit==safe_minimum else 16))),caption,HORIZONTAL_ALIGNMENT_RIGHT,82*text_scale,roundi(13*text_scale) if compact else 12,Color("91d5df"))
 	var cursor_y := depth_y(current_depth,gauge,span)
 	var color := Color("f0b665") if warning else Color("d0faff")
@@ -93,10 +93,10 @@ static func boost_state(player) -> Dictionary:
 func update(region, boost_key: String) -> void:
 	var player=region.player; var stats=player.stats
 	warning=player.depth<stats.minimum_depth or player.depth>stats.maximum_depth
-	var condition := "RADIATION · DESCEND" if player.depth<stats.minimum_depth else "PRESSURE · ASCEND"
+	var condition := tr("Radiation · Descend").to_upper() if player.depth<stats.minimum_depth else tr("Pressure · Ascend").to_upper()
 	current_depth=player.depth; safe_minimum=stats.minimum_depth; safe_maximum=stats.maximum_depth
-	depth_label.text="DEPTH\n%d m"%player.depth
-	depth_label.tooltip_text="%s %d–%d m"%[condition if warning else "Safe depth",stats.minimum_depth,stats.maximum_depth]
+	depth_label.text=tr("Depth").to_upper()+"\n%d m"%player.depth
+	depth_label.tooltip_text="%s %d–%d m"%[condition if warning else tr("Safe depth"),stats.minimum_depth,stats.maximum_depth]
 	queue_redraw()
 	var color := (Color("e6b85b") if player.depth<stats.minimum_depth else Color("e9977d")) if warning else Color("8fbfc8")
 	depth_label.modulate=color; depth_fill.bg_color=color
@@ -104,10 +104,10 @@ func update(region, boost_key: String) -> void:
 	pressure_strength=(0.12+0.24*clampf(float(region.pressure_ms)/5000,0,1)) if warning else 0.0
 	var boost := boost_state(player)
 	match boost.mode:
-		"absent": boost_label.text="BOOST · Not installed"
-		"active": boost_label.text="BOOSTING · %.1f s"%boost.seconds
-		"charging": boost_label.text="BOOST · Recharging %.1f s"%boost.seconds
-		"ready": boost_label.text="BOOST READY · "+boost_key
+		"absent": boost_label.text=tr("BOOST · Not installed")
+		"active": boost_label.text=tr("BOOSTING · %.1f s")%boost.seconds
+		"charging": boost_label.text=tr("BOOST · Recharging %.1f s")%boost.seconds
+		"ready": boost_label.text=tr("BOOST READY · %s")%boost_key
 	# On touch the boost button shows its own charge.
 	boost_bar.visible=boost.mode!="absent" and compact_rect.size.x<=0; boost_bar.value=boost.fraction*100
 	var boost_color := Color("8ce6df") if boost.mode in ["ready","active"] else Color("8a9da8")

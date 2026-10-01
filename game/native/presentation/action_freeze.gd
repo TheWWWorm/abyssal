@@ -82,14 +82,14 @@ func build_toolbar() -> void:
 	var rows := VBoxContainer.new()
 	toolbar.add_child(rows)
 	var touching: bool=game!=null and game.touch.enabled()
-	caption("ACTION FREEZE  ·  "+("Drag to orbit  ·  Two fingers to pan and zoom" if touching
-		else "Drag to orbit  ·  Right-drag to pan  ·  Wheel to zoom"),14,rows)
+	caption(tr("Action freeze").to_upper()+"  ·  "+(tr("Drag to orbit  ·  Two fingers to pan and zoom") if touching
+		else tr("Drag to orbit  ·  Right-drag to pan  ·  Wheel to zoom")),14,rows)
 	var actions := HFlowContainer.new()
 	actions.alignment=FlowContainer.ALIGNMENT_CENTER
 	rows.add_child(actions)
-	for item in [["−",zoom.bind(1.15)],["+",zoom.bind(1.0/1.15)],["Lights",toggle_lights],
-			["Reset camera",reset_camera],["Hide panel",toggle_panel],
-			["Back to pause",dismiss.bind(false)],["Resume",dismiss.bind(true)]]:
+	for item in [["−",zoom.bind(1.15)],["+",zoom.bind(1.0/1.15)],[tr("Lights"),toggle_lights],
+			[tr("Reset camera"),reset_camera],[tr("Hide panel"),toggle_panel],
+			[tr("Back to pause"),dismiss.bind(false)],[tr("Resume"),dismiss.bind(true)]]:
 		var node := Button.new()
 		node.text=item[0]
 		node.custom_minimum_size=Vector2(74,38)
@@ -97,8 +97,8 @@ func build_toolbar() -> void:
 		node.focus_mode=Control.FOCUS_NONE
 		node.pressed.connect(item[1])
 		actions.add_child(node)
-	caption(("Double-tap to bring the panel back" if touching
-		else "H panel  ·  R reset  ·  L lights  ·  Esc back  ·  Pad: right stick orbit, left stick pan, triggers zoom"),11,rows)
+	caption((tr("Double-tap to bring the panel back") if touching
+		else tr("H panel  ·  R reset  ·  L lights  ·  Esc back  ·  Pad: right stick orbit, left stick pan, triggers zoom")),11,rows)
 
 func dismiss(resume: bool) -> void:
 	"""Marks the event handled before tearing anything down: emitting first frees

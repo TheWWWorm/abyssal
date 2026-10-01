@@ -43,13 +43,13 @@ func _draw() -> void:
 	var fitted: bool=boost.get("mode","absent")!="absent"
 	var section := 160.0
 	var left := box.position+Vector2(18,17)
-	words(left,"THRUST  %d%%"%throttle,palette.text,10)
-	words(left,"TIME  %d×"%speed,palette.dim,10,HORIZONTAL_ALIGNMENT_RIGHT,section)
+	words(left,tr("THRUST  %d%%")%throttle,palette.text,10)
+	words(left,tr("TIME  %d×")%speed,palette.dim,10,HORIZONTAL_ALIGNMENT_RIGHT,section)
 	rail(Rect2(left+Vector2(0,7),Vector2(section,6)),throttle_fraction,palette.accent)
 	if not fitted: return
 	var mode: String=boost.mode
 	var right := left+Vector2(section+22,0)
-	var caption: String={"active":"BOOSTING  %.1f s"%boost.seconds,"charging":"BOOST  %.1f s"%boost.seconds,"ready":"BOOST READY"}.get(mode,"BOOST")
+	var caption: String={"active":tr("BOOSTING  %.1f s")%boost.seconds,"charging":tr("BOOST  %.1f s")%boost.seconds,"ready":tr("BOOST READY")}.get(mode,tr("BOOST"))
 	words(right,caption,palette.value if mode=="active" else palette.dim,10)
 	if mode=="ready" and not boost_key.is_empty(): words(right,boost_key,palette.text,10,HORIZONTAL_ALIGNMENT_RIGHT,section)
 	rail(Rect2(right+Vector2(0,7),Vector2(section,6)),float(boost.get("fraction",0.0)),palette.value if mode in ["active","ready"] else palette.accent.darkened(.3))

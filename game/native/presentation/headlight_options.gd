@@ -1,7 +1,11 @@
 extends RefCounted
 ## One presentation choice owns the lenses, surface light and visible beams.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 enum Mode { OFF, LIGHT_ONLY, LIGHT_BEAMS, CLASSIC }
 const NAMES := ["Off", "Light only", "Light + beams", "Classic"]
+static func names() -> Array:
+	"""NAMES in the engine's language."""
+	return [EngineLanguage.translate("Off"),EngineLanguage.translate("Light only"),EngineLanguage.translate("Light + beams"),EngineLanguage.translate("Classic")]
 const DEFAULT := Mode.LIGHT_BEAMS
 
 static func read(config: ConfigFile) -> int:

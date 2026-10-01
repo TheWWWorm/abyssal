@@ -9,8 +9,12 @@ extends RefCounted
 ## multisampling. The ocean effects and the headlight beams cost little, so
 ## presets leave those as the player set them. Resolution is the player's
 ## own choice too: presets never change it.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 
 const PRESETS := ["Classic","Low","Medium","High","Very high"]
+static func preset_names() -> Array:
+	"""PRESETS in the engine's language."""
+	return [EngineLanguage.translate("Classic"),EngineLanguage.translate("Low"),EngineLanguage.translate("Medium"),EngineLanguage.translate("High"),EngineLanguage.translate("Very high")]
 const CLASSIC := 0
 const LOW := 1
 const MEDIUM := 2
@@ -24,6 +28,12 @@ const HEIGHTS := [720,900,1080,1440,2160]
 const SCALES := [100,90,80,75,67,50]
 const MSAA := ["Off","2×","4×"]
 const SHADOWS := ["Off","Low","Medium","High"]
+static func msaa_names() -> Array:
+	"""MSAA in the engine's language."""
+	return [EngineLanguage.translate("Off"),"2×","4×"]
+static func shadow_names() -> Array:
+	"""SHADOWS in the engine's language."""
+	return [EngineLanguage.translate("Off"),EngineLanguage.translate("Low"),EngineLanguage.translate("Medium"),EngineLanguage.translate("High")]
 ## What each preset from Low up sets; Classic is the original lighting and
 ## leaves the rest alone.
 const VALUES := {
@@ -129,7 +139,7 @@ static func heights_for(screen_height: int) -> Array:
 	return choices
 
 static func height_name(height: int) -> String:
-	return "Native" if height==0 else "%dp"%height
+	return EngineLanguage.translate("Native") if height==0 else "%dp"%height
 
 static func mark_chosen(config: ConfigFile, section: String, key: String) -> void:
 	"""A hand-made change counts as a choice, so first-start detection does

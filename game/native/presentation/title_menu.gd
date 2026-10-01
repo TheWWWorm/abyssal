@@ -26,17 +26,20 @@ const StationIcon = preload("res://native/presentation/station_icon.gd")
 var palette := StationTheme.palette(false)
 ## The column is enlarged with Control.scale, which the window's font
 ## oversampling does not see: glyphs drawn for 17 px and stretched to 25 blur.
-## The title's own copy of the font is rasterised at the enlarged size.
-var sharp_font: FontFile
+## The title's own copy of the font is rasterised at the enlarged size. It is
+## made once: a copy made again when the title is rebuilt, after a language
+## change or a game, drew some of its glyphs from the discarded copy.
+static var sharp_font: FontFile
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var base: Font=get_theme_default_font()
 	if base is FontFile:
-		sharp_font=base.duplicate();theme=Theme.new();theme.default_font=sharp_font
+		if sharp_font==null: sharp_font=base.duplicate()
+		theme=Theme.new();theme.default_font=sharp_font
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	headline=caption("ABYSSAL",42,palette.text);headline.add_theme_font_override("font",StationTheme.spaced(headline.get_theme_font("font"),10))
-	subtitle=caption("COMPATIBILITY ENGINE",13,palette.dim);subtitle.add_theme_font_override("font",StationTheme.spaced(subtitle.get_theme_font("font"),5))
+	subtitle=caption(tr("Compatibility engine").to_upper(),13,palette.dim);subtitle.add_theme_font_override("font",StationTheme.spaced(subtitle.get_theme_font("font"),5))
 	add_child(logo);logo.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;logo.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;logo.mouse_filter=Control.MOUSE_FILTER_IGNORE;logo.hide()
 	add_child(panel)
@@ -47,22 +50,22 @@ func _ready() -> void:
 	skin.content_margin_left=16;skin.content_margin_right=16;skin.content_margin_top=14;skin.content_margin_bottom=16
 	panel.add_theme_stylebox_override("panel",skin)
 	panel.add_child(choices);choices.add_theme_constant_override("separation",8)
-	menu_title=Label.new();menu_title.text="MAIN MENU";menu_title.add_theme_font_size_override("font_size",15);menu_title.add_theme_color_override("font_color",palette.dim)
+	menu_title=Label.new();menu_title.text=tr("Main menu").to_upper();menu_title.add_theme_font_size_override("font_size",15);menu_title.add_theme_color_override("font_color",palette.dim)
 	menu_title.add_theme_font_override("font",StationTheme.spaced(menu_title.get_theme_font("font"),5));choices.add_child(menu_title)
 	var accent := ColorRect.new();accent.color=palette.accent;accent.custom_minimum_size=Vector2(48,2);accent.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN;choices.add_child(accent)
-	new_button=entry("Start new game",func():started.emit(),true,"depart")
-	continue_button=entry("Load game",func():continued.emit(),true,"save")
-	entry("Options",func():settings_requested.emit(),true,"system")
-	entry("Mods",func():mods_requested.emit(),true,"workshop")
-	entry("Help",func():help_requested.emit(),true,"help")
-	if not OS.has_feature("web"):entry("Exit",func():quit_requested.emit(),true,"exit")
-	status=caption("Choose your DEEP JAR to begin.",15,palette.dim);status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT
-	footer=entry("Choose game JAR…",func():tools_requested.emit(),false,"cargo")
+	new_button=entry(tr("Start new game"),func():started.emit(),true,"depart")
+	continue_button=entry(tr("Load game"),func():continued.emit(),true,"save")
+	entry(tr("Options"),func():settings_requested.emit(),true,"system")
+	entry(tr("Mods"),func():mods_requested.emit(),true,"workshop")
+	entry(tr("Help"),func():help_requested.emit(),true,"help")
+	if not OS.has_feature("web"):entry(tr("Exit"),func():quit_requested.emit(),true,"exit")
+	status=caption(tr("Choose your DEEP JAR to begin."),15,palette.dim);status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT
+	footer=entry(tr("Choose game JAR…"),func():tools_requested.emit(),false,"cargo")
 	var version := str(ProjectSettings.get_setting("application/config/version",""))
 	edition=caption("ABYSSAL" if version.is_empty() else "ABYSSAL  /  "+version,12,palette.faint)
 	edition.add_theme_font_override("font",StationTheme.spaced(edition.get_theme_font("font"),3))
 	rule=ColorRect.new();rule.color=Color(palette.edge,.6);rule.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(rule)
-	add_child(help);help.hide();help.text="Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause."
+	add_child(help);help.hide();help.text=tr("Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause.")
 	help.add_theme_font_size_override("font_size",15);help.modulate=palette.text;help.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT;help.mouse_filter=Control.MOUSE_FILTER_IGNORE;help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	resized.connect(layout);layout()
 

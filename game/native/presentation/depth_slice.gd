@@ -32,7 +32,7 @@ func _ready() -> void:
 	focus_mode=Control.FOCUS_ALL
 	clip_contents=true
 	custom_minimum_size=Vector2(200,130)
-	tooltip_text="◀ ▶ step through the stations in this slice"
+	tooltip_text=tr("◀ ▶ step through the stations in this slice")
 
 func frame(lens_center: Vector2, lens_radius: float, selection: int) -> void:
 	"""Takes the stations inside the lens. The selection is kept in the slice

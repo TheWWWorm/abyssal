@@ -34,6 +34,7 @@ def main():
         'station_shadow_check.gd':cache,
         'graphics_quality_check.gd':cache,
         'mods_check.gd':cache,
+        'engine_language_check.gd':cache,
     }
     failures=[]
     for name,argument in cases.items():

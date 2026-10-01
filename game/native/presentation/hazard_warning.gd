@@ -1,5 +1,6 @@
 extends Control
 ## Live instrument based on art/hazards/warning-reference.png.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Region=preload("res://native/simulation/region.gd")
 var status: Dictionary={}
 var classic := false
@@ -8,11 +9,13 @@ var accent := Color("e9977d")
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	font.font_names=PackedStringArray(["Nimbus Sans Narrow","Liberation Sans Narrow"])
+	# Glyphs the narrow face lacks, such as CJK engine text, come from the interface font.
+	font.fallbacks=[ThemeDB.fallback_font]
 	hide()
 static func describe(depth: int, minimum: int, maximum: int, exposure_ms: int) -> Dictionary:
 	if depth>=minimum and depth<=maximum:return {}
 	var deep := depth>maximum
-	return {"kind":"pressure" if deep else "radiation","title":"EXCESS PRESSURE" if deep else "RADIATION EXPOSURE","action":"ASCEND" if deep else "DESCEND","limit":maximum if deep else minimum,"damaging":exposure_ms>Region.PRESSURE_GRACE_MS,"remaining":maxf(0,Region.PRESSURE_GRACE_MS-exposure_ms)/1000.0,"fraction":clampf(float(exposure_ms)/Region.PRESSURE_GRACE_MS,0,1)}
+	return {"kind":"pressure" if deep else "radiation","title":EngineLanguage.translate("Excess pressure").to_upper() if deep else EngineLanguage.translate("Radiation exposure").to_upper(),"action":EngineLanguage.translate("Ascend").to_upper() if deep else EngineLanguage.translate("Descend").to_upper(),"limit":maximum if deep else minimum,"damaging":exposure_ms>Region.PRESSURE_GRACE_MS,"remaining":maxf(0,Region.PRESSURE_GRACE_MS-exposure_ms)/1000.0,"fraction":clampf(float(exposure_ms)/Region.PRESSURE_GRACE_MS,0,1)}
 func update(region, allowed: bool, old_ui: bool) -> void:
 	status=describe(region.player.depth,region.session.ship.minimum_depth,region.session.ship.maximum_depth,region.pressure_ms)
 	classic=old_ui;visible=allowed and not status.is_empty()
@@ -43,7 +46,7 @@ func _draw() -> void:
 			draw_colored_polygon(points,accent)
 	draw_line(Vector2(74,18),Vector2(74,71),Color("86744877"),1)
 	text(Vector2(88,32),status.title,accent,19)
-	text(Vector2(88,59),"DAMAGE ACTIVE" if status.damaging else "DAMAGE IN %.1f s"%status.remaining,accent,16)
+	text(Vector2(88,59),tr("Damage active").to_upper() if status.damaging else (tr("Damage in %.1f s")%status.remaining).to_upper(),accent,16)
 	var right:=w*.53
 	draw_line(Vector2(right-14,18),Vector2(right-14,71),Color("86744877"),1)
 	text(Vector2(right,38),status.action,accent,27)
@@ -51,8 +54,8 @@ func _draw() -> void:
 	var sign_y := -1.0 if status.kind=="pressure" else 1.0
 	draw_line(arrow-Vector2(0,14),arrow+Vector2(0,14),accent,2,true)
 	draw_polyline(PackedVector2Array([arrow+Vector2(-7,sign_y*6),arrow+Vector2(0,sign_y*14),arrow+Vector2(7,sign_y*6)]),accent,2,true)
-	text(Vector2(right,61),"SAFE DEPTH %s %d"%["≤" if status.kind=="pressure" else "≥",status.limit],Color("bbd5c4"),14)
-	text(Vector2(22,h-18),"EXPOSURE",Color("a3ac8d"),11)
+	text(Vector2(right,61),(tr("Safe depth %s %d")%["≤" if status.kind=="pressure" else "≥",status.limit]).to_upper(),Color("bbd5c4"),14)
+	text(Vector2(22,h-18),tr("Exposure").to_upper(),Color("a3ac8d"),11)
 	var track:=Rect2(88,h-27,w-110,8)
 	draw_rect(track,Color("203131"));draw_rect(Rect2(track.position,Vector2(track.size.x*status.fraction,track.size.y)),accent)
 	draw_rect(track,Color("9f8a55"),false,1)

@@ -64,8 +64,8 @@ func build_panel() -> void:
 	var rows := VBoxContainer.new()
 	rows.add_theme_constant_override("separation",8)
 	panel.add_child(rows)
-	rows.add_child(text("ADJUST TOUCH CONTROLS",15,Color("8bd6ee")))
-	var hint := text("Drag any control to move it. Tap one to select it, then resize it. Drag this panel itself if it sits over a control you need.",13,Color("a2c3d3"))
+	rows.add_child(text(tr("Adjust touch controls").to_upper(),15,Color("8bd6ee")))
+	var hint := text(tr("Drag any control to move it. Tap one to select it, then resize it. Drag this panel itself if it sits over a control you need."),13,Color("a2c3d3"))
 	hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	hint.custom_minimum_size.x=minf(size.x*.8,340)
 	rows.add_child(hint)
@@ -74,13 +74,13 @@ func build_panel() -> void:
 	var sizing := HFlowContainer.new()
 	sizing.alignment=FlowContainer.ALIGNMENT_CENTER
 	rows.add_child(sizing)
-	for item in [["Smaller",resize.bind(-Layout.SCALE_STEP)],["Bigger",resize.bind(Layout.SCALE_STEP)],
-			["Next control",cycle],["Reset this",reset_selected]]:
+	for item in [[tr("Smaller"),resize.bind(-Layout.SCALE_STEP)],[tr("Bigger"),resize.bind(Layout.SCALE_STEP)],
+			[tr("Next control"),cycle],[tr("Reset this"),reset_selected]]:
 		sizing.add_child(action(item[0],item[1]))
 	var finishing := HFlowContainer.new()
 	finishing.alignment=FlowContainer.ALIGNMENT_CENTER
 	rows.add_child(finishing)
-	for item in [["Reset all",reset_all],["Cancel",func(): closed.emit(restore)],["Done",func(): closed.emit(working)]]:
+	for item in [[tr("Reset all"),reset_all],[tr("Cancel"),func(): closed.emit(restore)],[tr("Done"),func(): closed.emit(working)]]:
 		finishing.add_child(action(item[0],item[1]))
 	place_panel.call_deferred()
 
@@ -141,7 +141,7 @@ func action(value: String, act: Callable) -> Button:
 
 func refresh_caption() -> void:
 	if caption==null: return
-	caption.text="%s  ·  %d%%" % [Layout.NAMES.get(selected,selected),roundi(Layout.scale_of(working,selected)*100)]
+	caption.text="%s  ·  %d%%" % [Layout.names().get(selected,selected),roundi(Layout.scale_of(working,selected)*100)]
 
 func select(id: String) -> void:
 	selected=id
@@ -241,7 +241,7 @@ func _draw() -> void:
 		# entirely on a control drawn as a ring, and a player resizing something
 		# needs to know which thing it is. The name rides the top edge so it does
 		# not land on the caption the overlay already centres in the same box.
-		var name: String = Layout.NAMES.get(id,id)
+		var name: String = Layout.names().get(id,id)
 		var caption_size: Vector2 = font.get_string_size(name,HORIZONTAL_ALIGNMENT_LEFT,-1,body)
 		var at := Vector2(area.get_center().x-caption_size.x*.5,grown.position.y+caption_size.y*.86)
 		draw_rect(Rect2(at-Vector2(5,caption_size.y*.82),caption_size+Vector2(10,5)),Color(.02,.09,.13,.9),true)

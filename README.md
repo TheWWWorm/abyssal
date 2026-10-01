@@ -77,6 +77,8 @@ The engine is developed against the **Sony Ericsson release of DEEP 1.0.8**, ide
 
 That is the build all gameplay checking is done on. It is not a requirement. Any DEEP MIDlet JAR is accepted, and the importer converts it whenever the build stores its data the way the engine expects. Localised builds are supported: the language shipped in the JAR is the language you play in.
 
+The engine's own menus, settings and messages follow the game's language when the engine has it, and otherwise the system language. Settings → Display → Language picks one by hand. The engine text is available in English, Russian, Ukrainian, German, French, Spanish, Brazilian Portuguese, Italian, Polish, Turkish, Indonesian, Vietnamese, Simplified Chinese, Japanese and Korean. The story, ship and item names always come from the JAR.
+
 Builds that have actually been run through the importer:
 
 | Build | Result |
@@ -296,6 +298,8 @@ python3 tools/package_releases.py --platform linux-arm64 --version 1.0.0 --outpu
 Builds fetch and verify pinned runtimes once into an external cache (`~/.cache/abyssal-engine` on Linux, `~/Library/Caches/abyssal-engine` on macOS, `%LOCALAPPDATA%/abyssal-engine` on Windows; override with `ABYSSAL_CACHE_HOME`). No JAR is needed to build. Pass `--godot /path/to/godot` or set `GODOT_PATH` if it is not on your PATH.
 
 ARM64 Linux exports can be built from an x86-64 development machine using the matching Godot `linux_release.arm64` template (`linux_debug.arm64` for debug exports). They bundle a separate, checksum-pinned ARM64 Node.js converter. On systems exposing OpenGL ES instead of desktop OpenGL, launch `./abyssal.arm64 --rendering-driver opengl3_es`. The build includes both desktop and ETC2/ASTC texture formats. A successful cross-export does not establish handheld performance or PortMaster support.
+
+Engine text is marked with `tr("...")`, with the English text as the key. Catalogs live in `game/native/locale/<code>.gd`. After changing marked text, run `python3 tools/engine_text.py check`. It lists every missing, stale or broken entry, and `engine_text.py write <code> <file.json>` merges translations into a catalog. After the Chinese, Japanese or Korean catalog changes, regenerate their glyph subsets with `engine_text.py fonts <NotoSansCJK-Regular.ttc> <harfbuzz-subset.wasm>`. This needs Node and the `harfbuzzjs` package.
 
 To run from source with direct JAR conversion you also need JDK 17+ and FFmpeg:
 
