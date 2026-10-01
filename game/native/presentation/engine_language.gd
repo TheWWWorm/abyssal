@@ -65,12 +65,7 @@ static func resolve(setting: String, content_language: String) -> String:
 
 static func apply(code: String) -> void:
 	if not code in codes(): code="en"
-	if not loaded.has(code) and code!="en":
-		var path: String=LANGUAGES[codes().find(code)][2]
-		var catalog := Translation.new();catalog.locale=code
-		var source: Dictionary=load(path).TEXT
-		for key in source: catalog.add_message(key,source[key])
-		TranslationServer.add_translation(catalog);loaded[code]=catalog
+	catalog(code)
 	current=code
 	TranslationServer.set_locale(code)
 	# The names in the language list need every script whatever the language.
@@ -79,6 +74,23 @@ static func apply(code: String) -> void:
 		var font := cjk_font(script_code)
 		if font!=null: fallbacks.append(font)
 	ThemeDB.fallback_font.fallbacks=fallbacks
+
+static func catalog(code: String) -> Translation:
+	"""A language's catalog, loaded once; null for English, the source text."""
+	if code=="en" or not code in codes(): return null
+	if not loaded.has(code):
+		var translation := Translation.new();translation.locale=code
+		var source: Dictionary=load(LANGUAGES[codes().find(code)][2]).TEXT
+		for key in source: translation.add_message(key,source[key])
+		TranslationServer.add_translation(translation);loaded[code]=translation
+	return loaded[code]
+
+static func text_in(code: String, text: String) -> String:
+	"""Engine text in a given language, whichever one is in use."""
+	var translation := catalog(code)
+	if translation==null: return text
+	var found := String(translation.get_message(text))
+	return text if found.is_empty() else found
 
 static func cjk_font(code: String) -> Font:
 	"""The bundled glyphs for a language, or null. An export keeps the file
@@ -115,7 +127,7 @@ const COMMON_WORDS := {
 static func content_language(folder: String, strings: Array) -> String:
 	"""The language of an imported build: its localisation folder name, unless
 	the text says otherwise. Fan builds commonly replace the English text but
-	keep the en folder."""
+	keep the en folder. "" when the text shows no language."""
 	var named := folder.to_lower()
 	var sample := ""
 	for value in strings:
@@ -142,7 +154,8 @@ static func content_language(folder: String, strings: Array) -> String:
 	for word in sample.to_lower().replace("\n"," ").split(" ",false):
 		var bare := word.strip_edges().trim_suffix(".").trim_suffix(",").trim_suffix("!").trim_suffix("?")
 		words[bare]=int(words.get(bare,0))+1
-	var best := "en";var best_score := 0
+	# No telling word: unknown, so the system or browser language decides.
+	var best := "";var best_score := 0
 	for code in COMMON_WORDS:
 		var score := 0
 		for word in COMMON_WORDS[code]: score+=int(words.get(word,0))

@@ -414,7 +414,10 @@ func open_cache(path: String) -> void:
 	title_dock.load_content(content,save_path,settings_path)
 	refresh_title()
 	apply_render_quality()
-	if wants_graphics_probe():start_graphics_probe.call_deferred()
+	var question := language_question()
+	# The graphics measurement waits for the answer: both use the dialog.
+	if not question.is_empty():ask_language.call_deferred(question[0],question[1])
+	elif wants_graphics_probe():start_graphics_probe.call_deferred()
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): launch_game.call_deferred()
 
 func show_model(index: int) -> void:
@@ -986,6 +989,41 @@ func finish_graphics_probe(preset: int) -> void:
 	apply_render_quality()
 	if status.text==tr("Choosing graphics settings for this device…"):status.text=""
 	if first:show_graphics_choice(preset)
+
+func language_question() -> Array:
+	"""[system, game] the first time a game opens in another language than the
+	system's, both with engine text, before any language was chosen."""
+	if start_config_now().has_section_key("interface","language"):return []
+	var system := EngineLanguage.supported(OS.get_locale())
+	var game := EngineLanguage.supported(content_language)
+	if system.is_empty() or game.is_empty() or system==game:return []
+	return [system,game]
+
+func ask_language(system: String, game: String) -> void:
+	"""Engine text in the system's language, or everything in the game's. The
+	question is put in both, since either may be the one the player reads."""
+	if launching or inspector_open:return
+	if is_instance_valid(settings_panel) and settings_panel.visible:return
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.name="LanguageChoice";box.add_theme_constant_override("separation",12);modal.add_child(box)
+	box.add_child(label(EngineLanguage.text_in(system,"Language").to_upper(),24,Color("8bd6ee")))
+	for code in [system,game]:
+		var lines := [EngineLanguage.text_in(code,"System language: %s")%EngineLanguage.native_name(system),
+			EngineLanguage.text_in(code,"Game language: %s")%EngineLanguage.native_name(game),
+			EngineLanguage.text_in(code,"Show the engine's menus and messages in the system language? The game's own text stays in the game's language.")]
+		var text := label("\n".join(lines),15 if code==system else 13,Color("d6e8ee") if code==system else Color("a2c3d3"))
+		text.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;text.custom_minimum_size.x=480;box.add_child(text)
+	var answer := func(code: String):
+		# Auto keeps following the game for everything; a language is fixed.
+		set_preference("interface","language",code)
+		close_modal()
+		if apply_language():get_tree().reload_current_scene.call_deferred()
+		elif wants_graphics_probe():start_graphics_probe()
+	var first := button(EngineLanguage.native_name(system),answer.bind(system),box)
+	button(EngineLanguage.native_name(game),answer.bind(EngineLanguage.AUTO),box)
+	box.add_child(label(EngineLanguage.text_in(system,"You can change this in Settings › Display › Language."),13,Color("a2c3d3")))
+	scrim.show();modal.show();layout_ui();first.grab_focus.call_deferred()
 
 func show_graphics_choice(preset: int) -> void:
 	"""Says which preset was chosen, once, where it cannot be missed."""

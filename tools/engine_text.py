@@ -2,8 +2,8 @@
 """Engine text catalogs: list the text the engine marks for translation and
 check every catalog against it.
 
-The engine marks its own player-facing text with tr("...") or
-translate("..."); the English text is the key. Each catalog in
+The engine marks its own player-facing text with tr("..."), translate("...")
+or text_in(code, "..."); the English text is the key. Each catalog in
 game/native/locale/<code>.gd maps those keys to one language.
 
   engine_text.py keys             print the marked text as a JSON list
@@ -24,7 +24,7 @@ from paths import ROOT
 CODE = ROOT/'game/native'
 LOCALE = CODE/'locale'
 LANGUAGES = CODE/'presentation/engine_language.gd'
-CALL = re.compile(r'(?<![\w.])(?:tr|translate|EngineLanguage\.translate|Language\.translate)\(\s*("(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\')\s*[,)]')
+CALL = re.compile(r'(?:(?<![\w.])(?:tr|translate|EngineLanguage\.translate|Language\.translate)\(|(?<!\w)text_in\([^,()\n]*,)\s*("(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\')\s*[,)]')
 PLACEHOLDER = re.compile(r'%(?:%|[-+ 0#]*\d*(?:\.\d+)?[sdcfxXov])')
 
 def unquote(literal):

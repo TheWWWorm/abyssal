@@ -20,6 +20,8 @@ func run():
 	expect(EngineLanguage.content_language("en",["新しいゲームを始める","設定"])=="ja","Kana read as Japanese")
 	expect(EngineLanguage.content_language("en",["开始新游戏","设置"])=="zh","Han without kana reads as Chinese")
 	expect(EngineLanguage.content_language("en",["새 게임 시작","설정"])=="ko","Hangul reads as Korean")
+	expect(EngineLanguage.content_language("en",["DEEP","- 1 -","S.T.R.E.A.M."]).is_empty(),"Text with no telling words is an unknown language")
+	expect(EngineLanguage.resolve(EngineLanguage.AUTO,"")==EngineLanguage.resolve(EngineLanguage.AUTO,OS.get_locale()),"An unknown game language falls back to the system language")
 	expect(EngineLanguage.resolve(EngineLanguage.AUTO,"ru")=="ru","Auto follows the game")
 	expect(EngineLanguage.resolve("de","ru")=="de","A chosen language wins over the game's")
 	expect(EngineLanguage.resolve("xx","ru")=="ru","An unknown setting is Auto")
