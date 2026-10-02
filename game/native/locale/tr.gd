@@ -105,7 +105,7 @@ const TEXT := {
 	"Autopilot %d×": "Otopilot %d×",
 	"Autopilot (tap / hold)": "Otopilot (dokun / basılı tut)",
 	"Autopilot route": "Otopilot rotası",
-	"Autopilot to the gate, then confirm your exit in transit control.": "Otopilotla kapıya gidin, sonra çıkışınızı geçiş kontrolünde onaylayın.",
+	"Autopilot to the gate, then travel to the selected station.": "Otopilotla kapıya gidin, ardından seçilen istasyona geçin.",
 	"Autopilot · %s": "Otopilot · %s",
 	"Autopilot · mission waypoint": "Otopilot · görev noktası",
 	"Autosave": "Otomatik kayıt",

@@ -27,9 +27,19 @@ func update(player, _ship, simulation_speed: int, boost_state: Dictionary={}, ke
 func panel_rect() -> Rect2:
 	"""In unscaled units about the strip's bottom centre. Without a booster
 	the strip carries thrust and time alone and narrows to fit them."""
-	var width := 380.0 if boost.get("mode","absent")!="absent" else 196.0
+	var width := 36.0+thrust_width()
+	if boost.get("mode","absent")!="absent":width+=22.0+boost_width()
 	# Clear of the key hints along the screen's bottom edge.
 	return Rect2(Vector2(-width*.5,-80),Vector2(width,40))
+func text_width(value: String) -> float:
+	return font.get_string_size(value,HORIZONTAL_ALIGNMENT_LEFT,-1,10).x
+func thrust_width() -> float:
+	return maxf(160.0,ceilf(text_width(tr("THRUST  %d%%")%throttle)+14.0+text_width(tr("TIME  %d×")%speed)))
+func boost_caption() -> String:
+	return {"active":tr("BOOSTING  %.1f s")%boost.seconds,"charging":tr("BOOST  %.1f s")%boost.seconds,"ready":tr("BOOST READY")}.get(str(boost.mode),tr("BOOST"))
+func boost_width() -> float:
+	var key_width := 14.0+text_width(boost_key) if boost.mode=="ready" and not boost_key.is_empty() else 0.0
+	return maxf(160.0,ceilf(text_width(boost_caption())+key_width))
 func rail(rect: Rect2, amount: float, lit: Color) -> void:
 	var count := int(rect.size.x/5)
 	for index in count:
@@ -41,7 +51,7 @@ func _draw() -> void:
 	var box := panel_rect()
 	draw_style_box(frame,box)
 	var fitted: bool=boost.get("mode","absent")!="absent"
-	var section := 160.0
+	var section := thrust_width()
 	var left := box.position+Vector2(18,17)
 	words(left,tr("THRUST  %d%%")%throttle,palette.text,10)
 	words(left,tr("TIME  %d×")%speed,palette.dim,10,HORIZONTAL_ALIGNMENT_RIGHT,section)
@@ -49,7 +59,8 @@ func _draw() -> void:
 	if not fitted: return
 	var mode: String=boost.mode
 	var right := left+Vector2(section+22,0)
-	var caption: String={"active":tr("BOOSTING  %.1f s")%boost.seconds,"charging":tr("BOOST  %.1f s")%boost.seconds,"ready":tr("BOOST READY")}.get(mode,tr("BOOST"))
+	section=boost_width()
+	var caption := boost_caption()
 	words(right,caption,palette.value if mode=="active" else palette.dim,10)
 	if mode=="ready" and not boost_key.is_empty(): words(right,boost_key,palette.text,10,HORIZONTAL_ALIGNMENT_RIGHT,section)
 	rail(Rect2(right+Vector2(0,7),Vector2(section,6)),float(boost.get("fraction",0.0)),palette.value if mode in ["active","ready"] else palette.accent.darkened(.3))

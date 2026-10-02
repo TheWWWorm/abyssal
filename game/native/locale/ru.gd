@@ -105,7 +105,7 @@ const TEXT := {
 	"Autopilot %d×": "Автопилот %d×",
 	"Autopilot (tap / hold)": "Автопилот (нажать / удерживать)",
 	"Autopilot route": "Маршрут автопилота",
-	"Autopilot to the gate, then confirm your exit in transit control.": "Автопилот до врат, затем подтвердите выход в управлении переходом.",
+	"Autopilot to the gate, then travel to the selected station.": "Автопилот до врат, затем переход к выбранной станции.",
 	"Autopilot · %s": "Автопилот · %s",
 	"Autopilot · mission waypoint": "Автопилот · путевая точка миссии",
 	"Autosave": "Автосохранение",

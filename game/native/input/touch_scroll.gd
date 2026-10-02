@@ -33,6 +33,7 @@ var pointer_down := false
 var pointer_from := Vector2.ZERO
 var pointer_dragged := false
 var pointer_guarded := false
+var pointer_lists: Array[ScrollContainer] = []
 ## Far outside every control: a press ending here is a press let go elsewhere.
 const AWAY := Vector2(-100000,-100000)
 
@@ -47,16 +48,18 @@ func gesture_at(point: Vector2) -> bool:
 	# Controls with their own gestures, such as the atlas, keep their input.
 	return gesture_control!=null and is_instance_valid(gesture_control) and gesture_control.is_visible_in_tree() and gesture_control.get_global_rect().has_point(point)
 func list_at(point: Vector2) -> ScrollContainer:
-	"""The named list when the finger is on it, else the innermost list
-	under the finger that can scroll vertically."""
+	"""The innermost list under the finger that can scroll vertically.
+	The named page is only a fallback; it may contain its own stock lists."""
 	if gesture_at(point):return null
-	if shown(scroll) and scroll.get_global_rect().has_point(point):return scroll
 	var hit := control_at(get_tree().root,point)
 	while hit!=null:
 		if hit is ScrollContainer and hit.vertical_scroll_mode!=ScrollContainer.SCROLL_MODE_DISABLED and hit.get_global_rect().has_point(point):
 			var bar: VScrollBar=hit.get_v_scroll_bar()
 			if bar.max_value>bar.page:return hit
 		hit=hit.get_parent() as Control
+	if shown(scroll) and scroll.get_global_rect().has_point(point):
+		var bar: VScrollBar=scroll.get_v_scroll_bar()
+		if bar.max_value>bar.page:return scroll
 	return null
 func _process(delta: float) -> void:
 	if not usable() or finger>=0:return
@@ -65,6 +68,19 @@ func _process(delta: float) -> void:
 	velocity=move_toward(velocity,0.0,FRICTION*delta)
 func _input(event: InputEvent) -> void:
 	guard_pointer(event)
+	# Pointer focus must not pull a partially visible row into view before
+	# the finger can drag it. Keyboard and gamepad navigation follow it again.
+	if event is InputEventKey or event is InputEventJoypadButton or event is InputEventJoypadMotion:
+		for list in pointer_lists:
+			if is_instance_valid(list):list.follow_focus=true
+		pointer_lists.clear()
+	elif (event is InputEventScreenTouch and event.pressed) or (event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT and event.pressed):
+		pointer_lists=pointer_lists.filter(func(list):return is_instance_valid(list))
+		var parent: Control=list_at(event.position)
+		while parent!=null:
+			if parent is ScrollContainer and parent.follow_focus:
+				parent.follow_focus=false;pointer_lists.append(parent)
+			parent=parent.get_parent() as Control
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			if finger<0:
@@ -118,6 +134,7 @@ func pressed_button(point: Vector2) -> bool:
 static func control_at(node: Node, point: Vector2) -> Control:
 	"""The topmost visible control under a point that takes the pointer."""
 	if node is CanvasItem and not node.is_visible_in_tree():return null
+	if node is Control and node.clip_contents and not node.get_global_rect().has_point(point):return null
 	for index in range(node.get_child_count()-1,-1,-1):
 		var found := control_at(node.get_child(index),point)
 		if found!=null:return found

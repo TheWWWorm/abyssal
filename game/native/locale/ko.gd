@@ -105,7 +105,7 @@ const TEXT := {
 	"Autopilot %d×": "자동 조종 %d×",
 	"Autopilot (tap / hold)": "자동 조종 (탭 / 길게)",
 	"Autopilot route": "자동 조종 경로",
-	"Autopilot to the gate, then confirm your exit in transit control.": "게이트까지 자동 조종한 뒤 이동 제어에서 출구를 확정하세요.",
+	"Autopilot to the gate, then travel to the selected station.": "게이트까지 자동 조종한 뒤 선택한 정거장으로 이동합니다.",
 	"Autopilot · %s": "자동 조종 · %s",
 	"Autopilot · mission waypoint": "자동 조종 · 임무 경유지",
 	"Autosave": "자동 저장",

@@ -105,7 +105,7 @@ const TEXT := {
 	"Autopilot %d×": "Lái tự động %d×",
 	"Autopilot (tap / hold)": "Lái tự động (nhấn / giữ)",
 	"Autopilot route": "Lộ trình lái tự động",
-	"Autopilot to the gate, then confirm your exit in transit control.": "Lái tự động đến cổng, rồi xác nhận lối ra trong điều khiển chuyển tiếp.",
+	"Autopilot to the gate, then travel to the selected station.": "Lái tự động đến cổng, rồi di chuyển đến trạm đã chọn.",
 	"Autopilot · %s": "Lái tự động · %s",
 	"Autopilot · mission waypoint": "Lái tự động · điểm nhiệm vụ",
 	"Autosave": "Tự lưu",

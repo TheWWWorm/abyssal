@@ -433,6 +433,7 @@ func rebuild(preserve_scroll := false) -> void:
 	else:scroll.follow_focus=true
 
 func restore_scroll(position_y: int, revision: int) -> void:
+	if not is_inside_tree():return
 	await get_tree().process_frame
 	if not is_inside_tree() or revision!=rebuild_revision:return
 	scroll.scroll_vertical=position_y
@@ -440,7 +441,7 @@ func restore_scroll(position_y: int, revision: int) -> void:
 	scroll.follow_focus=true
 
 func restore_focus() -> void:
-	if not visible or column==null: return
+	if not is_inside_tree() or not visible or not is_instance_valid(column): return
 	var wanted := focus_key;focus_key=""
 	if not wanted.is_empty():
 		var found := find_option(self,wanted)
@@ -555,6 +556,17 @@ func graphics_options(keys: Array) -> void:
 			if Headlights.read(load_config())==Headlights.Mode.CLASSIC:node.get_node("Value").text=tr("Original")
 			node.tooltip_text=tr("Choose Light only or Light + beams to change the colour. Classic keeps the original beam colours.")
 
+func change_language(code: String) -> void:
+	if not is_inside_tree():return
+	put("interface","language",code,false)
+	refresh_language.call_deferred()
+
+func refresh_language() -> void:
+	# The title's host may already have scheduled a scene reload. Only the
+	# surviving in-game panel needs to rebuild its frame here.
+	if not is_inside_tree() or is_queued_for_deletion():return
+	fonts.clear();build_chrome();rebuild()
+
 func display_page() -> void:
 	var codes := EngineLanguage.codes()
 	var chosen: String=str(load_config().get_value("interface","language",EngineLanguage.AUTO))
@@ -562,9 +574,9 @@ func display_page() -> void:
 	var automatic := EngineLanguage.resolve(EngineLanguage.AUTO,game_language)
 	var names: Array=[tr("Auto · %s")%EngineLanguage.native_name(automatic)]+codes.map(func(code): return EngineLanguage.native_name(code))
 	chooser(tr("Language"),names,codes.find(chosen)+1,"language",func(next):
-		put("interface","language",EngineLanguage.AUTO if next==0 else codes[next-1],false)
-		# Every caption on the frame is in the old language until it is redrawn.
-		build_chrome();rebuild())
+		# The native popup must finish dispatching its selection before a
+		# language change replaces its controls or reloads the title scene.
+		change_language.call_deferred(EngineLanguage.AUTO if next==0 else codes[next-1]))
 	note(tr("Menus and messages the engine adds. Auto matches the imported game's language."))
 	if not OS.has_feature("mobile") or OS.has_feature("web"):
 		var mode := DisplayServer.window_get_mode()

@@ -105,7 +105,7 @@ const TEXT := {
 	"Autopilot %d×": "Pilote auto %d×",
 	"Autopilot (tap / hold)": "Pilote auto (appui / maintien)",
 	"Autopilot route": "Itinéraire du pilote auto",
-	"Autopilot to the gate, then confirm your exit in transit control.": "Pilote auto jusqu'à la porte, puis confirmez votre sortie au contrôle de transit.",
+	"Autopilot to the gate, then travel to the selected station.": "Pilote automatique jusqu’à la porte, puis transfert vers la station choisie.",
 	"Autopilot · %s": "Pilote auto · %s",
 	"Autopilot · mission waypoint": "Pilote auto · point de mission",
 	"Autosave": "Sauvegarde auto",

@@ -362,7 +362,7 @@ func layout() -> void:
 	else:
 		overlay.position=Vector2(maxf(160,ui.size.x-minf(740,ui.size.x-190)-22),140);overlay.size=Vector2(minf(740,ui.size.x-190),maxf(260,ui.size.y-304))
 	place_message()
-	hazard_warning.size=Vector2(minf(640,ui.size.x-64),108);hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,flight_notice_top()+104)
+	hazard_warning.fit_width(minf(640,ui.size.x-64));hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,flight_notice_top()+104)
 	# Under the hull in the chase view (its keel sits near 71% of the height
 	# in landscape, 63% upright), clear of the helm strip below.
 	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*(.67 if ui.size.x<ui.size.y else .75),ui.size.y-(96.0*hud_scale()+64.0)));catch_status.size=Vector2(480,44)
@@ -377,7 +377,7 @@ func layout() -> void:
 		if touch.free_right>touch.free_left+120:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
 	update_render_resolution()
-	crosshair.position=(ui.size*0.5-crosshair.size*.5).floor()
+	crosshair.position=(get_viewport().get_visible_rect().get_center()-ui.position-crosshair.size*.5).round()
 	# Under the notice band, clear of the hull below the crosshair.
 	dock_prompt.position=Vector2(ui.size.x*.5-250,flight_notice_top()+54);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
@@ -749,7 +749,7 @@ func _process(delta: float) -> void:
 		damage_feedback.visible=flight_visible
 		# bd draws the hull readout in the depth warning's place; over a
 		# warning that is showing, it moves up into the gap above it.
-		damage_feedback.readout_top=hazard_warning.position.y-(40.0 if hazard_warning.visible else 0.0)
+		damage_feedback.readout_top=hazard_warning.position.y-damage_feedback.position.y-(40.0 if hazard_warning.visible else 0.0)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
 		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost))
 		instruments.visible=flight_visible
@@ -785,11 +785,6 @@ func _process(delta: float) -> void:
 		# The way out of a gate is a camera shot, not the chase view: its centre
 		# is not where the guns point, so the reticle waits for the hand-back.
 		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
-		if crosshair.visible:
-			# On the hull's line of fire, where the original draws it (j.a).
-			var aim_mark: Vector3=view.reticle_point()
-			crosshair.visible=not camera.is_position_behind(aim_mark)
-			crosshair.position=(camera.unproject_position(aim_mark)-ui.position-crosshair.size*.5).round()
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text=tr("AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED")%[world.speed,OS.get_keycode_string(key_bindings.time)]
 		travel_status.visible=flight_visible and world.autopilot
@@ -1697,7 +1692,7 @@ func station_service_reason(kind: String) -> String:
 	return ""
 func station_service(title: String, text: String, kind: String, icon: String, art: Texture2D, parent: Node) -> void:
 	var reason := station_service_reason(kind)
-	var node := service_card(title,text,icon,art,func():show_market(kind),parent)
+	var node := service_card(title,text,icon,art,func():show_market(kind,true),parent)
 	unavailable(node,reason)
 func market_action(node: Button, denial: int) -> void:
 	if denial<0:return
@@ -1816,7 +1811,8 @@ func finish_departure() -> void:
 	world.region.player.throttle=0
 	if departure_route=="encounter":world.navigate_encounter()
 	elif departure_destination>=0:
-		if departure_route=="stream":world.plan_stream(departure_destination)
+		if departure_route=="stream":
+			if world.plan_stream(departure_destination):stream_prompted=false
 		else:world.route_to(departure_destination)
 	departure_destination=-1;message.text="";notification_time=0
 	close_page();briefing()
@@ -1957,8 +1953,9 @@ func trade_amount(station: Dictionary, item, buying: bool, count: int) -> void:
 		moved+=1
 	if moved<1: notice(tr("Insufficient credits, cargo space or stock.")); return
 	notice((tr("Bought %d t of %s for %d cr") if buying else tr("Sold %d t of %s for %d cr"))%[moved,item_name(item.id),absi(session.credits-before)])
-func show_market(kind: String) -> void:
-	if market_category!=kind: market_selection=0;list_offsets.clear();market_category=kind
+func show_market(kind: String, reset: bool=false) -> void:
+	if reset: equipment_tab=0
+	if reset or market_category!=kind: market_selection=0;list_offsets.clear();market_category=kind
 	var denial: int = session.service_denial(kind)
 	if denial>=0: notice(session.text(denial)); return
 	open_page({"equipment":tr("Equipment shop"),"ships":tr("Ship dealer"),"trade":tr("Trade"),"manufacture":tr("Workshop"),"missions":tr("Available contracts")}.get(kind,kind),"market",
@@ -2138,8 +2135,7 @@ func map_stream() -> void:
 		if session.docked: return
 		if page=="departure":departure_destination=map_destination;departure_route="stream";return
 	if world.plan_stream(map_destination):
-		# A chart already shown at this gate must come up again for the
-		# new plan, even without leaving the gate first.
+		# A new plan can start even without leaving a previously visited gate.
 		stream_prompted=false
 		if page!="dialogue": close_page()
 	else: notice(world.message)
@@ -2350,7 +2346,7 @@ func select_station(id: int) -> void:
 		tr("Rebels") if session.campaign.rebel_stations[id] else tr("Colonists"),tr("Discovered") if session.discovered[id] else tr("Unexplored"),session.text(44),tech_text(id),session.text(245),figures.depth,
 		figures.distance,world.map_kilometers(world.stream_range()),"" if status.is_empty() else "\n"+status])
 	map_info.tooltip_text=denial
-	if is_instance_valid(stream_button): stream_button.tooltip_text=denial if not denial.is_empty() else tr("Autopilot to the gate, then confirm your exit in transit control.")
+	if is_instance_valid(stream_button): stream_button.tooltip_text=denial if not denial.is_empty() else tr("Autopilot to the gate, then travel to the selected station.")
 	if is_instance_valid(stream_button): stream_button.disabled=not denial.is_empty()
 func contact_priority(target: Dictionary) -> int:
 	if target.get("quest",false):return -2
@@ -2679,12 +2675,17 @@ func check_stream_proximity() -> void:
 	# aperture: it arrives at a gate that is already open, and inside range of it.
 	if view.transit_progress>=0:return
 	if not world.at_gate(world.departure_gate): stream_prompted=false; return
-	# br.a: a pilot at the open gate is told to press the dock key (text 270)
-	# and nothing opens until it is pressed. Only a ship the autopilot brought
-	# to the gate goes on to the chart by itself.
+	# Manual approaches wait for the dock key. Autopilot uses a destination
+	# already chosen on the map; a route to the gate alone still needs one.
 	if not (world.autopilot and world.gate_navigation):return
 	if world.gate_time[world.departure_gate]<world.GATE_OPEN_MS: return
-	if not stream_prompted: show_stream_menu()
+	if stream_prompted:return
+	if world.stream_destination>=0:
+		stream_prompted=true
+		stream_selection=world.stream_destination
+		stream_resume_throttle=maxi(world.region.player.throttle_target,25)
+		begin_stream_transit(true)
+	else: show_stream_menu()
 
 func update_render_resolution() -> void:
 	if not is_inside_tree(): return
@@ -2699,9 +2700,10 @@ func apply_side_margins() -> void:
 	var margin: Dictionary=SafeMargins.margins(get_viewport().get_visible_rect().size,get_window().size,touch.enabled())
 	if ui.offset_left!=margin.side or ui.offset_right!=-margin.side or ui.offset_top!=margin.top or ui.offset_bottom!=-margin.bottom:
 		ui.offset_left=margin.side;ui.offset_right=-margin.side;ui.offset_top=margin.top;ui.offset_bottom=-margin.bottom
-	# The pressure tint covers the whole picture, not only the inset interface.
-	pressure_overlay.offset_left=-margin.side;pressure_overlay.offset_right=margin.side
-	pressure_overlay.offset_top=-margin.top;pressure_overlay.offset_bottom=margin.bottom
+	# Screen effects cover the whole picture, including the interface's safe margins.
+	for effect in [pressure_overlay,damage_feedback]:
+		effect.offset_left=-margin.side;effect.offset_right=margin.side
+		effect.offset_top=-margin.top;effect.offset_bottom=margin.bottom
 func show_stream_menu() -> void:
 	if not world.at_gate(world.departure_gate): return
 	stream_prompted=true
@@ -2798,14 +2800,14 @@ func ask_outside_safety(id: int, go: Callable, back: Callable) -> bool:
 	confirm(session.text(334)+": "+session.stations[id].name,session.text(255)+"\n"+session.text(247),tr("Travel"),
 		func():safety_confirmed=id;go.call(),back)
 	return true
-func begin_stream_transit() -> void:
+func begin_stream_transit(destination_confirmed: bool=false) -> void:
 	"""Confirming a destination is the crossing. The original does not fly the
 	submarine into the aperture and wait: the chart closes, the far side is
 	already there, and what the player watches is the way out of it. So there is
 	no run-up to steer, nothing to arm and no notice to read."""
 	var denial: String=world.stream_denial(stream_selection)
 	if not denial.is_empty() or not world.at_gate(world.departure_gate):notice(denial);return
-	if ask_outside_safety(stream_selection,begin_stream_transit,show_stream_menu):return
+	if not destination_confirmed and ask_outside_safety(stream_selection,begin_stream_transit,show_stream_menu):return
 	world.cancel_autopilot();world.gate_navigation=false;world.approach_planned=false;world.approach_path.clear()
 	# The chart can be opened (E) before the aperture has finished opening,
 	# and nothing advances while it is up, so the gate would stay part open

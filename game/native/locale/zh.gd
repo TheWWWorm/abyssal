@@ -105,7 +105,7 @@ const TEXT := {
 	"Autopilot %d×": "自动驾驶 %d×",
 	"Autopilot (tap / hold)": "自动驾驶（轻按 / 按住）",
 	"Autopilot route": "自动驾驶航线",
-	"Autopilot to the gate, then confirm your exit in transit control.": "自动驾驶到传送门，然后在传送控制中确认出口。",
+	"Autopilot to the gate, then travel to the selected station.": "自动驾驶到传送门，然后前往选定的空间站。",
 	"Autopilot · %s": "自动驾驶 · %s",
 	"Autopilot · mission waypoint": "自动驾驶 · 任务路径点",
 	"Autosave": "自动存档",

@@ -344,7 +344,10 @@ func _process(delta: float) -> void:
 		player_model.transform=player_pose*banking.godot_transform()
 		animate_model(player_model,delta,region.player.throttle/100.0)
 	place_depth_limits(player_pose.origin)
-	var camera_scale: float=clampf(player_model.solid_bounds().size.x/24.0,.48,1.25) if player_model!=null else 1.0
+	var hull_size: Vector3=player_model.solid_bounds().size if player_model!=null else Vector3(24,10,30)
+	var camera_scale: float=clampf(hull_size.x/24.0,.48,1.25)
+	# Tall fins and long tails also need room below the centred firing point.
+	if camera_mode==0:camera_scale=maxf(camera_scale,maxf(hull_size.y/10.0,hull_size.z/30.0))
 	var camera_frame := player_pose
 	if camera_mode==0:
 		camera_frame.basis=touch_chase_basis(player_pose.basis) if stabilize_touch_horizon else player_pose.basis.orthonormalized()
@@ -352,9 +355,14 @@ func _process(delta: float) -> void:
 	if not look_held: look_offset=look_offset.lerp(Vector2.ZERO,1-exp(-delta*7))
 	if look_offset.length_squared()>1e-6:
 		camera_frame.basis=camera_frame.basis*Basis(Vector3.UP,look_offset.x)*Basis(Vector3.RIGHT,look_offset.y)
-	var desired: Vector3 = camera_frame*([Vector3(0,18,45),Vector3(0,3,-56),Vector3(60,5,0),Vector3(-60,5,0)][camera_mode]*camera_scale)
+	# A lower chase eye keeps the hull clear of the bottom HUD while looking
+	# along the firing line rather than down below the submarine.
+	var desired: Vector3 = camera_frame*([Vector3(0,9,45),Vector3(0,3,-56),Vector3(60,5,0),Vector3(-60,5,0)][camera_mode]*camera_scale)
 	camera.global_position=desired
-	camera.look_at(camera_frame*((Vector3(0,-24,-140) if camera_mode==0 else Vector3(0,3 if camera_mode==1 else 5,0))*camera_scale),camera_frame.basis.y.normalized())
+	# Centre the chase view on the hull's firing point. Looking below it made
+	# a centred reticle aim downwards, and projecting that point moved it up.
+	var sight: Vector3=player_pose.origin-camera_frame.basis.z.normalized()*RETICLE_RANGE if camera_mode==0 else camera_frame*(Vector3(0,3 if camera_mode==1 else 5,0)*camera_scale)
+	camera.look_at(sight,camera_frame.basis.y.normalized())
 	if not region.cinematic_camera.is_empty():
 		camera.global_position=Library.point(region.cinematic_camera)
 		var target: Vector3 = player_pose.origin
@@ -873,7 +881,7 @@ func add_beam_occluder(visual: Node3D) -> StaticBody3D:
 	return body
 
 func looking_around() -> bool:
-	return look_offset.length()>.02
+	return look_offset.length_squared()>1e-6
 
 func turn_look(relative: Vector2) -> void:
 	# Mouse right swings the camera round to the hull's starboard side, mouse
@@ -883,8 +891,7 @@ func turn_look(relative: Vector2) -> void:
 
 ## j.a: the phone's crosshair is drawn over the hull origin plus five forward
 ## axes (5 × 4096 units, 204.8 m), a point on the line the shots fly along.
-## The chase camera sits well above the launchers, so a reticle fixed to the
-## screen centre showed shots and the harpoon passing far below it.
+## The chase camera looks at this point so it also sits at screen centre.
 const RETICLE_RANGE := 204.8
 
 ## How far the view is thrown at a full-strength hit, and how fast it settles.

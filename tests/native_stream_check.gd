@@ -129,7 +129,7 @@ func checks() -> void:
 	app.update_markers()
 	expect(app.markers.any(func(marker): return marker.visible and marker.text.begins_with("S.T.R.E.A.M.") and marker.text.contains("· Transit control")),"Ready gate advertises its transit control menu")
 	# br.a: at the open gate the pilot is told which key enters (text 270);
-	# only the autopilot's own approach goes on to the chart by itself.
+	# only a gate-only autopilot approach still needs the destination chart.
 	app.world.cancel_autopilot();app.stream_prompted=false
 	app.check_stream_proximity()
 	expect(app.page.is_empty(),"A pilot at an open gate is not pulled into the chart")
@@ -138,9 +138,10 @@ func checks() -> void:
 	app.perform("dock")
 	expect(app.page=="stream","The dock key at the gate opens transit control")
 	app.close_page()
-	expect(app.world.plan_stream(target) and app.world.gate_navigation,"The atlas plan flies to the gate")
+	app.world.fly_to_gate(0)
+	expect(app.world.gate_navigation and app.world.stream_destination<0,"A gate-only course has no transfer destination")
 	app.stream_prompted=false;app.check_stream_proximity()
-	expect(app.page=="stream","An autopilot approach goes straight on to the chart")
+	expect(app.page=="stream","A gate-only autopilot approach opens the destination chart")
 	app.close_page()
 	if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name()!="headless":
 		app.map_destination=target; app.show_map()
@@ -168,9 +169,46 @@ func checks() -> void:
 	expect(app.page=="stream" and app.world.gate_time[0]<app.world.GATE_OPEN_MS,"The chart opens at a gate that is still opening")
 	app.begin_stream_transit()
 	expect(app.session.station_id==old_station,"Confirming at a part-open gate crosses")
+	await check_planned_transfer(app,target)
 	app.queue_free(); await process_frame
 	print("NATIVE_STREAM ",failures," failures · reachable stations ",reachable)
 	quit(1 if failures else 0)
+
+func check_planned_transfer(app, target: int) -> void:
+	var source: int=app.session.station_id
+	var depth: int=app.session.stations[target].depth
+	# A plan made in flight and one made at the station both carry their
+	# destination through the gate without asking for it again.
+	for docked in [false,true]:
+		app.close_page();app.view.end_transit();app.stream_exit_active=false
+		app.world.enter_region(source);app.view.rebuild();app.session.docked=docked
+		app.world.region.success=null;app.world.region.failure=null
+		app.world.region.events=[];app.world.region.active_transmission=null
+		app.session.stations[target].depth=app.session.ship.maximum_depth+100
+		app.map_destination=target;app.stream_selection=-1;app.stream_prompted=true
+		app.map_stream()
+		expect(app.page=="confirm" and not app.world.autopilot,"Planning an unsafe STREAM destination asks before departure")
+		var travel=app.column.find_children("*","Button",true,false).filter(func(button):return button.text=="Travel")
+		expect(travel.size()==1,"The planned transfer offers the depth warning's Travel action")
+		if travel.size()!=1:break
+		travel[0].pressed.emit()
+		if docked:
+			expect(app.page=="departure" and app.departure_route=="stream","A docked STREAM plan survives the departure sequence")
+			app.finish_departure()
+		app.close_page();app.world.region.events=[];app.world.region.active_transmission=null
+		expect(app.world.stream_destination==target and app.world.autopilot and not app.stream_prompted,"The accepted plan guides to the gate")
+		app.world.region.player.pose.origin=app.world.region.gates[0].duplicate()
+		app.world.gate_time[0]=app.world.GATE_OPEN_MS/2
+		app.check_stream_proximity()
+		expect(app.session.station_id==source and app.page.is_empty(),"A planned crossing waits for the gate to open without a map")
+		app.world.gate_time[0]=app.world.GATE_OPEN_MS
+		app.world.region.player.set_throttle(75)
+		app.check_stream_proximity()
+		expect(app.session.station_id==target and app.page.is_empty(),"A planned crossing uses its destination without reopening the map or depth warning")
+		expect(app.view.transit_progress>=0 and app.transit_exit_throttle==75,"Planned transit keeps the exit shot and approach throttle")
+		app.check_stream_proximity()
+		expect(app.page.is_empty(),"The planned crossing does not reopen a map at the arrival gate")
+	app.session.stations[target].depth=depth
 
 func check_split_gates(content) -> void:
 	"""The original's two portals: the ship comes out of the IN gate and must

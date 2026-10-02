@@ -254,7 +254,26 @@ func run() -> void:
  lists._input(press);lists._input(swipe)
  expect(lists.target==sheet and sheet.scroll_vertical>0,"A list under the finger scrolls without being named")
  lists._input(lifted)
- lists.queue_free();sheet.queue_free()
+ # Trade and Workshop put a stock list inside the page's own scroller.
+ var outer:=ScrollContainer.new();root.add_child(outer)
+ outer.position=Vector2(10,10);outer.size=Vector2(350,230)
+ var body:=VBoxContainer.new();body.custom_minimum_size.y=600;outer.add_child(body)
+ sheet.reparent(body);sheet.custom_minimum_size=Vector2(300,200)
+ lists.release();lists.scroll=outer;sheet.scroll_vertical=0
+ sheet.follow_focus=true;outer.follow_focus=true
+ await process_frame;await process_frame
+ inside=sheet.get_global_rect().get_center();press.position=inside
+ swipe.position=inside+Vector2(0,-48)
+ lists._input(press);lists._input(swipe)
+ expect(lists.target==sheet and sheet.scroll_vertical>0 and outer.scroll_vertical==0,"A swipe scrolls the nested stock list instead of the surrounding page")
+ expect(not sheet.follow_focus and not outer.follow_focus,"Touch focus does not jump the nested list under the finger")
+ lists._input(lifted)
+ var arrow:=InputEventKey.new();arrow.keycode=KEY_DOWN;arrow.pressed=true;lists._input(arrow)
+ expect(sheet.follow_focus and outer.follow_focus,"Keyboard navigation restores focus scrolling after a swipe")
+ var outside: Vector2=sheet.get_global_rect().end+Vector2(-20,8)
+ var hit=lists.control_at(root,outside)
+ expect(hit==null or not sheet.is_ancestor_of(hit),"Rows clipped below a list do not intercept touches outside it")
+ lists.queue_free();outer.queue_free()
  await process_frame
  var args:=OS.get_cmdline_user_args()
  var app=load("res://scenes/native_main.tscn").instantiate();app.settings_path="user://platform-check.cfg";app.save_path="user://platform-check.json"
@@ -262,6 +281,13 @@ func run() -> void:
  app.open_cache(args[0]);app.launch_game(false,"Control check");await process_frame;await process_frame
  var game=current_scene;game.close_page();game.touch.mode=1;game._process(0)
  expect(game.touch.active,"Touch overlay active while flying")
+ var previous_size:=root.size
+ for dimensions in [Vector2i(2340,1080),Vector2i(1080,2340)]:
+  root.size=dimensions;await process_frame;await process_frame;game.layout();game._process(0)
+  expect(game.ui.position.length()>0,"A phone-shaped viewport applies safe margins")
+  expect(game.damage_feedback.get_global_rect().is_equal_approx(root.get_visible_rect()),"Damage edges cover the full viewport outside the safe margins")
+  expect(game.crosshair.get_global_rect().get_center().distance_to(root.get_visible_rect().get_center())<1,"The reticle stays centred with asymmetric phone margins")
+ root.size=previous_size;await process_frame;await process_frame;game.layout()
  game.touch.drag_anywhere=true;game.save_settings()
  var touch_config:=ConfigFile.new();touch_config.load(game.settings_path)
  expect(bool(touch_config.get_value("input","touch_drag_anywhere",false)),"Whole-screen touch look is saved")
@@ -347,6 +373,7 @@ func run() -> void:
  var footer: Node=game.column.get_child(game.column.get_child_count()-1)
  expect(game.page_scroll.get_global_rect().encloses(footer.get_global_rect()),"Touch station footer stays visible at 720p")
  await check_touch_placement(game)
+ await check_market_scrolling(game)
  game.queue_free();touch.queue_free();await process_frame
  for name in ["platform-check.cfg","platform-check.json","platform-check.json.bak"]:DirAccess.remove_absolute("user://"+name)
  print("PLATFORM_INPUT ",checks," checks; ",failures," failures");quit(1 if failures else 0)
@@ -500,3 +527,52 @@ func check_drag_is_not_a_tap(game) -> void:
  pointer(game,true,Vector2(60,50));pointer(game,false,Vector2(62,51))
  expect(fired==[1,1],"A tap on a button still presses it")
  layer.queue_free()
+
+func check_market_scrolling(game) -> void:
+ # Send real touch events through the viewport, including Godot's emulated
+ # mouse press, over each part of the actual Trade and Workshop rows.
+ game.touch.mode=1;game.session.docked=true
+ game.session.campaign.rebel_stations[game.session.station_id]=true
+ var station: Dictionary=game.session.stations[game.session.station_id]
+ station.tech=100;station.cargo=[]
+ for id in mini(20,game.content.data.tables.goods.size()):station.cargo.append(game.session.make_goods(id,5))
+ var original_size:=root.size
+ for dimensions in [Vector2i(2340,1080),Vector2i(1080,2340)]:
+  root.size=dimensions
+  for i in 4:await process_frame
+  for kind in ["trade","manufacture"]:
+   game.show_market(kind,true)
+   for i in 5:await process_frame
+   var stock: ScrollContainer=game.column.find_child("StockRows_"+kind,true,false)
+   expect(stock!=null and stock.get_v_scroll_bar().max_value>stock.get_v_scroll_bar().page,"The %s fixture has scrollable stock"%kind)
+   if stock==null:continue
+   var row: Button=stock.find_child("Stock_1",true,false)
+   if row==null:expect(false,"The %s fixture has a second row"%kind);continue
+   var cells:=row.get_child(0)
+   var controls: Array=[row,cells.get_child(0),cells.get_child(1).get_child(0),cells.get_child(1).get_child(1),cells.get_child(2)]
+   for control in controls:
+    game.touch_scroll.release();stock.scroll_vertical=0
+    for i in 2:await process_frame
+    var point: Vector2=control.get_global_rect().get_center()
+    if control==row:point.x=row.global_position.x+6
+    var at: Vector2=root.get_final_transform()*point
+    var outer_before: int=game.page_scroll.scroll_vertical
+    var press:=InputEventScreenTouch.new();press.index=0;press.position=at;press.pressed=true
+    Input.parse_input_event(press);await process_frame
+    expect(stock.scroll_vertical==0,"Touching a %s row does not jump to its focus"%kind)
+    for step in 4:
+     var motion:=InputEventScreenDrag.new();motion.index=0;motion.relative=Vector2(0,-24);at+=motion.relative;motion.position=at
+     Input.parse_input_event(motion);await process_frame
+    var lift:=InputEventScreenTouch.new();lift.index=0;lift.position=at;lift.pressed=false
+    Input.parse_input_event(lift);await process_frame
+    expect(stock.scroll_vertical>20,"Dragging over %s %s scrolls its stock"%[kind,control.get_class()])
+    expect(game.page_scroll.scroll_vertical==outer_before,"Dragging %s stock leaves the surrounding page still"%kind)
+    expect(game.market_selection==0 and is_instance_valid(row),"Dragging a %s row does not select or rebuild it"%kind)
+   game.touch_scroll.release();stock.scroll_vertical=0
+   for i in 2:await process_frame
+   var tap:=InputEventScreenTouch.new();tap.index=0;tap.pressed=true;tap.position=root.get_final_transform()*row.get_global_rect().get_center()
+   Input.parse_input_event(tap);await process_frame
+   tap=tap.duplicate();tap.pressed=false;Input.parse_input_event(tap)
+   for i in 4:await process_frame
+   expect(game.market_selection==1,"A tap after scrolling still selects the %s row"%kind)
+ root.size=original_size
