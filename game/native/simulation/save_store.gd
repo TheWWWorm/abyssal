@@ -92,8 +92,9 @@ static func same_rules(value: Dictionary, data: Dictionary) -> bool:
 	var current := str(data.get("rules_id",""))
 	if current.is_empty(): return false
 	var saved := str(value.get("rules_id",""))
-	if saved.is_empty(): saved=Content.rules_of_import(str(value.get("jar_sha256","")),str(data.get("cache_directory","")))
-	return saved==current
+	if not saved.is_empty() and (saved==current or saved==str(data.get("legacy_rules_id",""))): return true
+	# Saves from before rules_id existed, or whose JAR's import is still here.
+	return Content.rules_of_import(str(value.get("jar_sha256","")),str(data.get("cache_directory","")))==current
 
 func restore(data: Dictionary, value: Dictionary):
 	if int(value.get("schema",0)) not in [1,2] or not same_rules(value,data):

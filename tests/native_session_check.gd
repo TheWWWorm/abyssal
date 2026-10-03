@@ -49,6 +49,11 @@ func _initialize() -> void:
 	assert(saves.restore(data,reworded)!=null,"A save from a JAR that differs only in text loads")
 	var relabelled: Dictionary=data.duplicate(true); relabelled.strings[0]="x"; relabelled.tables.stations[0][0]="Renamed"
 	assert(Content.rules_id(relabelled)==data.rules_id,"Text and station names leave the rules unchanged")
+	var older_import: Dictionary=data.duplicate(true); older_import.erase("music"); older_import.erase("water_palette"); older_import.importer_note="x"
+	assert(Content.rules_id(older_import)==data.rules_id,"Optional presentation keys from newer importers leave the rules unchanged")
+	data.legacy_rules_id=Content.legacy_rules_id(data)
+	var from_1_16: Dictionary=reworded.duplicate(true); from_1_16.rules_id=data.legacy_rules_id
+	assert(saves.restore(data,from_1_16)!=null,"A save fingerprinted by 1.16.1 still loads")
 	relabelled.tables.ships[0][1]+=1
 	assert(Content.rules_id(relabelled)!=data.rules_id,"A changed table changes the rules")
 	reworded.rules_id="2".repeat(64)
