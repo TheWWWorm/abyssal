@@ -342,17 +342,22 @@ func import_pack(path: String) -> void:
 	if cache.is_empty():status.text=pack_importer.failure;return
 	selected_jar="";open_cache(cache)
 
+## Set while fit_window changes the canvas, which emits size_changed again.
+var fitting := false
 func fit_window() -> void:
 	"""The title uses the dive's canvas rule, so an upright phone gets an upright
 	title rather than a letterboxed landscape one."""
+	if fitting:return
 	var pixels := get_window().size
 	if pixels.x>0 and pixels.y>0:
+		fitting=true
 		var config := ConfigFile.new();config.load(settings_path)
 		# The dive's rule (touch_controls.enabled), read before any dive exists.
 		var mode:=clampi(int(config.get_value("input","touch",0)),0,2)
 		var last:=TouchControls.last_input
 		var touch: bool=mode==1 or (mode==0 and (last=="touch" or (last.is_empty() and DisplayServer.is_touchscreen_available())))
 		Display.apply(get_window(),Display.valid(str(config.get_value("view","aspect_ratio","auto"))),Display.responsive_size(pixels,touch))
+		fitting=false
 		if not probing():apply_render_quality()
 	apply_side_margins()
 func apply_side_margins() -> void:
@@ -1115,6 +1120,10 @@ func launch_game(resume: bool=false, player_name: String="Pilot", path: String="
 	await get_tree().process_frame
 	if not is_inside_tree():return
 	get_viewport().disable_3d=false
+	# The title is only freed at the end of the frame. Until then its fit_window
+	# and the dive's update_render_resolution would each answer the other's
+	# canvas change, and disagree about the ratio, recursing without end.
+	if get_window().size_changed.is_connected(fit_window):get_window().size_changed.disconnect(fit_window)
 	var gameplay=load("res://native/gameplay.gd").new()
 	gameplay.save_path=save_path;gameplay.load_path=path;gameplay.settings_path=settings_path
 	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_name=tr("Pilot") if player_name.is_empty() else player_name

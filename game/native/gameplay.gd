@@ -210,6 +210,12 @@ var focus_option := ""
 ## the expedition save; this preference can suppress both those messages and
 ## the always-on control reminder without hiding objectives or action prompts.
 var gameplay_hints := true
+## Optional flight overlays, each on by default: the toast messages, the dock and
+## gate prompt, the autopilot status line and the labels on friendly contacts.
+var flight_messages := true
+var dock_prompts := true
+var autopilot_status := true
+var friend_labels := true
 var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
 var freeze_view
@@ -229,6 +235,8 @@ var settings_path := "user://native/settings.cfg"
 var world_spacing := preload("res://native/simulation/world_spacing.gd").new()
 func _ready() -> void:
 	original_ui_size=get_window().content_scale_size
+	# The first layout below already applies the ratio, so it is read first.
+	aspect_ratio=Display.valid(str(settings_config().get_value("view","aspect_ratio","auto")))
 	get_window().size_changed.connect(update_render_resolution)
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): save_path="user://native/capture-only.json"
 	add_child(camera); camera.current=true; camera.fov=65; camera.near=0.5; camera.far=View.DRAW_DISTANCE
@@ -632,6 +640,7 @@ func watch_browser_capture() -> void:
 		return
 	web_lock_observed=captured
 func notice(text: String) -> void:
+	if not flight_messages and routine_notice(text):return
 	if time_notice(text):
 		pending_notices=pending_notices.filter(func(value):return not time_notice(value))
 		if time_notice(message.text):message.text=text;notification_time=2;return
@@ -651,6 +660,16 @@ func time_notice(text: String) -> bool:
 	"""The time-speed notice (world.gd), in English or the engine's language."""
 	var prefix := tr("Time · %d×").get_slice("%d",0).strip_edges()
 	return text.begins_with("Time ·") or (not prefix.is_empty() and text.begins_with(prefix))
+const ROUTINE_NOTICES := ["Autopilot · %s","Autopilot · mission waypoint","Time · %d×","Docked · %s","Entered %s",
+	"S.T.R.E.A.M. arrival · %s","Camera · %s","Leaving %s · Enter / click to skip","Auto guns on · tap to stop","Auto guns off",
+	"Auto harpoon on · tap to stop","Auto harpoon off","Auto fire off","Tilt centred"]
+func routine_notice(text: String) -> bool:
+	"""A confirmation of what the player just did or of where the ship now is,
+	which the Flight messages setting hides; refusals and warnings stay."""
+	for format in ROUTINE_NOTICES:
+		for prefix in [format.get_slice("%",0),tr(format).get_slice("%",0)]:
+			if not prefix.strip_edges().is_empty() and text.begins_with(prefix): return true
+	return false
 func catch_failure(text: String) -> bool:
 	"""A lost or uncollectable catch (fishing.gd, region.gd), which stays up longer."""
 	return text.begins_with("Cannot collect") or text.begins_with("Catch lost") or text in [tr("Catch lost · target was damaged."),tr("Catch lost · keep the target in view until subdued."),tr("Cannot collect catch · cargo hold is full."),tr("Cannot collect catch · cargo hold is full. Make room at a station.")]
@@ -787,7 +806,8 @@ func _process(delta: float) -> void:
 		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text=tr("AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED")%[world.speed,OS.get_keycode_string(key_bindings.time)]
-		travel_status.visible=flight_visible and world.autopilot
+		travel_status.visible=flight_visible and world.autopilot and autopilot_status
+		if not dock_prompts:dock_prompt.visible=false
 		dashboard.throttle_keys=[OS.get_keycode_string(key_bindings.throttle_up),OS.get_keycode_string(key_bindings.throttle_down)]
 		dashboard.objective_text=objective_label.get_parsed_text();dashboard.update(world)
 		if not world.message.is_empty(): notice(world.message); world.message=""
@@ -1528,6 +1548,10 @@ func read_settings() -> void:
 	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
 	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
 	gameplay_hints=bool(config.get_value("interface","hints",true))
+	flight_messages=bool(config.get_value("interface","flight_messages",true))
+	dock_prompts=bool(config.get_value("interface","dock_prompts",true))
+	autopilot_status=bool(config.get_value("interface","autopilot_status",true))
+	friend_labels=bool(config.get_value("interface","friend_labels",true))
 	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
 	hit_shake=bool(config.get_value("interface","hit_shake",true))
 	damage_feedback.pulse_enabled=bool(config.get_value("interface","low_hull_pulse",true))
@@ -1580,6 +1604,8 @@ func save_settings() -> void:
 	config.set_value("input",TOUCH_LAYOUT_KEY,preload("res://native/input/touch_layout.gd").encode(touch.layout))
 	config.set_value("view","aspect_ratio",aspect_ratio)
 	config.set_value("interface","hints",gameplay_hints)
+	config.set_value("interface","flight_messages",flight_messages);config.set_value("interface","dock_prompts",dock_prompts)
+	config.set_value("interface","autopilot_status",autopilot_status);config.set_value("interface","friend_labels",friend_labels)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	config.set_value("audio","title_music",dive_audio.title_choice)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
@@ -2431,7 +2457,7 @@ func update_markers() -> void:
 			var entry: Dictionary = Scanner.describe(actor,role,radar,region.mission.kind,region.player.pose.origin)
 			if role=="creature":
 				entry.visible=actor.get_instance_id()==focused_contact;entry.identify=entry.visible;entry.edge=false
-			if not entry.visible: continue
+			if not entry.visible or (role=="friend" and not friend_labels): continue
 			entry.p=actor.pose.origin; entry.actor=actor; entry.key=actor.get_instance_id()
 			entry.name=tr("Friendly") if role=="friend" else (tr("Protected school") if role=="creature" and region.mission.kind==6 else tr("Contact"))
 			entry.color=Color("ef9b83") if role=="enemy" else Color("85bda4")
@@ -2687,11 +2713,16 @@ func check_stream_proximity() -> void:
 		begin_stream_transit(true)
 	else: show_stream_menu()
 
+## Set while the canvas is being changed: that change emits size_changed again,
+## and answering it from inside itself could only recurse.
+var resizing := false
 func update_render_resolution() -> void:
-	if not is_inside_tree(): return
+	if not is_inside_tree() or resizing: return
 	var pixels := get_window().size
 	if pixels.x<=0 or pixels.y<=0: return
+	resizing=true
 	Display.apply(get_window(),aspect_ratio,Display.responsive_size(pixels,touch.enabled()))
+	resizing=false
 	apply_side_margins()
 	GraphicsQuality.apply_viewport(get_viewport(),quality.merged({"modern":modern_graphics},true),pixels)
 func apply_side_margins() -> void:

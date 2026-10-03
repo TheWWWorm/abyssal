@@ -698,6 +698,13 @@ func reference_page() -> void:
 func gameplay_page() -> void:
 	toggle(tr("Gameplay tips & control hints"),"interface","hints",true)
 	note(tr("Loading tips, M.A.I. guidance and the control reminder."))
+	group(tr("On-screen messages"))
+	toggle(tr("Flight messages"),"interface","flight_messages",true)
+	note(tr("Autopilot, time speed, camera and arrival messages. Warnings still show."))
+	toggle(tr("Dock and gate prompts"),"interface","dock_prompts",true)
+	toggle(tr("Autopilot status line"),"interface","autopilot_status",true)
+	toggle(tr("Friendly contact labels"),"interface","friend_labels",true)
+	group(tr("Interface"))
 	toggle(tr("Depth limit markers"),"graphics","depth_limits",false)
 	note(tr("Shows when the ship nears its depth limits."))
 	group(tr("Damage feedback"))

@@ -9,6 +9,8 @@ var meshes: Dictionary = {}
 var station_shadow_meshes: Dictionary = {}
 var station_shadow_shaders: Dictionary = {}
 var textures: Dictionary = {}
+## The same atlases with the cut-out key made transparent; see texture().
+var keyed_textures: Dictionary = {}
 var texture_resources: Dictionary = {}
 var texture_sizes: Dictionary = {}
 var surface_maps: Dictionary = {}
@@ -46,44 +48,63 @@ static func matrix(v: Array, fixed: bool = false) -> Transform3D:
 	return Transform3D(b, Vector3(v[3], -v[7], -v[11]) * UNIT)
 
 func texture(resource: String, alpha: bool = false) -> Texture2D:
-	"""The atlas, one image whichever polygons ask for it: the cut-out
-	polygons take the same texture and the material keys out its pure
-	white, which is what the phone's palette index 0 was. So one PNG, at
-	any size, serves both, and a replacement need only keep its see-through
-	areas white (or transparent)."""
+	"""The atlas, one image whichever polygons ask for it. The cut-out
+	polygons key out its pure white, which is what the phone's palette index
+	0 was, so a replacement need only keep its see-through areas white (or
+	transparent). They sample a keyed copy (keyed_image) so that filtering
+	cannot carry the key's white into the art beside it."""
 	var path := root.path_join(resource)
 	if resource.ends_with(".bmp"): path += ".png"
 	if not textures.has(path):
-		var img := Image.load_from_file(path)
-		if img == null:
-			push_error("Missing imported texture: " + path)
-			return null
-		texture_sizes[path]=Vector2(img.get_width(),img.get_height())
-		# A player's own atlas stands in for the imported one at any size; the
-		# art keeps addressing it by the original's texels (texture_size).
-		var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
-		if not replacement.is_empty():
-			var own := Image.load_from_file(replacement)
-			if own!=null: img=own
-			else: push_warning("Could not read replacement texture: "+replacement)
-		img.convert(Image.FORMAT_RGBA8)
+		var img := source_image(path,resource)
+		if img == null: return null
+		texture_resources[path]=resource
+		var keyed := keyed_image(img)
 		img.generate_mipmaps()
 		textures[path] = ImageTexture.create_from_image(img)
-		texture_resources[path]=resource
-	return textures[path]
+		keyed_textures[path] = ImageTexture.create_from_image(keyed)
+	return keyed_textures[path] if alpha else textures[path]
+
+func source_image(path: String, resource: String) -> Image:
+	var img := Image.load_from_file(path)
+	if img == null:
+		push_error("Missing imported texture: " + path)
+		return null
+	if not texture_sizes.has(path): texture_sizes[path]=Vector2(img.get_width(),img.get_height())
+	# A player's own atlas stands in for the imported one at any size; the
+	# art keeps addressing it by the original's texels (texture_size).
+	var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
+	if not replacement.is_empty():
+		var own := Image.load_from_file(replacement)
+		if own!=null: img=own
+		else: push_warning("Could not read replacement texture: "+replacement)
+	img.convert(Image.FORMAT_RGBA8)
+	return img
+
+static func keyed_image(source: Image) -> Image:
+	"""The atlas with its key made transparent, every keyed texel taking the
+	colour of the art next to it, then mipmapped. Sampled smoothly, a white
+	key bled into the texels around it and, a few mip levels down, into whole
+	tiles: the algae grew pale fringes and pale squares that no longer read as
+	the key, so they were drawn instead of cut out."""
+	var keyed := source.duplicate() as Image
+	var bytes := keyed.get_data()
+	for i in range(0,bytes.size(),4):
+		if bytes[i+3]<128 or (bytes[i]>=247 and bytes[i+1]>=247 and bytes[i+2]>=247): bytes[i+3]=0
+	keyed.set_data(keyed.get_width(),keyed.get_height(),false,Image.FORMAT_RGBA8,bytes)
+	keyed.fix_alpha_edges()
+	keyed.generate_mipmaps()
+	return keyed
 
 func reload_textures() -> void:
 	"""Reads every atlas again, replacement or original, into the textures
 	the materials already hold, so a mod added or removed shows at once."""
 	for path in textures.keys():
 		if not texture_resources.has(path): continue
-		var img := Image.load_from_file(path)
+		var img := source_image(path,texture_resources[path])
 		if img==null: continue
-		var replacement := preload("res://native/presentation/mods.gd").texture_path(texture_resources[path])
-		if not replacement.is_empty():
-			var own := Image.load_from_file(replacement)
-			if own!=null: img=own
-		img.convert(Image.FORMAT_RGBA8);img.generate_mipmaps()
+		keyed_textures[path].set_image(keyed_image(img))
+		img.generate_mipmaps()
 		textures[path].set_image(img)
 		var surface_key := root.path_join(texture_resources[path])
 		if surface_maps.has(surface_key):
