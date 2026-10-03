@@ -1,12 +1,12 @@
-# Abyssal Engine 1.16.1 — platform support
+# Abyssal Engine 1.17.0 — platform support
 
 Game content is not included. Import a compatible DEEP JAR that you supply.
 
 ## Validation
 
-Python unit tests (41) passed on Linux x86-64. Of the 23 Godot regression checks, 21 passed. Both failures are in the ocean atmosphere and ocean options checks. These failed identically on the 1.16.0 source with the same content cache and are unrelated to this release.
+Python unit tests (41) passed on Linux x86-64. Of the 23 Godot regression checks, 21 passed on the Compatibility renderer. Both failures are in the ocean atmosphere and ocean options checks; they fail identically on the 1.16.1 source with the same content cache and are unrelated to this release. The graphics quality check also passed headless on Forward+, and its upscaler steps passed on Vulkan (RTX 3090): FSR 2.2 at 50% and 100% 3D resolution, FSR 1.0 at 50%, and bilinear at 100% with FSR 1.0 chosen.
 
-Save compatibility across reworded JARs was checked with the Sony Ericsson DEEP 1.0.8 JAR and a Brazilian Portuguese translation of it that differs only in `data/lang/en/*.lang` and the manifest. Both imports produce the same rules fingerprint. A save written on the original JAR without a fingerprint, as 1.16.0 writes them, restored against the translated import with the original JAR's import beside it. It was saved again under the translated JAR and restored back on the original. The native session check covers a fingerprint-only match, a refused mismatch, and text and station-name edits leaving the fingerprint unchanged. The engine UI check covers save transfer exports from reworded and foreign JARs.
+MetalFX could not be run: no current build uses the Metal driver, so those modes are not offered in any package.
 
 ## Platform status
 

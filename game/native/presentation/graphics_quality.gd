@@ -27,6 +27,38 @@ const HEIGHTS := [720,900,1080,1440,2160]
 ## 3D resolution, in percent of the display resolution.
 const SCALES := [100,90,80,75,67,50]
 const MSAA := ["Off","2×","4×"]
+## How a 3D view drawn below the display resolution is scaled up. FSR 1.0
+## works on both Vulkan renderers; FSR 2.2 and MetalFX temporal reuse earlier
+## frames (they replace temporal antialiasing) and need Forward+; MetalFX needs
+## the Metal driver. OpenGL only scales bilinearly. Godot has no DLSS.
+const UPSCALERS := ["bilinear","fsr","fsr2","metalfx_spatial","metalfx_temporal"]
+const TEMPORAL_UPSCALERS := ["fsr2","metalfx_temporal"]
+static func upscaler_name(upscaler: String) -> String:
+	match upscaler:
+		"fsr": return "AMD FSR 1.0"
+		"fsr2": return "AMD FSR 2.2"
+		"metalfx_spatial": return EngineLanguage.translate("MetalFX spatial")
+		"metalfx_temporal": return EngineLanguage.translate("MetalFX temporal")
+	return EngineLanguage.translate("Bilinear")
+
+static func upscalers() -> Array:
+	"""The upscalers this renderer and driver offer, bilinear first."""
+	var method := RenderingServer.get_current_rendering_method()
+	var metal := RenderingServer.get_current_rendering_driver_name()=="metal"
+	var choices: Array=["bilinear"]
+	if method in ["forward_plus","mobile"]: choices.append("fsr")
+	if method=="forward_plus": choices.append("fsr2")
+	if metal and method in ["forward_plus","mobile"]: choices.append("metalfx_spatial")
+	if metal and method=="forward_plus": choices.append("metalfx_temporal")
+	return choices
+
+static func upscaler(quality: Dictionary) -> String:
+	"""The chosen upscaler, or FSR 1.0 (bilinear without it) when this
+	renderer lacks the choice."""
+	var available := upscalers()
+	var wanted: String=quality.get("upscaler","fsr")
+	if wanted in available: return wanted
+	return "fsr" if "fsr" in available else "bilinear"
 const SHADOWS := ["Off","Low","Medium","High"]
 static func msaa_names() -> Array:
 	"""MSAA in the engine's language."""
@@ -72,6 +104,7 @@ static func read(config: ConfigFile) -> Dictionary:
 		"scale":scale if scale in SCALES else 100,
 		"msaa":integer(config,"view","msaa",default_msaa(),2),
 		"taa":bool(config.get_value("view","temporal_aa",false)),
+		"upscaler":str(config.get_value("view","upscaler","fsr")) if str(config.get_value("view","upscaler","fsr")) in UPSCALERS else "fsr",
 		"shadows":integer(config,"graphics","shadows",3,3),
 		"volumetric":bool(config.get_value("graphics","volumetric",true)),
 		"detail":bool(config.get_value("graphics","detail",true)),
@@ -156,10 +189,16 @@ static func render_scale(quality: Dictionary, pixels: Vector2i) -> float:
 static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vector2i) -> void:
 	"""Resolution, antialiasing and shadow-map sizes for the 3D view."""
 	var forward: bool=RenderingServer.get_current_rendering_method()=="forward_plus"
-	viewport.scaling_3d_scale=render_scale(quality,pixels)
-	# FSR only upscales; detection's margin draws above the window's size.
-	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_FSR if forward and viewport.scaling_3d_scale<1.0 else Viewport.SCALING_3D_MODE_BILINEAR
-	viewport.use_taa=quality.modern and quality.taa and forward
+	var scale := render_scale(quality,pixels)
+	# Upscalers only scale up; detection's margin draws above the window's
+	# size. The temporal ones also antialias at 100%; the others then do nothing.
+	var chosen := upscaler(quality)
+	if scale>1.0 or (scale==1.0 and not chosen in TEMPORAL_UPSCALERS): chosen="bilinear"
+	var mode: int={"bilinear":Viewport.SCALING_3D_MODE_BILINEAR,"fsr":Viewport.SCALING_3D_MODE_FSR,"fsr2":Viewport.SCALING_3D_MODE_FSR2,"metalfx_spatial":Viewport.SCALING_3D_MODE_METALFX_SPATIAL,"metalfx_temporal":Viewport.SCALING_3D_MODE_METALFX_TEMPORAL}[chosen]
+	# The mode first: a temporal upscaler rejects scales above 1.
+	if viewport.scaling_3d_mode!=mode: viewport.scaling_3d_mode=mode
+	viewport.scaling_3d_scale=scale
+	viewport.use_taa=quality.modern and quality.taa and forward and not chosen in TEMPORAL_UPSCALERS
 	var msaa: int=[Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X][clampi(quality.msaa,0,2)]
 	if viewport.msaa_3d!=msaa: viewport.msaa_3d=msaa
 	var level: int=quality.shadows if quality.modern else 3

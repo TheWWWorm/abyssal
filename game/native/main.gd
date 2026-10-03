@@ -1099,7 +1099,7 @@ func apply_setting(section: String, key: String) -> void:
 			title_dock.wanted_detail=bool(config.get_value("graphics","detail",true));title_dock.apply_lighting()
 		["view","aspect_ratio"],["input","touch"]: fit_window();layout_ui()
 		["view","show_fps"]: fps_counter.set_enabled(fps_counter.wanted(config))
-		["view","resolution_height"],["view","render_scale"],["view","msaa"],["view","temporal_aa"],["graphics","shadows"],["graphics","preset"]:
+		["view","resolution_height"],["view","render_scale"],["view","msaa"],["view","temporal_aa"],["view","upscaler"],["graphics","shadows"],["graphics","preset"]:
 			title_dock.set_lighting(bool(config.get_value("graphics","modern",true)));apply_render_quality()
 		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))
 

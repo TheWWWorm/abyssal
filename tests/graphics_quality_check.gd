@@ -79,6 +79,10 @@ func check_presets() -> void:
 	expect(is_equal_approx(Quality.render_scale({"height":1080,"scale":50},Vector2i(2560,1440)),0.375),"The percentage applies to the display resolution")
 	expect(Quality.render_scale({"height":2160,"scale":100},Vector2i(1920,1080))==1.0,"A resolution above the screen's is the screen's")
 	expect(Quality.heights_for(1080)==[0,720,900],"Only resolutions below the screen's are offered")
+	var unknown := ConfigFile.new();unknown.set_value("view","upscaler","dlss")
+	expect(Quality.read(unknown).upscaler=="fsr","An unknown upscaler reads as FSR 1.0")
+	unknown.set_value("view","upscaler","metalfx_temporal")
+	if RenderingServer.get_current_rendering_driver_name()!="metal": expect(Quality.upscaler(Quality.read(unknown)) in ["fsr","bilinear"],"MetalFX away from Metal falls back")
 	var strength := ConfigFile.new()
 	expect(Quality.headlight_strength(strength)==1.0,"Headlights start at full strength")
 	strength.set_value("graphics","headlight_strength",0.01)
@@ -214,6 +218,18 @@ func check_display_rows(app) -> void:
 	app.show_settings("graphics");await frames(3)
 	choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(50));await frames(2)
 	expect(Quality.read(saved()).scale==50 and is_equal_approx(app.get_viewport().scaling_3d_scale,0.5),"3D resolution draws at the chosen share")
+	var forward := RenderingServer.get_current_rendering_method()=="forward_plus"
+	expect(app.get_viewport().scaling_3d_mode==(Viewport.SCALING_3D_MODE_FSR if forward else Viewport.SCALING_3D_MODE_BILINEAR),"FSR 1.0 scales up by default where the renderer has it")
+	if forward:
+		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr2"));await frames(2)
+		expect(str(saved().get_value("view","upscaler",""))=="fsr2" and app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_FSR2,"FSR 2.2 can be chosen on Forward+")
+		expect(not app.get_viewport().use_taa,"A temporal upscaler replaces temporal antialiasing")
+		choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(100));await frames(2)
+		expect(app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_FSR2,"FSR 2.2 keeps antialiasing at 100%")
+		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr"));await frames(2)
+		expect(app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_BILINEAR,"FSR 1.0 has nothing to do at 100%")
+	else:
+		expect(app.settings_panel.find_child("Row_upscaler",true,false).disabled,"OpenGL offers no upscaler choice")
 	var slider := app.settings_panel.find_child("Slider_headlight_strength",true,false) as HSlider
 	expect(slider!=null and not slider.scrollable,"The mouse wheel does not move sliders")
 	app.settings_panel.back();await frames(2)

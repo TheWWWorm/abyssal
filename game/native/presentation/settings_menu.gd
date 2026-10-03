@@ -512,12 +512,17 @@ func performance_options() -> void:
 	var scales: Array=Quality.SCALES
 	var resolution := chooser(tr("3D resolution"),scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
 	resolution.tooltip_text=tr("Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp.")
+	var upscalers: Array=Quality.upscalers()
+	var upscaling: Button
+	if upscalers.size()>1: upscaling=chooser(tr("Upscaling"),upscalers.map(Quality.upscaler_name),upscalers.find(Quality.upscaler(quality)),"upscaler",func(next): put("view","upscaler",upscalers[next]),grid)
+	else: upscaling=row(tr("Upscaling"),tr("Needs Vulkan"),"upscaler",func():pass,grid);upscaling.disabled=true
+	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2 and MetalFX temporal use earlier frames, replace temporal antialiasing and also smooth edges at full resolution.")
 	var msaa := chooser(tr("Multisample antialiasing"),Quality.msaa_names(),quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
 	msaa.tooltip_text=tr("Smooths the edges of models.")
 	var taa: Button
 	if forward_plus(): taa=toggle(tr("Temporal antialiasing"),"view","temporal_aa",false,tr("On"),tr("Off"),grid)
 	else: taa=row(tr("Temporal antialiasing"),tr("Needs Vulkan"),"temporal_aa",func():pass,grid)
-	taa.disabled=not enhanced or not forward_plus()
+	taa.disabled=not enhanced or not forward_plus() or Quality.upscaler(quality) in Quality.TEMPORAL_UPSCALERS
 	taa.tooltip_text=tr("Smooths edges further; slightly blurs motion.")
 
 func graphics_grid() -> GridContainer:
