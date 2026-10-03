@@ -43,5 +43,15 @@ func _initialize() -> void:
 	restored.arrive()
 	assert(restored.ship.cargo_used==0 and restored.credits==paid+fixed_payment,"All cargo settles at fixed values, not stale market quotes")
 	assert(saves.restore(data,{"schema":1,"jar_sha256":data.jar_sha256})==null,"Reject incomplete save")
+	var Content = preload("res://native/content.gd")
+	data.rules_id=Content.rules_id(data)
+	var reworded: Dictionary=encoded.duplicate(true); reworded.jar_sha256="1".repeat(64); reworded.rules_id=data.rules_id
+	assert(saves.restore(data,reworded)!=null,"A save from a JAR that differs only in text loads")
+	var relabelled: Dictionary=data.duplicate(true); relabelled.strings[0]="x"; relabelled.tables.stations[0][0]="Renamed"
+	assert(Content.rules_id(relabelled)==data.rules_id,"Text and station names leave the rules unchanged")
+	relabelled.tables.ships[0][1]+=1
+	assert(Content.rules_id(relabelled)!=data.rules_id,"A changed table changes the rules")
+	reworded.rules_id="2".repeat(64)
+	assert(saves.restore(data,reworded)==null,"A save from different rules is refused")
 	print("NATIVE_SAVE_ROUND_TRIP passed")
 	quit()

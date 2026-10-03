@@ -1,16 +1,12 @@
-# Abyssal Engine 1.16.0 — platform support
+# Abyssal Engine 1.16.1 — platform support
 
 Game content is not included. Import a compatible DEEP JAR that you supply.
 
 ## Validation
 
-Python unit tests (41) passed on Linux x86-64. Of the 23 Godot regression checks, 21 passed. Both failures are in the ocean atmosphere and ocean options checks. These failed identically on the 1.15.1 source with the same content cache and are unrelated to this release.
+Python unit tests (41) passed on Linux x86-64. Of the 23 Godot regression checks, 21 passed. Both failures are in the ocean atmosphere and ocean options checks. These failed identically on the 1.16.0 source with the same content cache and are unrelated to this release.
 
-A save made at one aspect ratio and loaded at another was checked on Linux desktop (Vulkan) at 21:9, 4:3 and auto. In 1.15.1 this recursed between the title's and the game's resize handlers until video memory was exhausted. In 1.16.0 all three loads complete.
-
-The algae cut-out change was compared in Linux desktop renders at about 25 m and 90 m. Pale square blocks from the white key are gone at both distances. The mods check covers replacement atlases, original texel addressing and the keyed atlas.
-
-The translation catalog checker reports 898 source texts and 14 catalogs with no structural problems. New strings were not reviewed by native speakers.
+Save compatibility across reworded JARs was checked with the Sony Ericsson DEEP 1.0.8 JAR and a Brazilian Portuguese translation of it that differs only in `data/lang/en/*.lang` and the manifest. Both imports produce the same rules fingerprint. A save written on the original JAR without a fingerprint, as 1.16.0 writes them, restored against the translated import with the original JAR's import beside it. It was saved again under the translated JAR and restored back on the original. The native session check covers a fingerprint-only match, a refused mismatch, and text and station-name edits leaving the fingerprint unchanged. The engine UI check covers save transfer exports from reworded and foreign JARs.
 
 ## Platform status
 

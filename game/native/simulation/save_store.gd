@@ -1,6 +1,7 @@
 extends RefCounted
 ## Native save schema. Only data is read; no scripts/resources are instantiated
 ## from file paths in a save. The owner's content profile must match on load.
+const Content = preload("res://native/content.gd")
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Session = preload("res://native/simulation/session.gd")
 const Mission = preload("res://native/simulation/mission.gd")
@@ -48,6 +49,7 @@ static func capture(session) -> Dictionary:
 	result.hints_said=session.hints_said.duplicate()
 	result.trail=session.trail.duplicate()
 	result.schema=2; result.random_engine="java-lcg"; result.jar_sha256=session.data.jar_sha256
+	if session.data.has("rules_id"): result.rules_id=session.data.rules_id
 	result.medals=session.medals.state(); result.pending_bounty=session.pending_bounty
 	# Store the native 64-bit PRNG as decimal text, avoiding JSON number round trips.
 	result.random_state=str(session.rng.state)
@@ -83,8 +85,18 @@ static func load_ship(session, value: Dictionary):
 static func load_mission(value: Dictionary):
 	var mission := Mission.new(); restore_fields(mission,value,MISSION_FIELDS); return mission
 
+static func same_rules(value: Dictionary, data: Dictionary) -> bool:
+	"""The save's JAR, or one that differs from it only in text. Translating a
+	JAR changes its hash, and that alone must not cost the player their game."""
+	if str(value.get("jar_sha256",""))==str(data.jar_sha256): return true
+	var current := str(data.get("rules_id",""))
+	if current.is_empty(): return false
+	var saved := str(value.get("rules_id",""))
+	if saved.is_empty(): saved=Content.rules_of_import(str(value.get("jar_sha256","")),str(data.get("cache_directory","")))
+	return saved==current
+
 func restore(data: Dictionary, value: Dictionary):
-	if int(value.get("schema",0)) not in [1,2] or value.get("jar_sha256","")!=data.jar_sha256:
+	if int(value.get("schema",0)) not in [1,2] or not same_rules(value,data):
 		failure=tr("This save needs a matching DEEP content profile."); return null
 	if not validate(value,data): failure=tr("The native save is incomplete or invalid."); return null
 	var session := Session.new(); session.new_game(data,str(value.name),0)

@@ -186,7 +186,7 @@ The enhanced options in **Settings → Graphics**: **Headlights** follow each or
 
 Hits show the direction they came from as arcs around the centre of the view, so an attacker behind you reads as behind you.
 
-**Transfer save**, in the pause menu and in a station's System menu, moves your save between devices. An export is a small data-only file: it contains the save and never the game content, which each device imports from its own JAR. An export loads only on a copy that imported the same JAR, and importing keeps the save it replaces as a backup. If a save is ever damaged, the game falls back to that backup and tells you it did.
+**Transfer save**, in the pause menu and in a station's System menu, moves your save between devices. An export is a small data-only file: it contains the save and never the game content, which each device imports from its own JAR. An export loads only on a copy that imported the same JAR or one that differs from it only in text, and importing keeps the save it replaces as a backup. If a save is ever damaged, the game falls back to that backup and tells you it did.
 
 **Settings → Display** offers a picture **Aspect ratio**: **Auto** fills the window, and **4:3**, **16:9**, **16:10** or **21:9** pin the picture shape and letterbox the rest.
 
@@ -215,7 +215,7 @@ Enhanced graphics use the imported sky palette for the sun opening and filtered 
 
 **Headlight colour**, on the same page, offers **White** (the default) or **Blue** from the original beam texture. It changes regular headlights, their lenses and cast light together, including other vessels. Aquarius retains its original red headlights in both modes. The choice applies immediately and is saved between launches.
 
-Campaign and radio content comes from your local JAR. Saves from 1.1.1 and earlier load; their random draws continue from a fresh seed of the game's generator.
+Campaign and radio content comes from your local JAR. Saves from 1.1.1 and earlier load; their random draws continue from a fresh seed of the game's generator. A save stays loadable when its JAR is replaced by a translated or reworded copy: saves record the JAR's game data without its text (`.lang` strings, name lists and station names) and load on any JAR whose remaining data matches. Saves from 1.16.0 and earlier record only the JAR's file hash; they load on a reworded JAR if the original JAR's import is still in the content folder.
 
 ### Mods: how to replace textures, music and models
 

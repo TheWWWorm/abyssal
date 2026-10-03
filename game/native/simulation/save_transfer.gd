@@ -16,12 +16,12 @@ func validate(data: Dictionary, value: Variant) -> Dictionary:
 	if value is not Dictionary or value.get("format")!=FORMAT or int(value.get("version",0))!=VERSION:
 		failure=tr("This is not an Abyssal save export.")
 		return {}
-	if str(value.get("content_id",""))!=str(data.jar_sha256):
-		failure=tr("This save was made with a different JAR. Import that JAR first.")
-		return {}
 	var record: Variant = value.get("save")
 	if record is not Dictionary:
 		failure=tr("The export contains no save.")
+		return {}
+	if str(value.get("content_id",""))!=str(data.jar_sha256) and not Save.same_rules(record,data):
+		failure=tr("This save was made with a different JAR. Import that JAR first.")
 		return {}
 	var store := Save.new()
 	# Restoring is the validation: the same reader the title screen uses.

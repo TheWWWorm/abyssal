@@ -794,8 +794,10 @@ func check_save_transfer(game) -> void:
  expect(transfer.write(export_path,record),"The export reaches a file")
  var reread: Dictionary=transfer.read_export(game.content.data,export_path)
  expect(not reread.is_empty() and reread.save.name==game.session.name,"An export reads back as the same expedition")
- var foreign: Dictionary=record.duplicate(true);foreign.content_id="0".repeat(64)
+ var foreign: Dictionary=record.duplicate(true);foreign.content_id="0".repeat(64);foreign.save.jar_sha256="0".repeat(64);foreign.save.rules_id="0".repeat(64)
  expect(transfer.validate(game.content.data,foreign).is_empty(),"An export from other game content is refused")
+ foreign.save.rules_id=game.content.data.rules_id
+ expect(not transfer.validate(game.content.data,foreign).is_empty(),"An export from a JAR that differs only in text is accepted")
  expect(transfer.validate(game.content.data,{"format":"something-else","version":1}).is_empty(),"An unrelated file is refused")
  var damaged: Dictionary=record.duplicate(true);damaged.save=damaged.save.duplicate(true);damaged.save.erase("ship")
  expect(transfer.validate(game.content.data,damaged).is_empty(),"An incomplete expedition is refused")
