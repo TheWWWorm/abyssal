@@ -7,13 +7,11 @@ import subprocess
 import sys
 import zipfile
 from paths import ROOT
-from browser_runtime import stage as stage_importer
+from browser_runtime import stage as stage_importer, stage_dependencies
 
 
 INDEX_HTML = ('<!doctype html><meta charset="utf-8">'
-    '<script>AbyssalNative.progress("Loading bundled converter scripts…");</script>'
-    '<script src="vendor/pyodide.js"></script><script src="vendor/amrnb.js"></script>'
-    '<script src="audio.js"></script><script src="import.js"></script>')
+    '<script src="bootstrap.js"></script>')
 
 
 def stage(project, godot, release):
@@ -61,7 +59,10 @@ def stage(project, godot, release):
     importer = stage_importer(assets, web=False)
     importer.rename(assets/'abyssal-importer')
     importer = assets/'abyssal-importer'
-    shutil.copyfile(ROOT/'android/import.js', importer/'import.js')
+    stage_dependencies(importer, ROOT/'android/dependencies.json')
+    shutil.copyfile(ROOT/'android/dependencies.json', importer/'android-dependencies.json')
+    for name in ['bootstrap.js', 'import.js']:
+        shutil.copyfile(ROOT/'android'/name, importer/name)
     (importer/'index.html').write_text(INDEX_HTML)
     for name in ['LICENSE.md', 'THIRD_PARTY_NOTICES.md']:
         shutil.copyfile(ROOT/name, importer/name)

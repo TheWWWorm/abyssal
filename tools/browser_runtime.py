@@ -11,10 +11,10 @@ SOURCES = {'micro3d.py':'browser/micro3d.py', 'import_jar.py':'browser/import_ja
            'class_data.py':'tools/class_data.py', 'extract_data.py':'tools/extract_data.py'}
 
 
-def stage(output, web=True):
-    destination = pathlib.Path(output)/'importer'
-    destination.mkdir(parents=True, exist_ok=True)
-    lock = json.loads((ROOT/'browser/dependencies.json').read_text())
+def stage_dependencies(destination, manifest):
+    """Copy one checksum-pinned runtime inventory into an external importer."""
+    destination = pathlib.Path(destination)
+    lock = json.loads(pathlib.Path(manifest).read_text())
     cache = cache_home()/'browser-runtime'; cache.mkdir(parents=True, exist_ok=True)
     for item in lock['files']:
         source = cache/item['sha256']
@@ -29,6 +29,12 @@ def stage(output, web=True):
             temporary = source.with_suffix('.partial'); temporary.write_bytes(data); temporary.replace(source)
         target = destination/item['path']; target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
+
+
+def stage(output, web=True):
+    destination = pathlib.Path(output)/'importer'
+    destination.mkdir(parents=True, exist_ok=True)
+    stage_dependencies(destination, ROOT/'browser/dependencies.json')
     for name in ('worker.js','audio.js'):
         shutil.copyfile(ROOT/'browser'/name, destination/name)
     if web:

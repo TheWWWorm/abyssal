@@ -8,6 +8,8 @@
     "THIRD_PARTY_NOTICES.md",
     "android/AbyssalImportActivity.java",
     "android/AbyssalImporter.java",
+    "android/bootstrap.js",
+    "android/dependencies.json",
     "android/import.js",
     "browser/audio.js",
     "browser/dependencies.json",

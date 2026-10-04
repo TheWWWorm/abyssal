@@ -118,9 +118,11 @@ def inspect_apk(path, source_names):
     from browser_runtime import SOURCES
     from android_runtime import INDEX_HTML
     lock = json.loads((ROOT/'browser/dependencies.json').read_text())
-    expected = {item['path']: item['sha256'] for item in lock['files']}
-    for name, source in {'import.js':'android/import.js', 'audio.js':'browser/audio.js',
+    compatibility = json.loads((ROOT/'android/dependencies.json').read_text())
+    expected = {item['path']: item['sha256'] for item in lock['files'] + compatibility['files']}
+    for name, source in {'bootstrap.js':'android/bootstrap.js', 'import.js':'android/import.js', 'audio.js':'browser/audio.js',
                          'worker.js':'browser/worker.js', 'dependencies.json':'browser/dependencies.json',
+                         'android-dependencies.json':'android/dependencies.json',
                          'LICENSE.md':'LICENSE.md', 'THIRD_PARTY_NOTICES.md':'THIRD_PARTY_NOTICES.md'}.items():
         expected[name] = digest(ROOT/source)
     with zipfile.ZipFile(path) as archive:

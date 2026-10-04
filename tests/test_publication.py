@@ -1,18 +1,61 @@
 """Publication boundary regressions; no original content fixtures."""
 import io
 import json
+import hashlib
 from pathlib import Path
 import struct
 import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from package_publication import inspect_zip, inventory, pck_entries, verify
+import package_publication
 
 
 class PublicationTests(unittest.TestCase):
+    def test_apk_checks_the_compatibility_converter_inventory_and_bytes(self):
+        from browser_runtime import SOURCES
+        from android_runtime import INDEX_HTML
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            files = {}
+            for name, source in {'bootstrap.js':'android/bootstrap.js', 'import.js':'android/import.js',
+                                 'audio.js':'browser/audio.js', 'worker.js':'browser/worker.js',
+                                 'LICENSE.md':'LICENSE.md', 'THIRD_PARTY_NOTICES.md':'THIRD_PARTY_NOTICES.md',
+                                 **{name:source for name,source in SOURCES.items()}}.items():
+                path = root/source; path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'synthetic reviewed source')
+                if name not in SOURCES: files[name] = path.read_bytes()
+            for source, name, payload in [('browser/dependencies.json','vendor/pyodide.js',b'primary'),
+                                          ('android/dependencies.json','vendor-compat/pyodide.asm.wasm',b'compatibility')]:
+                path = root/source
+                path.write_text(json.dumps({'files':[{'path':name,'sha256':hashlib.sha256(payload).hexdigest(),'bytes':len(payload)}]}))
+                files[name] = payload
+                files['android-dependencies.json' if source.startswith('android/') else 'dependencies.json'] = path.read_bytes()
+            sources = io.BytesIO()
+            with zipfile.ZipFile(sources,'w') as archive:
+                for name, source in SOURCES.items(): archive.writestr(name,(root/source).read_bytes())
+            files.update({'sources.zip':sources.getvalue(),'index.html':INDEX_HTML.encode(),'GODOT_LICENSES.txt':b'synthetic notices'})
+            apk = root/'engine.apk'
+            def write_apk():
+                with zipfile.ZipFile(apk,'w') as archive:
+                    for name, payload in files.items(): archive.writestr('assets/abyssal-importer/'+name,payload)
+                    for abi in ['arm64-v8a','x86_64']: archive.writestr('lib/'+abi+'/libgodot_android.so',b'synthetic engine')
+            with patch.object(package_publication,'ROOT',root):
+                write_apk()
+                self.assertTrue(package_publication.inspect_apk(apk,set())['offline_importer_verified'])
+                files['vendor-compat/pyodide.asm.wasm'] = b'corrupt compatibility converter'
+                write_apk()
+                with self.assertRaisesRegex(ValueError,'checksum mismatch: vendor-compat/'):
+                    package_publication.inspect_apk(apk,set())
+                files['unexpected.js'] = b'unreviewed'
+                write_apk()
+                with self.assertRaisesRegex(ValueError,'Unexpected Android importer inventory'):
+                    package_publication.inspect_apk(apk,set())
+
     def test_private_file_inside_nested_archive_is_rejected(self):
         inner, outer = io.BytesIO(), io.BytesIO()
         with zipfile.ZipFile(inner, 'w') as archive:

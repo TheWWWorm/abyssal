@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "note": "Unmodified offline compatibility runtime for Android WebViews without modern JavaScript, Wasm BigInt integration or Wasm exceptions. Used with the same resource-only decoder as the primary importer. See THIRD_PARTY_NOTICES.md.",
+  "files": [
+    {
+      "path": "vendor-compat/pyodide.js",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.20.0/full/pyodide.js",
+      "sha256": "6dcd1d5f8448db5c9bd81fe1b61f5ca6f3613fd2166ff860344132b1ff2dea3b",
+      "bytes": 45996
+    },
+    {
+      "path": "vendor-compat/pyodide.asm.js",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.20.0/full/pyodide.asm.js",
+      "sha256": "ed85fd430911afeafd99c509509edc1478b20abd629b0242500017be98515059",
+      "bytes": 1998470
+    },
+    {
+      "path": "vendor-compat/pyodide.asm.wasm",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.20.0/full/pyodide.asm.wasm",
+      "sha256": "7e276b3f7535c633663c45efdd7afeeb1312b91c0919123ad999b92b1999df7a",
+      "bytes": 9484381
+    },
+    {
+      "path": "vendor-compat/pyodide.asm.data",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.20.0/full/pyodide.asm.data",
+      "sha256": "06cefad52c91c65dffc25406eb4db04fc02715377745171c6cba0a0887a20098",
+      "bytes": 5394245
+    },
+    {
+      "path": "vendor-compat/pyodide_py.tar",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.20.0/full/pyodide_py.tar",
+      "sha256": "6c4a49024bfd71028cefb3ccd21a2c1eb154c89a7ab94c9e27798e06e7ee9da2",
+      "bytes": 102400
+    },
+    {
+      "path": "vendor-compat/packages.json",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.20.0/full/packages.json",
+      "bytes": 28049,
+      "sha256": "66a2a03cccde2277be7ac3b8a386bf9332b7488c11b2b230fe9ec2d7b39c2d22"
+    },
+    {
+      "path": "licenses/Pyodide-0.20.0-MPL-2.0.txt",
+      "url": "https://raw.githubusercontent.com/pyodide/pyodide/0.20.0/LICENSE",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "licenses/CPython-3.10.2.txt",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.10.2/LICENSE",
+      "bytes": 13931,
+      "sha256": "f03e17cd594c2085f66a454e695c7ebe5b4d3c0eff534f4f194abc2fd164621b"
+    },
+    {
+      "path": "licenses/Emscripten-2.0.27.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/2.0.27/LICENSE",
+      "bytes": 5093,
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+    },
+    {
+      "path": "licenses/musl-2.0.27-COPYRIGHT.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/2.0.27/system/lib/libc/musl/COPYRIGHT",
+      "bytes": 5927,
+      "sha256": "70ca142d257e2690a1f8eda8a296e64a6d1b16d8aee6784f8ddcf67f3163635d"
+    },
+    {
+      "path": "licenses/compiler-rt-2.0.27-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/2.0.27/system/lib/compiler-rt/LICENSE.TXT",
+      "bytes": 16708,
+      "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"
+    },
+    {
+      "path": "licenses/libcxx-2.0.27-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/2.0.27/system/lib/libcxx/LICENSE.TXT",
+      "bytes": 16703,
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+    },
+    {
+      "path": "licenses/FreeType-compat-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-ports/FreeType/version_1/docs/LICENSE.TXT",
+      "sha256": "f6333b3a9106f10190e96d9f994f934deb7a5632851a1aaf846b94651a80f4da",
+      "bytes": 1611
+    },
+    {
+      "path": "licenses/FreeType-compat-FTL.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-ports/FreeType/version_1/docs/FTL.TXT",
+      "sha256": "f4b133e25df1f86ad3ffea453aa0e613f0474f34778dbbb3e437e7b2724937d8",
+      "bytes": 6741
+    },
+    {
+      "path": "licenses/libpng-1.6.37.txt",
+      "url": "https://raw.githubusercontent.com/pnggroup/libpng/v1.6.37/LICENSE",
+      "sha256": "bf5e22b9dce8464064ae17a48ea1133c3369ac9e1d80ef9e320e5219aa14ea9b",
+      "bytes": 5345
+    },
+    {
+      "path": "licenses/libffi-3.3.txt",
+      "url": "https://raw.githubusercontent.com/libffi/libffi/v3.3/LICENSE",
+      "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0",
+      "bytes": 1132
+    },
+    {
+      "path": "licenses/zlib-1.2.11-README.txt",
+      "url": "https://raw.githubusercontent.com/madler/zlib/v1.2.11/README",
+      "sha256": "7960b6b1cc63e619abb77acaea5427159605afee8c8b362664f4effc7d7f7d15",
+      "bytes": 5187
+    }
+  ]
+}

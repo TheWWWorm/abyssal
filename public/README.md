@@ -45,27 +45,11 @@ Extract the **entire** archive and keep the files together. You do not need Godo
 2. Choose your DEEP JAR when asked, or drag it onto the window. Its filename does not matter.
 3. Wait for the first conversion to finish before closing the app.
 
-On Android, allow your browser or file manager to install the APK when prompted. Keep Android System WebView enabled and up to date; it runs the bundled offline converter during the first import. Choose your JAR from the system file picker and keep the app open until conversion finishes. The APK supports 64-bit ARM devices and x86-64 emulators, requires OpenGL ES 3, and requests no network or broad storage permission. Later APK updates preserve content and saves; uninstalling removes them. You can also select a private `.abyss` pack prepared on a computer with `tools/pack_content.py`.
+On Android, allow your browser or file manager to install the APK when prompted. Keep Android System WebView enabled and up to date; it runs the bundled offline converter during the first import. Choose your JAR from the system file picker and keep the app open until conversion finishes. The APK supports 64-bit ARM devices and x86-64 emulators, requires OpenGL ES 3, and requests no network or broad storage permission. Later APK updates preserve content and saves; uninstalling removes them.
 
-**Android validation:** a player reported successful gameplay and direct JAR import on a Retroid Pocket 5 with preview.3. Prepared-pack import, native gameplay, touch input, Android Back and reopening saved content were also checked in an Android 15 x86-64 emulator. Direct JAR conversion failed in that emulator because Android System WebView stopped before the decoder started. If direct import fails on another device, create a private `.abyss` pack on a computer and select it on Android.
+The APK automatically selects a bundled converter compatible with the active WebView, including older versions that lack modern JavaScript or WebAssembly exception support. Choose your JAR as usual; conversion remains offline. If the converter cannot start, update the device's active WebView provider through its supported system or app updates and retry. Installing a different browser does not necessarily change the WebView used by the APK.
 
-The desktop packages can prepare that pack with their bundled converter; no additional runtime installation is needed. From the extracted package, run the command for the computer's platform, replacing the two absolute file paths:
-
-```sh
-# Linux x86-64
-./importer/bin/linux/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
-# Linux ARM64
-./importer/bin/linux-arm64/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
-# macOS Apple Silicon
-"./Abyssal Compatibility Engine.app/Contents/Resources/importer/bin/macos-arm64/node" "./Abyssal Compatibility Engine.app/Contents/Resources/importer/import.js" "/path/to/DEEP.jar" "/path/to/private.abyss"
-```
-
-```powershell
-# Windows PowerShell
-.\importer\bin\windows\node.exe .\importer\import.js "C:\path\DEEP.jar" "C:\path\private.abyss"
-```
-
-Transfer only your own private pack to your Android device. It contains converted game assets and is not a public release file.
+**Android validation:** a player reported successful gameplay and direct JAR import on a Retroid Pocket 5 with preview.3. Prepared-pack import, native gameplay, touch input, Android Back and reopening saved content were also checked in an Android 15 x86-64 emulator. Direct JAR conversion failed in that emulator because Android System WebView stopped before the decoder started. If direct import fails on another device, update its active WebView provider and retry your JAR.
 
 Your JAR never leaves your device. The game remembers imported content and station checkpoints in your user storage, so you only import once.
 
@@ -270,7 +254,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.10.1**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.17.2**. Its provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
@@ -319,6 +303,26 @@ python3 tools/export_game.py --platform android --output /path/outside/source/an
 This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 1.0.0 --version-code 21`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
 
 The Android build stages a small Java plugin into Godot’s official Gradle template. A private Android import process shows conversion progress and returns to the game when finished. Android System WebView runs the same Python data reader and procedural audio converter used by the browser and desktop packages. All converter files are bundled in APK assets, all network requests are blocked, and gameplay remains native Godot. License inventories are bundled under `assets/abyssal-importer/` inside the APK.
+
+### Private content tools
+
+For development and private content testing, the desktop packages can prepare a portable `.abyss` pack with their bundled converter; no additional runtime installation is needed. From the extracted package, run the command for the computer's platform, replacing the two absolute file paths:
+
+```sh
+# Linux x86-64
+./importer/bin/linux/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
+# Linux ARM64
+./importer/bin/linux-arm64/node importer/import.js "/path/to/DEEP.jar" "/path/to/private.abyss"
+# macOS Apple Silicon
+"./Abyssal Compatibility Engine.app/Contents/Resources/importer/bin/macos-arm64/node" "./Abyssal Compatibility Engine.app/Contents/Resources/importer/import.js" "/path/to/DEEP.jar" "/path/to/private.abyss"
+```
+
+```powershell
+# Windows PowerShell
+.\importer\bin\windows\node.exe .\importer\import.js "C:\path\DEEP.jar" "C:\path\private.abyss"
+```
+
+These packs contain converted game assets and remain private. Ordinary Android play imports the JAR directly.
 
 Checks and packaging:
 

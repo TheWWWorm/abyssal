@@ -45,9 +45,13 @@ public final class AbyssalImportActivity extends Activity {
         try {
             report("Starting the offline importer…");
             view = new WebView(AbyssalImportActivity.this);
+            android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+            android.util.Log.i("AbyssalImporter", "Active WebView: " + (provider == null ? "unknown"
+                : provider.packageName + " " + provider.versionName));
             view.setWebChromeClient(new android.webkit.WebChromeClient() {
                 @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
-                    android.util.Log.i("AbyssalImporter", message.message()); return true;
+                    android.util.Log.i("AbyssalImporter", message.sourceId() + ":" + message.lineNumber()
+                        + " " + message.message()); return true;
                 }
             });
             view.getSettings().setJavaScriptEnabled(true);
@@ -70,11 +74,18 @@ public final class AbyssalImportActivity extends Activity {
                             ? "application/wasm" : path.endsWith(".html") ? "text/html" : "application/octet-stream";
                         return new WebResourceResponse(mime, "UTF-8", bytes);
                     } catch (Exception e) {
+                        android.util.Log.w("AbyssalImporter", "Bundled importer resource failed: " + r.getUrl().getPath(), e);
                         return new WebResourceResponse("text/plain", "UTF-8", 404, "Not found", Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
                     }
                 }
                 @Override public void onReceivedError(WebView v, WebResourceRequest r, android.webkit.WebResourceError e) {
-                    if (r.isForMainFrame()) finish(token, "failed", "Android System WebView could not start the offline importer: " + e.getDescription());
+                    if (r.isForMainFrame() || r.getUrl().toString().equals(ORIGIN + "bootstrap.js"))
+                        finish(token, "failed", "Android System WebView could not start the offline importer: " + e.getDescription()
+                            + ". Try updating WebView and import your JAR again.");
+                }
+                @Override public void onReceivedHttpError(WebView v, WebResourceRequest r, WebResourceResponse response) {
+                    if (r.isForMainFrame() || r.getUrl().toString().equals(ORIGIN + "bootstrap.js"))
+                        finish(token, "failed", "Offline importer files could not load. Reinstall the APK and import your JAR again.");
                 }
                 @Override public boolean onRenderProcessGone(WebView v, android.webkit.RenderProcessGoneDetail detail) {
                     finish(token, "failed", "Android System WebView stopped. Update WebView, close other apps and try again."); return true;

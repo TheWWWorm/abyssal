@@ -1,15 +1,17 @@
-# Abyssal Engine 1.17.1 — platform support
+# Abyssal Engine 1.17.2 — platform support
 
 Game content is not included. Import a compatible DEEP JAR that you supply.
 
 ## Validation
 
-Python unit tests (41) passed on Linux x86-64. Of the 23 Godot regression checks, 21 passed. Both failures are in the ocean atmosphere and ocean options checks. These failed identically on the 1.17.0 source with the same content cache and are unrelated to this release.
+All 42 Python unit tests passed on Linux x86-64, along with the Android importer and browser audio checks. The Android bootstrap checks cover converter selection, startup failures, error reporting and transfer of converted content to the native app.
 
-Save compatibility was checked with the Sony Ericsson DEEP 1.0.8 JAR and a Brazilian Portuguese translation that differs only in `data/lang/en/*.lang` and the manifest. The original JAR's import had its `music` and `water_palette` keys removed, as an import from before 1.7.0 has none. In 1.17.0, a save from the original JAR was refused on the translated import with "This save needs a matching DEEP content profile.", both with and without a stored fingerprint. In 1.17.1 both restore on the translated import, and save again and restore back on the original. The native session check covers imports without the optional keys and saves fingerprinted by 1.16.1.
+The bundled compatibility converter ran 16 decoder and class-data tests under V8 7.8. A synthetic localized JAR containing model, bitmap, MIDI and AMR resources was then converted through the Android bootstrap and importer under V8 7.8 and V8 13.6. Both produced identical decoded resource bytes and matching content identities. This checks the converter; it does not establish compatibility with every Android WebView.
+
+The AGS3K-W09 from the player report has not been tested directly, and its active WebView version was not supplied. Physical Android validation of this fix remains pending.
 
 ## Platform status
 
-The Windows, macOS, Linux ARM64 and Android packages were exported and checked as archives. This release was not played on those target systems. Windows and macOS packages are unsigned, and macOS is not notarized. macOS supports Apple Silicon. Android uses the existing release signing key.
+All six platform packages were rebuilt. Their archives were checked for integrity, reviewed engine resources and bundled dependency hashes. The Android APK was signed with the existing release key, checked for 16 KiB alignment and verified to request no network permission.
 
-The browser package uses WebGL 2. No physical phone, mobile browser or physical gamepad was tested for this release.
+The packages were not played on Windows, macOS, Linux ARM64 or Android for this release. Windows and macOS packages are unsigned; macOS is not notarized and supports Apple Silicon. The browser package uses WebGL 2. No physical phone, mobile browser or physical gamepad was tested for this release.

@@ -4,8 +4,8 @@
   const progress = message => AbyssalNative.progress(message);
   try {
     progress('Loading the bundled offline importer…');
-    const py = await loadPyodide({indexURL:new URL('vendor/', location.href).href});
-    py.unpackArchive(await (await fetch('sources.zip')).arrayBuffer(), 'zip', {extractDir:'/importer'});
+    const py = await loadPyodide({indexURL:AbyssalImporterRuntime.indexURL,fullStdLib:false});
+    py.unpackArchive(new Uint8Array(await (await fetch('sources.zip')).arrayBuffer()), 'zip', {extractDir:'/importer'});
     py.FS.writeFile('/game.jar', new Uint8Array(await (await fetch('game.jar')).arrayBuffer()));
     py.globals.set('report_progress', progress);
     const audio = JSON.parse(py.runPython(`import sys, json
