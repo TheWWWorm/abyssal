@@ -373,6 +373,7 @@ func run() -> void:
  var footer: Node=game.column.get_child(game.column.get_child_count()-1)
  expect(game.page_scroll.get_global_rect().encloses(footer.get_global_rect()),"Touch station footer stays visible at 720p")
  await check_touch_placement(game)
+ await check_touch_margin_placement(game)
  await check_market_scrolling(game)
  game.queue_free();touch.queue_free();await process_frame
  for name in ["platform-check.cfg","platform-check.json","platform-check.json.bak"]:DirAccess.remove_absolute("user://"+name)
@@ -422,7 +423,7 @@ func check_touch_placement(game) -> void:
  expect(touch.control_rect("guns").get_center().x>target.x,"Dragging moves the control with the finger")
  editor.move_to(Vector2(9000,9000))
  var pushed: Rect2=touch.control_rect("guns")
- expect(Rect2(Vector2.ZERO,touch.size).encloses(pushed),"A control cannot be dragged off the screen")
+ expect(game.get_viewport().get_visible_rect().encloses(touch.get_global_transform_with_canvas()*pushed),"A control cannot be dragged off the screen")
  editor.finish()
  expect(editor.panel.visible,"The panel returns when the finger lifts")
  editor.reset_selected()
@@ -476,6 +477,79 @@ func check_touch_placement(game) -> void:
   expect(not touch.mirror_fire_control,"The same switch restores the original throttle arc")
  game.settings_panel.back()
  touch.layout={};touch.arrange();touch.set_active(false)
+
+func check_touch_margin_placement(game) -> void:
+ # Exercise GUI hit testing as well as saving: a placed button outside its
+ # parent's safe rectangle must remain selectable and work during flight.
+ var original_size:=root.size
+ var touch=game.touch
+ var original_layout: Dictionary=touch.layout.duplicate(true)
+ for dimensions in [Vector2i(2340,1080),Vector2i(1080,2340)]:
+  root.size=dimensions
+  for i in 4:await process_frame
+  game.show_settings("touch");touch.layout={};touch.arrange()
+  var home: Rect2=touch.control_rect("menu")
+  expect(touch.safe_rect().encloses(home),"Default touch placement stays inside the safe area at %s"%dimensions)
+  game.settings_panel.hide();game.show_layout_editor()
+  for i in 3:await process_frame
+  var editor=game.layout_editor
+  var transform: Transform2D=touch.get_global_transform_with_canvas()
+  var start: Vector2=transform*home.get_center()
+  var screen: Rect2=game.get_viewport().get_visible_rect()
+  var target: Vector2=Vector2(screen.end.x-home.size.x*.5-2,start.y) if dimensions.x>dimensions.y else Vector2(start.x,screen.position.y+home.size.y*.5+2)
+  var press:=InputEventScreenTouch.new();press.index=70;press.pressed=true;press.position=start
+  game.get_viewport().push_input(press,true)
+  expect(editor.finger==70 and editor.selected=="menu","A screen touch starts a placement drag at %s"%dimensions)
+  var swipe:=InputEventScreenDrag.new();swipe.index=70;swipe.position=target;swipe.relative=target-start
+  game.get_viewport().push_input(swipe,true)
+  var moved: Rect2=touch.control_rect("menu")
+  expect((transform*moved.get_center()).distance_to(target)<1,"A button follows the drag into the screen margin at %s"%dimensions)
+  expect(not touch.safe_rect().has_point(moved.get_center()),"The custom button can sit beyond the safe-area boundary at %s"%dimensions)
+  expect(screen.encloses(transform*moved),"The custom button stays within the actual screen at %s"%dimensions)
+  press.pressed=false;press.position=target;game.get_viewport().push_input(press,true)
+  press.pressed=true;game.get_viewport().push_input(press,true)
+  expect(editor.finger==70 and editor.selected=="menu","A button in the margin can be picked up again through GUI input at %s"%dimensions)
+  press.pressed=false;game.get_viewport().push_input(press,true)
+  var saved: Dictionary=editor.working.duplicate(true)
+  editor.closed.emit(saved)
+  for i in 3:await process_frame
+  touch.layout={};game.read_settings();touch.arrange()
+  expect(touch.layout==saved and touch.control_rect("menu").is_equal_approx(moved),"Done saves and reloads the margin placement at %s"%dimensions)
+  if dimensions.x>dimensions.y:
+   root.size=Vector2i(1080,2340)
+   for i in 4:await process_frame
+   expect(game.get_viewport().get_visible_rect().encloses(touch.get_global_transform_with_canvas()*touch.control_rect("menu")),"Rotating a margin placement keeps the button on screen")
+   root.size=dimensions
+   for i in 4:await process_frame
+   expect(touch.layout==saved and touch.control_rect("menu").is_equal_approx(moved),"Turning back restores the preferred margin placement")
+  game.close_page();touch.set_active(true)
+  finger(touch,71,target,true)
+  expect(touch.fingers.get(71,"")=="menu","The moved button answers flight touches in the margin at %s"%dimensions)
+  finger(touch,71,target,false,true)
+  game.show_settings("touch");game.settings_panel.hide();game.show_layout_editor()
+  game.layout_editor.reset_all();game.layout_editor.closed.emit(game.layout_editor.working)
+  for i in 3:await process_frame
+  expect(touch.layout.is_empty() and touch.safe_rect().encloses(touch.control_rect("menu")),"Reset all restores the inset default at %s"%dimensions)
+  if dimensions.x>dimensions.y:
+   # The floating stick also has to accept a thumb in the margin without
+   # pulling the visible stick back against the safe-area boundary.
+   game.settings_panel.hide();game.show_layout_editor()
+   for i in 3:await process_frame
+   editor=game.layout_editor;editor.select("stick");editor.grab=Vector2.ZERO
+   editor.move_to(Vector2(-9000,touch.stick_home.y))
+   editor.closed.emit(editor.working)
+   for i in 3:await process_frame
+   game.close_page();touch.fixed_stick=false;touch.set_active(true)
+   var thumb: Vector2=Vector2(screen.position.x+minf(game.ui.get_global_rect().position.x*.5,touch.stick_radius*.5),(touch.get_global_transform_with_canvas()*touch.stick_home).y)
+   finger(touch,72,thumb,true)
+   expect(touch.engaged,"A floating stick placed in the margin accepts a thumb there")
+   expect((transform*(touch.stick_center-Vector2.ONE*touch.stick_radius)).x<game.ui.get_global_rect().position.x,"The floating stick can still extend into the screen margin")
+   finger(touch,72,thumb,false)
+  touch.layout={};game.save_settings()
+ touch.layout=original_layout;game.save_settings()
+ root.size=original_size
+ for i in 4:await process_frame
+ touch.arrange();game.show_station()
 
 func check_mirrored_throttle(touch) -> void:
  var levels: Array=[]

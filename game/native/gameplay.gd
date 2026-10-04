@@ -3071,6 +3071,8 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var described := label(item_description(item.id),14,about);described.add_theme_color_override("font_color",palette.text);described.size_flags_vertical=Control.SIZE_SHRINK_CENTER
 	if art==null: holder.hide()
 	if manufacturing:
+		var price_range := figure_rows([["credits",tr("Unit price"),"%s – %s"%[tr("%d cr")%item.minimum_price,tr("%d cr")%item.maximum_price],palette.value]],detail)
+		price_range.name="PriceRange"
 		caption(tr("Ingredients (in cargo / per unit)"),11,detail,3)
 		for index in item.ingredients.size():
 			var id: int=item.ingredients[index];var need: int=item.ingredient_counts[index];var have := 0

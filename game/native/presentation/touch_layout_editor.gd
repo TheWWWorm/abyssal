@@ -179,10 +179,10 @@ func at(point: Vector2) -> String:
 func move_to(point: Vector2) -> void:
 	if selected.is_empty() or not anchors.has(selected): return
 	var half: Vector2 = touch.control_rect(selected).size*.5
-	# Stop where the whole control is still on screen, so the stored offset and
-	# the placed control never disagree about where the finger is. The bounds
-	# are the overlay's own, which is the space control_rect() reports in.
-	var placed := (point-grab).clamp(half,touch.size-half)
+	# The safe area sets default positions; deliberate placement can cross its
+	# boundary, stopping only at the actual screen edge.
+	var bounds: Rect2 = touch.placement_rect()
+	var placed := (point-grab).clamp(bounds.position+half,bounds.end-half)
 	working=Layout.adjusted(working,selected,placed/maxf(unit,.001)-anchors[selected],
 		Layout.scale_of(working,selected))
 	apply()
@@ -202,6 +202,11 @@ func finish() -> void:
 	finger=-1
 	panel.show()
 	queue_redraw()
+
+func _has_point(point: Vector2) -> bool:
+	# The editor shares the overlay's origin. Accept touches on controls moved
+	# into the screen margins as well as those inside the safe-area rectangle.
+	return touch!=null and touch.placement_rect().has_point(point)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouse and event.device==InputEvent.DEVICE_ID_EMULATION: return

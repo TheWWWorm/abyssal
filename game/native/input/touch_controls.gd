@@ -147,6 +147,11 @@ func safe_rect() -> Rect2:
 	"""The interface this overlay sits in is already inset from notches and
 	rounded corners (see safe_margins.gd), so the whole of it is usable."""
 	return Rect2(Vector2.ZERO,size)
+func placement_rect() -> Rect2:
+	"""Custom positions can use the full screen, measured from the safe-area
+	origin that the default layout and HUD share."""
+	if not is_inside_tree(): return safe_rect()
+	return get_global_transform_with_canvas().affine_inverse()*get_viewport().get_visible_rect()
 func round_zone(center: Vector2, radius: float) -> Rect2:
 	return Rect2(center-Vector2.ONE*radius,Vector2.ONE*radius*2)
 func arrange() -> void:
@@ -192,6 +197,7 @@ func arrange() -> void:
 func apply_layout(s: float) -> void:
 	"""Moves and resizes what the player placed, then re-derives the free bands
 	the HUD is laid out against so nothing ends up underneath a moved control."""
+	var bounds:=placement_rect()
 	for key in zones:
 		var placement: float = Layout.scale_of(layout,key)
 		var shift: Vector2 = Layout.offset_of(layout,key)*s
@@ -199,9 +205,15 @@ func apply_layout(s: float) -> void:
 		var area: Rect2 = zones[key]
 		var middle := area.get_center()+shift
 		var extent: Vector2 = area.size*placement
+		# A different orientation can have narrower margins. Fit the visible
+		# control to that screen while retaining the player's saved offset.
+		middle=middle.clamp(bounds.position+extent*.5,bounds.end-extent*.5)
 		zones[key]=Rect2(middle-extent*.5,extent)
 	stick_radius=104.0*s*Layout.scale_of(layout,"stick")
 	stick_home+=Layout.offset_of(layout,"stick")*s
+	if layout.has("stick"):
+		var half:=Vector2.ONE*stick_radius
+		stick_home=stick_home.clamp(bounds.position+half,bounds.end-half)
 	stick_center=stick_home
 	weapon_home={"hook":zones.hook,"guns":zones.guns}
 	place_throttle()
@@ -284,7 +296,7 @@ func handle(event: InputEvent) -> bool:
 					weapon_touches[event.index]={"started":Time.get_ticks_msec(),"position":event.position,"valid":not stopping}
 				if key=="throttle":slide(event.position)
 				queue_redraw();return true
-			var reach: bool=on_stick(event.position) if fixed_stick else steer_region.has_point(event.position)
+			var reach: bool=on_stick(event.position) if fixed_stick else steer_region.has_point(event.position) or on_stick(event.position)
 			if not drag_anywhere and key.is_empty() and "steer" not in fingers.values() and reach:
 				fingers[event.index]="steer";engaged=true
 				# Taking the stick again after a look brings the camera back.
@@ -329,7 +341,8 @@ func slide(point: Vector2) -> void:
 		throttle_level=percent/100.0;throttle_changed.emit(percent);queue_redraw()
 func clamp_stick(point: Vector2) -> Vector2:
 	var edge:=stick_radius*1.1
-	return Vector2(clampf(point.x,edge,size.x-edge),clampf(point.y,edge,size.y-edge))
+	var bounds:=placement_rect()
+	return point.clamp(bounds.position+Vector2.ONE*edge,bounds.end-Vector2.ONE*edge)
 func move_stick(point: Vector2) -> void:
 	steer=((point-stick_center)/stick_radius).limit_length()
 	if steer.length()<.10:steer=Vector2.ZERO
