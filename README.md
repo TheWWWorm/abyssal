@@ -134,7 +134,7 @@ On a touchscreen the stick appears wherever your left thumb lands and returns to
 
 The Android app follows the device's rotation in every direction, so a phone held upside down in a controller clamp shows the picture the right way up. **Settings → Display → Screen orientation** can fix it to **Landscape** or **Portrait**. The main menu is laid out upright on an upright phone, in the browser too.
 
-On the world map, tap a station, drag to pan and pinch to zoom. With a mouse, right-drag and scroll. With a controller the left stick moves the zone, LB / RB step through the stations in the side view, LT / RT zoom, and the D-pad moves between the buttons; the map opens on **Set station autopilot** (**Autopilot** where a phone's screen leaves too little width for the full labels). The station list is searchable too.
+On the world map, tap a station, drag to pan and pinch to zoom. With a mouse, right-drag and scroll. With a controller the left stick moves the zone, LB / RB step through the stations in the side view, LT / RT zoom, and the D-pad moves between the buttons; the map opens on **Set station autopilot** (**Autopilot** where a phone's screen leaves too little width for the full labels). The station list is searchable too. **Back** is in the top-right corner, leaving more room for translated actions along the bottom. Station names sit directly beside their markers. Crowded names are omitted until there is room; zoom in, hover a marker with the mouse, or select a station to read its name. The selected name is highlighted, and mission destinations get priority.
 
 Touch players can select **Settings → Controls → Touch controls → Touch look area → Whole screen** to drop the stick: a drag anywhere then steers as the mouse does. **Touch look sensitivity** applies to the drag in both modes; action buttons retain their own touch targets. Select **Outside analog area** to restore the stick.
 
@@ -262,7 +262,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.17.5**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.17.6**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

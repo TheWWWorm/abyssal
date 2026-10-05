@@ -1,21 +1,19 @@
-# Abyssal Engine 1.17.5 — platform support
+# Abyssal Engine 1.17.6 — platform support
 
 Game content is not included. Import a compatible DEEP JAR that you supply.
 
 ## Validation
 
-All 42 Python unit tests passed on Linux x86-64. Headless Godot UI, native map/S.T.R.E.A.M. and save/session checks passed. The campaign suite passed 765 checks across all 48 chapters. All 906 engine texts and 14 translation catalogs passed their consistency and font-coverage checks.
+All 42 Python unit tests passed on Linux x86-64. The headless Godot UI and native map/S.T.R.E.A.M. suites passed. All 906 engine texts and 14 translation catalogs passed consistency checks.
 
-Objective checks cover imported tutorial and counter chapters, Espionage at two of five discoveries, an independent accepted delivery during that objective, and the next chapter's actual destination after completion. The journal, chart, depth view, flight contacts and autopilot availability were checked. Russian and English imports with matching game data preserved all saved progress in both directions, including chapter, discoveries, credits, cargo and random state. Exported saves were accepted on the matching localized build too.
+Map checks cover 360 combinations of language, chart size, zoom and pan. They check label spacing, marker and scale clearance, stable placement, ambiguous neighboring markers, hover names and the original adjacent-station case. Full map views were inspected with the OpenGL Compatibility renderer. The map's header Back control was checked for return to flight and docked stations; Portuguese action labels fit the tested desktop and touch layouts.
+
+The packaged Linux x86-64 executable passed a startup check. Its shipped game pack passed version, title, settings and adjacent-station label checks. The web package displayed the 1.17.6 main menu in a local Chromium browser at 1280 × 720 without console warnings or errors; this browser check did not import game content.
+
+The Android APK passed signature verification against the established release certificate and 16 KiB alignment checks. Its package is `org.abyssal.engine`, version 1.17.6, version code 63. It requests no network or storage permissions.
+
+All six platform packages and the source archive passed inventory and SHA-256 checks. Source files match the publication allowlist, and package documentation is consistent across the desktop and web archives.
 
 ## Platform status
 
-All six platform packages use Godot 4.7 release exports. Windows and macOS packages are unsigned; macOS is not notarized and supports Apple Silicon. The browser package uses WebGL 2.
-
-All release archives passed integrity checks and resource inventory inspection; bundled importer files were checked against their recorded hashes. The source archive matches the maintained source allowlist. The packaged Linux x86-64 executable started and exited successfully, and its shipped game pack passed title, version and mission destination checks.
-
-The downloadable Web package was opened locally in Chromium at 1280×720. Its title rendered with version 1.17.5, with no browser warnings or errors reported during the check. Game content was not imported in that browser check.
-
-Native Windows, macOS, Linux ARM64 and Android gameplay was not exercised for this release. Physical phones, mobile browsers and physical gamepads were not tested for this build. The source UI checks use headless rendering and do not establish device performance.
-
-The Android application ID is org.abyssal.engine and its version code is 62. Its release signature matches the existing key, its ZIP alignment passes 16 KiB checking, and it requests no network or external-storage permission. Installing it as an update retains imported content and saves.
+The browser build uses WebGL 2. Windows and macOS packages are unsigned; macOS is not notarized and supports Apple Silicon. Native Windows, macOS, Linux ARM64 and Android gameplay was not exercised for this release. Physical phones, mobile browsers and physical gamepads were not tested for this build. Source UI checks do not establish device performance.
