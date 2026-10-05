@@ -49,5 +49,10 @@ func expired() -> bool:
 func normalized_difficulty(rank: int) -> int:
 	return difficulty/clampi(rank/2,1,20)
 
+func has_destination() -> bool:
+	# Only station encounters, travel and deliveries use this field as a goal.
+	# Counter and tutorial records also carry a station, but it is a placeholder.
+	return kind>=0 and kind<=14 and destination>=0
+
 func values() -> Array:
 	return [kind,reward,destination,difficulty,jump_limit,jumps,terminal,story,failed,completed,briefing,item_id,item_count,target_kind,total,minimum,percentage,threshold]

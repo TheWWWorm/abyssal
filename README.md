@@ -63,6 +63,8 @@ That is the build all gameplay checking is done on. It is not a requirement. Any
 
 The engine's own menus, settings and messages follow the game's language when the engine has it, and otherwise the system language. Settings → Display → Language picks one by hand. The engine text is available in English, Russian, Ukrainian, German, French, Spanish, Brazilian Portuguese, Italian, Polish, Turkish, Indonesian, Vietnamese, Simplified Chinese, Japanese and Korean. The story, ship and item names always come from the JAR.
 
+To change the story's language, choose a JAR in that language with matching game data. Existing saves stay loadable when only the text differs; see the save compatibility details below. **Transfer save** exports a backup to keep separately.
+
 Builds that have actually been run through the importer:
 
 | Build | Result |
@@ -145,6 +147,8 @@ The title menu stands in front of the station of your save - the one you will re
 **Settings → Audio → Menu and opening music** picks the title and opening track. **Auto** plays the track the JAR's own build uses: intro.mid for 1.0.3 builds, station.mid for 1.0.8. **Intro** and **Station** force one. Docked, station.mid always plays. Auto needs content imported with 1.7.0 or later; older imports play station.mid until the JAR is imported again.
 
 The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible in flight, and quest destinations get gold labels and off-screen direction markers.
+
+Objectives that count discoveries, completed contracts or other progress have no fixed destination. Their journal entries show progress without a station or an autopilot action, and the chart and flight markers show destinations only for travel, encounters and deliveries. A separate accepted contract keeps its own destination while a story counter objective is active.
 
 **Settings → Gameplay** holds the world spacing and the S.T.R.E.A.M. gates. **World spacing**, also on the new-game screen, sets how wide one square of the chart's grid is: Short (10 km), Medium short (15 km, the default), Normal (25 km), High (50 km), Original (471 km) or Custom (at least 10 km). A square is 25 map units, so these are 400 m, 600 m, 1 km, 2 km and 18.85 km per unit. Actual distances follow the stations' map positions; this value is not a minimum gap between stations. Original uses the original game's 18.85 km distance conversion. Changes apply on the next departure or when loading a save. Ship and station sizes, depths, contracts and which destinations S.T.R.E.A.M. can reach stay the same. Target labels use metres below 1,000 m and kilometres from 1,000 m onward.
 
@@ -252,13 +256,13 @@ python3 tools/prepare_web_host.py --source /outside/repo/builds/web --output pub
 git add -A && git commit -m "Web build" && git push
 ```
 
-Browser saves and content live in IndexedDB for that exact origin. Changing the port or hostname creates separate storage, and clearing site data, private browsing or storage eviction can lose it. **Keep your JAR** so you can reinstall. Cloud sync and save transfer between platforms are not implemented. Low-memory browsers may need a prepared content pack instead of live conversion.
+Browser saves and content live in IndexedDB for that exact origin. Changing the port or hostname creates separate storage, and clearing site data, private browsing or storage eviction can lose it. **Keep your JAR** so you can reinstall. Cloud sync is not implemented; use **Transfer save** to move progress between devices. Low-memory browsers may need a prepared content pack instead of live conversion.
 
 The first import loads roughly 12 MiB of extra runtime files; later launches read the installed content.
 
 ## Project status
 
-This is **release 1.17.4**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.17.5**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

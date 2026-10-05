@@ -1211,7 +1211,7 @@ func show_journal() -> void:
 		if not progress.is_empty(): label(progress,16,card).modulate=Color("98d4c6")
 		var requirements: String = info.requirements(mission)
 		if not requirements.is_empty(): label(requirements,16,card)
-		if not mission.destination_name.is_empty():
+		if mission.has_destination() and not mission.destination_name.is_empty():
 			label(tr("Destination: %s")%mission.destination_name,16,card)
 			if mission.destination>=0 and mission.destination<session.stations.size() and not mission.completed and not mission.failed:
 				var arrived: bool=session.docked and mission.destination==session.station_id
@@ -2492,7 +2492,7 @@ func focus_creature() -> int:
 func station_contacts() -> Array:
 	var quest_ids := {}
 	for mission in [session.campaign.primary,session.campaign.secondary]:
-		if mission.kind>=0 and not mission.completed and not mission.failed and not mission.destination_name.is_empty() and mission.destination>=0 and mission.destination<session.stations.size():quest_ids[mission.destination]=true
+		if mission.has_destination() and not mission.completed and not mission.failed and not mission.destination_name.is_empty() and mission.destination<session.stations.size():quest_ids[mission.destination]=true
 	var ids: Array=[session.station_id]
 	for id in quest_ids:
 		if not id in ids:ids.append(id)
@@ -2650,7 +2650,7 @@ func current_objective():
 	if world.region!=null and (world.region.success!=null or world.region.failure!=null) and world.region.mission.kind>=0 and not world.region.mission.completed and not world.region.mission.failed:return world.region.mission
 	return session.campaign.primary
 func objective_has_location(mission) -> bool:
-	return mission.kind>=0 and not mission.completed and not mission.failed and (world.encounter_navigation_point()!=null or (mission.kind in [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14] and mission.destination>=0))
+	return mission.kind>=0 and not mission.completed and not mission.failed and (world.encounter_navigation_point()!=null or mission.has_destination())
 func objective_summary(mission) -> String:
 	if mission.kind<0:return tr("Explore the ocean")
 	var info=preload("res://native/presentation/mission_info.gd")

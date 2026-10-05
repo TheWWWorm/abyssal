@@ -200,7 +200,7 @@ static func objectives(world, id: int) -> Array:
 	writes its title above the mark."""
 	var result: Array=[]
 	for mission in [world.session.campaign.primary,world.session.campaign.secondary]:
-		if mission.kind>=0 and not mission.failed and mission.destination==id:result.append(world.session.title(mission))
+		if mission.has_destination() and not mission.failed and mission.destination==id:result.append(world.session.title(mission))
 	return result
 static func pixel_square(item: CanvasItem, at: Vector2, outer_units: float, inner_units: float, body: Color, core: Color) -> void:
 	"""Lays a station marker out on the physical pixel grid rather than on the

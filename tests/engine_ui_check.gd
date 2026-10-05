@@ -138,6 +138,7 @@ func run():
  game.notice("Time · 1×");game.notice("Time · 2×")
  expect(not game.notice_history.any(func(value):return value.label.text.begins_with("Time ·")),"Repeated speed changes do not stack stale time notices")
  expect(game.key_bindings.autopilot==KEY_R and game.key_bindings.time==KEY_T,"Autopilot R and time T defaults")
+ await check_objective_destinations(game)
  game.session.campaign.primary.kind=8;game.session.campaign.primary.destination=game.session.station_id
  game.show_destinations()
  for i in 6:await process_frame
@@ -1130,6 +1131,56 @@ func check_outside_safety(game) -> void:
  named_button(game,"Travel").pressed.emit();await process_frame
  expect(game.world.autopilot and game.world.destination==target,"Confirming sets the course anyway")
  game.world.cancel_autopilot();game.close_page()
+
+func check_objective_destinations(game) -> void:
+ var Campaign=load("res://native/simulation/campaign.gd")
+ var Mission=load("res://native/simulation/mission.gd")
+ var Map=load("res://native/presentation/overworld_map.gd")
+ var previous_campaign=game.session.campaign
+ var previous_counters: Dictionary=game.session.counters.duplicate()
+ var processing: bool=game.is_processing();game.set_process(false)
+ var campaign=Campaign.new();campaign.configure(game.session.data);game.session.campaign=campaign
+ # The imported counter and tutorial records all carry a station placeholder.
+ for chapter in [1,3,4,9,15,16,26]:
+  while campaign.chapter<chapter:campaign.next_chapter(game.session.counters)
+  var mission=campaign.primary
+  expect(not mission.destination_name.is_empty(),"Chapter %d reproduces a stored station placeholder"%chapter)
+  expect(Map.objectives(game.world,mission.destination).is_empty() and not Map.marker(game.world,game.session.stations[mission.destination]).objective,"Chapter %d does not mark its placeholder on the chart or depth view"%chapter)
+  expect(not game.station_contacts().any(func(contact):return contact.quest),"Chapter %d has no false quest station in flight"%chapter)
+  expect(not game.objective_has_location(mission),"Chapter %d offers no objective autopilot"%chapter)
+  game.show_journal();await process_frame
+  expect(not game.column.find_children("*","Label",true,false).any(func(node):return node.text.begins_with("Destination: ")),"Chapter %d has no destination line in the journal"%chapter)
+  expect(not game.column.find_children("*","Button",true,false).any(func(node):return node.has_meta("journal_destination")),"Chapter %d has no journal route to its placeholder"%chapter)
+  game.show_destinations();await process_frame
+  expect(named_button(game,"Navigate to quest objective").disabled,"Chapter %d disables navigation for an objective without a location"%chapter)
+ # Reproduce Espionage at two of five discoveries, then its real next chapter.
+ campaign=Campaign.new();campaign.configure(game.session.data);game.session.campaign=campaign
+ while campaign.chapter<16:campaign.next_chapter(game.session.counters)
+ var milestone=campaign.primary
+ game.session.counters.m+=2
+ game.show_journal();await process_frame
+ expect(game.column.find_children("*","Label",true,false).any(func(node):return node.text=="Stations discovered: 2 / 5 · 3 remaining"),"Espionage retains discovery progress while hiding Gosu")
+ expect(campaign.completion(true,0,game.session.station_id,game.session.ship,game.session.counters)==null,"Two discoveries do not finish the five-station objective")
+ # A separate accepted delivery keeps its own destination during the milestone.
+ var contract=Mission.new();contract.kind=14;contract.destination=1;contract.destination_name=game.session.stations[1].name
+ campaign.secondary=contract
+ expect(Map.objectives(game.world,contract.destination)==[game.session.title(contract)],"A contract still marks its destination during a story milestone")
+ expect(game.station_contacts().any(func(contact):return contact.quest and contact.name==contract.destination_name),"The active contract retains its quest marker in flight")
+ game.show_journal();await process_frame
+ var routes: Array=game.column.find_children("*","Button",true,false).filter(func(node):return node.has_meta("journal_destination"))
+ expect(routes.size()==1 and routes[0].get_meta("journal_destination")==contract.destination,"Only the contract offers a journal route during Espionage")
+ contract.failed=true
+ expect(Map.objectives(game.world,contract.destination).is_empty(),"A failed contract removes its map objective")
+ campaign.secondary=Mission.new()
+ game.session.counters.m=milestone.threshold
+ expect(campaign.completion(true,0,game.session.station_id,game.session.ship,game.session.counters)==milestone,"Discovering all five stations completes Espionage")
+ campaign.next_chapter(game.session.counters)
+ expect(campaign.chapter==17 and campaign.primary.kind==8,"The discovery milestone advances to the next travel objective")
+ expect(Map.objectives(game.world,campaign.primary.destination)==[game.session.title(campaign.primary)],"The next chapter marks its actual destination")
+ game.show_journal();await process_frame
+ expect(game.column.find_children("*","Button",true,false).any(func(node):return node.get_meta("journal_destination",-1)==campaign.primary.destination),"The next chapter restores journal navigation")
+ game.session.campaign=previous_campaign;game.session.counters=previous_counters
+ game.close_page();game.set_process(processing)
 
 func check_trade_quantity(game) -> void:
  # Filling a hold one tonne per press was the longest chore in the game.

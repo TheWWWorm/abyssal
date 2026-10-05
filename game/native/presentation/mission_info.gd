@@ -73,7 +73,7 @@ static func instruction(mission) -> String:
 		19: return EngineLanguage.translate("Catch creatures with your fishing equipment.")
 		20: return EngineLanguage.translate("Collect cargo until the required amount is aboard.")
 		21: return EngineLanguage.translate("Manufacture goods using cargo materials at a station.")
-	if mission.destination>=0:return EngineLanguage.translate("Travel to %s and dock.")%mission.destination_name
+	if mission.has_destination():return EngineLanguage.translate("Travel to %s and dock.")%mission.destination_name
 	return EngineLanguage.translate("Check the mission journal for the next task.")
 
 static func encounter_progress(region) -> String:
