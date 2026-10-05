@@ -15,6 +15,7 @@ func checks() -> void:
 	while owner.campaign.chapter<48: owner.campaign.next_chapter(owner.counters)
 	owner.campaign.primary.kind=-1; owner.prepare_station(0)
 	var world=World.new(); world.configure(owner); world.depart()
+	check_chart_labels(world)
 	var base: float = world.stream_range()
 	expect(is_equal_approx(world.map_kilometers(base),10.0),"Medium short spacing gives a 10 km base STREAM radius")
 	var reachable: Array = []
@@ -350,3 +351,78 @@ func check_zone(app, target: int) -> void:
 	expect(Map.marker(app.world,app.session.stations[target]).objective and Map.objectives(app.world,target).size()>=1,"An accepted contract marks its destination")
 	app.session.campaign.secondary=load("res://native/simulation/mission.gd").new()
 	app.select_station(target)
+
+func check_label_rects(chart, labels: Array, obstacles: Array=[]) -> void:
+	var bounds:=Rect2(Vector2(4,4),chart.size-Vector2(8,8))
+	for i in labels.size():
+		var rect: Rect2=labels[i].rect
+		var marker: Vector2=labels[i].marker.round()
+		var row_height: float=ceilf(ThemeDB.fallback_font.get_height(labels[i].lines[0].font_size))
+		expect(bounds.encloses(rect.grow(3)),"Names and their outline stay within the chart")
+		expect(absf(rect.position.y+row_height*.5-marker.y)<=.5,"Names stay on their own marker's row")
+		for other in obstacles:expect(not rect.grow(5).intersects(other),"Names leave markers and the scale clear")
+		for j in range(i):expect(not rect.grow_individual(18,10,18,10).intersects(labels[j].rect),"Map names have space between them")
+
+func check_chart_labels(world) -> void:
+	var chart:=Map.new();chart.size=Vector2(500,390);chart.world=world
+	var lines: Array=[{"text":"Nearby station","font_size":14,"color":Color.WHITE}]
+	var entry: Dictionary={"id":0,"priority":0,"marker":Vector2(250,180),"lines":lines}
+	var labels: Array=chart.place_labels([entry],[])
+	expect(labels.size()==1 and labels[0].rect.position.x>entry.marker.x,"A clear name sits directly beside its marker")
+	var blockers: Array=[labels[0].rect]
+	labels=chart.place_labels([entry],blockers)
+	expect(labels.size()==1 and labels[0].rect.end.x<entry.marker.x,"A crowded name can use the other side of its marker")
+	check_label_rects(chart,labels,blockers)
+	blockers.append(labels[0].rect)
+	expect(chart.place_labels([entry],blockers).is_empty(),"Names with neither side free wait for more zoom")
+	var width: float=ThemeDB.fallback_font.get_string_size(lines[0].text,HORIZONTAL_ALIGNMENT_LEFT,-1,14).x
+	var nearby: Array=[entry.marker,entry.marker+Vector2(40,0),entry.marker-Vector2(width+26,0)]
+	expect(chart.place_labels([entry],[],nearby).is_empty(),"A name equally close to another dot is omitted")
+	var low: Dictionary=entry.duplicate();low.id=1;low.priority=4
+	var priority: Array=chart.place_labels([low,entry],[])
+	expect(not priority.is_empty() and priority[0].id==0,"Important stations get the available label space first")
+	check_label_rects(chart,priority)
+	for at in [Vector2(4,180),Vector2(496,180),Vector2(250,4),Vector2(250,386)]:
+		entry.marker=at
+		check_label_rects(chart,chart.place_labels([entry],[]))
+	var long_entry: Dictionary=entry.duplicate();long_entry.lines=[{"text":"X".repeat(200),"font_size":14,"color":Color.WHITE}]
+	expect(chart.place_labels([long_entry],[]).is_empty(),"An overlong name never spills outside the chart")
+	# The original adjacent pair reads outwards, each name beside its own dot.
+	chart.zoom=6;chart.pan=chart.size*.5-chart.point(8.5,59)
+	var pair: Array=chart.chart_labels().filter(func(label):return label.id in [58,184])
+	expect(pair.size()==2,"Both names in the reported pair remain visible")
+	if pair.size()==2:
+		expect(pair[0].rect.end.x<pair[0].marker.x and pair[1].rect.position.x>pair[1].marker.x,"The adjacent pair's names sit on their outer sides")
+	check_label_rects(chart,pair,[chart.scale_bar_rect()])
+	for station in world.session.stations:
+		var at: Vector2=chart.point(station.x,station.y)
+		expect(chart._get_tooltip(at)==station.name,"Hover identifies a station even when its name is hidden")
+	chart.filtered="Gosu"
+	var hidden: Dictionary=world.session.stations[58]
+	expect(chart._get_tooltip(chart.point(hidden.x,hidden.y))==chart.tooltip_text,"Filtering also excludes hover names")
+	chart.filtered=""
+	var language=load("res://native/presentation/engine_language.gd")
+	var previous: String=language.current
+	for code in language.codes():
+		language.apply(code);chart.size=Vector2(800,500);entry.marker=Vector2(400,250)
+		entry.lines=[{"text":language.translate("Set station autopilot"),"font_size":14,"color":Color.WHITE},
+			{"text":language.translate("Local encounter"),"font_size":12,"color":Color.WHITE}]
+		var grouped: Array=chart.place_labels([entry],[])
+		expect(grouped.size()==1,"Translated mission text fits next to its station")
+		check_label_rects(chart,grouped)
+		for dimensions in [Vector2(400,390),Vector2(800,600)]:
+			chart.size=dimensions
+			for magnification in [1.0,1.8,3.0,6.0]:
+				chart.zoom=magnification
+				for offset in [Vector2.ZERO,Vector2(-180,110),Vector2(240,-160)]:
+					chart.pan=offset
+					var obstacles: Array=[chart.scale_bar_rect()]
+					for station in world.session.stations:
+						var at: Vector2=chart.point(station.x,station.y)
+						if Rect2(Vector2.ZERO,chart.size).has_point(at):
+							var radius: float=14.0 if station.id==chart.selected_id else 6.0
+							obstacles.append(Rect2(at-Vector2.ONE*radius,Vector2.ONE*radius*2))
+					var visible: Array=chart.chart_labels()
+					check_label_rects(chart,visible,obstacles)
+					expect(visible==chart.chart_labels(),"Unchanged charts retain stable name positions")
+	language.apply(previous);chart.free()

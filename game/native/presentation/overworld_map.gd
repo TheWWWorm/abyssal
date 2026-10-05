@@ -38,12 +38,84 @@ func _ready() -> void:
 	clip_contents=true
 func point(x: float,y: float) -> Vector2:
 	return size*0.5+(Vector2(x,y)-Vector2(50,50))*minf(size.x,size.y)*0.0085*zoom+pan
-func label_at(marker: Vector2, text: String, font_size: int, rise: float) -> Vector2:
-	"""A name goes right of its marker, or left of it where the right would
-	run past the chart's edge and be cut off."""
-	var width: float=ThemeDB.fallback_font.get_string_size(text,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size).x
-	var left: bool=marker.x+10+width>size.x-4 and marker.x-10-width>=4
-	return marker.round()+Vector2(-10-width if left else 10.0,rise)
+func place_labels(entries: Array, obstacles: Array, markers: Array=[]) -> Array:
+	"""Names stay on the same row as their square, with room to read them.
+	Crowded names wait for more zoom; their station markers remain selectable."""
+	var font := ThemeDB.fallback_font
+	var placed: Array=[]
+	var bounds := Rect2(Vector2(4,4),size-Vector2(8,8))
+	entries=entries.duplicate()
+	entries.sort_custom(func(a,b):return a.priority<b.priority if a.priority!=b.priority else a.id<b.id)
+	for entry in entries:
+		var extent := Vector2.ZERO
+		for line in entry.lines:
+			extent.x=maxf(extent.x,font.get_string_size(line.text,HORIZONTAL_ALIGNMENT_LEFT,-1,line.font_size).x)
+			extent.y+=ceilf(font.get_height(line.font_size))
+		var marker: Vector2=entry.marker.round()
+		var offset: float=entry.get("radius",6.0)+7.0
+		var top: float=marker.y-ceilf(font.get_height(entry.lines[0].font_size))*.5
+		var candidates := [Vector2(marker.x+offset,top),Vector2(marker.x-offset-extent.x,top)]
+		for position in candidates:
+			var rect := Rect2(position.round(),extent)
+			if not bounds.encloses(rect.grow(3)) or obstacles.any(func(other):return rect.grow(5).intersects(other)):continue
+			# A name between two nearby dots can look attached to either. Leave
+			# it out unless its own marker is clearly the closest on this row.
+			if not entry.get("selected",false) and markers.any(func(other):return other.distance_to(marker)>1 and absf(other.y-marker.y)<=8 and other.distance_to(other.clamp(rect.position,rect.end))<offset+10):continue
+			var reading_room := rect.grow_individual(18,10,18,10)
+			if placed.any(func(other):return reading_room.intersects(other.rect)):continue
+			var result: Dictionary=entry.duplicate();result.rect=rect
+			placed.append(result);break
+	return placed
+func chart_labels() -> Array:
+	if world==null:return []
+	var entries: Array=[]
+	var obstacles: Array=[scale_bar_rect()]
+	var markers: Array=[]
+	var session=world.session
+	for station in session.stations:
+		if not filtered.is_empty() and not str(station.name).to_lower().contains(filtered):continue
+		var at := point(station.x,station.y)
+		if not Rect2(Vector2.ZERO,size).has_point(at):continue
+		var chosen: bool=station.id==selected_id
+		markers.append(at.round())
+		var missions := objectives(world,station.id)
+		var radius: float=14.0 if chosen else 6.0
+		obstacles.append(Rect2(at-Vector2.ONE*radius,Vector2.ONE*radius*2))
+		if zoom<=1.7 and not chosen and missions.is_empty():continue
+		var lines: Array=[{"text":station.name,"font_size":15 if chosen else 14,"color":Color.WHITE if chosen else Color("d7edf1")}]
+		for title in missions:lines.append({"text":title,"font_size":12,"color":Color("ff9c9c")})
+		entries.append({"id":station.id,"marker":at,"selected":chosen,"radius":radius,"lines":lines,
+			"priority":0 if chosen else 1 if not missions.is_empty() else 2 if station.id==session.station_id else 3 if session.discovered[station.id] else 4})
+	var position: Array=world.global_position()
+	var player := point(float(position[0])/world.map_scale(),float(position[2])/world.map_scale())
+	obstacles.append(Rect2(player-Vector2(8,8),Vector2(16,16)))
+	var encounter=world.encounter_navigation_point()
+	if encounter!=null:
+		var anchor: Array=world.station_origin(session.station_id)
+		var waypoint := point(float(anchor[0]+encounter[0])/world.map_scale(),float(anchor[2]+encounter[2])/world.map_scale())
+		obstacles.append(Rect2(waypoint-Vector2(8,8),Vector2(16,16)))
+		entries.append({"id":-1,"marker":waypoint,"priority":1,"lines":[{"text":tr("Local encounter"),"font_size":13,"color":Color("91e4d4")}]})
+	return place_labels(entries,obstacles,markers)
+func draw_chart_labels() -> void:
+	var font := ThemeDB.fallback_font
+	for entry in chart_labels():
+		if entry.get("selected",false):
+			draw_rect(entry.rect.grow(3),Color("101a52"))
+		var top: float=entry.rect.position.y
+		for line in entry.lines:
+			var baseline := Vector2(entry.rect.position.x,top+font.get_ascent(line.font_size))
+			draw_string_outline(font,baseline,line.text,HORIZONTAL_ALIGNMENT_LEFT,-1,line.font_size,2,Color("233384"))
+			draw_string(font,baseline,line.text,HORIZONTAL_ALIGNMENT_LEFT,-1,line.font_size,line.color)
+			top+=ceilf(font.get_height(line.font_size))
+func _get_tooltip(at: Vector2) -> String:
+	if world==null:return tooltip_text
+	var nearest := 16.0
+	var name := ""
+	for station in world.session.stations:
+		if not filtered.is_empty() and not str(station.name).to_lower().contains(filtered):continue
+		var distance := at.distance_to(point(station.x,station.y))
+		if distance<nearest:nearest=distance;name=station.name
+	return name if not name.is_empty() else tooltip_text
 func chart_at(position: Vector2) -> Vector2:
 	return (position-size*0.5-pan)/(minf(size.x,size.y)*0.0085*zoom)+Vector2(50,50)
 func zoom_about(factor: float, anchor: Vector2) -> void:
@@ -103,28 +175,21 @@ func _draw() -> void:
 		var p := point(station.x,station.y)
 		var mark := marker(world,station)
 		var discovered: bool = mark.discovered
-		var objective: bool = mark.objective
 		if station.id==selected_id and selected_id>=0: draw_arc(p,12,0,TAU,24,Color.WHITE,2,true)
 		# A visited station is drawn a little wider as well, which the original
 		# does not do, but which reads before the colours are compared.
 		pixel_square(self,p,9.0 if discovered else 7.0,3.0,mark.body,mark.core)
-		if zoom>1.7 or station.id==selected_id or objective:
-			draw_string(ThemeDB.fallback_font,label_at(p,station.name,14,-8),station.name,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("d7edf1"))
-		if objective:
-			var line := 0
-			for title in objectives(world,station.id):
-				draw_string(ThemeDB.fallback_font,label_at(p,title,12,8+line*14),title,HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color("ff9c9c"));line+=1
 	var encounter = world.encounter_navigation_point()
 	if encounter!=null:
 		var anchor: Array=world.station_origin(session.station_id)
 		var waypoint := point(float(anchor[0]+encounter[0])/world.map_scale(),float(anchor[2]+encounter[2])/world.map_scale())
 		draw_arc(waypoint,6,0,TAU,16,Color("91e4d4"),2,true)
-		draw_string(ThemeDB.fallback_font,waypoint+Vector2(12,20),tr("Local encounter"),HORIZONTAL_ALIGNMENT_LEFT,-1,13,Color("91e4d4"))
 	var position: Array = world.global_position()
 	var p := point(float(position[0])/world.map_scale(),float(position[2])/world.map_scale())
 	if world.autopilot and world.destination>=0:
 		var target: Dictionary = session.stations[world.destination]
 		draw_dashed_line(p,point(target.x,target.y),Color("97e4d3"),2,6)
+	draw_chart_labels()
 	scale_bar()
 	var direction:=heading()
 	if direction.length_squared()<.001:
@@ -134,6 +199,13 @@ func _draw() -> void:
 		# underneath says who holds the place you are sitting in.
 		var right:=Vector2(-direction.y,direction.x)
 		draw_colored_polygon(PackedVector2Array([p+direction*7,p-direction*4-right*3.5,p-direction*4+right*3.5]),Color("f4fafb"))
+func scale_bar_rect() -> Rect2:
+	var pixels_per_unit: float=minf(size.x,size.y)*0.0085*zoom
+	var meters_per_pixel: float=world.session.world_layout.spacing_meters/maxf(pixels_per_unit,0.001)
+	var length: float=nice_distance(meters_per_pixel*110.0)/meters_per_pixel
+	var grid := "= "+distance_text(world.session.world_layout.spacing_meters*25.0)
+	var grid_width: float=ThemeDB.fallback_font.get_string_size(grid,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
+	return Rect2(Vector2(size.x-14-length-grid_width-46,size.y-40),Vector2(length+grid_width+54,34))
 func scale_bar() -> void:
 	"""A round distance in the corner, as on a sea chart: the world spacing
 	setting decides how far a map unit is, so the bar is what tells the
@@ -150,7 +222,7 @@ func scale_bar() -> void:
 	var grid := "= "+distance_text(world.session.world_layout.spacing_meters*25.0)
 	var grid_width: float=ThemeDB.fallback_font.get_string_size(grid,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
 	var start := left.x-grid_width-38
-	draw_rect(Rect2(Vector2(start-8,left.y-26),Vector2(right.x-start+16,34)),Color("101a52b0"))
+	draw_rect(scale_bar_rect(),Color("101a52b0"))
 	draw_rect(Rect2(Vector2(start,left.y-15),Vector2(12,12)),Color("101a52"),true)
 	draw_rect(Rect2(Vector2(start,left.y-15),Vector2(12,12)),ink,false,1.5)
 	draw_string(ThemeDB.fallback_font,Vector2(start+17,right.y-4),grid,HORIZONTAL_ALIGNMENT_LEFT,-1,13,ink)
