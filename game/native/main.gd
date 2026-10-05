@@ -199,6 +199,7 @@ func _ready() -> void:
 	title_menu.mods_requested.connect(show_mods)
 	fullscreen_button=FullscreenButton.new(func(): FullscreenButton.toggle(func(text): status.text=text))
 	var start_config := ConfigFile.new();start_config.load(settings_path)
+	title_menu.update_help(bool(start_config.get_value("input","mouse_wheel_throttle",false)))
 	Display.apply_orientation(clampi(int(start_config.get_value("view","orientation",0)),0,2))
 	add_child(images)
 	images.chosen.connect(install_texture)
@@ -1086,6 +1087,7 @@ func apply_setting(section: String, key: String) -> void:
 	if key in SettingsMenu.OceanOptions.VISUALS:
 		title_dock.apply_atmosphere(config)
 	match [section,key]:
+		["input","mouse_wheel_throttle"]: title_menu.update_help(bool(config.get_value("input","mouse_wheel_throttle",false)))
 		["audio","music"]: title_dock.set_music(clampf(float(config.get_value("audio","music",0.65)),0,1))
 		["audio","effects"]: audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1);audio.apply_levels()
 		["audio","title_music"]: audio.title_choice=title_dock.title_choice(config)

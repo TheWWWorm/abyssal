@@ -14,6 +14,7 @@ func run():
  root.add_child(app);await process_frame;await process_frame
  expect(app.content.root.is_empty() and app.title_menu.new_button.disabled,"Empty engine never reads a parent JAR or starts without content")
  expect(not app.title_menu.logo.visible,"Original logo is absent before import")
+ expect(app.title_menu.help.text.contains("W / S · Throttle"),"Title help describes graduated keyboard throttle by default")
  expect(app.title_dock.abyss.lamps.all(func(lamp):return not lamp.visible) and app.title_dock.abyss.beams.all(func(beam):return not beam.visible),"The empty title has no orphaned submarine headlights or beam cones")
  app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
@@ -47,6 +48,12 @@ func run():
  expect(bool(title_config.get_value("interface","hints",false)),"The title switch restores hints")
  app.settings_panel.back()
  expect(not app.settings_panel.visible,"Back at the top of settings closes the panel")
+ app.show_settings("steering");await process_frame;await process_frame
+ panel_button(app.settings_panel,"Mouse wheel throttle").pressed.emit();await process_frame
+ expect(app.title_menu.help.text.contains("S · Stop"),"Enabling wheel throttle updates the title's stop-key help")
+ panel_button(app.settings_panel,"Mouse wheel throttle").pressed.emit();await process_frame
+ expect(app.title_menu.help.text.contains("W / S · Throttle"),"Disabling wheel throttle restores the title's graduated-throttle help")
+ app.settings_panel.back();app.settings_panel.back()
  # Browser build: a corner fullscreen switch on the bare main menu only.
  app.fullscreen_button.web_build=true;app._process(0)
  var corner: Rect2=app.fullscreen_button.get_global_rect()
@@ -129,7 +136,7 @@ func run():
  game.message.text="Time · 1×";game.notification_time=7;game.world.speed=2;game._process(0)
  expect(game.message.text=="Time · 2×","Time notice follows live simulation speed")
  game.notice("Time · 1×");game.notice("Time · 2×")
- expect(not game.pending_notices.any(func(value):return value.begins_with("Time ·")),"Repeated speed changes do not queue stale time notices")
+ expect(not game.notice_history.any(func(value):return value.label.text.begins_with("Time ·")),"Repeated speed changes do not stack stale time notices")
  expect(game.key_bindings.autopilot==KEY_R and game.key_bindings.time==KEY_T,"Autopilot R and time T defaults")
  game.session.campaign.primary.kind=8;game.session.campaign.primary.destination=game.session.station_id
  game.show_destinations()
@@ -184,6 +191,10 @@ func run():
  check_free_look(game)
  check_gate_effects(game)
  await check_dock_notices(game)
+ await check_flight_notices(game)
+ await check_dialogue_history(game)
+ await check_profile_portrait(game)
+ await check_wheel_throttle(game)
  await check_station_availability(game)
  check_continuous_catch(game)
  check_source_weapon_audio(game)
@@ -392,17 +403,17 @@ func check_dock_notices(game) -> void:
  expect(station.distance_position==Vector3.ZERO and station.position!=station.distance_position,"Station range uses the station origin while its label stays above the roof")
  game.notice("Approach the station's docking area.")
  game.notice("Route blocked by a station within safe depth")
- expect(game.pending_notices.size()==1 and not game.message.text.is_empty(),"Flight messages queue behind one another")
+ expect(game.notice_history.size()==1 and game.message.text=="Route blocked by a station within safe depth","Flight messages show the latest answer with the previous one below it")
  game.perform("dock")
  await process_frame
  expect(game.session.docked,"Pressing dock at the berth docks")
- expect(game.pending_notices.is_empty(),"Docking drops the messages that were queued in flight")
+ expect(game.notice_history.is_empty(),"Docking drops the previous flight messages")
  expect(not game.message.text.begins_with("Approach the station"),"A refused docking does not stay on screen while docked")
  # Docked, each answer replaces the last rather than waiting its turn: saving
  # must not report itself seven seconds after the key was pressed.
  game.notice("Berth secured")
  game.notice("Saved")
- expect(game.message.text=="Saved" and game.pending_notices.is_empty(),"A message while docked answers the press that caused it")
+ expect(game.message.text=="Saved" and game.notice_history.is_empty(),"A message while docked answers the press that caused it")
  game.session.docked=false;game.clear_notices();game.close_page()
  game.world.enter_region(0);game.view.rebuild()
  game.world.region.events=[];game.world.region.active_transmission=null
@@ -420,6 +431,171 @@ func check_dock_notices(game) -> void:
   game.dock_back();announced+=1
  expect(game.page=="station" and game.overlay.visible and game.column.find_children("*","Button",true,false).any(func(button):return button.text=="DEPART"),"Autopilot docking opens the station services instead of leaving only the exterior view")
  game.session.docked=false;game.clear_notices();game.close_page()
+
+func check_flight_notices(game) -> void:
+ var original_touch_mode: int=game.touch.mode
+ game.close_page();game.session.docked=false;game.gameplay_hints=false;game.clear_notices()
+ var messages := ["First arrival","Second arrival","Third arrival","Fourth arrival"]
+ for text in messages:game.notice(text)
+ expect(game.message.text==messages.back() and game.notice_history.size()==2,"A burst shows its newest message immediately and keeps a bounded stack")
+ expect(game.notice_history[0].label.text==messages[2] and game.notice_history[1].label.text==messages[1],"Recent flight notices cascade in arrival order")
+ expect(is_zero_approx(game.message.modulate.a),"A flight notice starts transparent")
+ game.update_notices(.5)
+ expect(is_equal_approx(game.message.modulate.a,.25),"Flight notices fade in over two seconds")
+ for entry in game.notice_history:
+  expect(entry.label.visible and entry.label.modulate.a<game.message.modulate.a,"Earlier notices remain visible with lower opacity")
+ game.notice(messages.back())
+ expect(game.notice_history.size()==2,"Repeating the current notice does not grow the stack")
+ var remaining: float=game.notification_time
+ game.notice(messages[2])
+ expect(game.message.text==messages.back() and game.notice_history.size()==2 and game.notice_history[0].label.text==messages[2] and game.notification_time==remaining,"Repeating an earlier notice preserves message order and fade timing")
+ game.update_notices(1.5)
+ expect(is_equal_approx(game.message.modulate.a,1.0),"Flight notices reach full opacity after two seconds")
+ var opacity: float=game.notice_history[0].label.modulate.a
+ game.update_notices(.5)
+ expect(game.notice_history[0].label.modulate.a<opacity,"Older messages fade with elapsed time")
+ game.update_notices(1.0)
+ expect(game.message.modulate.a>0 and game.message.modulate.a<1,"The latest message fades near the end of its lifetime")
+ game.update_notices(.7)
+ expect(game.message.text.is_empty() and not game.message.visible,"The stack empties without replaying expired messages")
+ game.notice("Older warning");game.update_notices(1.25);game.notice("Latest warning");game.update_notices(2.8)
+ expect(game.notice_history.is_empty() and game.message.visible,"A later notice keeps its own fade when an older one expires")
+ game.clear_notices()
+ game.flight_messages=false;game.notice("Entered Test station")
+ expect(game.message.text.is_empty(),"The flight-message preference still hides routine arrivals")
+ game.notice("Route blocked by a station within safe depth")
+ expect(not game.message.text.is_empty(),"Warnings remain visible with routine messages off")
+ game.flight_messages=true;game.clear_notices()
+ game.notice("Long arrival message that needs to wrap without covering another notice or the docking prompt, even when the window is held upright.")
+ game.notice("Short warning")
+ for dimensions in [Vector2i(800,600),Vector2i(589,1280),Vector2i(1280,720)]:
+  root.size=dimensions;game.touch.mode=1 if dimensions.x<dimensions.y else 2
+  game.update_render_resolution();await process_frame;await process_frame;game.layout()
+  var current: Rect2=game.message.get_global_rect()
+  var older: Rect2=game.notice_history[0].label.get_global_rect()
+  expect(game.ui.get_global_rect().encloses(current) and game.ui.get_global_rect().encloses(older),"Wrapped notice stack stays on screen at %s"%dimensions)
+  expect(not current.intersects(older) and older.end.y<=game.dock_prompt.global_position.y,"Wrapped notices leave the next notice and dock prompt clear at %s"%dimensions)
+  if dimensions.x<dimensions.y:
+   var objective: Rect2=game.objective_label.get_global_rect()
+   objective.size.y=minf(game.objective_label.size.y,game.objective_label.get_content_height())*game.objective_label.scale.y
+   expect(not current.intersects(objective) and not older.intersects(objective),"Portrait notices leave the objective text clear")
+   var depth: Rect2=game.instruments.gauge_rect()
+   expect(game.message.position.x+game.message.size.x<depth.position.x-40,"Portrait notices keep the depth column and its numbers clear")
+ game.clear_notices();game.notice("Time · 2×");game.notice("Manual control");game.notice("Time · 1×")
+ expect(game.notice_history.size()==1 and game.notice_history[0].label.text=="Manual control","Time changes replace their stale entry in the stack")
+ game.clear_notices();game.notice("Before pause");game.notice("After arrival");game.show_pause()
+ expect(game.notice_history.is_empty(),"A menu clears the old flight stack")
+ game.touch.mode=original_touch_mode;game.close_page();game.clear_notices();root.size=Vector2i(1280,720);await process_frame
+
+func check_dialogue_history(game) -> void:
+ var completed: Array=[]
+ var entries := [{"speaker":game.session.name,"text":"First line"},{"speaker":"Test","text":"Second line"},{"speaker":"Test","text":"Last line"}]
+ game.show_dialogue(entries,func():completed.append(true);game.close_page())
+ await process_frame;await process_frame
+ expect(game.column.find_child("DialoguePrevious",true,false).disabled,"The first dialogue line cannot go back")
+ for i in 2:
+  game.column.find_child("DialogueNext",true,false).pressed.emit();await process_frame;await process_frame
+ expect(game.line_index==2 and completed.is_empty(),"Reading to the last line leaves completion pending")
+ for i in 2:
+  game.column.find_child("DialoguePrevious",true,false).pressed.emit();await process_frame;await process_frame
+ expect(game.line_index==0 and completed.is_empty(),"Back rereads earlier dialogue without completing its event")
+ expect(game.column.find_children("*","RichTextLabel",true,false)[0].text=="First line","Back restores the earlier text")
+ expect(game.column.find_child("DialoguePrevious",true,false).disabled,"Returning to the first line disables Back again")
+ for i in 3:
+  game.column.find_child("DialogueNext",true,false).pressed.emit();await process_frame;await process_frame
+ expect(completed.size()==1 and game.page.is_empty(),"Continuing past the last line completes the event exactly once after rereading")
+
+func check_profile_portrait(game) -> void:
+ var original_face: Array=game.session.face_layers.duplicate()
+ for dimensions in [Vector2i(589,1280),Vector2i(1280,720)]:
+  root.size=dimensions;await process_frame;await process_frame
+  for medals in [false,true]:
+   game.show_profile(medals);await process_frame;await process_frame
+   var portrait: TextureRect=game.column.find_child("PilotPortrait",true,false)
+   expect(portrait!=null and portrait.texture==game.imported_art.portrait(game.session.face_layers),"Profile and medals show the expedition's own pilot portrait")
+   if portrait!=null:expect(game.overlay.get_global_rect().encloses(portrait.get_global_rect()),"Pilot portrait fits the profile at %s"%dimensions)
+ game.session.face_layers=[85,65,75,16,43,-1];game.show_profile();await process_frame;await process_frame
+ expect(game.column.find_child("PilotPortrait",true,false).texture==game.imported_art.portrait(game.session.face_layers),"The profile follows the saved pilot's face layers")
+ game.session.face_layers=original_face;game.close_page();root.size=Vector2i(1280,720);await process_frame
+
+func check_wheel_throttle(game) -> void:
+ var processing: bool=game.is_processing();game.set_process(false)
+ game.touch.mode=2;game.session.docked=false;game.close_page();game.world.region.events=[];game.world.region.active_transmission=null;game.world.region.pending_mission=null
+ var player=game.world.region.player
+ var wheel:=InputEventMouseButton.new();wheel.button_index=MOUSE_BUTTON_WHEEL_UP;wheel.pressed=true
+ player.set_throttle(50)
+ expect(not game.mouse_wheel_throttle,"Mouse-wheel throttle starts disabled")
+ game._unhandled_input(wheel)
+ expect(player.throttle_target==50,"Wheel input has no flight effect until enabled")
+ var stop:=InputEventKey.new();stop.physical_keycode=game.key_bindings.throttle_down;stop.keycode=stop.physical_keycode;stop.pressed=true
+ player.throttle=50;game._unhandled_input(stop)
+ expect(player.throttle_target==25 and player.throttle==50,"With wheel throttle off, pressing S lowers its target by one quarter without stopping immediately")
+ player.set_throttle(50)
+ game.show_settings("steering");await process_frame;await process_frame
+ var row := panel_button(game.settings_panel,"Mouse wheel throttle")
+ expect(row!=null and row.get_node("Value").text=="Off","Steering offers the optional mouse-wheel throttle switch")
+ row.pressed.emit();await process_frame;await process_frame
+ expect(game.mouse_wheel_throttle,"The wheel option applies immediately")
+ game.save_settings();game.mouse_wheel_throttle=false;game.read_settings()
+ expect(game.mouse_wheel_throttle,"Wheel throttle persists between settings loads")
+ game._unhandled_input(wheel)
+ expect(player.throttle_target==50,"Scrolling settings cannot move the submarine")
+ game.show_settings("bindings");await process_frame;await process_frame
+ expect(panel_button(game.settings_panel,"Stop")!=null,"Wheel throttle labels the saved throttle-down key as Stop")
+ game.show_settings("reference");await process_frame;await process_frame
+ expect(game.settings_panel.column.find_children("*","Label",true,false).any(func(label):return label.text.contains("S stop")),"The enabled control reference describes S as a stop")
+ game.close_page();game._unhandled_input(wheel)
+ expect(player.throttle_target==75,"Wheel up increases speed by one quarter")
+ game._unhandled_input(wheel);game._unhandled_input(wheel)
+ expect(player.throttle_target==100,"Wheel throttle stops at full speed")
+ wheel.button_index=MOUSE_BUTTON_WHEEL_DOWN
+ for i in 5:game._unhandled_input(wheel)
+ expect(player.throttle_target==0,"Wheel down reaches a stop without reversing")
+ wheel.button_index=MOUSE_BUTTON_WHEEL_UP;wheel.factor=.25
+ for i in 3:game._unhandled_input(wheel)
+ expect(player.throttle_target==0,"High-resolution wheel fractions wait for a full notch")
+ game._unhandled_input(wheel)
+ expect(player.throttle_target==25,"High-resolution wheel fractions accumulate into a throttle step")
+ wheel.factor=1;game.world.fly_to([100000,0,0]);game._unhandled_input(wheel)
+ expect(not game.world.autopilot and game.world.speed==1,"Using wheel throttle takes manual control from autopilot")
+ game.session.docked=true;var previous: int=player.throttle_target;game._unhandled_input(wheel)
+ expect(player.throttle_target==previous,"Docked wheel input leaves flight throttle alone")
+ game.session.docked=false;game.world.fly_to([100000,0,0]);player.throttle=100;player.boost_active=true;player.speed_factor=3
+ game._unhandled_input(stop)
+ expect(player.throttle_target==0 and player.throttle==0 and player.stopped and not player.boost_active and not game.world.autopilot,"The stop key halts immediately, including boost and autopilot")
+ Input.parse_input_event(stop);await process_frame
+ player.set_throttle(50);player.throttle=50
+ var held: Dictionary=game.flight_input()
+ expect(held.throttle==0 and not held.boost and player.throttle_target==0 and player.throttle==0,"Holding S keeps an immediate stop with wheel throttle enabled")
+ var release:=stop.duplicate();release.pressed=false;Input.parse_input_event(release);await process_frame
+ var origin: Array=player.pose.origin.duplicate();player.collision_groups=[];player.advance(40)
+ expect(player.pose.origin==origin,"The next simulation tick has no forward drift after stopping")
+ var accelerate:=InputEventKey.new();accelerate.physical_keycode=game.key_bindings.throttle_up;accelerate.keycode=accelerate.physical_keycode;accelerate.pressed=true
+ game._unhandled_input(accelerate)
+ expect(player.throttle_target==25,"The acceleration key resumes from a full stop")
+ var old_key: int=game.key_bindings.throttle_down;game.key_bindings.throttle_down=KEY_Z
+ game._unhandled_input(stop)
+ expect(player.throttle_target==25,"Rebinding Stop removes the action from its old key")
+ stop.physical_keycode=KEY_Z;stop.keycode=KEY_Z;game._unhandled_input(stop)
+ expect(player.throttle_target==0,"Stop follows its rebound key")
+ game.key_bindings.throttle_down=old_key
+ game.show_settings("steering");await process_frame;await process_frame
+ panel_button(game.settings_panel,"Mouse wheel throttle").pressed.emit();await process_frame
+ expect(not game.mouse_wheel_throttle,"The same option disables wheel throttle")
+ game.show_settings("bindings");await process_frame;await process_frame
+ expect(panel_button(game.settings_panel,"Throttle down")!=null and panel_button(game.settings_panel,"Stop")==null,"Disabling wheel throttle restores the throttle-down binding label")
+ game.show_settings("reference");await process_frame;await process_frame
+ expect(game.settings_panel.column.find_children("*","Label",true,false).any(func(label):return label.text.contains("W/S throttle")),"The disabled control reference describes graduated throttle")
+ game.close_page();game._unhandled_input(wheel)
+ expect(player.throttle_target==0,"Disabling wheel throttle restores inert wheel input")
+ stop.physical_keycode=old_key;stop.keycode=old_key;player.set_throttle(75);player.throttle=75
+ Input.parse_input_event(stop);await process_frame
+ held=game.flight_input()
+ expect(held.throttle==-1 and player.throttle_target==50 and player.throttle==75,"Holding S restores graduated throttle-down input when wheel throttle is disabled")
+ player.adjust_throttle(held.throttle,240);player.adjust_throttle(held.throttle,240)
+ expect(player.throttle_target==0 and player.throttle==75,"Held throttle-down reaches zero target while retaining gradual deceleration")
+ release=stop.duplicate();release.pressed=false;Input.parse_input_event(release);await process_frame
+ game.touch.mode=0;game.clear_notices();game.set_process(processing)
 
 func check_free_look(game) -> void:
  # Alt or Ctrl with the mouse swings the chase camera round the hull instead

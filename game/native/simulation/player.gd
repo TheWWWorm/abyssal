@@ -166,6 +166,9 @@ func set_throttle(value: int) -> void:
  throttle_target=clampi(value,0,100)
  if throttle_target<100 and boost_active:
   boost_active=false; boost_timer=-stats.boost_cooldown; speed_factor=2
+func stop() -> void:
+ set_throttle(0)
+ throttle=0.0;stopped=true;throttle_held_ms=0;throttle_direction=0
 func adjust_throttle(direction: int, milliseconds: int) -> void:
  if direction==0: throttle_held_ms=0; throttle_direction=0; return
  if direction!=throttle_direction: throttle_held_ms=0; throttle_direction=direction

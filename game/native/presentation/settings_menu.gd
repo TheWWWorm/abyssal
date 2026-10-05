@@ -621,6 +621,7 @@ func steering_page() -> void:
 	chooser(tr("Left/right keys and stick"),strafe_names(),index("input","strafe",0,2),"strafe",func(next): put("input","strafe",next))
 	slider(tr("Mouse sensitivity"),"keys","mouse_sensitivity",0.8,0.2,2.0,0.1)
 	toggle(tr("Invert vertical mouse and touch"),"keys","invert_mouse",false)
+	toggle(tr("Mouse wheel throttle"),"input","mouse_wheel_throttle",false)
 	group(tr("Tilt steering"))
 	var tilt := flag("input","motion",false)
 	var tilt_row := row(tr("Steer by tilting"),tr("On") if tilt else tr("Off"),"motion",func():
@@ -676,7 +677,7 @@ func touch_page() -> void:
 	note(tr("Outside analog area: the left stick steers, dragging elsewhere turns the camera. Whole screen: dragging anywhere steers."))
 
 func action_name(action: String) -> String:
-	return {"autopilot":tr("Autopilot (tap / hold)"),"time":tr("Time acceleration"),"throttle_up":tr("Throttle up"),"throttle_down":tr("Throttle down"),"auto_fire":tr("Auto fire"),"up":tr("Pitch up"),"down":tr("Pitch down"),"left":tr("Left"),"right":tr("Right"),
+	return {"autopilot":tr("Autopilot (tap / hold)"),"time":tr("Time acceleration"),"throttle_up":tr("Throttle up"),"throttle_down":tr("Stop") if flag("input","mouse_wheel_throttle",false) else tr("Throttle down"),"auto_fire":tr("Auto fire"),"up":tr("Pitch up"),"down":tr("Pitch down"),"left":tr("Left"),"right":tr("Right"),
 		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"bank":tr("Bank"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights")}.get(action,action.capitalize())
 
 func bindings_page() -> void:
@@ -694,7 +695,7 @@ func bindings_page() -> void:
 			binding=action;binding_notice="";focus_key="key_"+action;rebuild(),grid)
 
 func reference_page() -> void:
-	for line in [tr("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle"),
+	for line in [tr("Mouse turns · Left-click guns · Right-click harpoon · W throttle up · S stop") if flag("input","mouse_wheel_throttle",false) else tr("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle"),
 		tr("Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation."),
 		tr("Gamepad: right stick turns · left stick strafes or turns (sticks can be reassigned in Gamepad) · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost"),
 		tr("X bank · Y dock · LB route · RB time · View map · D-pad left camera, hold to look with the right stick · D-pad right lights · Start/B menu")]:

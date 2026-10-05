@@ -65,9 +65,12 @@ func _ready() -> void:
 	edition=caption("ABYSSAL" if version.is_empty() else "ABYSSAL  /  "+version,12,palette.faint)
 	edition.add_theme_font_override("font",StationTheme.spaced(edition.get_theme_font("font"),3))
 	rule=ColorRect.new();rule.color=Color(palette.edge,.6);rule.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(rule)
-	add_child(help);help.hide();help.text=tr("Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause.")
+	add_child(help);help.hide();update_help()
 	help.add_theme_font_size_override("font_size",15);help.modulate=palette.text;help.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT;help.mouse_filter=Control.MOUSE_FILTER_IGNORE;help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	resized.connect(layout);layout()
+
+func update_help(wheel_throttle: bool=false) -> void:
+	help.text=tr("Mouse · Steer    W · Throttle up    S · Stop\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause.") if wheel_throttle else tr("Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause.")
 
 func load_content(directory: String) -> void:
 	var file := directory.path_join("data/interface/logo.png")

@@ -149,7 +149,10 @@ var auto_fire := false
 var modern_graphics := true
 var catch_status := Label.new()
 var travel_status := Label.new()
-var pending_notices: Array[String] = []
+## Older flight notices are shown together, then fade away as new ones arrive.
+var notice_history: Array[Dictionary] = []
+const NOTICE_SECONDS := 4.0
+const MAX_NOTICE_HISTORY := 2
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 var headlight_mode := Headlights.DEFAULT
 var headlight_previous := Headlights.DEFAULT
@@ -169,10 +172,14 @@ var pending_start := false
 var continue_save := false
 var player_name := tr("Pilot")
 var notification_time := 0.0
+var notification_duration := NOTICE_SECONDS
+var notification_fades_in := false
 var capture_frames := 0
 var capture_path := ""
 var simulated_capture := false
 var mouse_sensitivity := 0.8
+var mouse_wheel_throttle := false
+var wheel_throttle_remainder := 0.0
 var touch_look_sensitivity := 0.7
 var fullscreen_supported := true
 ## The 1.4 touch controls sit in other places, so placements made against the
@@ -268,6 +275,7 @@ func _ready() -> void:
 	toast.content_margin_left=16;toast.content_margin_right=16;toast.content_margin_top=7;toast.content_margin_bottom=8
 	message.add_theme_stylebox_override("normal",toast)
 	ui.add_child(message); message.add_theme_font_size_override("font_size",16); message.add_theme_color_override("font_color",Color("9ce5d1")); message.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	message.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(crosshair); crosshair.size=Vector2(32,32); crosshair.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(dock_prompt); dock_prompt.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; dock_prompt.add_theme_font_size_override("font_size",17); dock_prompt.modulate=Color("b6ecd7"); dock_prompt.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	# Outlined: the prompt at a gate sits over the aperture's glow.
@@ -369,8 +377,7 @@ func layout() -> void:
 		overlay.size=Vector2(minf(1240 if market_category=="missions" else 1000,ui.size.x-64),ui.size.y-64);overlay.position=(ui.size-overlay.size)*.5
 	else:
 		overlay.position=Vector2(maxf(160,ui.size.x-minf(740,ui.size.x-190)-22),140);overlay.size=Vector2(minf(740,ui.size.x-190),maxf(260,ui.size.y-304))
-	place_message()
-	hazard_warning.fit_width(minf(640,ui.size.x-64));hazard_warning.position=Vector2((ui.size.x-hazard_warning.size.x)*.5,flight_notice_top()+104)
+	hazard_warning.fit_width(minf(640,ui.size.x-64));hazard_warning.position.x=(ui.size.x-hazard_warning.size.x)*.5
 	# Under the hull in the chase view (its keel sits near 71% of the height
 	# in landscape, 63% upright), clear of the helm strip below.
 	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*(.67 if ui.size.x<ui.size.y else .75),ui.size.y-(96.0*hud_scale()+64.0)));catch_status.size=Vector2(480,44)
@@ -387,8 +394,9 @@ func layout() -> void:
 	update_render_resolution()
 	crosshair.position=(get_viewport().get_visible_rect().get_center()-ui.position-crosshair.size*.5).round()
 	# Under the notice band, clear of the hull below the crosshair.
-	dock_prompt.position=Vector2(ui.size.x*.5-250,flight_notice_top()+54);dock_prompt.size=Vector2(500,40)
+	dock_prompt.position=Vector2(ui.size.x*.5-250,flight_notice_end()+10);dock_prompt.size=Vector2(500,40)
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
+	place_message()
 var layout_pending := false
 func request_layout() -> void:
 	if layout_pending: return
@@ -404,9 +412,13 @@ func place_message() -> void:
 	rendering fault, not as an answer to what the player just did."""
 	var font: Font = message.get_theme_font("font")
 	var font_size: int = message.get_theme_font_size("font_size")
-	var width := minf(maxf(220.0,font.get_string_size(message.text,HORIZONTAL_ALIGNMENT_CENTER,-1,font_size).x+40.0),minf(640.0,ui.size.x-40.0))
-	var height := 44.0
-	message.size=Vector2(width,height)
+	var text_width := font.get_string_size(message.text,HORIZONTAL_ALIGNMENT_CENTER,-1,font_size).x
+	for entry in notice_history:text_width=maxf(text_width,font.get_string_size(entry.label.text,HORIZONTAL_ALIGNMENT_CENTER,-1,font_size).x)
+	var available := minf(640.0,ui.size.x-40.0)
+	# Leave the upright depth column and its numbers clear of wrapped notices.
+	if not overlay.visible and narrow_touch_hud():available=minf(available,ui.size.x-192.0)
+	var width := minf(maxf(220.0,text_width+40.0),available)
+	var height := fit_notice(message,width)
 	var middle := (ui.size.x-width)*.5
 	if overlay.visible:
 		var below := overlay.position.y+overlay.size.y+14
@@ -423,13 +435,39 @@ func place_message() -> void:
 		# In flight the lower middle is the hull itself in the chase view, so
 		# notices take the band under the target read-out at the top instead.
 		message.position=Vector2(middle,flight_notice_top())
+	var y := message.position.y+message.size.y+6
+	for entry in notice_history:
+		var older: Label=entry.label
+		var older_height := fit_notice(older,width)
+		older.position=Vector2(middle,y)
+		older.visible=not overlay.visible and page!="freeze" and not session.docked
+		y+=older_height+6
+	dock_prompt.position.y=flight_notice_end()+10
+	hazard_warning.position.y=flight_notice_end()+60
+func flight_notice_end() -> float:
+	var bottom := flight_notice_top()+message.size.y
+	if not overlay.visible and not notice_history.is_empty():
+		var last: Label=notice_history.back().label
+		bottom=last.position.y+last.size.y
+	return bottom
+func fit_notice(node: Label, width: float) -> float:
+	node.size=Vector2(width,0)
+	var height := maxf(44,node.get_line_count()*node.get_line_height()+15)
+	node.size.y=height
+	return height
 func hud_scale() -> float:
 	"""The desktop canvas grows with the window up to 1920 wide, so its gauges
 	grow with the height to keep the size the touch layout gives them."""
 	return 1.0 if touch.enabled() else clampf(ui.size.y/720.0,1.0,1.6)*.67
 func flight_notice_top() -> float:
 	# Touch keeps its gauges in the top left, taller than the desktop line.
-	return 132.0 if touch.enabled() else 88.0*hud_scale()
+	var top := 132.0 if touch.enabled() else 88.0*hud_scale()
+	if narrow_touch_hud():
+		var objective_height := minf(objective_label.size.y,objective_label.get_content_height())*objective_label.scale.y
+		top=maxf(top,objective_label.position.y+objective_height+14)
+	return top
+func narrow_touch_hud() -> bool:
+	return touch.enabled() and ui.size.x<900 and ui.size.x<ui.size.y
 func fit_hud() -> void:
 	var font: Font = hud.get_theme_font("font")
 	var font_size := 18
@@ -508,6 +546,7 @@ func confirm(title: String, question: String, accept: String, act: Callable, can
 	button(accept,act)
 	button(tr("Cancel"),cancel)
 func open_page(title: String, id: String, subtitle: String="") -> void:
+	clear_notice_history();wheel_throttle_remainder=0.0
 	if id!="settings" and is_instance_valid(settings_panel): settings_panel.hide()
 	dive_audio.set_context(id,session!=null and session.docked)
 	touch.set_active(false);controller.blocked=true
@@ -641,21 +680,51 @@ func watch_browser_capture() -> void:
 	web_lock_observed=captured
 func notice(text: String) -> void:
 	if not flight_messages and routine_notice(text):return
+	if text.is_empty() or (text==message.text and notification_time>0):return
+	var flight: bool=page.is_empty() and not session.docked
 	if time_notice(text):
-		pending_notices=pending_notices.filter(func(value):return not time_notice(value))
-		if time_notice(message.text):message.text=text;notification_time=2;return
-	if text.is_empty() or (text==message.text and notification_time>0) or text in pending_notices:return
-	if catch_failure(text):
-		message.text=text;notification_time=7
-	# Docked, a message is the answer to whatever was just pressed, and the next
-	# press deserves its own answer rather than a place in a seven-second queue.
-	# In flight they arrive on their own and a queue is the only way to read them.
-	elif notification_time>0 and not message.text.is_empty() and not session.docked:
-		if pending_notices.size()>=6:pending_notices.pop_front()
-		pending_notices.append(text)
-	else:message.text=text;notification_time=7
+		for index in range(notice_history.size()-1,-1,-1):
+			if time_notice(notice_history[index].label.text):remove_old_notice(index)
+		if time_notice(message.text):
+			message.text=text;notification_time=2;notification_duration=2;notification_fades_in=flight
+			update_notices(0);place_message();return
+	# Repeated text leaves the row's position and fade clock alone.
+	for entry in notice_history:
+		if entry.label.text==text:return
+	if notification_time>0 and not message.text.is_empty() and flight:
+		var older := message.duplicate() as Label
+		ui.add_child(older)
+		notice_history.push_front({"label":older,"time":minf(notification_time,NOTICE_SECONDS),"duration":notification_duration,"fade_in":notification_fades_in})
+		var limit := 1 if ui.size.y<600 else MAX_NOTICE_HISTORY
+		while notice_history.size()>limit:remove_old_notice(notice_history.size()-1)
+	else:clear_notice_history()
+	message.text=text;notification_duration=2.0 if time_notice(text) else (NOTICE_SECONDS if flight else 7.0)
+	notification_time=notification_duration;notification_fades_in=flight
 	message.show()
+	update_notices(0)
 	place_message()
+func remove_old_notice(index: int) -> void:
+	var older: Label=notice_history[index].label
+	ui.remove_child(older);older.queue_free();notice_history.remove_at(index)
+func clear_notice_history() -> void:
+	while not notice_history.is_empty():remove_old_notice(notice_history.size()-1)
+func update_notices(delta: float) -> void:
+	notification_time=maxf(0,notification_time-delta)
+	if notification_time<=0:message.text=""
+	if time_notice(message.text):message.text=tr("Time · %d×")%world.speed
+	message.modulate.a=notice_alpha(notification_time,notification_duration,notification_fades_in)
+	message.visible=not message.text.is_empty() and page!="freeze"
+	var changed := false
+	for index in range(notice_history.size()-1,-1,-1):
+		var entry: Dictionary=notice_history[index]
+		entry.time-=delta
+		if entry.time<=0:remove_old_notice(index);changed=true
+		else:entry.label.modulate.a=(.85-.15*index)*notice_alpha(entry.time,entry.duration,entry.fade_in)
+	if changed:place_message()
+func notice_alpha(remaining: float, duration: float, fade_in: bool) -> float:
+	if not fade_in:return clampf(remaining,0,1)
+	var half := duration*.5
+	return clampf(minf(duration-remaining,remaining)/half,0,1)
 func time_notice(text: String) -> bool:
 	"""The time-speed notice (world.gd), in English or the engine's language."""
 	var prefix := tr("Time · %d×").get_slice("%d",0).strip_edges()
@@ -670,15 +739,12 @@ func routine_notice(text: String) -> bool:
 		for prefix in [format.get_slice("%",0),tr(format).get_slice("%",0)]:
 			if not prefix.strip_edges().is_empty() and text.begins_with(prefix): return true
 	return false
-func catch_failure(text: String) -> bool:
-	"""A lost or uncollectable catch (fishing.gd, region.gd), which stays up longer."""
-	return text.begins_with("Cannot collect") or text.begins_with("Catch lost") or text in [tr("Catch lost · target was damaged."),tr("Catch lost · keep the target in view until subdued."),tr("Cannot collect catch · cargo hold is full."),tr("Cannot collect catch · cargo hold is full. Make room at a station.")]
 func clear_notices() -> void:
-	"""Nothing queued in flight is worth reading once the hatch is shut. Left
-	alone, the prompt that refused a docking sits on screen while docked, saying
-	to approach a station the submarine is already inside."""
-	pending_notices.clear()
+	"""Arrival clears flight notices so a refused docking cannot stay on screen
+	while the submarine is already inside the station."""
+	clear_notice_history()
 	message.text="";notification_time=0
+	message.hide();place_message()
 func item_name(id: int, kind: String="goods") -> String:
 	var key := "c:[[S" if kind=="goods" else "b:[[S"
 	var table: Array = content.data.constants.e[key]
@@ -812,13 +878,7 @@ func _process(delta: float) -> void:
 		dashboard.objective_text=objective_label.get_parsed_text();dashboard.update(world)
 		if not world.message.is_empty(): notice(world.message); world.message=""
 		update_markers()
-	notification_time-=delta
-	if notification_time<=0:
-		message.text=""
-		if not pending_notices.is_empty():message.text=pending_notices.pop_front();notification_time=7;place_message()
-	if time_notice(message.text):message.text=tr("Time · %d×")%world.speed
-	# The freeze is a clean look at the scene; notices wait until it ends.
-	message.visible=not message.text.is_empty() and page!="freeze"
+	update_notices(delta)
 	if simulated_capture:
 		capture_frames+=1
 		if capture_frames==15: close_page()
@@ -870,7 +930,12 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	var horizontal := float(Input.is_physical_key_pressed(key_bindings.right))-int(Input.is_physical_key_pressed(key_bindings.left))
 	var pitch := float(Input.is_physical_key_pressed(key_bindings.up))-int(Input.is_physical_key_pressed(key_bindings.down))
 	var mouse_delta := mouse_steer; mouse_steer=Vector2.ZERO
-	var throttle := int(Input.is_physical_key_pressed(key_bindings.throttle_up))-int(Input.is_physical_key_pressed(key_bindings.throttle_down))
+	# Wheel throttle turns the saved throttle_down key into an immediate stop.
+	# Otherwise it keeps the keyboard's graduated throttle-down control.
+	var throttle_down := Input.is_physical_key_pressed(key_bindings.throttle_down)
+	var stopping := mouse_wheel_throttle and throttle_down
+	var throttle := int(Input.is_physical_key_pressed(key_bindings.throttle_up))
+	if not mouse_wheel_throttle:throttle-=int(throttle_down)
 	var fire := auto_fire or Input.is_physical_key_pressed(key_bindings.fire)
 	var guns := not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	var hook := not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
@@ -908,9 +973,18 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	pitch=clampf(pitch+pad.pitch+screen.pitch,-1,1)
 	throttle=clampi(throttle+pad.throttle+screen.throttle,-1,1)
 	fire=fire or pad.fire;guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
+	if stopping:perform("stop");throttle=0;boost=false
 	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point()}
 func _unhandled_input(event: InputEvent) -> void:
 	if page=="transit": return
+	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN] and mouse_wheel_throttle and page.is_empty() and not session.docked and world.region!=null and not world.region.cinematic() and not touch.enabled():
+		wheel_throttle_remainder+=event.factor*(1 if event.button_index==MOUSE_BUTTON_WHEEL_UP else -1)
+		var steps := int(wheel_throttle_remainder)
+		wheel_throttle_remainder-=steps
+		if steps!=0:
+			if world.autopilot:world.cancel_autopilot()
+			world.region.player.set_throttle(world.region.player.throttle_target+steps*25)
+		get_viewport().set_input_as_handled();return
 	if page.is_empty() and event is InputEventMouseMotion and mouse_steering_enabled():
 		if free_look_held(): view.turn_look(event.relative*.004)
 		else: mouse_steer+=event.relative*mouse_sensitivity*Vector2(1,1 if invert_mouse else -1)
@@ -933,7 +1007,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode==KEY_F5: save_game()
 		if not page.is_empty(): return
 		for action in key_bindings:
-			if event.physical_keycode==key_bindings[action]: perform(action)
+			if event.physical_keycode==key_bindings[action]: perform("stop" if action=="throttle_down" and mouse_wheel_throttle else action)
 	if event is InputEventJoypadButton and page.is_empty() and controller.ACTIONS.has(event.button_index):
 		# The camera button acts on release: held, it lends the right stick
 		# to the camera instead.
@@ -1051,6 +1125,10 @@ func perform(action: String) -> void:
 		"throttle_up","throttle_down":
 			if world.autopilot:world.cancel_autopilot()
 			world.region.player.set_throttle(world.region.player.throttle_target+(25 if action=="throttle_up" else -25))
+		"stop":
+			if world.region==null or session.docked or world.region.cinematic():return
+			if world.autopilot:world.cancel_autopilot()
+			world.region.player.stop()
 		"camera":
 			view.camera_mode=(view.camera_mode+1)%4; save_settings(); notice(tr("Camera · %s")%view.camera_names()[view.camera_mode])
 		"bank": world.region.loadout.cycle()
@@ -1252,7 +1330,9 @@ func show_profile(medal_view: bool=false) -> void:
 	var top := HBoxContainer.new();top.add_theme_constant_override("separation",12);column.add_child(top)
 	var rank := glass(top,false,10);rank.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	var rank_row := HBoxContainer.new();rank_row.add_theme_constant_override("separation",12);rank.add_child(rank_row)
-	line_icon("person",30,rank_row)
+	var portrait := art_image(imported_art.portrait(session.face_layers),rank_row,72)
+	if portrait!=null:portrait.name="PilotPortrait"
+	else:line_icon("person",30,rank_row)
 	var pilot := label(tr("%s · Rank %d")%[session.name,session.counters.k],22,rank_row);pilot.add_theme_color_override("font_color",palette.text)
 	pilot.autowrap_mode=TextServer.AUTOWRAP_OFF;pilot.clip_text=true;pilot.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
 	var owned: int = session.medals.levels.filter(func(tier): return tier>0).size()
@@ -1540,6 +1620,8 @@ func read_settings() -> void:
 	controller.invert=bool(config.get_value("input","invert_gamepad",false))
 	vibration=bool(config.get_value("input","vibration",true))
 	strafe_mode=setting_index(config,"input","strafe",0,2)
+	mouse_wheel_throttle=bool(config.get_value("input","mouse_wheel_throttle",false))
+	if not mouse_wheel_throttle:wheel_throttle_remainder=0.0
 	controller.roles=controller.read_roles(config)
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
@@ -1597,6 +1679,7 @@ func save_settings() -> void:
 	config.set_value("input","touch_fixed_stick",touch.fixed_stick)
 	config.set_value("input","touch_mirror_fire",touch.mirror_fire_control)
 	config.set_value("input","strafe",strafe_mode)
+	config.set_value("input","mouse_wheel_throttle",mouse_wheel_throttle)
 	for index in 4: config.set_value("input",controller.AXIS_KEYS[index],controller.roles[index])
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
@@ -1879,10 +1962,15 @@ func dialogue_page() -> void:
 	art_image(imported_art.portrait(session.face_layers if lines[line_index].get("speaker","")==session.name else lines[line_index].get("portrait",[])),transmission,112)
 	var body := RichTextLabel.new();body.text=str(lines[line_index].get("text",""));body.custom_minimum_size=Vector2(0,92);body.size_flags_horizontal=Control.SIZE_EXPAND_FILL;body.size_flags_vertical=Control.SIZE_EXPAND_FILL;body.add_theme_font_size_override("normal_font_size",18);body.add_theme_color_override("default_color",Color("c9ded5"));transmission.add_child(body)
 	var footer := HBoxContainer.new();column.add_child(footer);label("%02d / %02d"%[line_index+1,lines.size()],10,footer)
+	var previous := button("< "+tr("Back"),func():
+		line_index-=1;dialogue_page(),footer)
+	previous.name="DialoguePrevious";previous.disabled=line_index==0
+	previous.custom_minimum_size.y=64 if touch.enabled() else 44;previous.add_theme_font_size_override("font_size",14)
 	var next := button(tr("Continue >"),func():
 		line_index+=1
 		if line_index>=lines.size(): dialogue_done.call()
 		else: dialogue_page(),footer)
+	next.name="DialogueNext"
 	next.custom_minimum_size.y=64 if touch.enabled() else 44;next.add_theme_font_size_override("font_size",14)
 	layout.call_deferred()
 	focus_if_visible.call_deferred(next)
