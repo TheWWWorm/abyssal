@@ -566,7 +566,7 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 	if not subtitle.is_empty() and ui.size.x>=700 and ui.size.y>=640: caption(subtitle,11,titles,3).name="Subtitle"
 	header_chips=HBoxContainer.new();header_chips.add_theme_constant_override("separation",10);header.add_child(header_chips)
 	# A medal is a notice with its own OK; Esc still moves on.
-	if id not in ["station","dialogue","failure","transit","map","stream","medal"]:
+	if id not in ["station","dialogue","failure","transit","stream","medal"]:
 		var back := iconic(button(tr("Close").to_upper() if id=="destinations" else tr("Back").to_upper(),dock_back,header),"back",18)
 		back.size_flags_horizontal=Control.SIZE_SHRINK_END;back.size_flags_vertical=Control.SIZE_SHRINK_BEGIN;back.custom_minimum_size=Vector2(128,48 if touch.enabled() else 40)
 		back.add_theme_font_override("font",heading_font(4))
@@ -2197,7 +2197,6 @@ func show_map(autopilot_only: bool=false) -> void:
 	if focus_option.is_empty():focus_option="map_route"
 	stream_button=bar_button(tr("S.T.R.E.A.M. transfer") if tight else tr("Plan S.T.R.E.A.M. transfer"),map_stream,actions)
 	stream_button.visible=not atlas_autopilot_only
-	bar_button(tr("Back"),dock_back,actions)
 	back_row(show_station if session.docked else close_page)
 	map_unchosen=false
 	var start: Dictionary=session.stations[map_destination]
