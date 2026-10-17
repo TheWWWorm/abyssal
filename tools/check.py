@@ -30,6 +30,7 @@ def main():
         'native_stream_check.gd':cache,
         'native_terrain_check.gd':cache,
         'engine_ui_check.gd':cache,
+        'popup_drag_check.gd':cache,
         'engine_stream_check.gd':cache,
         'station_shadow_check.gd':cache,
         'graphics_quality_check.gd':cache,

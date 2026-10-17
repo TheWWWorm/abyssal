@@ -184,6 +184,7 @@
     "tests/ocean_atmosphere_check.gd",
     "tests/ocean_options_check.gd",
     "tests/platform_input_check.gd",
+    "tests/popup_drag_check.gd",
     "tests/provenance_rules_check.gd",
     "tests/readability_check.gd",
     "tests/station_shadow_check.gd",

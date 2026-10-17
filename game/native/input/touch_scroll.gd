@@ -140,3 +140,44 @@ static func control_at(node: Node, point: Vector2) -> Control:
 		if found!=null:return found
 	if node is Control and node.mouse_filter!=Control.MOUSE_FILTER_IGNORE and node.get_global_rect().has_point(point):return node
 	return null
+
+static func drag_popup(popup: PopupMenu) -> void:
+	"""Lets a finger scroll a dropdown's list. The stock list scrolls only by
+	its narrow bar or a wheel, and picks the row a drag ends on."""
+	if popup.has_meta("finger_drag"):return
+	popup.set_meta("finger_drag",true)
+	var drag := PopupDrag.new();drag.popup=popup;popup.add_child(drag,false,Node.INTERNAL_MODE_BACK)
+
+class PopupDrag extends Node:
+	## The list handles a release before any node inside it sees one, so its
+	## rows are disabled for the length of a drag instead: a release on a
+	## disabled row picks nothing and leaves the list open. They keep their
+	## colour meanwhile.
+	var popup: PopupMenu
+	var down := false
+	var dragging := false
+	var from := Vector2.ZERO
+	func list() -> ScrollContainer:
+		var pending: Array=popup.get_children(true)
+		while not pending.is_empty():
+			var node: Node=pending.pop_front()
+			if node is ScrollContainer:return node
+			pending.append_array(node.get_children(true))
+		return null
+	func hold(held: bool) -> void:
+		dragging=held
+		for i in popup.item_count:popup.set_item_disabled(i,held)
+		if held:popup.add_theme_color_override("font_disabled_color",popup.get_theme_color("font_color"))
+		else:popup.remove_theme_color_override("font_disabled_color")
+	func _input(event: InputEvent) -> void:
+		if not event is InputEventMouse or event.device!=InputEvent.DEVICE_ID_EMULATION:return
+		if event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
+			if event.pressed:down=true;from=event.position
+			else:
+				down=false
+				if dragging:hold(false)
+		elif event is InputEventMouseMotion and down:
+			var scroll := list()
+			if scroll==null:return
+			if not dragging and event.position.distance_to(from)>THRESHOLD:hold(true)
+			if dragging:scroll.scroll_vertical-=int(round(event.relative.y))

@@ -2,6 +2,7 @@ extends RefCounted
 ## Colours and frames for the menus: translucent glass panels with cut corners
 ## and a lit cyan edge, over the docked station. With every medal at gold the
 ## whole interface turns gold, as the phone game's does.
+const TouchScroll = preload("res://native/input/touch_scroll.gd")
 
 static func palette(gold: bool) -> Dictionary:
 	if gold:
@@ -115,6 +116,7 @@ static func style_popup(popup: PopupMenu, gold: bool, touch := false) -> void:
 	popup.add_theme_icon_override("radio_unchecked",mark("none",colours.value,size))
 	popup.add_theme_icon_override("checked",mark("dot",colours.value,size))
 	popup.add_theme_icon_override("unchecked",mark("none",colours.value,size))
+	TouchScroll.drag_popup(popup)
 
 static func style_option(node: OptionButton, gold: bool, touch := false) -> void:
 	"""A dropdown in the station's frame, with its list to match."""
