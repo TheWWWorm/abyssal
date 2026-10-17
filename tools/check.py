@@ -36,6 +36,7 @@ def main():
         'graphics_quality_check.gd':cache,
         'mods_check.gd':cache,
         'engine_language_check.gd':cache,
+        'wiki_check.gd':cache/'native-data.json',
     }
     failures=[]
     for name,argument in cases.items():

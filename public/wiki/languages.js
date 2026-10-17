@@ -1,0 +1,1 @@
+window.DEEP_WIKI_LANGUAGES={"first":"en","label":"Language","list":[["en","English"],["ru","Русский"],["uk","Українська"],["de","Deutsch"],["fr","Français"],["es","Español"],["pt","Português (Brasil)"],["it","Italiano"],["pl","Polski"],["tr","Türkçe"],["id","Bahasa Indonesia"],["vi","Tiếng Việt"],["zh","简体中文"],["ja","日本語"],["ko","한국어"]]};

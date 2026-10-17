@@ -19,16 +19,7 @@ var fitted := false
 var pending: Array = []
 
 func configure(view, world, id: int) -> void:
-	name="StationPreview";stretch=true;mouse_filter=Control.MOUSE_FILTER_IGNORE
-	custom_minimum_size=Vector2(150,90);size_flags_horizontal=Control.SIZE_EXPAND_FILL;size_flags_vertical=Control.SIZE_EXPAND_FILL
-	viewport.own_world_3d=true;viewport.size=Vector2i(640,400)
-	viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE;add_child(viewport)
-	var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env;viewport.add_child(environment)
-	env.background_mode=Environment.BG_SKY
-	var sky:=Sky.new();var water:=ShaderMaterial.new();water.shader=load("res://native/presentation/abyss_sky.gdshader");sky.sky_material=water;env.sky=sky
-	preload("res://native/presentation/showroom_light.gd").apply(viewport,env)
-	viewport.add_child(camera);camera.current=true;camera.fov=38;camera.far=20000
-	viewport.add_child(turntable)
+	stage()
 	# A headless run has no renderer to show it, and the dummy one reports
 	# the sky's material as missing.
 	if DisplayServer.get_name()=="headless":return
@@ -39,6 +30,28 @@ func configure(view, world, id: int) -> void:
 	# instances whose materials are already gone.
 	pending=[view,world,id]
 	self_modulate.a=0
+
+## The same station built from the imported content alone, for a page with
+## no dive behind it (the reference): the layout depends only on the
+## station's id, depth and tech level. Turning is left to the pointer.
+func configure_content(content, id: int, colonist: bool, library=null, modern := true) -> void:
+	stage()
+	mouse_filter=Control.MOUSE_FILTER_STOP;mouse_default_cursor_shape=Control.CURSOR_DRAG
+	if DisplayServer.get_name()=="headless" or content==null or id<0 or id>=content.data.tables.stations.size():return
+	pending=["content",content,id,colonist,library,modern]
+	self_modulate.a=0
+
+func stage() -> void:
+	name="StationPreview";stretch=true;mouse_filter=Control.MOUSE_FILTER_IGNORE
+	custom_minimum_size=Vector2(150,90);size_flags_horizontal=Control.SIZE_EXPAND_FILL;size_flags_vertical=Control.SIZE_EXPAND_FILL
+	viewport.own_world_3d=true;viewport.size=Vector2i(640,400)
+	viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE;add_child(viewport)
+	var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env;viewport.add_child(environment)
+	env.background_mode=Environment.BG_SKY
+	var sky:=Sky.new();var water:=ShaderMaterial.new();water.shader=load("res://native/presentation/abyss_sky.gdshader");sky.sky_material=water;env.sky=sky
+	preload("res://native/presentation/showroom_light.gd").apply(viewport,env)
+	viewport.add_child(camera);camera.current=true;camera.fov=38;camera.far=20000
+	viewport.add_child(turntable)
 
 func build(view, world, id: int) -> void:
 	var station: Dictionary=world.session.stations[id]
@@ -60,17 +73,55 @@ func build(view, world, id: int) -> void:
 	self_modulate.a=0
 	RenderingServer.frame_post_draw.connect(reveal,CONNECT_ONE_SHOT)
 
+func build_content(content, id: int, colonist: bool, library, modern: bool) -> void:
+	var row: Array=content.data.tables.stations[id]
+	# Session.new_game: the chart's 0 and 100 are the two special holdings.
+	var percent: int=-10 if int(row[4])==0 else (115 if int(row[4])==100 else int(row[4]))
+	var sine: Array=content.data.constants.dt["a:[S"]
+	var body:=Body.new();body.configure({"id":id,"percent":percent,"tech":int(row[1])},colonist,sine,content.data.get("station_geometry",{}))
+	var entries:={}
+	for entry in content.registry:entries[int(entry.id)]=entry
+	turntable.add_child(mount)
+	for part in body.parts:
+		if not entries.has(int(part.model_id)):continue
+		var visual:=Model.new()
+		if library!=null:visual.library=library
+		visual.modern_graphics=modern;mount.add_child(visual)
+		visual.configure(content.root,entries[int(part.model_id)],part.frame_ms)
+		var pose:=Pose.new();pose.math.sine_table=sine;pose.origin=part.origin;pose.set_euler(0,part.yaw,0)
+		visual.transform=Model.station_transform(pose.godot_transform())
+		visual.configure_station(part)
+		modules.append(visual)
+	_process(0)
+	self_modulate.a=0
+	RenderingServer.frame_post_draw.connect(reveal,CONNECT_ONE_SHOT)
+
+## Dragging turns a station built for the reference.
+var turn := 0.0
+var dragging := false
+## Share of a long station's sweep kept inside the card's width. The station
+## card lets it run past the edges broadside; the reference keeps all of it.
+var sweep_shown := .75
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
+		dragging=event.pressed;accept_event()
+	elif event is InputEventMouseMotion and dragging:
+		turn+=event.relative.x*.012;accept_event()
+
 func reveal() -> void:
 	if is_inside_tree():self_modulate.a=1
 
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():return
 	if not pending.is_empty():
-		var args:=pending;pending=[];build(args[0],args[1],args[2]);return
+		var args:=pending;pending=[]
+		if str(args[0])=="content":build_content(args[1],args[2],args[3],args[4],args[5])
+		else:build(args[0],args[1],args[2])
+		return
 	elapsed+=delta
 	for visual in modules:visual.advance(roundi(delta*1000))
 	if not fitted and not modules.is_empty():fit()
-	turntable.rotation.y=elapsed*.22
+	turntable.rotation.y=elapsed*.22+turn
 	camera.position=Vector3(0,sin(TILT),cos(TILT))*distance();camera.look_at(Vector3.ZERO)
 
 func distance() -> float:
@@ -85,7 +136,7 @@ func distance() -> float:
 	# The sweep seen from above rises and falls with the turn; only part of
 	# it is allowed for, for the same reason as the width.
 	var tall: float=(half_height*cos(TILT)+sweep*sin(TILT)*.6)/vertical
-	var wide: float=sweep*.75/horizontal
+	var wide: float=sweep*sweep_shown/horizontal
 	return maxf(tall,wide)+sweep*.35
 
 func fit() -> void:

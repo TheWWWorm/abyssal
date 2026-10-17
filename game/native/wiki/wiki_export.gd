@@ -1,0 +1,321 @@
+extends RefCounted
+## Writes the reference as a small website for the player's own use: an
+## index page, its reader script and style, a content file of pages for each
+## language (languages.js lists them), and
+## images/ with the pictures from the player's imported art, enlarged without
+## blurring, and the renders of ships, creatures and stations (WikiSnapshots)
+## when the game could draw them. It opens straight from the folder, with no server. The pages and
+## pictures are the player's own imported content, so the folder is theirs to
+## keep; nothing is sent anywhere.
+const EngineLanguage = preload("res://native/presentation/engine_language.gd")
+## Pixel art is written this many times larger, so browsers need not scale it.
+const ENLARGE := 6
+## The project's source and the game in the browser, linked from the header.
+const SOURCE_URL := "https://github.com/TheWWWorm/abyssal"
+const PLAY_URL := "https://abyssal.wwworm.com/"
+
+static func write(catalog, directory: String, art = null, renders := {}, languages: Array = []) -> Error:
+	var made := DirAccess.make_dir_recursive_absolute(directory.path_join("images"))
+	if made != OK: return made
+	renders = renders.duplicate()
+	# Pictures are the same in every language: written once, shared.
+	var pictures := {}
+	var icons := {}
+	var media := {}
+	var sprites := {}
+	for key: String in catalog.ordered:
+		var icon := picture(catalog.icon(key), art, directory, pictures)
+		if not icon.is_empty(): icons[key] = icon
+		# A picture drawn by an earlier export into this folder is kept, so an
+		# export without a renderer still shows the models.
+		var drawn := "images/render-%s.png" % key.replace("/", "-")
+		if not renders.has(key) and FileAccess.file_exists(directory.path_join(drawn)): renders[key] = drawn
+		var image: String = renders.get(key, picture(catalog.media(key), art, directory, pictures))
+		if not image.is_empty(): media[key] = image
+		# Under a ship's or creature's model, the game's own sprite of it.
+		var shown: Dictionary = catalog.media(key)
+		if image.contains("/render-") and shown.has("model"):
+			var sprite := picture({"image": shown.get("image", "")}, art, directory, pictures)
+			if not sprite.is_empty(): sprites[key] = sprite
+	# The station chart, drawn by the reader: position and the chapter a
+	# station went over to the rebels (-1 for never, as far as the story goes).
+	var stations: Array = []
+	for id in catalog.data.tables.stations.size():
+		var row: Array = catalog.data.tables.stations[id]
+		stations.append([int(row[2]), int(row[3]), int(catalog.rebel_since.get(id, -1))])
+	var codes: Array = [catalog.language]
+	for code in languages:
+		if code in EngineLanguage.codes() and not code in codes: codes.append(code)
+	var files := {"index.html": INDEX.replace("%PLAY%", PLAY_URL).replace("%SOURCE%", SOURCE_URL), "wiki.css": STYLE, "wiki.js": READER}
+	var listed: Array = []
+	for code: String in codes:
+		var edition = catalog if code == catalog.language else catalog.get_script().new(catalog.data, catalog.limit, code)
+		files["content-%s.js" % code] = "(window.DEEP_WIKI_LANGS=window.DEEP_WIKI_LANGS||{})[%s]=%s;\n" % [JSON.stringify(code), JSON.stringify(bundle(edition, icons, media, stations, sprites))]
+		listed.append([code, EngineLanguage.native_name(code)])
+	files["languages.js"] = "window.DEEP_WIKI_LANGUAGES=%s;\n" % JSON.stringify({"first": catalog.language, "list": listed, "label": catalog.translate("Language")})
+	# An older export kept everything in one file.
+	if FileAccess.file_exists(directory.path_join("content.js")): DirAccess.remove_absolute(directory.path_join("content.js"))
+	for name: String in files:
+		var file := FileAccess.open(directory.path_join(name), FileAccess.WRITE)
+		if file == null: return FileAccess.get_open_error()
+		file.store_string(files[name]); file.close()
+	return OK
+
+## One language's pages, list and labels.
+static func bundle(edition, icons: Dictionary, media: Dictionary, stations: Array, sprites := {}) -> Dictionary:
+	var index: Array = []
+	var pages := {}
+	for key: String in edition.ordered:
+		var entry: Dictionary = edition.entries[key]
+		var row := {"key": key, "title": entry.title, "category": entry.category, "subtitle": entry.subtitle}
+		if icons.has(key): row["icon"] = icons[key]
+		index.append(row)
+		pages[key] = edition.page(key)
+	return {"language": edition.language, "title": edition.translate("Reference"),
+		"search": edition.translate("Search the reference"), "play": EngineLanguage.text_in(edition.language, "Play in your browser"), "browse": edition.translate("Browse"),
+		"contents": edition.translate("Contents"), "all": edition.all_sections(),
+		"chart": edition.chart_caption(0), "chart_all": edition.chart_caption(edition.chapters),
+		"categories": edition.CATEGORIES.map(func(name): return [name, edition.category_name(name)]),
+		"index": index, "pages": pages, "media": media, "sprites": sprites, "stations": stations}
+
+## Saves a page's picture once and returns its path in the site, or "" when
+## it has none the browser can show (models and charts are drawn otherwise).
+static func picture(shown: Dictionary, art, directory: String, written: Dictionary) -> String:
+	if art == null: return ""
+	var name := ""
+	var texture: Texture2D = null
+	if shown.has("portrait"):
+		name = "face-" + "-".join(shown.portrait.map(func(layer): return str(int(layer)))); texture = art.portrait(shown.portrait)
+	elif shown.has("image"):
+		name = str(shown.image).replace("/", "-"); texture = art.image(shown.image)
+	if texture == null or name.is_empty(): return ""
+	var path := "images/%s.png" % name
+	if written.has(path): return path
+	var pixels := texture.get_image()
+	if pixels == null: return ""
+	pixels = pixels.duplicate(); pixels.convert(Image.FORMAT_RGBA8)
+	pixels.resize(pixels.get_width() * ENLARGE, pixels.get_height() * ENLARGE, Image.INTERPOLATE_NEAREST)
+	if pixels.save_png(directory.path_join(path)) != OK: return ""
+	written[path] = true
+	return path
+
+const INDEX := """<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEEP</title>
+<link rel="stylesheet" href="wiki.css">
+</head>
+<body>
+<header><a class="brand" href="#home"><span>DEEP</span> <b id="title"></b></a><input id="search" type="search" autocomplete="off"><select id="language"></select><nav id="links"><a id="play" href="%PLAY%"></a><a id="source" href="%SOURCE%">GitHub</a></nav><button id="browse" type="button"></button></header>
+<main><nav id="side"><select id="categories"></select><ul id="results"></ul><p id="count"></p></nav>
+<div id="sheet"><article id="page" tabindex="-1"></article><aside id="media"></aside></div></main>
+<script src="languages.js"></script>
+<script src="wiki.js"></script>
+</body>
+</html>
+"""
+
+const STYLE := """:root{--bg:#030d13;--glass:rgba(4,18,26,.92);--card:#08202b;--card-hi:#0d3645;--line:#1d5368;--text:#e3f4fa;--dim:#93bccb;--faint:#5d8797;--accent:#5fd4f0;--value:#e9d27c;--rebel:#f0a24a;--colonist:#6fb6ff;font-family:"Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;color:var(--text);background:radial-gradient(ellipse at 50% -20%,#0d3a4c 0,#04141c 55%,var(--bg) 100%) fixed}
+header{display:flex;gap:14px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--glass);position:sticky;top:0;z-index:2;height:60px}
+.brand{color:var(--text);text-decoration:none;white-space:nowrap;letter-spacing:.18em;font-size:15px}
+.brand span{color:var(--accent);font-weight:800;letter-spacing:.3em}
+.brand b{font-weight:500;color:var(--dim);text-transform:uppercase}
+#search{flex:1;min-width:0;max-width:520px;margin-left:auto;padding:9px 12px;border-radius:3px 12px 3px 12px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
+#search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 8px rgba(95,212,240,.3)}
+#browse{display:none;padding:8px 12px;border-radius:3px 10px 3px 10px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
+main{display:grid;grid-template-columns:330px 1fr;gap:16px;padding:16px;height:calc(100% - 60px)}
+#side{display:flex;flex-direction:column;min-height:0;gap:8px}
+#language{padding:8px 10px;border-radius:3px 10px 3px 10px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;max-width:170px}
+#categories{padding:9px 10px;border-radius:3px 10px 3px 10px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
+#results{list-style:none;margin:0;padding:4px;overflow:auto;flex:1;border:1px solid var(--line);border-radius:3px 12px 3px 12px;background:rgba(8,32,43,.55)}
+#results li.section{color:var(--accent);font-size:12px;letter-spacing:.12em;text-transform:uppercase;padding:10px 8px 4px}
+#results a{display:flex;gap:10px;align-items:center;padding:6px 8px;color:var(--text);text-decoration:none;border:1px solid transparent;border-radius:3px 8px 3px 8px;min-height:46px}
+#results a:hover{background:rgba(13,54,69,.55);border-color:var(--line)}
+#results a.current{background:var(--card-hi);border-color:var(--accent)}
+#links{display:flex;gap:14px;white-space:nowrap;font-size:14px}
+#links a{color:var(--dim);text-decoration:none}
+#links a:hover{color:var(--accent)}
+#results .icon{width:56px;height:34px;flex:none;display:flex;align-items:center;justify-content:center}
+#results .icon img{max-width:56px;max-height:34px;image-rendering:pixelated}
+#results .icon i{width:12px;height:12px;border:2px solid var(--accent);border-radius:50%;opacity:.6}
+#results small{display:block;color:var(--dim);font-size:12px}
+#count{margin:0;color:var(--faint);font-size:13px}
+#sheet{display:grid;grid-template-columns:minmax(0,860px) minmax(260px,460px);justify-content:center;gap:32px;min-height:0;overflow:auto;padding:22px 26px 60px;border:1px solid var(--line);border-radius:3px 16px 3px 16px;background:rgba(4,22,30,.9);box-shadow:0 0 18px rgba(64,200,255,.12)}
+#page{outline:none;line-height:1.6;font-size:16.5px;min-width:0}
+#page h1{margin:0 0 2px;font-size:32px;color:var(--accent);font-weight:600}
+#page h1+p em{font-style:normal;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;font-size:13px}
+#page h2{margin-top:30px;font-size:19px;color:var(--accent);font-weight:600;border-bottom:1px solid var(--line);padding-bottom:4px}
+#page a{color:var(--accent);text-decoration-color:rgba(95,212,240,.4)}
+#page table{border-collapse:collapse;margin:12px 0;width:100%;font-size:14.5px}
+#page th,#page td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+#page tr:nth-child(odd) td{background:rgba(13,54,69,.25)}
+#page th{color:var(--dim);font-weight:600}
+#page em{color:var(--dim)}
+#media{position:sticky;top:0;align-self:start;display:flex;flex-direction:column;gap:6px}
+#media .frame{border:1px solid var(--line);border-radius:3px 12px 3px 12px;background:rgba(8,32,43,.6);padding:14px;display:flex;align-items:center;justify-content:center;min-height:200px}
+#media img{max-width:100%;max-height:300px;image-rendering:pixelated;width:100%;object-fit:contain}
+#media img.sprite{width:auto;max-width:100%;max-height:120px;height:auto;align-self:center;margin-top:4px}
+#media img.render{image-rendering:auto;max-height:none;border-radius:2px 10px 2px 10px}
+#media .frame:has(img.render){padding:0;overflow:hidden;background:radial-gradient(ellipse at 50% 30%,#1d5a78 0%,#0d3047 45%,#061826 100%)}
+#media figure.chart{margin:0;max-width:none;border:0;background:none}
+#page figure.chart{display:none}
+figure.chart svg{display:block;width:100%;height:auto}
+figure.chart circle.colonist{fill:var(--colonist);opacity:.8}
+figure.chart circle.rebel{fill:var(--rebel);opacity:.8}
+figure.chart circle.joining{stroke:var(--text);stroke-width:.35;opacity:1}
+figure.chart circle.here{stroke:var(--value);stroke-width:.7;opacity:1}
+figure.chart text{fill:var(--text);font-size:4px}
+figure.chart figcaption{font-size:12px;color:var(--dim);padding:6px 0 0;text-align:center}
+@media (max-width:1100px){#sheet{grid-template-columns:1fr}#media{position:static;order:-1}#media img{max-height:200px}}
+@media (max-width:760px){
+main{grid-template-columns:1fr;padding:8px}
+#side{display:none;position:fixed;inset:60px 0 0 0;z-index:3;background:var(--bg);padding:8px}
+body.browsing #side{display:flex}
+#browse{display:block}
+.brand b{display:none}
+#links{display:none}
+#sheet{padding:16px}
+}
+"""
+
+const READER := """// Reader for an exported DEEP reference. Pages are the exporter's escaped
+// HTML; wiki:// links become in-page addresses, so Back and Forward work.
+// Each language is its own content file, loaded when it is chosen.
+(() => {
+  const langs = window.DEEP_WIKI_LANGUAGES;
+  const loaded = window.DEEP_WIKI_LANGS = window.DEEP_WIKI_LANGS || {};
+  const page = document.getElementById('page');
+  const media = document.getElementById('media');
+  const results = document.getElementById('results');
+  const search = document.getElementById('search');
+  const categories = document.getElementById('categories');
+  const language = document.getElementById('language');
+  const count = document.getElementById('count');
+  let data, byKey, label, order, category = 'all';
+  const norm = s => s.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').replace(/ё/g, 'е');
+  const score = (q, e) => {
+    const t = norm(e.title), x = ' ' + norm(e.title + ' ' + e.subtitle).replace(/[^\\p{L}\\p{N}]+/gu, ' ');
+    if (t === q) return 1000; if (t.startsWith(q)) return 800; if (t.includes(q)) return 600;
+    return q.split(/\\s+/).every(w => x.includes(' ' + w)) ? 300 : -1;
+  };
+  const byTitle = (a, b) => a.title.localeCompare(b.title, data.language, {numeric: true});
+  const current = () => decodeURIComponent(location.hash.slice(1)) || 'home';
+  function row(e, q) {
+    const li = document.createElement('li'), a = document.createElement('a'), icon = document.createElement('span'), text = document.createElement('span');
+    a.href = '#' + e.key; icon.className = 'icon';
+    if (e.icon) { const img = document.createElement('img'); img.src = e.icon; img.alt = ''; icon.append(img); } else icon.append(document.createElement('i'));
+    text.textContent = e.title;
+    const note = e.subtitle || (q || category === 'all' ? label.get(e.category) : '');
+    if (note) { const s = document.createElement('small'); s.textContent = note; text.append(s); }
+    if (e.key === current()) a.className = 'current';
+    a.append(icon, text); li.append(a); return li;
+  }
+  function list() {
+    const q = norm(search.value.trim());
+    let rows = data.index.filter(e => e.category);
+    if (q) rows = rows.map(e => [score(q, e), e]).filter(r => r[0] >= 0).sort((a, b) => b[0] - a[0] || byTitle(a[1], b[1])).map(r => r[1]);
+    else {
+      if (category !== 'all') rows = rows.filter(e => e.category === category);
+      rows = [...rows].sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || (a.category === 'story' ? 0 : byTitle(a, b)));
+    }
+    const items = []; let section = '';
+    for (const e of rows) {
+      if (!q && category === 'all' && e.category !== section) {
+        section = e.category; const h = document.createElement('li'); h.className = 'section'; h.textContent = label.get(section); items.push(h);
+      }
+      items.push(row(e, q));
+    }
+    results.replaceChildren(...items);
+    count.textContent = rows.length + ' / ' + data.index.filter(e => e.category).length;
+    const here = results.querySelector('a.current'); if (here) here.scrollIntoView({block: 'nearest'});
+  }
+  // Every station at its chart position, coloured by who holds it at the
+  // figure's chapter; stations joining then are ringed, the page's own named.
+  function chart(figure) {
+    const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+    const here = Number(figure.dataset.highlight), asOf = Number(figure.dataset.asOf);
+    const joining = (figure.dataset.joining || '').split(',').filter(Boolean).map(Number);
+    svg.setAttribute('viewBox', '0 0 100 100');
+    data.stations.forEach(([x, y, since], id) => {
+      const a = document.createElementNS(ns, 'a'), dot = document.createElementNS(ns, 'circle'), name = document.createElementNS(ns, 'title');
+      a.setAttribute('href', '#station/' + id);
+      dot.setAttribute('class', (since >= 0 && since <= asOf ? 'rebel' : 'colonist') + (joining.includes(id) ? ' joining' : '') + (id === here ? ' here' : ''));
+      dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('r', id === here ? 2.2 : joining.includes(id) ? 1.5 : 0.9);
+      name.textContent = (byKey.get('station/' + id) || {}).title || ''; dot.append(name); a.append(dot); svg.append(a);
+    });
+    if (here >= 0 && data.stations[here]) {
+      const [x, y] = data.stations[here], text = document.createElementNS(ns, 'text');
+      text.setAttribute('x', Math.min(Math.max(x + 3, 0), 80)); text.setAttribute('y', Math.min(Math.max(y - 3, 4), 98));
+      text.textContent = (byKey.get('station/' + here) || {}).title || ''; svg.append(text);
+    }
+    const caption = document.createElement('figcaption'); caption.textContent = data.stations.every(([x, y, since]) => since >= 0 && since <= asOf) ? data.chart_all : data.chart;
+    figure.replaceChildren(svg, caption);
+  }
+  function show() {
+    const key = current(), entry = byKey.get(key);
+    page.innerHTML = (data.pages[key] || data.pages.home).replace(/wiki:\\/\\//g, '#');
+    page.querySelectorAll('figure.chart').forEach(chart);
+    media.replaceChildren();
+    const figure = page.querySelector('figure.chart'), src = data.media[key];
+    if (src || figure) {
+      const frame = document.createElement('div'); frame.className = 'frame';
+      if (src) { const img = document.createElement('img'); img.src = src; img.alt = entry ? entry.title : ''; if (src.includes('/render-')) img.className = 'render'; frame.append(img); }
+      else frame.append(figure.cloneNode(true));
+      media.append(frame);
+      if (data.sprites && data.sprites[key]) { const sprite = document.createElement('img'); sprite.src = data.sprites[key]; sprite.alt = ''; sprite.className = 'sprite'; media.append(sprite); }
+      if (src && figure) { const second = document.createElement('div'); second.className = 'frame'; second.append(figure.cloneNode(true)); media.append(second); }
+    }
+    media.hidden = !media.childElementCount;
+    document.title = (entry ? entry.title + ' · ' : '') + 'DEEP ' + data.title;
+    document.body.classList.remove('browsing');
+    list(); document.getElementById('sheet').scrollTop = 0; page.focus({preventScroll: true});
+  }
+  function load(code, then) {
+    if (loaded[code]) return then(code);
+    const script = document.createElement('script');
+    script.src = 'content-' + code + '.js';
+    script.onload = () => then(loaded[code] ? code : langs.first);
+    script.onerror = () => code === langs.first ? null : load(langs.first, then);
+    document.head.append(script);
+  }
+  function use(code) {
+    load(code, found => {
+      data = loaded[found]; language.value = found;
+      try { localStorage.setItem('deep-reference-language', found); } catch (e) {}
+      byKey = new Map(data.index.map(e => [e.key, e]));
+      label = new Map(data.categories); order = data.categories.map(c => c[0]);
+      document.documentElement.lang = found;
+      document.getElementById('title').textContent = data.title;
+      search.placeholder = data.search; search.setAttribute('aria-label', data.search);
+      document.getElementById('browse').textContent = data.browse;
+      document.getElementById('play').textContent = data.play;
+      const options = [];
+      for (const [name, title] of [['all', data.all], ...data.categories]) {
+        if (name !== 'all' && !data.index.some(e => e.category === name)) continue;
+        const o = document.createElement('option'); o.value = name; o.textContent = title; options.push(o);
+      }
+      categories.replaceChildren(...options);
+      if (!options.some(o => o.value === category)) category = 'all';
+      categories.value = category;
+      show();
+    });
+  }
+  for (const [code, name] of langs.list) {
+    const o = document.createElement('option'); o.value = code; o.textContent = name; language.append(o);
+  }
+  language.setAttribute('aria-label', langs.label); language.title = langs.label;
+  language.hidden = langs.list.length < 2;
+  language.onchange = () => use(language.value);
+  categories.onchange = () => { category = categories.value; search.value = ''; list(); };
+  search.addEventListener('input', () => { document.body.classList.add('browsing'); list(); });
+  document.getElementById('browse').onclick = () => document.body.classList.toggle('browsing');
+  window.addEventListener('hashchange', show);
+  let stored = null;
+  try { stored = localStorage.getItem('deep-reference-language'); } catch (e) {}
+  use(langs.list.some(l => l[0] === stored) ? stored : langs.first);
+})();
+"""

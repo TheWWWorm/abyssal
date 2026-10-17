@@ -16,7 +16,8 @@ game/native/locale/<code>.gd maps those keys to one language.
 
 The CJK subsets come from Noto Sans CJK (SIL Open Font License 1.1) through
 tools/subset_font.js, which needs Node and the harfbuzzjs package's
-harfbuzz-subset.wasm. Run it after changing the zh, ja or ko catalog.
+harfbuzz-subset.wasm. Run it after changing the zh, ja or ko catalog or the
+reference prose in game/native/wiki/prose/, which the subsets also cover.
 """
 import json, pathlib, re, struct, subprocess, sys, tempfile
 from paths import ROOT
@@ -70,8 +71,12 @@ def needs_font(character):
     c = ord(character)
     return 0x1100<=c<=0x11ff or 0x2e80<=c<=0x9fff or 0xac00<=c<=0xd7af or 0xf900<=c<=0xfaff or 0xff00<=c<=0xffef
 
+def prose(code):
+    """The reference's own writing and names in a language, which share the font."""
+    return ''.join(path.read_text(encoding='utf-8') for path in (CODE/'wiki/prose'/f'{code}.gd', CODE/'wiki/names'/f'{code}.gd') if path.exists())
+
 def font_characters(code):
-    text = NATIVE_NAMES[code]+''.join(read(code).values())
+    text = NATIVE_NAMES[code]+''.join(read(code).values())+prose(code)
     return sorted({c for c in text if ord(c)>=0x2000})
 
 def cmap(path):
@@ -105,7 +110,7 @@ def problems():
     for code, (_, name) in FONTS.items():
         if code not in languages(): continue
         covered = cmap(LOCALE/name) if (LOCALE/name).exists() else set()
-        missing = sorted({c for c in NATIVE_NAMES[code]+''.join(read(code).values()) if needs_font(c) and ord(c) not in covered})
+        missing = sorted({c for c in NATIVE_NAMES[code]+''.join(read(code).values())+prose(code) if needs_font(c) and ord(c) not in covered})
         if missing: found.append(f'{code}: {name} lacks {len(missing)} characters, run fonts: {"".join(missing[:20])}')
     for code in languages():
         catalog = read(code)

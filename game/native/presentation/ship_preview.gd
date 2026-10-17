@@ -14,6 +14,10 @@ var wake := MultiMesh.new()
 var turn := 0.0
 var tilt := 0.0
 var dragging := false
+## A sea creature rather than a vessel. Creature models come out of the JAR
+## the other way up from hulls (the game turns each over to draw it), and
+## leave no propeller wake.
+var creature := false
 
 func configure(content, id: int, modern: bool, library=null) -> void:
  selected_id=id;name="ShipPreview";stretch=true
@@ -74,8 +78,10 @@ func _process(delta: float) -> void:
  if vessel!=null:
   vessel.advance(roundi(delta*1000))
   var attitude:=Basis(Vector3.RIGHT,tilt)*Basis(Vector3.UP,turn)*Basis.from_euler(Vector3(sin(elapsed*.7)*.025,0,sin(elapsed*.5)*.035))
+  if creature:attitude=attitude*Basis(Vector3.BACK,PI)
   vessel.transform=Transform3D(attitude,-(attitude*center)+Vector3(0,sin(elapsed)*radius*.015,0))
- if vessel!=null:
+ wake.visible_instance_count=0 if creature else -1
+ if vessel!=null and not creature:
   for i in wake.instance_count:
    var age:=fposmod(float(i/2)/16.0+elapsed*.55,1.0)
    var side: float=-1 if i%2==0 else 1

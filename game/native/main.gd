@@ -372,6 +372,8 @@ func layout_ui() -> void:
 	# The character screen needs more room than the other dialogs.
 	var wide: bool=modal.get_node_or_null("CharacterSheet")!=null
 	modal.size=Vector2(minf(900 if wide else 640,ui.size.x-48),minf(700 if wide else 560,ui.size.y-40))
+	# The reference reads best with all the room the window has.
+	if modal.get_node_or_null("Reference")!=null:modal.size=Vector2(minf(1400,ui.size.x-32),ui.size.y-32)
 	modal.position=(ui.size-modal.size)*0.5
 	loading.size=loading.get_combined_minimum_size();loading.position=(ui.size-loading.size)*0.5
 
@@ -689,6 +691,11 @@ func show_help(topic: int=-1) -> void:
 	for index in topics.size():
 		var row := button(topics[index].title,func():show_help(index),grid);row.custom_minimum_size.x=270
 		if first==null:first=row
+	if ready_for_preview:
+		# The reference of the imported game; the title column has no room
+		# for another row, so it opens from here.
+		var reference := button(tr("Reference"),show_reference,box);reference.alignment=HORIZONTAL_ALIGNMENT_LEFT
+		if first==null:first=reference
 	var keys := label(title_menu.help.text,13,Color("b2d5e5"));keys.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;keys.custom_minimum_size.x=550;box.add_child(keys)
 	if ready_for_preview:
 		var credits := button(content.text(20),func():
@@ -706,6 +713,23 @@ func show_help(topic: int=-1) -> void:
 			box.remove_child(entry);last.add_child(entry);entry.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scrim.show();modal.show();layout_ui()
 	(first if first!=null else back).grab_focus.call_deferred()
+
+func show_reference() -> void:
+	"""The reference of the imported game. Its story stops at the furthest
+	chapter any of the saves has reached, so it gives nothing away."""
+	if not ready_for_preview:return
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var store := preload("res://native/simulation/save_store.gd")
+	var reached := 1
+	for index in 4:
+		var path: String=save_path if index==3 else store.slot_path(index)
+		if FileAccess.file_exists(path):reached=maxi(reached,int(store.summary(path,content.data).get("chapter",1)))
+	var reference=preload("res://native/wiki/wiki_panel.gd").new()
+	reference.configure(content,reached,false,true,{"art":face_art})
+	reference.closed.connect(close_modal)
+	modal.add_child(reference)
+	scrim.show();modal.show();layout_ui()
 
 func show_mods() -> void:
 	"""Mods: the sections of player-supplied art and music."""

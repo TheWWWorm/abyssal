@@ -185,6 +185,12 @@ func _draw() -> void:
 			for i in meridian.size(): meridian[i]=Vector2(meridian[i].x*.4,meridian[i].y)
 			_line(meridian,true)
 			_line([Vector2(-.82,0),Vector2(.82,0)])
+		"book":
+			# An open book: two pages from a spine, with lines of text.
+			for side in [-1,1]:
+				var page: Array=[Vector2(0,-.5),Vector2(.86*side,-.66),Vector2(.86*side,.62),Vector2(0,.76)]
+				_fill(page,.14);_line(page,true)
+				for y in [-.28,0.0,.28]: _line([Vector2(.2*side,y),Vector2(.64*side,y-.08)])
 		"help":
 			_line(_ring(Vector2.ZERO,.84))
 			var hook: Array=_ring(Vector2(0,-.2),.28,PI*1.1,PI*2.4,false)

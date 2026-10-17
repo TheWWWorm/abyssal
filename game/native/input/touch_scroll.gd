@@ -9,6 +9,10 @@ extends Node
 ## on screen, the list under the finger is the one it drags. The title's
 ## settings and help pages have no host to name theirs.
 ##
+## Rich text that scrolls itself, such as the reference's article, is dragged
+## the same way; while a finger is on it its text selection is set aside, so
+## a drag does not select, and a mouse brings selection back.
+##
 ## The same holds for any drag on any page, list or not: a finger that lands
 ## on a button and travels is dragging the screen, not pressing the button.
 ## The press is cancelled by moving the emulated pointer off the button rather
@@ -20,8 +24,10 @@ const STOP_SPEED := 12.0
 const FRICTION := 1800.0
 
 var scroll: ScrollContainer
-## The list the current finger, or the coasting after it, moves.
-var target: ScrollContainer
+## The list or rich text the current finger, or the coasting after it, moves.
+var target: Control
+## Rich text whose selection a finger set aside, restored by a mouse.
+var unselectable: Array[RichTextLabel] = []
 var gesture_control: Control
 var finger := -1
 var travelled := 0.0
@@ -39,7 +45,17 @@ const AWAY := Vector2(-100000,-100000)
 
 static func shown(list) -> bool:
 	# Pages rebuild their lists; a freed one is simply gone.
-	return is_instance_valid(list) and list is ScrollContainer and list.is_visible_in_tree()
+	return is_instance_valid(list) and (list is ScrollContainer or list is RichTextLabel) and list.is_visible_in_tree()
+static func scrolls(control: Control) -> bool:
+	"""Whether a list or rich text has more than one screen to scroll."""
+	if control is ScrollContainer and control.vertical_scroll_mode==ScrollContainer.SCROLL_MODE_DISABLED:return false
+	if control is RichTextLabel and not control.scroll_active:return false
+	if not (control is ScrollContainer or control is RichTextLabel):return false
+	var bar: VScrollBar=control.get_v_scroll_bar()
+	return bar.max_value>bar.page
+static func move(control: Control, by: float) -> void:
+	if control is ScrollContainer:control.scroll_vertical-=int(round(by))
+	elif control is RichTextLabel:control.get_v_scroll_bar().value-=by
 func usable() -> bool:
 	return shown(target)
 func release() -> void:
@@ -47,15 +63,13 @@ func release() -> void:
 func gesture_at(point: Vector2) -> bool:
 	# Controls with their own gestures, such as the atlas, keep their input.
 	return gesture_control!=null and is_instance_valid(gesture_control) and gesture_control.is_visible_in_tree() and gesture_control.get_global_rect().has_point(point)
-func list_at(point: Vector2) -> ScrollContainer:
+func list_at(point: Vector2) -> Control:
 	"""The innermost list under the finger that can scroll vertically.
 	The named page is only a fallback; it may contain its own stock lists."""
 	if gesture_at(point):return null
 	var hit := control_at(get_tree().root,point)
 	while hit!=null:
-		if hit is ScrollContainer and hit.vertical_scroll_mode!=ScrollContainer.SCROLL_MODE_DISABLED and hit.get_global_rect().has_point(point):
-			var bar: VScrollBar=hit.get_v_scroll_bar()
-			if bar.max_value>bar.page:return hit
+		if scrolls(hit) and hit.get_global_rect().has_point(point):return hit
 		hit=hit.get_parent() as Control
 	if shown(scroll) and scroll.get_global_rect().has_point(point):
 		var bar: VScrollBar=scroll.get_v_scroll_bar()
@@ -64,7 +78,7 @@ func list_at(point: Vector2) -> ScrollContainer:
 func _process(delta: float) -> void:
 	if not usable() or finger>=0:return
 	if absf(velocity)<STOP_SPEED:velocity=0.0;return
-	target.scroll_vertical-=int(round(velocity*delta))
+	move(target,velocity*delta)
 	velocity=move_toward(velocity,0.0,FRICTION*delta)
 func _input(event: InputEvent) -> void:
 	guard_pointer(event)
@@ -77,6 +91,14 @@ func _input(event: InputEvent) -> void:
 	elif (event is InputEventScreenTouch and event.pressed) or (event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT and event.pressed):
 		pointer_lists=pointer_lists.filter(func(list):return is_instance_valid(list))
 		var parent: Control=list_at(event.position)
+		# A finger scrolls rich text rather than selecting it; a mouse
+		# selects again.
+		if event is InputEventScreenTouch and parent is RichTextLabel and parent.selection_enabled:
+			parent.selection_enabled=false;unselectable.append(parent)
+		elif event is InputEventMouseButton and event.device!=InputEvent.DEVICE_ID_EMULATION:
+			for label in unselectable:
+				if is_instance_valid(label):label.selection_enabled=true
+			unselectable.clear()
 		while parent!=null:
 			if parent is ScrollContainer and parent.follow_focus:
 				parent.follow_focus=false;pointer_lists.append(parent)
@@ -100,7 +122,7 @@ func _input(event: InputEvent) -> void:
 		travelled+=absf(step.y)
 		if travelled>THRESHOLD:scrolling=true
 		if scrolling:
-			target.scroll_vertical-=int(round(step.y))
+			move(target,step.y)
 			velocity=step.y*60.0
 			get_viewport().set_input_as_handled()
 	elif scrolling and event is InputEventMouseButton and not event.pressed:

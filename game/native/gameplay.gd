@@ -356,6 +356,8 @@ func layout() -> void:
 		overlay.size=Vector2(minf(880,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page in ["controls","graphics","journal","failure","confirm","transfer","help","save_slots"]:
 		overlay.size=Vector2(minf(760,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
+	elif page=="reference":
+		overlay.size=Vector2(minf(1400,ui.size.x-32),ui.size.y-32);overlay.position=(ui.size-overlay.size)*.5
 	elif page=="medal":
 		# A short notice: centred, and only as tall as its rows.
 		overlay.size=Vector2(minf(560,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
@@ -1186,6 +1188,7 @@ func show_pause() -> void:
 	freeze.tooltip_text=tr("Freeze the game and move the camera.") if not freeze.disabled else tr("Not available while docked.")
 	iconic(button(tr("Settings"),show_settings),"controls")
 	iconic(button(tr("Help"),show_help),"help")
+	iconic(button(tr("Reference"),show_reference),"book")
 	iconic(button(tr("Transfer save"),show_transfer),"transfer")
 	iconic(button(tr("Reload station checkpoint"),func(): confirm(tr("Reload checkpoint"),
 		tr("Return to your last saved station? Everything since that checkpoint is lost."),
@@ -1454,6 +1457,17 @@ func show_help(topic: int=-1) -> void:
 	button(session.text(19),func():show_settings("controls",show_help))
 	button(session.text(20),func():show_dialogue([{"speaker":session.text(20),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(25)}],show_help))
 	back_row(show_system if session.docked else show_pause)
+func show_reference() -> void:
+	"""The reference of the imported game, its story as far as this
+	expedition has gone. The reader scrolls itself, so the page's own
+	scroller stands aside."""
+	open_page(tr("Reference"),"reference")
+	back_row(show_system if session.docked else show_pause)
+	page_scroll.hide();touch_scroll.scroll=null
+	var reference=preload("res://native/wiki/wiki_panel.gd").new()
+	reference.configure(content,-1 if session.campaign.finished() else session.campaign.chapter,golden(),false,{"art":imported_art,"modern":modern_graphics,"library":view.library})
+	reference.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	page_scroll.add_sibling(reference)
 func show_action_freeze() -> void:
 	"""Holds the dive still and hands the camera over. Nothing is simulated or
 	saved while frozen, so resuming continues the same dive untouched."""
@@ -1880,7 +1894,7 @@ func show_system() -> void:
 	open_page(tr("System"),"system")
 	var grid := service_grid();grid.add_theme_constant_override("v_separation",10)
 	for entry in [[tr("Save game"),"save",show_save_slots],[tr("Settings"),"controls",show_settings],
-		[tr("Help"),"help",show_help],[tr("Transfer save"),"transfer",show_transfer]]:
+		[tr("Help"),"help",show_help],[tr("Reference"),"book",show_reference],[tr("Transfer save"),"transfer",show_transfer]]:
 		iconic(button(entry[0],entry[2],grid),entry[1])
 	iconic(button(tr("Reload station checkpoint"),func(): confirm(tr("Reload checkpoint"),
 		tr("Return to your last saved station? Everything since that checkpoint is lost."),
