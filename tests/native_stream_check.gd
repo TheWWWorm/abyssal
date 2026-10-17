@@ -394,6 +394,15 @@ func check_chart_labels(world) -> void:
 	if pair.size()==2:
 		expect(pair[0].rect.end.x<pair[0].marker.x and pair[1].rect.position.x>pair[1].marker.x,"The adjacent pair's names sit on their outer sides")
 	check_label_rects(chart,pair,[chart.scale_bar_rect()])
+	# However crowded, every name can be read beside its own marker once the
+	# chart is zoomed all the way in, even on the smallest chart.
+	var previous_selection: int=chart.selected_id;chart.selected_id=-1
+	for dimensions in [Vector2(300,200),Vector2(455,235),Vector2(1000,700)]:
+		chart.size=dimensions;chart.zoom=chart.max_zoom()
+		for station in world.session.stations:
+			chart.pan=Vector2.ZERO;chart.pan=chart.size*.5-chart.point(station.x,station.y)
+			expect(chart.chart_labels().any(func(label):return label.id==station.id),"%s is named at the closest zoom"%station.name)
+	chart.selected_id=previous_selection;chart.size=Vector2(500,390);chart.zoom=6;chart.pan=chart.size*.5-chart.point(8.5,59)
 	for station in world.session.stations:
 		var at: Vector2=chart.point(station.x,station.y)
 		expect(chart._get_tooltip(at)==station.name,"Hover identifies a station even when its name is hidden")

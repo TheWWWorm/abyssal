@@ -118,10 +118,15 @@ func _get_tooltip(at: Vector2) -> String:
 	return name if not name.is_empty() else tooltip_text
 func chart_at(position: Vector2) -> Vector2:
 	return (position-size*0.5-pan)/(minf(size.x,size.y)*0.0085*zoom)+Vector2(50,50)
+## Pixels between neighbouring chart units at the closest zoom. Enough for
+## every station name to find room beside its marker, on any chart size.
+const CLOSEST_UNIT := 40.0
+func max_zoom() -> float:
+	return maxf(6.0,CLOSEST_UNIT/maxf(minf(size.x,size.y)*0.0085,0.001))
 func zoom_about(factor: float, anchor: Vector2) -> void:
 	"""Zooms keeping the chart point under the anchor, in the chart's own
 	pixels, where it is."""
-	var old := zoom; zoom=clampf(zoom*factor,0.75,6)
+	var old := zoom; zoom=clampf(zoom*factor,0.75,max_zoom())
 	pan=anchor-size*0.5-(anchor-size*0.5-pan)*zoom/old; queue_redraw()
 func keep_in_view(target: Vector2, margin: float) -> void:
 	"""Pans just enough to keep a chart point the margin inside the edges."""
@@ -332,7 +337,7 @@ func _gui_input(event: InputEvent) -> void:
 		# press was on it, or straight to the pointer when it was not.
 		if mouse_pressed and not zone_grabbed and event.position.distance_to(tap_start)>TAP_SLOP:grab_zone(tap_start,press_inside)
 		if zone_grabbed:drag_zone(event.position)
-	if event is InputEventMagnifyGesture: zoom=clampf(zoom*event.factor,0.75,6); queue_redraw()
+	if event is InputEventMagnifyGesture: zoom=clampf(zoom*event.factor,0.75,max_zoom()); queue_redraw()
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			touches[event.index]=event.position
@@ -358,7 +363,7 @@ func _gui_input(event: InputEvent) -> void:
 			var before: Vector2=touches[event.index]
 			var distance:=before.distance_to(other)
 			if distance>10:
-				var old:=zoom;zoom=clampf(zoom*event.position.distance_to(other)/distance,.75,6)
+				var old:=zoom;zoom=clampf(zoom*event.position.distance_to(other)/distance,.75,max_zoom())
 				var center:=(other+before)*.5
 				pan=center-size*.5-(center-size*.5-pan)*zoom/old+(event.position-before)*.5
 			tap_allowed=false
