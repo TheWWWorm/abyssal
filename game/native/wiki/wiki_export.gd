@@ -172,8 +172,13 @@ figure.chart text{fill:var(--text);font-size:4px}
 figure.chart figcaption{font-size:12px;color:var(--dim);padding:6px 0 0;text-align:center}
 @media (max-width:1100px){#sheet{grid-template-columns:1fr}#media{position:static;order:-1}#media img{max-height:200px}}
 @media (max-width:760px){
-main{grid-template-columns:1fr;padding:8px}
-#side{display:none;position:fixed;inset:60px 0 0 0;z-index:3;background:var(--bg);padding:8px}
+header{flex-wrap:wrap;height:112px;align-content:center;gap:8px 10px;padding:8px 12px}
+.brand{margin-right:auto}
+#search{order:3;flex:1 0 100%;max-width:none;margin:0;padding:11px 14px;font-size:16px}
+#language{max-width:42vw}
+#browse{padding:9px 14px}
+main{grid-template-columns:1fr;padding:8px;height:calc(100% - 112px)}
+#side{display:none;position:fixed;inset:112px 0 0 0;z-index:3;background:var(--bg);padding:8px}
 body.browsing #side{display:flex}
 #browse{display:block}
 .brand b{display:none}

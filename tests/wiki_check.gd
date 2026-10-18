@@ -61,6 +61,19 @@ func run():
 			if shown.has("portrait"): expect(art.portrait(shown.portrait) != null, "%s has a portrait" % key)
 			if shown.has("model"): expect(int(shown.model) in models, "%s: model %d is imported" % [key, int(shown.model)])
 
+	# A creature of two parts is drawn whole in the showroom: its head or tail
+	# joins the body where the game joins them, and the framing holds both.
+	if 4430 in models and 4431 in models:
+		var stage = preload("res://native/presentation/ship_preview.gd").new(); root.add_child(stage)
+		stage.configure(content, 4430, true)
+		var body: AABB = stage.vessel.solid_bounds()
+		stage.make_creature(content)
+		expect(stage.part != null and stage.part.get_parent() == stage.viewport, "The whale's second part is in the showroom")
+		stage._process(0.1)
+		expect(stage.part.transform.origin.is_equal_approx(stage.vessel.transform.origin), "The whale's parts meet at the body's origin")
+		expect(stage.radius > body.size.length() * .5, "The showroom frames the whole whale")
+		stage.free()
+
 	# Prose: every link names a page of the whole story, and every page the
 	# prose is written for exists.
 	var english := WikiProse.new("en")
@@ -115,6 +128,8 @@ func run():
 	expect(WikiExport.write(early, directory, art, {}, ["ru"]) == OK, "The web page export writes")
 	expect(FileAccess.file_exists(directory.path_join("images/equipment-u0a.png")), "The export writes the pictures")
 	for name in ["index.html", "wiki.css", "wiki.js", "languages.js", "content-%s.js" % early.language, "content-ru.js"]: expect(FileAccess.file_exists(directory.path_join(name)), "%s is written" % name)
+	var phone := FileAccess.get_file_as_string(directory.path_join("wiki.css")).get_slice("@media (max-width:760px){", 1)
+	expect(phone.contains("#search{order:3;flex:1 0 100%") and phone.contains("font-size:16px"), "On a phone the search box has a row of its own at a readable size")
 	var bundle := FileAccess.get_file_as_string(directory.path_join("content-%s.js" % early.language))
 	expect(bundle.begins_with("(window.DEEP_WIKI_LANGS=") and not "chapter/6\"" in bundle, "The export keeps the chapter limit")
 	expect("\"stations\":[[" in bundle and not "<svg" in bundle, "The chart is drawn from one station list")

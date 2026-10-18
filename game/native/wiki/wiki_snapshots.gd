@@ -49,7 +49,7 @@ func render(catalog, content, directory: String, options := {}) -> Dictionary:
 			stage.configure(content, int(shown.model), bool(options.get("modern", true)), options.get("library"))
 			if stage.vessel != null and int(shown.get("faction", 0)) > 0:
 				stage.vessel.apply_range(Model.ship_animation_range(int(shown.model), int(shown.faction)))
-			if int(shown.model) > 11: stage.radius *= 1.6; stage.creature = true
+			if int(shown.model) > 11: stage.make_creature(content); stage.radius *= 1.1
 		stage.custom_minimum_size = Vector2(PICTURE); stage.size = Vector2(PICTURE)
 		# The ocean's colour map only exists while a dive is drawn; the page
 		# paints its own water behind a transparent picture instead.

@@ -736,7 +736,7 @@ const ROUTINE_NOTICES := ["Autopilot · %s","Autopilot · mission waypoint","Tim
 	"Auto harpoon on · tap to stop","Auto harpoon off","Auto fire off","Tilt centred"]
 func routine_notice(text: String) -> bool:
 	"""A confirmation of what the player just did or of where the ship now is,
-	which the Flight messages setting hides; refusals and warnings stay."""
+	which the Messages at sea setting hides; refusals and warnings stay."""
 	for format in ROUTINE_NOTICES:
 		for prefix in [format.get_slice("%",0),tr(format).get_slice("%",0)]:
 			if not prefix.strip_edges().is_empty() and text.begins_with(prefix): return true
@@ -2733,7 +2733,7 @@ func show_destinations() -> void:
 		world.fly_to_gate(gate);close_page(),actions)
 	button(tr("Choose station on chart"),func():show_map(true),actions)
 	if world.autopilot:button(tr("Disengage autopilot"),func():world.cancel_autopilot(tr("Manual control"));close_page(),actions)
-	label(tr("%s: 1× / 2× in flight · up to 16× on autopilot")%OS.get_keycode_string(key_bindings.time),12)
+	label(tr("%s: 1× / 2× while steering · up to 16× on autopilot")%OS.get_keycode_string(key_bindings.time),12)
 func say_hint(key: String,text: String) -> bool:
 	if not gameplay_hints or session.hints_said.has(key) or text.is_empty():return false
 	session.hints_said[key]=true

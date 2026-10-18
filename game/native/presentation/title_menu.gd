@@ -70,7 +70,7 @@ func _ready() -> void:
 	resized.connect(layout);layout()
 
 func update_help(wheel_throttle: bool=false) -> void:
-	help.text=tr("Mouse · Steer    W · Throttle up    S · Stop\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause.") if wheel_throttle else tr("Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: flight pads + action buttons. Gamepad: left stick + triggers.\nD-pad speed / menus · A select / fire · Start pause.")
+	help.text=tr("Mouse · Steer    W · Throttle up    S · Stop\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: steering stick + action buttons. Gamepad: sticks steer, triggers fire.\nD-pad speed / menus · A select / fire · Start pause.") if wheel_throttle else tr("Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: steering stick + action buttons. Gamepad: sticks steer, triggers fire.\nD-pad speed / menus · A select / fire · Start pause.")
 
 func load_content(directory: String) -> void:
 	var file := directory.path_join("data/interface/logo.png")

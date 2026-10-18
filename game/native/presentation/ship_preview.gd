@@ -14,10 +14,16 @@ var wake := MultiMesh.new()
 var turn := 0.0
 var tilt := 0.0
 var dragging := false
-## A sea creature rather than a vessel. Creature models come out of the JAR
-## the other way up from hulls (the game turns each over to draw it), and
-## leave no propeller wake.
+## A sea creature rather than a vessel (make_creature): drawn as the water
+## draws it, from the creature's own life, and leaving no propeller wake.
 var creature := false
+## The simulated creature whose life poses the body, and its second part (a
+## head or tail) where the species has one.
+var actor
+var part
+var creature_ms := 0
+const Creature = preload("res://native/simulation/creature.gd")
+const ModelLibrary = preload("res://scripts/model_library.gd")
 
 func configure(content, id: int, modern: bool, library=null) -> void:
  selected_id=id;name="ShipPreview";stretch=true
@@ -39,7 +45,8 @@ func configure(content, id: int, modern: bool, library=null) -> void:
   # compiled, so a change of selection costs a frame rather than a stall.
   if library!=null:vessel.library=library
   viewport.add_child(vessel)
-  vessel.configure(content.root,entry);vessel.apply_range(vessel.ship_animation_range(id,0))
+  vessel.configure(content.root,entry)
+  if id<=11:vessel.apply_range(vessel.ship_animation_range(id,0))
   bounds=vessel.solid_bounds();center=bounds.get_center();radius=maxf(8,bounds.size.length()*.45)
   break
  var cloud:=MultiMeshInstance3D.new();var mesh:=QuadMesh.new();mesh.size=Vector2.ONE
@@ -62,6 +69,55 @@ func configure(content, id: int, modern: bool, library=null) -> void:
  self_modulate.a=0
  RenderingServer.frame_post_draw.connect(reveal,CONNECT_ONE_SHOT)
 
+## Turns the showroom's model into the creature it is: its body breathing,
+## swaying and turned over as the game draws creatures, with its second
+## part joined where the two meet, all from Creature.animate as in the water.
+func make_creature(content) -> void:
+ creature=true
+ # Hulls are shown from ahead; a creature is shown from its side, where its
+ # shape reads, and can still be turned by hand.
+ turn=.8
+ if vessel==null:return
+ var sine: Array=content.data.constants.dt["a:[S"]
+ actor=Creature.new();actor.model_id=selected_id
+ for pose in [actor.pose,actor.turn,actor.secondary_pose,actor.hinge_pose]:pose.math.sine_table=sine
+ actor.pose.face([0,0,4096])
+ if selected_id in [4424,4427,4430,4432,4434,4440,4436,4438]:actor.secondary_model=selected_id+1
+ vessel.apply_actor_animation(actor)
+ for entry in content.registry:
+  if actor.secondary_model<0 or int(entry.id)!=actor.secondary_model:continue
+  part=load("res://native/presentation/model.gd").new();part.modern_graphics=vessel.modern_graphics;part.library=vessel.library
+  viewport.add_child(part);part.configure(content.root,entry)
+  break
+ # Frame the creature whole through one cycle of its life, as it breathes,
+ # sways and bends: the body turned over as drawn, and the part. A swarm
+ # of sprites has no solid shape and keeps the showroom's framing.
+ var body: AABB=vessel.solid_bounds();var tail: AABB=part.solid_bounds() if part!=null else AABB()
+ if body.size==Vector3.ZERO and tail.size==Vector3.ZERO:radius*=1.45;return
+ var whole:=AABB()
+ for step in 8:
+  actor.phase=step*512;actor.animate()
+  var drawn:=Transform3D(body_basis(),Vector3.ZERO)*body
+  if part!=null:drawn=drawn.merge(Transform3D(part_basis(),Vector3.ZERO)*tail)
+  whole=drawn if step==0 else whole.merge(drawn)
+ bounds=whole;center=bounds.get_center();radius=maxf(2,bounds.size.length()*.45)
+
+## The body relative to its heading, as world_view draws it: its swing and
+## half turn in the game's frame, then the breathing scale.
+func body_basis() -> Basis:
+ var tilt: Array=actor.render_tilt
+ var drawn: Basis=ModelLibrary.SIM_FLIP*Basis.from_euler(Vector3(tilt[0],tilt[1],tilt[2])*TAU/4096.0,EULER_ORDER_XYZ)*ModelLibrary.SIM_FLIP
+ if not (vessel.replacement!=null and actor.model_id==4422):drawn=drawn.scaled_local(Vector3(actor.render_scale[0],actor.render_scale[1],actor.render_scale[2])/4096.0)
+ return drawn
+
+## The second part relative to the body's heading, bent at the join with
+## enhanced graphics as in the water.
+func part_basis() -> Basis:
+ var bent: bool=vessel.modern_graphics and actor.hinge_axis!=""
+ var body: Basis=actor.pose.godot_transform().basis.orthonormalized()
+ var relative: Basis=body.inverse()*(actor.hinge_pose if bent else actor.secondary_pose).godot_transform().basis
+ return relative.scaled_local(Vector3(actor.secondary_scale[0],actor.secondary_scale[1],actor.secondary_scale[2])/4096.0)
+
 func _gui_input(event: InputEvent) -> void:
  # Touch arrives as emulated mouse events, so one path serves both.
  if event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
@@ -78,8 +134,17 @@ func _process(delta: float) -> void:
  if vessel!=null:
   vessel.advance(roundi(delta*1000))
   var attitude:=Basis(Vector3.RIGHT,tilt)*Basis(Vector3.UP,turn)*Basis.from_euler(Vector3(sin(elapsed*.7)*.025,0,sin(elapsed*.5)*.035))
-  if creature:attitude=attitude*Basis(Vector3.BACK,PI)
-  vessel.transform=Transform3D(attitude,-(attitude*center)+Vector3(0,sin(elapsed)*radius*.015,0))
+  var origin:=-(attitude*center)+Vector3(0,sin(elapsed)*radius*.015,0)
+  if actor!=null:
+   creature_ms+=roundi(delta*1000);actor.phase=creature_ms&0xFFF;actor.animate()
+   vessel.transform=Transform3D(attitude*body_basis(),origin)
+   if part!=null:
+    part.advance(roundi(delta*1000))
+    part.transform=Transform3D(attitude*part_basis(),origin)
+    var bent: bool=vessel.modern_graphics and actor.hinge_axis!=""
+    if bent:part.set_hinge(1 if actor.hinge_axis=="yaw" else 0,(-1.0 if actor.hinge_axis=="yaw" else 1.0)*actor.hinge_angle*TAU/4096.0)
+    else:part.set_hinge(1,0.0)
+  else:vessel.transform=Transform3D(attitude,origin)
  wake.visible_instance_count=0 if creature else -1
  if vessel!=null and not creature:
   for i in wake.instance_count:

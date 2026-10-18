@@ -404,7 +404,7 @@ func check_dock_notices(game) -> void:
  expect(station.distance_position==Vector3.ZERO and station.position!=station.distance_position,"Station range uses the station origin while its label stays above the roof")
  game.notice("Approach the station's docking area.")
  game.notice("Route blocked by a station within safe depth")
- expect(game.notice_history.size()==1 and game.message.text=="Route blocked by a station within safe depth","Flight messages show the latest answer with the previous one below it")
+ expect(game.notice_history.size()==1 and game.message.text=="Route blocked by a station within safe depth","Messages at sea show the latest answer with the previous one below it")
  game.perform("dock")
  await process_frame
  expect(game.session.docked,"Pressing dock at the berth docks")

@@ -23,6 +23,12 @@ void fragment(){
  float rim=1.0-smoothstep(0.55,1.0,r2);
  float halo=exp(-r2*4.5)*rim;
  float core=exp(-r2*45.0);
- ALBEDO=(tint.rgb*halo*0.55+mix(tint.rgb,vec3(1.0),0.85)*core*1.6)*fade;
- ALPHA=1.0;
+ vec3 light=(tint.rgb*halo*0.55+mix(tint.rgb,vec3(1.0),0.85)*core*1.6)*fade;
+ // Additive blending scales the colour by alpha, so the colour is divided
+ // by the same amount: the light added is unchanged, while the coverage
+ // follows the glow, and a picture drawn over a transparent background
+ // keeps the halo without its square.
+ float cover=clamp(max(light.r,max(light.g,light.b)),0.001,1.0);
+ ALBEDO=light/cover;
+ ALPHA=cover;
 }

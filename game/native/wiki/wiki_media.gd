@@ -37,9 +37,9 @@ func show_media(descriptor: Dictionary, catalog, content, art, palette: Dictiona
 		var preview = ShipPreview.new(); frame.add_child(preview)
 		preview.configure(content, int(descriptor.model), bool(options.get("modern", true)), options.get("library"))
 		preview.custom_minimum_size = Vector2(200, 180)
-		# Creatures are framed by their body, which leaves fins and tails
-		# outside the showroom's ship framing.
-		if int(descriptor.model) > 11: preview.radius *= 1.6; preview.creature = true
+		# Creatures are drawn whole, head or tail joined to the body, and
+		# framed with a little room for their sway.
+		if int(descriptor.model) > 11: preview.make_creature(content); preview.radius *= 1.1
 		# The showroom frames for a wide card; a tall frame narrows the view
 		# across, so the camera stands further back in proportion.
 		var base: float = preview.radius
