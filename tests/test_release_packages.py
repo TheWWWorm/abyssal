@@ -50,6 +50,7 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(executable.read_bytes(),payload)
                     self.assertTrue(executable.stat().st_mode&0o111)
                     self.assertEqual((importer/'licenses/Node.txt').read_bytes(),b'synthetic license')
+                    self.assertEqual((importer/'discord_presence.js').read_bytes(),(desktop_runtime.ROOT/'desktop/discord_presence.js').read_bytes())
     def test_macos_embeds_arm64_runtime_and_unnests_app(self):
         with tempfile.TemporaryDirectory() as temp:
             root=pathlib.Path(temp);stage=root/'build';stage.mkdir()

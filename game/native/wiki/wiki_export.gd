@@ -17,6 +17,11 @@ const PLAY_URL := "https://abyssal.wwworm.com/"
 static func write(catalog, directory: String, art = null, renders := {}, languages: Array = []) -> Error:
 	var made := DirAccess.make_dir_recursive_absolute(directory.path_join("images"))
 	if made != OK: return made
+	var application_icon: Texture2D = load("res://ui/abyssal-icon.png")
+	var icon_pixels := application_icon.get_image()
+	icon_pixels.resize(64,64,Image.INTERPOLATE_LANCZOS)
+	var icon_error := icon_pixels.save_png(directory.path_join("app-icon.png"))
+	if icon_error != OK:return icon_error
 	renders = renders.duplicate()
 	# Pictures are the same in every language: written once, shared.
 	var pictures := {}
@@ -105,6 +110,8 @@ const INDEX := """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DEEP</title>
+<link rel="icon" type="image/png" href="app-icon.png">
+<link rel="apple-touch-icon" href="app-icon.png">
 <link rel="stylesheet" href="wiki.css">
 </head>
 <body>

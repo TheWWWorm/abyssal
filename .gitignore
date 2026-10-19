@@ -25,6 +25,10 @@
 *.mtra
 # Only reviewed, independently authored UI assets may be committed.
 !game/ui/**
+!browser/favicon.png
+!browser/apple-touch-icon.png
+!browser/icon-192.png
+!browser/icon-512.png
 # Screenshots for the README, rendered by the engine.
 !docs/screenshots/*.jpg
 **/.godot/

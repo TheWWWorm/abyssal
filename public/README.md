@@ -1,5 +1,7 @@
 # Abyssal compatibility engine
 
+<img src="game/ui/abyssal-icon.png" alt="Abyssal" width="96" height="96" align="right">
+
 Play **DEEP** as a modern desktop or browser game, using your own copy of the original.
 
 Abyssal is a separate game engine, built in Godot, that reads a DEEP JAR you already own and converts it on your own machine. Submarine piloting, stations, trading, missions and combat run natively, with modern lighting, gamepad and touch support, a readable interface and a world map with autopilot.
@@ -56,6 +58,14 @@ The APK automatically selects a bundled converter compatible with the active Web
 **Android validation:** a player reported successful gameplay and direct JAR import on a Retroid Pocket 5 with preview.3. Prepared-pack import, native gameplay, touch input, Android Back and reopening saved content were also checked in an Android 15 x86-64 emulator. Direct JAR conversion failed in that emulator because Android System WebView stopped before the decoder started. If direct import fails on another device, update its active WebView provider and retry your JAR.
 
 Your JAR never leaves your device. The game remembers imported content and station checkpoints in your user storage, so you only import once.
+
+### Discord activity
+
+Desktop packages can show Abyssal in Discord, with the current activity and equipped ship: exploring, combat, fishing, autopilot, docking, trading or outfitting a submarine. The activity has a session timer and follows ship purchases. Story titles, dialogue, pilot names and save data are never included.
+
+Keep the Discord desktop app running and enable activity sharing in Discord. **Settings → Gameplay → Discord activity** turns sharing off or back on. The game reconnects if Discord starts later and clears its activity on exit. Browser and Android builds do not connect to Discord.
+
+The [Abyssal application icon](game/ui/abyssal-icon.png) is a square 1024×1024 PNG, also suitable for the Discord application icon and Rich Presence artwork. It is a newly generated, stylized illustration of the Ino submarine in open water. The same artwork appears in the desktop and Android icons, browser and home-screen icons, the reference wiki, and a compact startup splash with **ABYSSAL** underneath.
 
 ### Which DEEP builds work
 
@@ -278,13 +288,13 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.18.3**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.19.0**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
 It does, however, inspect and evaluate parts of original method bodies. Because some content is derived that way, this is reverse engineering and **not** a clean-room reimplementation. Decoded models, textures, audio, catalogue rows and narrative records exist only in your own local cache - none are distributed here.
 
-This engine's own source is licensed under the [Apache License 2.0](LICENSE.md). That covers the code in this repository and nothing else. It grants you no rights to the original DEEP game, its JAR, its class files or anything converted from them; those are not this project's to license and are not distributed here. The three vendored decoder files keep their own Apache-2.0 notices, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+This engine's own source is licensed under the [Apache License 2.0](LICENSE.md). That covers the engine code and original application artwork in this repository. It grants you no rights to the original DEEP game, its JAR, its class files or anything converted from them; those are not this project's to license and are not distributed here. The three vendored decoder files keep their own Apache-2.0 notices, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Content you convert is private. Do not redistribute it with the engine, and never share the JAR, a converted pack or a conversion cache.
 
@@ -304,6 +314,12 @@ python3 tools/package_releases.py --platform linux-arm64 --version 1.0.0 --outpu
 ```
 
 Builds fetch and verify pinned runtimes once into an external cache (`~/.cache/abyssal-engine` on Linux, `~/Library/Caches/abyssal-engine` on macOS, `%LOCALAPPDATA%/abyssal-engine` on Windows; override with `ABYSSAL_CACHE_HOME`). No JAR is needed to build. Pass `--godot /path/to/godot` or set `GODOT_PATH` if it is not on your PATH.
+
+Discord uses public application ID `1561821965210222642`, configured in `game/project.godot`. In the [Discord Developer Portal](https://discord.com/developers/applications), set that application's name to **Abyssal**, upload `game/ui/abyssal-icon.png` as its application icon, and add the same PNG under **Rich Presence → Art Assets** with key **abyssal**. No bot, token, client secret or player login is required for this local Rich Presence connection. Renamed forks can set `discord/application_id` to their own application ID; `ABYSSAL_DISCORD_APPLICATION_ID` overrides it for local testing.
+
+The desktop helper `desktop/discord_presence.js` uses only Node's built-in modules and the importer runtime already bundled with each desktop package. Running from source requires Node on PATH, or an executable path in `ABYSSAL_NODE_PATH`. Activity updates are coalesced and sent at most once every 15 seconds; disabling sharing and exiting clear immediately. `node --test tests/discord_presence_check.js` checks IPC framing, retries and cleanup against synthetic local peers.
+
+The approved artwork is `game/ui/abyssal-icon.png`. `node tools/generate_branding.js` regenerates the Windows ICO, macOS ICNS, browser sizes and startup splash without changing that master. This development tool needs the `sharp` Node package and DejaVu Sans for the splash title. Install tooling outside the repository; `ABYSSAL_SHARP_PATH` can point to that installation's `sharp` package. Generated branding assets are included in the source allowlist. Every web export stages them automatically, including browser installation metadata; private wiki exports carry their own application favicon.
 
 ARM64 Linux exports can be built from an x86-64 development machine using the matching Godot `linux_release.arm64` template (`linux_debug.arm64` for debug exports). They bundle a separate, checksum-pinned ARM64 Node.js converter. On systems exposing OpenGL ES instead of desktop OpenGL, launch `./abyssal.arm64 --rendering-driver opengl3_es`. The build includes both desktop and ETC2/ASTC texture formats. A successful cross-export does not establish handheld performance or PortMaster support.
 

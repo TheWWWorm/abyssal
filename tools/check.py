@@ -37,6 +37,7 @@ def main():
         'mods_check.gd':cache,
         'engine_language_check.gd':cache,
         'wiki_check.gd':cache/'native-data.json',
+        'discord_presence_check.gd':cache,
     }
     failures=[]
     for name,argument in cases.items():

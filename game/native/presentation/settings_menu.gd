@@ -17,6 +17,7 @@ const Headlights = preload("res://native/presentation/headlight_options.gd")
 const Quality = preload("res://native/presentation/graphics_quality.gd")
 const Pad = preload("res://native/input/flight_controls.gd")
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
+const DiscordPresence = preload("res://native/platform/discord_presence.gd")
 
 ## Tabs in order of how often they are reached for: sound first, input last
 ## but one, and the world rules that only matter between dives at the end.
@@ -720,6 +721,10 @@ func gameplay_page() -> void:
 	toggle(tr("Screen shake on damage"),"interface","hit_shake",true)
 	toggle(tr("Red pulse at low hull"),"interface","low_hull_pulse",true)
 	toggle(tr("Hull percentage on hull damage"),"interface","hull_readout",true)
+	if DiscordPresence.supported():
+		group("Discord")
+		toggle(tr("Discord activity"),"discord","enabled",true)
+		note(tr("Shows your activity and ship in the Discord desktop app."))
 	group(tr("World"))
 	var spacing := Spacing.new();spacing.read_config(load_config())
 	var controls := WorldSettings.new();controls.configure(spacing);column.add_child(controls)

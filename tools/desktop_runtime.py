@@ -28,6 +28,7 @@ def stage(output,platform):
     output=pathlib.Path(output)
     importer=stage_importer(output,web=False)
     shutil.copyfile(ROOT/'desktop/import.js',importer/'import.js')
+    shutil.copyfile(ROOT/'desktop/discord_presence.js',importer/'discord_presence.js')
     lock=json.loads((ROOT/'desktop/dependencies.json').read_text())
     for record in lock['files']:
         if record['platform']!=platform and not (platform=='macos' and record['platform'].startswith('macos-')):continue

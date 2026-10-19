@@ -767,6 +767,16 @@ func flight_hint() -> String:
 	var keys: Array = ["up","left","down","right"].map(func(action): return OS.get_keycode_string(key_bindings[action]))
 	var steering: String = (tr("%s/%s steer · %s/%s strafe")%[keys[0],keys[2],keys[1],keys[3]]) if strafe_enabled() else tr("%s steer")%"/".join(keys)
 	return tr("%s · %s fire · %s pilot · %s map · %s dock · Esc menu")%[steering,OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map),OS.get_keycode_string(key_bindings.dock)]
+func discord_context() -> Dictionary:
+	if session==null or content==null:return {}
+	var context := {"page":page,"market":market_category,"ship":content.ship_name(session.ship.id),"docked":session.docked,"autopilot":world.autopilot}
+	var region=world.region
+	if region!=null and not session.docked:
+		context["transit"]=view.transit_progress>=0
+		context["fishing"]=region.fishing.any(func(hook):return hook.hooked)
+		context["combat"]=region.enemies.any(func(actor):return actor.state not in [3,4,999] and actor.health.hull>0 and preload("res://native/simulation/npc.gd").within(actor.pose.origin,region.player.pose.origin,55000))
+	return context
+
 func _process(delta: float) -> void:
 	if session==null: return
 	view.stabilize_touch_horizon=touch.enabled()

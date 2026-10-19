@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 
 from paths import ROOT
-from package_source import source_files
+from package_source import source_files, ARTWORK
 
 PRIVATE = {'.jar', '.class', '.abyss', '.mbac', '.mtra', '.amr', '.mid',
            '.midi', '.ogg', '.wav', '.glb', '.gltf', '.blend', '.keystore'}
@@ -39,6 +39,14 @@ def safe_name(name):
         raise ValueError('Unsafe archive path: ' + name)
     if path.suffix.lower() in PRIVATE or PRIVATE_DIRS.intersection(path.parts):
         raise ValueError('Private content path: ' + name)
+
+
+def reviewed_icon(resource, source_names):
+    for source in sorted(ARTWORK|{'game/ui/abyssal-monochrome.svg'}):
+        if not source.startswith('game/') or not source.endswith(('.png','.svg')):continue
+        imported='.godot/imported/'+Path(source).name+'-'+hashlib.md5(('res://'+source[5:]).encode()).hexdigest()+'.ctex'
+        if resource==imported and source in source_names:return True
+    return False
 
 
 def pck_entries(data, source_names):
@@ -79,7 +87,7 @@ def pck_entries(data, source_names):
             source = source[:-1]
         generated = name in {'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
         scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', name)
-        icon = name == '.godot/imported/icon.svg-'+hashlib.md5(b'res://icon.svg').hexdigest()+'.ctex' and 'game/icon.svg' in source_names
+        icon = reviewed_icon(name, source_names)
         if not generated and not scene and not icon and 'game/' + source not in source_names:
             raise ValueError('Unreviewed resource in game pack: ' + name)
         names.append(name)
@@ -149,7 +157,7 @@ def inspect_apk(path, source_names):
             if source.endswith('.gdc'): source=source[:-1]
             generated = resource in {'_cl_', 'assets.sparsepck', 'dexopt/baseline.prof', 'dexopt/baseline.profm', 'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
             scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', resource)
-            icon = resource == '.godot/imported/icon.svg-'+hashlib.md5(b'res://icon.svg').hexdigest()+'.ctex' and 'game/icon.svg' in source_names
+            icon = reviewed_icon(resource, source_names)
             if not generated and not scene and not icon and 'game/'+source not in source_names:
                 raise ValueError('Unreviewed Android game asset: '+resource)
         abis={name.split('/')[1] for name in names if name.endswith('/libgodot_android.so')}

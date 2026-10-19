@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "purpose": "Reviewed engine source, including an independently drawn application icon.",
+  "purpose": "Reviewed engine source and application branding derived from the approved icon.",
   "files": [
     ".gitignore",
     "LICENSE.md",
@@ -19,7 +19,6 @@
     "browser/worker.js",
     "desktop/dependencies.json",
     "desktop/import.js",
-    "game/icon.svg",
     "game/native/content.gd",
     "game/native/gameplay.gd",
     "game/native/input/flight_controls.gd",
@@ -282,6 +281,25 @@
     "tests/engine_language_check.gd",
     "tests/test_engine_text.py",
     "tests/wiki_check.gd",
-    "licenses/OFL-1.1.txt"
+    "licenses/OFL-1.1.txt",
+    "desktop/discord_presence.js",
+    "game/native/platform/discord_presence.gd",
+    "game/ui/abyssal-icon.png",
+    "game/ui/abyssal-icon.png.import",
+    "tests/discord_presence_check.gd",
+    "tests/discord_presence_check.js",
+    "browser/apple-touch-icon.png",
+    "browser/favicon.png",
+    "browser/icon-192.png",
+    "browser/icon-512.png",
+    "game/ui/abyssal-icon.icns",
+    "game/ui/abyssal-icon.ico",
+    "game/ui/abyssal-splash.png",
+    "tools/branding.py",
+    "tools/generate_branding.js",
+    "game/ui/abyssal-splash.png.import",
+    "game/ui/abyssal-monochrome.svg",
+    "game/ui/abyssal-monochrome.svg.import",
+    ".gitattributes"
   ]
 }

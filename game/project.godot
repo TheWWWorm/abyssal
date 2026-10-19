@@ -10,14 +10,27 @@ config_version=5
 
 [application]
 
-config/icon="res://icon.svg"
+config/icon="res://ui/abyssal-icon.png"
+config/windows_native_icon="res://ui/abyssal-icon.ico"
+config/macos_native_icon="res://ui/abyssal-icon.icns"
 config/name="Abyssal Compatibility Engine"
-boot_splash/show_image=false
+boot_splash/show_image=true
+boot_splash/image="res://ui/abyssal-splash.png"
+boot_splash/stretch_mode=1
+boot_splash/use_filter=true
 boot_splash/bg_color=Color(0.012, 0.035, 0.055, 1)
 config/use_custom_user_dir=true
 config/custom_user_dir_name="abyssal-engine"
 run/main_scene="res://scenes/native_main.tscn"
 config/features=PackedStringArray("4.7")
+
+[autoload]
+
+DiscordActivity="*res://native/platform/discord_presence.gd"
+
+[discord]
+
+application_id="1561821965210222642"
 
 [display]
 

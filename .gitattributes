@@ -1,0 +1,4 @@
+# Hosting output and JAR-derived reference pictures stay on the website.
+# GitHub's automatic source archives must contain distributable source only.
+public export-ignore
+docs export-ignore

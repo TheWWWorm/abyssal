@@ -2,6 +2,7 @@
 """Export an engine-only game from manifest-listed source into an external directory."""
 import argparse, hashlib, json, os, pathlib, re, shutil, subprocess, tempfile
 from paths import ROOT, cache_home
+from branding import ARTWORK, web_assets
 PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'linux-arm64':('Linux','abyssal.arm64'),'windows':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
 
 VIEWPORT_DEFAULT = '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">'
@@ -51,6 +52,7 @@ def stamp_web_build(output):
     loader_digest=hashlib.sha256((output/'index.js').read_bytes()).hexdigest()[:12]
     html=html.replace('src="index.js"',f'src="index.js?v={loader_digest}"')
     html=stage_mobile_page(html)
+    html=web_assets(output,html)
     # Development-build identity stays outside Godot so cached game code cannot
     # report the identity of a newer export. It never accesses player storage.
     # It is recorded in the page head rather than drawn over the running game,
@@ -66,7 +68,7 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     for name in names:
         if not name.startswith('game/'):continue
         source=ROOT/name
-        if source.is_symlink() or source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'}:raise ValueError('Unexpected runtime source: '+name)
+        if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK):raise ValueError('Unexpected runtime source: '+name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text()
@@ -86,11 +88,13 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     if platform in {'web','android','macos','linux-arm64'}:text=text.replace('[rendering]','[rendering]\n\ntextures/vram_compression/import_etc2_astc=true')
     settings.write_text(text)
     options={'texture_format/s3tc_bptc':'true','texture_format/etc2_astc':'false'}
-    if platform=='web':options={'variant/extensions_support':'false','variant/thread_support':'false','vram_texture_compression/for_desktop':'true','vram_texture_compression/for_mobile':'true','html/export_icon':'false','html/canvas_resize_policy':'2','progressive_web_app/enabled':'false'}
+    if platform=='web':options={'variant/extensions_support':'false','variant/thread_support':'false','vram_texture_compression/for_desktop':'true','vram_texture_compression/for_mobile':'true','html/export_icon':'true','html/canvas_resize_policy':'2','progressive_web_app/enabled':'false'}
     elif platform=='android':options={'architectures/armeabi-v7a':'false','architectures/arm64-v8a':'true','architectures/x86_64':'true','architectures/x86':'false','gradle_build/use_gradle_build':'true','gradle_build/min_sdk':'26','gradle_build/target_sdk':'36','package/unique_name':'"org.abyssal.engine"','package/name':'"Abyssal Engine"','package/signed':'true','version/code':str(version_code),'version/name':json.dumps(version),'screen/immersive_mode':'true','permissions/internet':'false','permissions/vibrate':'true','permissions/read_external_storage':'false','permissions/write_external_storage':'false','permissions/manage_external_storage':'false'}
-    elif platform=='macos':options={'application/bundle_identifier':'"org.abyssal.engine"','application/short_version':'"0.1"','application/version':'"0.1"','binary_format/architecture':'"universal"','codesign/codesign':'0','notarization/notarization':'0'}
+    elif platform=='macos':options={'application/bundle_identifier':'"org.abyssal.engine"','application/icon':'"res://ui/abyssal-icon.icns"','application/short_version':'"0.1"','application/version':'"0.1"','binary_format/architecture':'"universal"','codesign/codesign':'0','notarization/notarization':'0'}
     elif platform=='linux-arm64':options.update({'binary_format/architecture':'"arm64"','texture_format/etc2_astc':'true'})
     else:options['binary_format/architecture']='"x86_64"'
+    if platform=='windows':options.update({'application/icon':'"res://ui/abyssal-icon.ico"','application/modify_resources':'true'})
+    if platform=='android':options['launcher_icons/adaptive_monochrome_432x432']='"res://ui/abyssal-monochrome.svg"'
     header=f'''[preset.0]
 name="{platform}"
 platform="{PLATFORMS[platform][0]}"
