@@ -60,6 +60,7 @@ var previous_render_poses := {}
 var previous_render_bank := 0
 ## The helm setting outlives any one region's player; see player.gd.
 var smooth_steering := false
+var manual_roll := false
 ## Apply at a new dive, never by moving stations around an active submarine.
 var spacing_meters := Spacing.DEFAULT_METERS
 func configure(owner_session) -> void:
@@ -72,6 +73,9 @@ func map_kilometers(units: float) -> float:
 func set_smooth_steering(value: bool) -> void:
 	smooth_steering=value
 	if region!=null:region.player.smooth_steering=value
+func set_manual_roll(value: bool) -> void:
+	manual_roll=value
+	if region!=null:region.player.manual_roll=value
 func station_origin(id: int) -> Array:
 	return session.world_layout.station_origin(session.stations[id])
 func global_position() -> Array:
@@ -138,7 +142,9 @@ func refresh_local_encounter() -> void:
 func advance(real_seconds: float, input: Dictionary={}) -> void:
 	if region==null or session.docked: return
 	refresh_local_encounter()
-	if region.events.any(func(event):return event.kind=="briefing"):return
+	# A briefing stops the water until it is read; one held over an arrival
+	# lets the water run until the hold is over.
+	if region.radio_hold_ms<=0 and region.events.any(func(event):return event.kind=="briefing"):return
 	if region.failed or region.pending_mission!=null or region.active_transmission!=null:
 		accumulator=0; speed=1; return
 	# Looking around / mouse jitter never disengages a plotted course.
@@ -332,7 +338,7 @@ func dispose() -> void:
 
 func attach_geography() -> void:
 	geography=preload("res://native/simulation/geography.gd").new(); geography.configure(self)
-	region.player.smooth_steering=smooth_steering
+	region.player.smooth_steering=smooth_steering;region.player.manual_roll=manual_roll
 	keep_wildlife_outside_station()
 	for hook in region.fishing:
 		hook.capture_distance=1400; hook.tow_speed=24

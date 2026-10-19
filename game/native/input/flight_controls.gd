@@ -17,11 +17,13 @@ var roles: Array = DEFAULT_ROLES.duplicate()
 ## The right stick turned the camera while D-pad left was held, so letting go
 ## of the button is not a tap.
 var look_hold_used := false
-const ROLE_NAMES := ["Turn or strafe","Turn","Strafe","Pitch","Throttle","Camera","Off"]
+const ROLE_NAMES := ["Turn or strafe","Turn","Strafe","Pitch","Throttle","Camera","Off","Roll"]
 static func role_names() -> Array:
 	"""ROLE_NAMES in the engine's language."""
-	return [EngineLanguage.translate("Turn or strafe"),EngineLanguage.translate("Turn"),EngineLanguage.translate("Strafe"),EngineLanguage.translate("Pitch"),EngineLanguage.translate("Throttle"),EngineLanguage.translate("Camera"),EngineLanguage.translate("Off")]
-enum Role {TURN_OR_STRAFE,TURN,STRAFE,PITCH,THROTTLE,CAMERA,OFF}
+	return [EngineLanguage.translate("Turn or strafe"),EngineLanguage.translate("Turn"),EngineLanguage.translate("Strafe"),EngineLanguage.translate("Pitch"),EngineLanguage.translate("Throttle"),EngineLanguage.translate("Camera"),EngineLanguage.translate("Off"),EngineLanguage.translate("Roll")]
+## Roll comes last so saved roles keep their meaning; it acts only with
+## Manual roll switched on.
+enum Role {TURN_OR_STRAFE,TURN,STRAFE,PITCH,THROTTLE,CAMERA,OFF,ROLL}
 const DEFAULT_ROLES := [Role.TURN_OR_STRAFE,Role.PITCH,Role.TURN,Role.PITCH]
 const AXIS_KEYS := ["pad_left_x","pad_left_y","pad_right_x","pad_right_y"]
 const AXIS_NAMES := ["Left stick left/right","Left stick up/down","Right stick left/right","Right stick up/down"]
@@ -57,7 +59,7 @@ func snapshot() -> Dictionary:
 	var left:=stick();var right:=stick(JOY_AXIS_RIGHT_X,JOY_AXIS_RIGHT_Y)
 	# Stick down is positive; pitch and throttle read up as positive.
 	var values: Array=[left.x,-left.y,right.x,-right.y]
-	var result := {"horizontal":0.0,"yaw":0.0,"strafe":0.0,"pitch":0.0,"throttle":0,"camera":Vector2.ZERO}
+	var result := {"horizontal":0.0,"yaw":0.0,"strafe":0.0,"pitch":0.0,"roll":0.0,"throttle":0,"camera":Vector2.ZERO}
 	var throttle := 0.0
 	for index in 4:
 		var value: float=values[index];var vertical: bool=index%2==1
@@ -71,9 +73,10 @@ func snapshot() -> Dictionary:
 			Role.STRAFE:result.strafe+=value
 			Role.PITCH:result.pitch+=value*(-1 if invert else 1)
 			Role.THROTTLE:throttle+=value
+			Role.ROLL:result.roll+=value
 			# Up lifts the camera, as moving the mouse up does in free look.
 			Role.CAMERA:result.camera+=Vector2(0,-value) if vertical else Vector2(value,0)
-	for key in ["horizontal","yaw","strafe","pitch"]:result[key]=clampf(result[key],-1,1)
+	for key in ["horizontal","yaw","strafe","pitch","roll"]:result[key]=clampf(result[key],-1,1)
 	var fire: bool=buttons.get(JOY_BUTTON_A,false)
 	var guns: bool=axes.get(JOY_AXIS_TRIGGER_RIGHT,0.0)>0.25
 	var hook: bool=axes.get(JOY_AXIS_TRIGGER_LEFT,0.0)>0.25

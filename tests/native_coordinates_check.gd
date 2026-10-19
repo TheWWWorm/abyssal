@@ -30,11 +30,32 @@ func run():
  check_vertical_motion()
  check_turn_bank()
  check_touch_horizon_assist()
+ check_manual_roll()
  check_formations()
  check_gates()
  check_finale()
  print("NATIVE_COORDINATES %d checks; %d failures"%[checks,failures])
  quit(1 if failures else 0)
+
+func check_manual_roll() -> void:
+ var region=fixture(1)
+ for enabled in [false,true]:
+  var pilot:=Player.new();pilot.configure(region.session.ship,22500,data.constants.dt["a:[S"])
+  pilot.manual_roll=enabled;pilot.throttle=0;pilot.set_throttle(0)
+  for tick in 15:pilot.set_roll(1);pilot.advance(40)
+  var rolled: float=pilot.pose.godot_transform().basis.x.y
+  for tick in 60:pilot.advance(40)
+  var later: float=pilot.pose.godot_transform().basis.x.y
+  if enabled:
+   expect(rolled<-.2,"Roll right lowers the hull's right side")
+   expect(absf(later-rolled)<.001,"With manual roll the hull keeps the angle it was left at")
+  else:expect(absf(rolled)<.001,"Without manual roll the roll input does nothing")
+ var pad:=preload("res://native/input/flight_controls.gd").new()
+ pad.roles=[pad.Role.ROLL,pad.Role.PITCH,pad.Role.TURN,pad.Role.PITCH];pad.blocked=false
+ pad.axes={JOY_AXIS_LEFT_X:1.0}
+ expect(pad.snapshot().roll>.9 and pad.snapshot().yaw==0.0,"A stick axis given the Roll role rolls instead of turning")
+ expect(pad.ROLE_NAMES[pad.Role.OFF]=="Off" and pad.Role.ROLL==pad.ROLE_NAMES.size()-1,"Roll is added after the saved roles, which keep their meaning")
+ region.dispose()
 
 func check_vertical_motion() -> void:
  var region=fixture(1);var session=region.session
@@ -147,7 +168,7 @@ func check_formations() -> void:
  var convoy=fixture(29)
  expect(convoy.friends[0].pose.godot_transform().origin.y<0 and convoy.friends[1].pose.godot_transform().origin.y>0,"Convoy ships retain their authored below/above ordering")
  expect(convoy.friends.all(func(actor):return actor.pose.origin[0]>0) and convoy.enemies.all(func(actor):return actor.pose.origin[0]>0),"Convoy guards and freighters occupy the same converted side of the station")
- expect(convoy.friends[0].shapes[0].offset[1]<0,"Freighter collision offset remains above its origin")
+ expect(convoy.friends[0].shapes[0].offset==[0,0,0],"Freighter collision is centred on its hull, as the mesh is")
  expect(Library.point(convoy.friends[0].explosion_offsets[0]).y>0 and Library.point(convoy.friends[0].explosion_offsets[1]).y<0,"Freighter bursts use converted world offsets")
  convoy.dispose()
  for chapter in [19,23,27,35,42,43]:
@@ -161,8 +182,7 @@ func check_formations() -> void:
    expect(region.route.points.all(func(point):return point[0]<0),"Contract %d patrol points use the converted horizontal frame"%kind)
   elif kind==4:
    expect(region.friends[0].pose.origin[1]>0 and region.friends[1].pose.origin[1]<0,"Escort-contract freighters use the authored depth ordering")
-   # The original's box (cu) takes full sizes, 4000 x 4000 x 15000, and halves them.
-   expect(region.friends.all(func(actor):return actor.shapes[0].half_size==[2000,2000,7500]),"Escort freighters block only their own hull, not 160 metres around it")
+   expect(region.friends.all(func(actor):return actor.shapes[0].half_size==[795,1046,6294] and actor.shapes[0].offset==[0,0,0]),"Escort freighters are solid exactly where their hull is")
   elif kind==5:
    var mark: Vector3=Library.point(region.route.points[1])
    var targets: Array=region.enemies.filter(func(actor):return actor is Special and actor.kind=="freighter")

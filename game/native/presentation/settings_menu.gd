@@ -23,7 +23,7 @@ const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const TABS := [["audio","Audio","audio"],["graphics","Graphics","graphics"],["display","Display","fullscreen"],
 	["controls","Controls","controls"],["gameplay","Gameplay","world"]]
 const CONTROL_PAGES := {"steering":"Steering","gamepad":"Gamepad","touch":"Touch controls","bindings":"Key bindings","reference":"Control reference"}
-const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L}
+const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L,"roll_left":KEY_Z,"roll_right":KEY_X}
 
 ## Reopening settings returns to the tab last used, in the title or a dive.
 static var last_section := "audio"
@@ -622,6 +622,8 @@ func steering_page() -> void:
 	slider(tr("Mouse sensitivity"),"keys","mouse_sensitivity",0.8,0.2,2.0,0.1)
 	toggle(tr("Invert vertical mouse and touch"),"keys","invert_mouse",false)
 	toggle(tr("Mouse wheel throttle"),"input","mouse_wheel_throttle",false)
+	toggle(tr("Manual roll"),"input","manual_roll",false)
+	note(tr("Roll left and right with Z and X, or a stick given the Roll role in Gamepad. The submarine then stays at the angle you leave it instead of levelling itself."))
 	group(tr("Tilt steering"))
 	var tilt := flag("input","motion",false)
 	var tilt_row := row(tr("Steer by tilting"),tr("On") if tilt else tr("Off"),"motion",func():
@@ -678,7 +680,7 @@ func touch_page() -> void:
 
 func action_name(action: String) -> String:
 	return {"autopilot":tr("Autopilot (tap / hold)"),"time":tr("Time acceleration"),"throttle_up":tr("Throttle up"),"throttle_down":tr("Stop") if flag("input","mouse_wheel_throttle",false) else tr("Throttle down"),"auto_fire":tr("Auto fire"),"up":tr("Pitch up"),"down":tr("Pitch down"),"left":tr("Left"),"right":tr("Right"),
-		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"bank":tr("Bank"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights")}.get(action,action.capitalize())
+		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"bank":tr("Bank"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights"),"roll_left":tr("Roll left"),"roll_right":tr("Roll right")}.get(action,action.capitalize())
 
 func bindings_page() -> void:
 	if binding!="": note(tr("Press a key for %s. Esc cancels.")%action_name(binding)).add_theme_color_override("font_color",colours().value)

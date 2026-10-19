@@ -50,6 +50,9 @@ var cinematic_camera: Array = []
 var cinematic_target := ""
 var finale_station_offset: Array = [0,0,0]
 var active_transmission = null
+## Game time a radio call still waits for: the presentation holds the radio
+## while a departure or a gate's way out is on screen, and a little after.
+var radio_hold_ms := 0
 var encounter_resolved := false
 var hook_was_down := false
 var story_departed := false
@@ -165,10 +168,12 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	if session.docked or failed or pending_mission!=null: return
 	if cinematic(): input={}
 	elapsed_ms+=delta_ms; session.elapsed_ms+=delta_ms
+	radio_hold_ms=maxi(0,radio_hold_ms-delta_ms)
 	audio_events=audio_events.filter(func(event): return elapsed_ms-event.time<2000)
 	visual_events=visual_events.filter(func(event): return elapsed_ms-event.time<event.duration)
 	player.adjust_throttle(int(input.get("throttle",0)),delta_ms)
 	player.steer(float(input.get("yaw",0)),float(input.get("pitch",0)),delta_ms)
+	player.set_roll(float(input.get("roll",0)))
 	player.set_strafe(float(input.get("strafe",0)))
 	player.mouse_steer(float(input.get("mouse_x",0)),float(input.get("mouse_y",0)))
 	if input.get("boost",false) and player.boost(): audio_event("boost")
@@ -240,6 +245,8 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	scripted_events(delta_ms)
 	# The last chapter's encounter ends only through its staged finale.
 	if session.campaign.chapter==47 and mission.story and finale_stage<10:return
+	# A held radio holds the encounter's ending with it.
+	if radio_hold_ms>0:return
 	# Persistent milestones can complete while a side encounter stays active.
 	var persistent=session.campaign.completion(false,elapsed_ms,session.station_id,session.ship,session.counters)
 	if persistent!=null and persistent!=mission:pending_mission=persistent
@@ -251,6 +258,7 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 func update_radio() -> bool:
 	for entry in timeline:entry.poll(self)
 	if active_transmission!=null:return true
+	if radio_hold_ms>0:return true
 	for entry in timeline:
 		if entry.evaluate(self):
 			active_transmission=entry;events.append({"kind":"transmission","entry":entry});return true

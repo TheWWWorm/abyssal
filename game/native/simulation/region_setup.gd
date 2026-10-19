@@ -15,6 +15,11 @@ const Goal=preload("res://native/simulation/encounter_goal.gd")
 const Shape=preload("res://native/simulation/collision_shape.gd")
 const WILDLIFE := 20
 const ALGAE_WILDLIFE := 49
+## The freighter's hull (tanker1) as its mesh measures, centred on the ship.
+## The phone game used a looser box, 4000 x 4000 x 15000 raised 300, but only
+## turned a submarine that had already entered it; here the hull is solid, so
+## the volume is the hull itself and the submarine stops where the two touch.
+const FREIGHTER_HULL_HALF := [795,1046,6294]
 var r
 var s
 var data: Dictionary
@@ -67,7 +72,7 @@ func special(kind: String,id: int,hostile: bool,center: Array=[0,0,0],team: int=
 		"capsule":actor.health.configure(32 if r.mission.kind==12 else 65,0,0)
 		"freighter":
 			actor.faction=team
-			var shape:=Shape.new();shape.origin=location.duplicate();shape.offset=Math.from_source([0,300,0]);shape.half_size=[2000,2000,7500];actor.shapes=[shape]
+			var shape:=Shape.new();shape.origin=location.duplicate();shape.half_size=FREIGHTER_HULL_HALF.duplicate();actor.shapes=[shape]
 			# Six bursts along the hull, one to two seconds apart (ao(6,0)).
 			actor.explosion_delays=[0]
 			actor.explosion_offsets=[[360,186,-3370],[-844,-507,880],[-449,437,-983],[880,-275,-983],[360,186,4243],[0,0,0]].map(func(offset):return Math.from_source(offset))

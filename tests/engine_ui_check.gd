@@ -753,9 +753,14 @@ func check_departure(game) -> void:
  game.view.departure_progress=-1;game.view._process(0)
  expect(camera.origin.distance_to(game.camera.global_position)<.01,"Departure camera joins the selected flight camera continuously")
  var skip:=InputEventKey.new();skip.pressed=true;skip.keycode=KEY_ENTER;game._input(skip)
- expect(game.page in ["dialogue",""] and game.view.departure_progress<0,"Skip completes the departure and opens its pending briefing")
+ expect(game.page=="" and game.view.departure_progress<0,"Skip completes the departure")
+ # Its briefing waits for the shot to settle, as the phone game's does.
+ game.world.region.radio_hold_ms=game.RADIO_SETTLE_MS;game.consume_events()
+ expect(game.page=="" and game.world.region.events.any(func(e):return e.kind=="departure_briefing"),"The post-departure briefing waits while the departure settles")
+ game.world.region.radio_hold_ms=0;game.consume_events()
+ expect(game.world.region.events.is_empty() and game.page in ["dialogue",""],"The post-departure briefing follows once it has settled")
  if game.page=="dialogue":expect(Input.mouse_mode==Input.MOUSE_MODE_VISIBLE,"Post-departure briefing keeps the cursor visible")
- game.close_page()
+ game.close_page();game.world.region.events.clear()
  # An encounter's end waits for the explosion that ended it.
  var region_now=game.world.region
  region_now.visual_events.append({"kind":"explosion","creature":false,"time":region_now.elapsed_ms,"duration":4000,"position":[0,0,0],"delays":[0],"offsets":[[0,0,0]]})

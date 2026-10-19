@@ -39,6 +39,13 @@ var smooth_steering := false
 ## flight frame while the helm is held so those rotations do not build an
 ## unintended roll that the chase camera or other players can see.
 var touch_horizon_assist := false
+## Manual roll (Controls · Steering, off by default): the roll keys or a stick
+## turn the hull about its own length, and the hull no longer rights itself
+## when the helm is idle, so a roll stays where it was put.
+var manual_roll := false
+var roll_input := 0.0
+var roll_level := 0.0
+var roll_carry := 0.0
 ## Time for the helm to close about two thirds of the gap to its input.
 const STEER_RESPONSE_MS := 150.0
 const MOUSE_RESPONSE_MS := 80.0
@@ -75,6 +82,9 @@ func configure(ship, base_depth: int, sine: Array) -> void:
 
 func steer(yaw: float,pitch: float,_delta_ms: int) -> void:
  yaw_input=clampf(yaw,-1,1);pitch_input=clampf(pitch,-1,1)
+
+func set_roll(value: float) -> void:
+ roll_input=clampf(value,-1,1) if manual_roll else 0.0
 
 func set_strafe(value: float) -> void:
  strafe_input=clampf(value,-1,1)
@@ -120,6 +130,10 @@ func advance(delta_ms: int) -> void:
   if absf(yaw_level)<.01 and yaw_input==0:yaw_level=0.0
   if absf(pitch_level)<.01 and pitch_input==0:pitch_level=0.0
  else:yaw_level=yaw_input;pitch_level=pitch_input
+ if smooth_steering:
+  roll_level=lerpf(roll_level,roll_input,1.0-exp(-delta_ms/STEER_RESPONSE_MS))
+  if absf(roll_level)<.01 and roll_input==0:roll_level=0.0
+ else:roll_level=roll_input
  if desired.length_squared()>.5:
   var facing:=Math.vector(pose.forward).normalized()
   pose.face(Math.array(facing.lerp(desired,1-exp(-delta_ms*.006)).normalized()*4096))
@@ -133,10 +147,16 @@ func advance(delta_ms: int) -> void:
   yaw_carry-=yaw_step;pitch_carry-=pitch_step
   if not smooth_steering:yaw_carry=0.0;pitch_carry=0.0
   pose.rotate_local("yaw",yaw_step);pose.rotate_local("pitch",pitch_step);pitch_total+=pitch_step
+  if roll_level!=0:
+   # Roll turns at the hull's own steering rate, as yaw and pitch do.
+   roll_carry+=rate*roll_level;var roll_step:=roundi(roll_carry);roll_carry-=roll_step
+   if not smooth_steering:roll_carry=0.0
+   # Positive input is roll right: the right side goes down.
+   pose.rotate_local("roll",roll_step)
   apply_mouse(delta_ms)
- if yaw_level!=0 or pitch_level!=0:steering_quiet_ms=0
+ if yaw_level!=0 or pitch_level!=0 or roll_level!=0:steering_quiet_ms=0
  else:steering_quiet_ms=mini(1000,steering_quiet_ms+delta_ms)
- if touch_horizon_assist or steering_quiet_ms>=600:pose.auto_level(delta_ms)
+ if not manual_roll and (touch_horizon_assist or steering_quiet_ms>=600):pose.auto_level(delta_ms)
  pose.advance(roundi(delta_ms*speed_factor*throttle/100.0))
  if strafe_input!=0:pose.strafe(roundi(strafe_input*delta_ms*speed_factor*STRAFE_RATE))
  # bb: the hull leans into a turn a unit a millisecond, to 384 (about
@@ -151,7 +171,7 @@ func advance(delta_ms: int) -> void:
  # The render conversion reverses the roll axis: positive local bank
  # lowers the right side in a right turn, matching the strafe lean.
  visual_bank=bank+roundi(strafe_bank)
- yaw_input=0;pitch_input=0;strafe_input=0
+ yaw_input=0;pitch_input=0;strafe_input=0;roll_input=0
  depth=maxi(500,station_depth+roundi(pose.origin[1]/8.0))
  if stats.shield>0 and stats.shield_interval>0 and depth>=stats.minimum_depth:
   shield_timer+=delta_ms

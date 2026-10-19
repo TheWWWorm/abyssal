@@ -120,6 +120,8 @@ Notices at sea show up to three recent messages together. Each fades in for two 
 
 **Helm response**, under Controls · Steering, is **Direct** by default: the original's response, with the full rate the instant a key goes down, none the instant it comes up, and the mouse turning the hull one step per pixel. **Smooth** eases the submarine into a turn over a fraction of a second and out of it when the key or stick is released, and holds the mouse to three times the hull's own steering rate, so the steering upgrades in the shop count for a mouse pilot too. Either way the hull leans into a turn as the phone game's does: over in about a third of a second, held while the helm is over, and back upright over a couple of seconds once it centres. (Before 1.2.2 the hull snapped level the instant the helm was released.) The reticle stays at screen centre. The chase camera looks at the point 204.8 m straight ahead of the submarine, keeping that centre on the hull's line of fire. Shots and the harpoon converge on whatever the reticle rests on, and in open water on that point. The front and side cameras have no reticle, and the weapons fire straight ahead in them, as the original always did.
 
+**Manual roll**, under Controls · Steering, is off by default. Switched on, **Z** and **X** roll the submarine left and right about its own length (both can be rebound under Key bindings), and a gamepad stick axis can be given the **Roll** role in Gamepad. The hull then stays at the angle you leave it instead of levelling itself when the helm is idle, and the chase camera rolls with it. The autopilot still flies level.
+
 **Steer by tilting**, under Controls · Steering, steers the submarine by tilting a phone or tablet. It reads the device's own motion sensor, so a desktop machine has nothing to offer it, and a browser asks permission the moment you switch it on. Tilt turns; it never strafes, and the stick and touch controls keep working alongside it. **Calibrate tilt** makes your current grip the neutral position, and **Tilt sensitivity** sets how far you have to lean for a full turn. The browser reads tilt in the visible screen's orientation and recentres after the display rotates or the sensor pauses. (The Android build before 1.2.1 never asked the phone for its sensors, so tilt reported no reading there.)
 
 Changing a setting keeps the highlight on the row you changed, so a long list stays usable on a gamepad. Actions that cannot be undone - reloading a checkpoint, leaving for the main menu, abandoning a contract - ask before they act.
@@ -276,7 +278,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.18.2**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.18.3**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

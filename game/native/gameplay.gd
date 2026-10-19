@@ -784,6 +784,8 @@ func _process(delta: float) -> void:
 	fullscreen_button.place(page=="pause")
 	dive_audio.set_context(page,session.docked)
 	advance_transit_view(delta)
+	if world.region!=null and (page=="departure" or view.transit_progress>=0 or view.departure_progress>=0):
+		world.region.radio_hold_ms=RADIO_SETTLE_MS
 	if page=="departure":
 		departure_elapsed+=minf(delta,.1)
 		view.place_departure(clampf(departure_elapsed/3.2,0,1))
@@ -976,7 +978,9 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	throttle=clampi(throttle+pad.throttle+screen.throttle,-1,1)
 	fire=fire or pad.fire;guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
 	if stopping:perform("stop");throttle=0;boost=false
-	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point()}
+	var roll := 0.0
+	if world.manual_roll:roll=clampf(float(Input.is_physical_key_pressed(key_bindings.roll_right))-int(Input.is_physical_key_pressed(key_bindings.roll_left))+pad.roll,-1,1)
+	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"roll":roll,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point()}
 func _unhandled_input(event: InputEvent) -> void:
 	if page=="transit": return
 	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN] and mouse_wheel_throttle and page.is_empty() and not session.docked and world.region!=null and not world.region.cinematic() and not touch.enabled():
@@ -1638,6 +1642,7 @@ func read_settings() -> void:
 	if not mouse_wheel_throttle:wheel_throttle_remainder=0.0
 	controller.roles=controller.read_roles(config)
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
+	world.set_manual_roll(bool(config.get_value("input","manual_roll",false)))
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
 	motion_steering=bool(config.get_value("input","motion",false))
@@ -1696,6 +1701,7 @@ func save_settings() -> void:
 	config.set_value("input","mouse_wheel_throttle",mouse_wheel_throttle)
 	for index in 4: config.set_value("input",controller.AXIS_KEYS[index],controller.roles[index])
 	config.set_value("input","smooth_steering",world.smooth_steering)
+	config.set_value("input","manual_roll",world.manual_roll)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
 	config.set_value("input","motion_invert",invert_motion_pitch)
 	config.set_value("input",TOUCH_LAYOUT_KEY,preload("res://native/input/touch_layout.gd").encode(touch.layout))
@@ -1938,7 +1944,7 @@ func finish_departure() -> void:
 			if world.plan_stream(departure_destination):stream_prompted=false
 		else:world.route_to(departure_destination)
 	departure_destination=-1;message.text="";notification_time=0
-	close_page();briefing()
+	close_page();world.region.events.append({"kind":"departure_briefing"})
 func check_station_progress() -> void:
 	var mission=session.campaign.completion(true,0,session.station_id,session.ship,session.counters)
 	if mission!=null:
@@ -1993,18 +1999,27 @@ func focus_if_visible(control) -> void:
 ## How long a death, a failure or a finished encounter waits for the
 ## explosion that caused it: past the flash, into the falling debris.
 const AFTERMATH_MS := 2800
+## How long a radio call or briefing waits once a departure or a gate's way
+## out has finished, as the phone game lets the arrival settle before talking.
+const RADIO_SETTLE_MS := 2500
 func aftermath_pending() -> bool:
 	var r=world.region
 	for event in r.visual_events:
 		if event.kind=="explosion" and not event.get("creature",false) and r.elapsed_ms-int(event.time)<AFTERMATH_MS:return true
 	return false
 func consume_events() -> void:
+	# Nobody talks over the shot of the submarine setting out or coming out of
+	# a gate. A held briefing keeps its place without holding up what follows.
+	var held: Array=[]
 	while not world.region.events.is_empty():
 		var entry: Dictionary = world.region.events.pop_front()
 		if entry.kind in ["death","mission_failed","mission_complete"] and aftermath_pending():
 			world.region.events.push_front(entry);break
+		if entry.kind in ["briefing","departure_briefing"] and world.region.radio_hold_ms>0:
+			held.append(entry);continue
 		match entry.kind:
 			"briefing": show_dialogue(session.dialogue(entry.mission,0),close_page)
+			"departure_briefing": briefing()
 			"credits": show_dialogue([{"speaker":tr("Credits"),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)}],func(): world.region.acknowledge_credits(); close_page())
 			"mission_complete": show_dialogue(session.dialogue(entry.mission,1),func(): world.region.acknowledge_completion(); close_page())
 			"transmission":
@@ -2027,6 +2042,8 @@ func consume_events() -> void:
 				notice(entry.text)
 		# Preserve later events until the current dialogue/failure is resolved.
 		if not page.is_empty(): break
+	held.reverse()
+	for entry in held:world.region.events.push_front(entry)
 func save_game(feedback: bool=true) -> void:
 	if not session.docked:
 		if feedback: notice(tr("Dock at a station to save."))
