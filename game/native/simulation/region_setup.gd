@@ -67,7 +67,7 @@ func special(kind: String,id: int,hostile: bool,center: Array=[0,0,0],team: int=
 		"capsule":actor.health.configure(32 if r.mission.kind==12 else 65,0,0)
 		"freighter":
 			actor.faction=team
-			var shape:=Shape.new();shape.origin=location.duplicate();shape.offset=Math.from_source([0,300,0]);shape.half_size=[4000,4000,15000];actor.shapes=[shape]
+			var shape:=Shape.new();shape.origin=location.duplicate();shape.offset=Math.from_source([0,300,0]);shape.half_size=[2000,2000,7500];actor.shapes=[shape]
 			# Six bursts along the hull, one to two seconds apart (ao(6,0)).
 			actor.explosion_delays=[0]
 			actor.explosion_offsets=[[360,186,-3370],[-844,-507,880],[-449,437,-983],[880,-275,-983],[360,186,4243],[0,0,0]].map(func(offset):return Math.from_source(offset))

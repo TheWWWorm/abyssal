@@ -161,6 +161,8 @@ func check_formations() -> void:
    expect(region.route.points.all(func(point):return point[0]<0),"Contract %d patrol points use the converted horizontal frame"%kind)
   elif kind==4:
    expect(region.friends[0].pose.origin[1]>0 and region.friends[1].pose.origin[1]<0,"Escort-contract freighters use the authored depth ordering")
+   # The original's box (cu) takes full sizes, 4000 x 4000 x 15000, and halves them.
+   expect(region.friends.all(func(actor):return actor.shapes[0].half_size==[2000,2000,7500]),"Escort freighters block only their own hull, not 160 metres around it")
   elif kind==5:
    var mark: Vector3=Library.point(region.route.points[1])
    var targets: Array=region.enemies.filter(func(actor):return actor is Special and actor.kind=="freighter")
