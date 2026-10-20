@@ -40,24 +40,24 @@ def main():
     parser.add_argument('--godot',default=shutil.which('godot-4') or shutil.which('godot'))
     parser.add_argument('--version-code',type=int,default=5,help='Monotonically increasing Android version code')
     parser.add_argument('--validation',type=pathlib.Path,help='Player-facing platform support notes included with the release')
-    parser.add_argument('--windows-fsr-template',type=pathlib.Path,help='Also the Windows FSR package: a template built with engine/godot-4.7/amd-fsr.patch')
-    parser.add_argument('--fsr-sdk',type=pathlib.Path,help='With --windows-fsr-template: directory prepared by prepare_fsr_sdk.py')
+    parser.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, for the Direct3D 12 renderer choice with AMD FSR')
+    parser.add_argument('--fsr-sdk',type=pathlib.Path,help='With --windows-template: directory prepared by prepare_fsr_sdk.py')
     args=parser.parse_args()
     if not re.fullmatch(r'[0-9][A-Za-z0-9.-]{0,60}',args.version):parser.error('Invalid version identifier')
     if args.version_code<1:parser.error("Android version code must be positive")
-    if bool(args.windows_fsr_template)!=bool(args.fsr_sdk):parser.error('The Windows FSR package needs --windows-fsr-template and --fsr-sdk')
+    if bool(args.windows_template)!=bool(args.fsr_sdk):parser.error('The Windows template needs --fsr-sdk, and --fsr-sdk the template')
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):parser.error('Keep releases outside the engine source tree')
     output.mkdir(parents=True,exist_ok=True)
     platforms=args.platform or ['linux','linux-arm64','windows','macos','web','android']
-    # The Windows FSR package is the Windows export from the patched template.
-    if args.windows_fsr_template:platforms=[*platforms,'windows-fsr']
     records=[]
     for platform in platforms:
         with tempfile.TemporaryDirectory(prefix='release-'+platform+'-',dir=output) as temp:
             folder=pathlib.Path(temp)/'build'
-            fsr=['--windows-template',str(args.windows_fsr_template),'--fsr-sdk',str(args.fsr_sdk)] if platform=='windows-fsr' else []
-            subprocess.run([sys.executable,str(ROOT/'tools/export_game.py'),'--platform',platform.removesuffix('-fsr'),'--output',str(folder),'--release','--godot',args.godot,'--version',args.version,'--version-code',str(args.version_code),*fsr],check=True)
+            # One Windows package: the patched template starts on Vulkan and
+            # offers Direct3D 12 with AMD FSR in Settings.
+            fsr=['--windows-template',str(args.windows_template),'--fsr-sdk',str(args.fsr_sdk)] if platform=='windows' and args.windows_template else []
+            subprocess.run([sys.executable,str(ROOT/'tools/export_game.py'),'--platform',platform,'--output',str(folder),'--release','--godot',args.godot,'--version',args.version,'--version-code',str(args.version_code),*fsr],check=True)
             add_documents(folder)
             if args.validation:shutil.copyfile(args.validation,folder/"VALIDATION.md")
             name=f'abyssal-engine-{args.version}-{platform}'+('.tar.gz' if platform in {'linux','linux-arm64'} else '.apk' if platform=='android' else '.zip')
@@ -65,7 +65,7 @@ def main():
             if target.exists():raise FileExistsError('Release archive already exists: '+str(target))
             if platform=="android":shutil.copyfile(folder/"abyssal.apk",target)
             else:archive_build(folder,target,platform)
-            records.append({'platform':platform,'file':name,'bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'template':'release','signing':'unsigned' if platform in ['windows','windows-fsr','macos'] else 'release key' if platform=='android' else 'not applicable','direct_jar_import':True})
+            records.append({'platform':platform,'file':name,'bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'template':'release','signing':'unsigned' if platform in ['windows','macos'] else 'release key' if platform=='android' else 'not applicable','direct_jar_import':True})
     metadata={'version':args.version,'channel':'preview' if '-' in args.version else 'release','source_manifest_sha256':hashlib.sha256((ROOT/'source-manifest.json').read_bytes()).hexdigest(),'artifacts':records,'testing':'See VALIDATION.md for actual execution results; export success is not device validation.'}
     (output/'VALIDATION.md').write_text(args.validation.read_text() if args.validation else VALIDATION_PENDING)
     (output/'release.json').write_text(json.dumps(metadata,indent=2)+'\n')

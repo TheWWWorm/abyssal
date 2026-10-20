@@ -3,6 +3,7 @@ extends SceneTree
 ## scrolling on the title's settings screen.
 const Quality=preload("res://native/presentation/graphics_quality.gd")
 const Probe=preload("res://native/presentation/graphics_probe.gd")
+const RendererChoice=preload("res://native/platform/renderer_choice.gd")
 const SETTINGS := "user://graphics-quality-check/settings.cfg"
 const SAVE := "user://graphics-quality-check/campaign.json"
 var failures := 0
@@ -22,6 +23,7 @@ func run() -> void:
 	root.size=Vector2i(1280,720)
 	check_presets()
 	check_probe_rules()
+	check_renderer_choice()
 	DirAccess.make_dir_recursive_absolute(SETTINGS.get_base_dir())
 	DirAccess.remove_absolute(SETTINGS);DirAccess.remove_absolute(SAVE)
 	var app=load("res://scenes/native_main.tscn").instantiate()
@@ -112,6 +114,29 @@ func check_probe_rules() -> void:
 	expect(probe.best()==Quality.LOW,"Low is the floor, never Classic")
 	probe.free()
 
+func check_renderer_choice() -> void:
+	# Kept aside: a run on this machine may have a real choice there.
+	var kept := {}
+	for path in [RendererChoice.OVERRIDE,RendererChoice.TRIAL]:
+		if FileAccess.file_exists(path):kept[path]=FileAccess.get_file_as_bytes(path)
+	RendererChoice.reset();RendererChoice.notice=""
+	expect(RendererChoice.chosen()=="vulkan","Vulkan is the default renderer")
+	RendererChoice.choose("d3d12")
+	var override := ConfigFile.new()
+	expect(override.load(RendererChoice.OVERRIDE)==OK and override.get_value("rendering","rendering_device/driver.windows")=="d3d12" and override.get_value("rendering","fsr_sdk/enabled")==true,"Choosing Direct3D 12 writes the override that also loads AMD's runtime")
+	expect(RendererChoice.chosen()=="d3d12" and FileAccess.file_exists(RendererChoice.TRIAL),"The choice starts as a trial")
+	# This run is not on Direct3D 12, as a start where it failed would be.
+	expect(not RendererChoice.startup() and RendererChoice.notice=="failed" and RendererChoice.chosen()=="vulkan","A start that is not on Direct3D 12 goes back to Vulkan and says so")
+	RendererChoice.notice="";RendererChoice.choose("d3d12")
+	var trial := ConfigFile.new();trial.load(RendererChoice.TRIAL);trial.set_value("trial","state","running");trial.save(RendererChoice.TRIAL)
+	expect(not RendererChoice.startup() and RendererChoice.notice=="crashed" and RendererChoice.chosen()=="vulkan","A trial that never finished goes back to Vulkan and says so")
+	RendererChoice.notice="";RendererChoice.choose("d3d12");RendererChoice.confirm()
+	expect(FileAccess.file_exists(RendererChoice.TRIAL),"Only a run on Direct3D 12 confirms the trial")
+	RendererChoice.choose("vulkan")
+	expect(not FileAccess.file_exists(RendererChoice.OVERRIDE) and not FileAccess.file_exists(RendererChoice.TRIAL),"Choosing Vulkan removes the override")
+	for path in kept:
+		var file := FileAccess.open(path,FileAccess.WRITE);file.store_buffer(kept[path])
+
 func check_detection(app) -> void:
 	var map: Node=root.get_node_or_null("OceanRadianceMap")
 	expect(map is SubViewport and (map as SubViewport).use_hdr_2d,"The water's colour is drawn once into a shared half-float direction map")
@@ -164,6 +189,7 @@ func check_settings_rows(app) -> void:
 	var row := preset_row(app)
 	expect(row!=null and row.get_node("Value").text==Quality.PRESETS[Quality.current(saved())]+" (Recommended)","The Graphics page names the measured preset as recommended")
 	expect((app.settings_panel.scroll.get_child(0) as MarginContainer).get_theme_constant("margin_right")>0,"Rows keep clear of the scroll bar")
+	expect(RendererChoice.available() or app.settings_panel.find_child("Row_renderer",true,false)==null,"Only the Windows build with AMD's integration offers a renderer")
 	expect(app.settings_panel.find_child("Row_lighting",true,false)==null and app.settings_panel.find_child("Row_detect_graphics",true,false)==null,"Lighting and measuring are presets, not rows")
 	var list := row.get_node("List") as OptionButton
 	expect(list.item_count==5 and list.selected==Quality.current(saved()),"The preset row opens a list with the current preset chosen")

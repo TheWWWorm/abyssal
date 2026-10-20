@@ -13,13 +13,16 @@ const StationPreview = preload("res://native/presentation/station_preview.gd")
 
 var frame: PanelContainer
 var caption: Label
+## A station page's chart, below its station or, in a short band, beside it.
+var map: PanelContainer
+var row: HBoxContainer
 ## What is shown now: "model", "image", "portrait", "chart", "glyph" or "".
 var shown := ""
 
 ## Builds the picture for a page. Returns false when there is nothing to show.
 func show_media(descriptor: Dictionary, catalog, content, art, palette: Dictionary, options: Dictionary) -> bool:
 	for child in get_children(): remove_child(child); child.queue_free()
-	frame = PanelContainer.new(); caption = Label.new(); shown = ""
+	frame = PanelContainer.new(); caption = Label.new(); shown = ""; map = null; row = null
 	add_theme_constant_override("separation", 6)
 	var style := StyleBoxFlat.new(); style.bg_color = Color(palette.panel, 0.5); style.border_color = Color(palette.edge, 0.6)
 	style.set_border_width_all(1); style.set_corner_radius_all(4); style.set_content_margin_all(6)
@@ -67,10 +70,12 @@ func show_media(descriptor: Dictionary, catalog, content, art, palette: Dictiona
 		caption.text = tr("Drag to turn"); shown = "station"
 		if descriptor.has("chart"):
 			# The chart stays below, smaller, to show where the station lies.
-			var map := PanelContainer.new(); map.add_theme_stylebox_override("panel", frame.get_theme_stylebox("panel"))
+			map = PanelContainer.new(); map.add_theme_stylebox_override("panel", frame.get_theme_stylebox("panel"))
+			map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			map.custom_minimum_size.y = 190; add_child(map)
 			var chart = WikiChart.new(); chart.configure(catalog, descriptor.chart, palette); map.add_child(chart)
 			chart.followed.connect(func(key): followed.emit(key))
+			_reshape()
 		return true
 	if descriptor.has("chart"):
 		var chart = WikiChart.new(); chart.configure(catalog, descriptor.chart, palette); frame.add_child(chart)
@@ -106,6 +111,29 @@ func _reshape() -> void:
 	var height := 0.0 if band else roundf(clampf(size.x * 0.82, 180.0, 460.0))
 	if frame.size_flags_vertical != flags: frame.size_flags_vertical = flags
 	if not is_equal_approx(frame.custom_minimum_size.y, height): frame.custom_minimum_size.y = height
+	if map == null or not is_instance_valid(map): return
+	# On a landscape screen a station above the article shares its band with
+	# the chart, side by side: stacked, the two outgrow a phone's height and
+	# push the page's Back off it. Upright screens have the height, not the
+	# width; beside the article the chart stays below, smaller.
+	var screen := get_viewport_rect().size
+	var beside := band and screen.x > screen.y
+	if beside == (row != null): return
+	if beside:
+		row = HBoxContainer.new(); row.add_theme_constant_override("separation", 6); row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		add_child(row); move_child(row, frame.get_index())
+		frame.reparent(row); map.reparent(row)
+		frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		frame.size_flags_stretch_ratio = 1.4
+		map.custom_minimum_size.y = 0
+		for preview in frame.get_children(): if preview is Control: preview.custom_minimum_size.y = 120
+	else:
+		frame.reparent(self); map.reparent(self)
+		move_child(frame, 0); move_child(map, 1)
+		row.queue_free(); row = null
+		frame.size_flags_horizontal = Control.SIZE_FILL
+		map.custom_minimum_size.y = 190
+		for preview in frame.get_children(): if preview is Control: preview.custom_minimum_size.y = 180
 
 static func has_model(content, id: int) -> bool:
 	for entry in content.registry:

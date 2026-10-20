@@ -81,7 +81,7 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 
 func apply_atmosphere(config: ConfigFile) -> void:
 	var choices := OceanOptions.read(config)
-	view.set_atmosphere(choices);abyss.set_atmosphere(choices)
+	view.set_atmosphere(choices);abyss.set_atmosphere(choices);abyss.set_water_colour(OceanOptions.water_colour(config))
 
 func set_active(value: bool) -> void:
 	"""The content inspector and the backdrop share the viewport; one of them

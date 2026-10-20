@@ -21,12 +21,15 @@ boot_splash/use_filter=true
 boot_splash/bg_color=Color(0.012, 0.035, 0.055, 1)
 config/use_custom_user_dir=true
 config/custom_user_dir_name="abyssal-engine"
+; Windows: the renderer chosen in Settings, read at start (renderer_choice.gd).
+config/project_settings_override.windows="user://renderer.cfg"
 run/main_scene="res://scenes/native_main.tscn"
 config/features=PackedStringArray("4.7")
 
 [autoload]
 
 DiscordActivity="*res://native/platform/discord_presence.gd"
+RendererChoice="*res://native/platform/renderer_choice.gd"
 
 [discord]
 
@@ -121,6 +124,10 @@ ocean_sun_color={
 ocean_shaft_gain={
 "type": "float",
 "value": 0.0
+}
+ocean_region_strength={
+"type": "float",
+"value": 0.6
 }
 ocean_model_light={
 "type": "vec2",

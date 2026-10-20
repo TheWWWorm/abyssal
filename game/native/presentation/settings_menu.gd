@@ -15,6 +15,7 @@ const Spacing = preload("res://native/simulation/world_spacing.gd")
 const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 const Quality = preload("res://native/presentation/graphics_quality.gd")
+const RendererChoice = preload("res://native/platform/renderer_choice.gd")
 const Pad = preload("res://native/input/flight_controls.gd")
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const DiscordPresence = preload("res://native/platform/discord_presence.gd")
@@ -490,6 +491,9 @@ func graphics_page() -> void:
 	strength.tooltip_text=tr("How strongly the headlights light the water and nearby surfaces.")
 	group(tr("Ocean atmosphere"))
 	graphics_options(["volumetric","deep_darkness","regional_water","marine_snow","bioluminescence","explosion_aftermath"])
+	var colour := slider(tr("Water colour"),"graphics","water_colour",OceanOptions.WATER_COLOUR_DEFAULT,0.0,1.0,0.05,true)
+	colour.editable=enhanced
+	colour.tooltip_text=tr("How strongly each region's algae tint the open water. Lower is plain blue water, higher the region's own colour.")
 	group(tr("Surfaces and textures"))
 	graphics_options(["detail"])
 	var textures := graphics_grid()
@@ -513,6 +517,14 @@ func performance_options() -> void:
 	var scales: Array=Quality.SCALES
 	var resolution := chooser(tr("3D resolution"),scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
 	resolution.tooltip_text=tr("Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp.")
+	if RendererChoice.available():
+		var choices: Array=RendererChoice.CHOICES
+		var names: Array=RendererChoice.names()
+		var next: String=RendererChoice.chosen()
+		var renderer := chooser(tr("Renderer"),names,choices.find(next),"renderer",func(index): RendererChoice.choose(choices[index]);focus_key="renderer";rebuild(true),grid)
+		# A choice waiting for the next start says so.
+		if next!=RendererChoice.running(): renderer.get_node("Value").text=tr("%s · from the next start")%names[choices.find(next)]
+		renderer.tooltip_text=tr("Direct3D 12 adds AMD FSR 3.1 and FSR 4 upscaling and frame generation where the graphics card supports them. Vulkan is the default. A change applies when the game starts again.")
 	var upscalers: Array=Quality.upscalers()
 	var upscaling: Button
 	if upscalers.size()>1: upscaling=chooser(tr("Upscaling"),upscalers.map(Quality.upscaler_name),upscalers.find(Quality.upscaler(quality)),"upscaler",func(next): put("view","upscaler",upscalers[next]),grid)

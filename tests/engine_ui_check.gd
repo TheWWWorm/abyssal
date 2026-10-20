@@ -210,6 +210,9 @@ func run():
  await check_station_availability(game)
  check_continuous_catch(game)
  check_source_weapon_audio(game)
+ await check_catch_notice(game)
+ await check_dialogue_keeps_auto_fire(game)
+ await check_load_slots(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
@@ -285,6 +288,54 @@ func check_continuous_catch(game) -> void:
  game.update_catch_feedback(region,true)
  expect(game.struggle.visible and absf(game.struggle.value-50)<.1 and game.catch_status.text.begins_with("REELING IN"),"Reeling retains a progress bar through collection")
  region.fishing=original;game.update_catch_feedback(region,false)
+
+func check_catch_notice(game) -> void:
+ # A catch names what went into the hold and its weight, not only "Caught".
+ game.session.docked=false;game.close_page();await process_frame
+ var region=game.world.region
+ var fish=region.creatures.front() if not region.creatures.is_empty() else null
+ if fish!=null:
+  var queued: int=region.events.size()
+  fish.events.append("caught");region.step(40)
+  var caught: Array=region.events.slice(queued).filter(func(entry):return entry.get("goods",-1)==fish.species)
+  expect(caught.size()==1 and caught[0].amount==fish.mass,"A catch event carries its species and weight")
+ region.events.append({"kind":"notice","text":game.tr("Caught"),"goods":0,"amount":7})
+ game.message.text="";game.notification_time=0
+ game.consume_events()
+ expect(game.message.text==game.tr("%s · %s %dt")%[game.tr("Caught"),game.item_name(0),7],"The catch notice names the catch and its weight: "+game.message.text)
+
+func check_dialogue_keeps_auto_fire(game) -> void:
+ # A transmission mid-fight pauses automatic fire; it resumes afterwards.
+ game.session.docked=false;game.close_page();await process_frame
+ game.auto_fire=true;game.touch.automatic_weapons["guns"]=true
+ game.show_dialogue([{"speaker":"Radio","text":"Contact."}],game.close_page)
+ expect(not game.auto_fire,"Automatic fire holds while a transmission is open")
+ game.close_page()
+ expect(game.auto_fire and game.touch.automatic_weapons.has("guns"),"Automatic fire resumes when the transmission ends")
+ game.show_pause();game.close_page()
+ expect(not game.auto_fire and not game.touch.automatic_weapons.has("guns"),"A menu the player opens still stops automatic fire")
+
+func check_load_slots(game) -> void:
+ # The station's System menu loads a save without going through the main
+ # menu, which would write the autosave over first.
+ game.session.docked=true
+ game.save_game(false)
+ var credits: int=game.store.read(game.save_path,game.content.data).credits
+ game.show_system();await process_frame
+ var load_button=game.column.find_children("*","Button",true,false).filter(func(b):return b.text==game.tr("Load game"))
+ expect(load_button.size()==1,"The System menu offers Load game")
+ game.show_load_slots();await process_frame
+ var rows: Array=game.column.find_children("*","Button",true,false).filter(func(b):return b.text.begins_with("4."))
+ expect(rows.size()==1 and not rows[0].disabled,"The autosave is listed and can be loaded")
+ game.dock_back();expect(game.page=="system","Back from Load game returns to System")
+ var saved_text := FileAccess.get_file_as_string(game.save_path)
+ game.session.credits=credits+12345
+ game.show_load_slots();await process_frame
+ rows=game.column.find_children("*","Button",true,false).filter(func(b):return b.text.begins_with("4."))
+ rows[0].pressed.emit();await process_frame
+ expect(game.page=="confirm","Loading asks first")
+ game.reload_game(game.save_path);await process_frame
+ expect(game.session.credits==credits and FileAccess.get_file_as_string(game.save_path)==saved_text,"Loading restores the save and leaves the autosave unwritten")
 
 func check_source_weapon_audio(game) -> void:
  var audio=load("res://native/presentation/dive_audio.gd").new();root.add_child(audio);audio.set_process(false);audio.configure(game.world,game.content.root)

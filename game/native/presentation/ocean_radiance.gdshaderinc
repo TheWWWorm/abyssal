@@ -10,6 +10,9 @@ global uniform float ocean_light_gain;
 // alga's hue toned into the water colour and dimmed by the same depth curve.
 global uniform vec3 ocean_upper_color;
 global uniform float ocean_classic_sky;
+// The Water colour setting: how much of the region's hue the open water
+// takes (abyss.gd region_strength; .6 by default).
+global uniform float ocean_region_strength;
 global uniform vec3 ocean_water_tint;
 global uniform float ocean_sun_gain;
 global uniform vec3 ocean_sun_color;
@@ -69,8 +72,10 @@ vec3 ocean_layered_water(vec3 d,float sun){
  // the same brightness, darkening into cool depths.
  float lum=dot(ocean_upper_color,vec3(0.2126,0.7152,0.0722));
  vec3 plain=lum*vec3(0.2957,1.0753,2.2581);
- vec3 upper=mix(plain,ocean_upper_color,0.85);
- vec3 middle=mix(plain,ocean_upper_color,0.5)*vec3(0.30,0.36,0.55);
+ vec3 upper=ocean_upper_color;
+ // The horizon keeps the water's own navy, as the phone's skybox left only
+ // the region colour's blue there: more of a warm hue greyed it into mauve.
+ vec3 middle=mix(plain,ocean_upper_color,0.2)*vec3(0.30,0.36,0.55);
  vec3 deep=plain*vec3(0.05,0.06,0.1);
  vec3 water=mix(deep,middle,smoothstep(-0.95,0.1,d.y));
  water=mix(water,upper,pow(smoothstep(-0.7,0.9,d.y),2.5));
@@ -97,8 +102,11 @@ vec3 ocean_radiance_exact(vec3 direction){
  water*=ocean_water_tint;
  // The brightest opening is above. Its filtered light fades continuously
  // through the water column; the deepest water still belongs to local lamps.
- // Imported pale warm sunlight becomes cooler along a longer water path.
- vec3 filtered_sun=ocean_sun_color*vec3(0.30,0.55,1.0);
+ // Imported pale warm sunlight becomes cooler along a longer water path,
+ // and takes on some of the region's hue: a fixed blue-white over a warm
+ // region's water greyed it into mauve.
+ float hue_lum=max(dot(ocean_upper_color,vec3(0.2126,0.7152,0.0722)),1e-4);
+ vec3 filtered_sun=ocean_sun_color*ocean_upper_color/hue_lum*0.5;
  water+=(filtered_sun*0.08*pow(sun,12.0)+ocean_sun_color*0.5*pow(sun,180.0))*ocean_sun_gain;
  // Light columns, from Deeper's water: value noise anchored in the sea about
  // a kilometre out, ten times longer upright than across, so soft

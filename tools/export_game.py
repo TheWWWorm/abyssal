@@ -63,8 +63,8 @@ def stamp_web_build(output):
     temporary=page.with_suffix('.html.tmp');temporary.write_text(html);temporary.replace(page)
     return digest[:12]
 
-# The Windows FSR package, from a template with AMD's FidelityFX SDK: its
-# splash and the vendor artwork belong to that package only.
+# The Windows package, from a template with AMD's FidelityFX SDK: its splash
+# and the vendor artwork belong to the packages that bundle the SDK only.
 FSR_SPLASH = 'game/ui/abyssal-splash-fsr.png'
 SDK_ARTWORK = (FSR_SPLASH, 'game/ui/vendors/')
 
@@ -147,11 +147,6 @@ def write_static_headers(output):
     (pathlib.Path(output)/'_headers').write_text(WEB_HEADERS)
 
 
-# Direct3D 12 with Forward+, and the opt-in that lets the engine load AMD's
-# runtime. abyssal.exe alone keeps Vulkan and loads none of it.
-LAUNCHER='@echo off\r\ncd /d "%~dp0"\r\nstart "" "%~dp0abyssal.exe" --rendering-method forward_plus --rendering-driver d3d12 --render-thread safe -- --experimental-fsr\r\n'
-
-
 def check_template(template):
     """The template has AMD's integration."""
     if b'amd_fidelityfx_loader_dx12.dll' not in template.read_bytes():raise ValueError('The Windows template lacks the AMD FidelityFX integration')
@@ -159,7 +154,9 @@ def check_template(template):
 
 def stage_vendor_runtimes(output, fsr_sdk):
     """AMD's signed runtime, the DirectX Agility runtime and their license
-    terms, and the launcher, beside a Windows export from the patched engine."""
+    terms beside a Windows export from the patched engine. The game starts on
+    Vulkan and loads none of them until Direct3D 12 is chosen in Settings
+    (renderer_choice.gd)."""
     from prepare_fsr_sdk import DLLS as AMD_DLLS, NOTICES as AMD_NOTICES, AGILITY_FILES, AGILITY_CORE_SHA256, digest
     fsr_sdk=pathlib.Path(fsr_sdk)
     for name in AMD_DLLS:shutil.copyfile(fsr_sdk/'Kits/FidelityFX/signedbin'/name,output/name)
@@ -170,7 +167,6 @@ def stage_vendor_runtimes(output, fsr_sdk):
     notices=output/'licenses/microsoft-directx-agility';notices.mkdir(parents=True,exist_ok=True)
     for name in AGILITY_FILES.values():
         if name.startswith('licenses/'):shutil.copyfile(fsr_sdk/'agility'/name,notices/pathlib.Path(name).name)
-    (output/'Play-FSR.cmd').write_bytes(LAUNCHER.encode())
 
 
 def main():

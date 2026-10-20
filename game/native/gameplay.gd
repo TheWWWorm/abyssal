@@ -53,6 +53,7 @@ var hints := Label.new()
 ## Resolution, antialiasing and shadows (graphics_quality.gd), read with the settings.
 var quality := GraphicsQuality.read(ConfigFile.new())
 var headlight_strength := 1.0
+var water_colour := OceanOptions.WATER_COLOUR_DEFAULT
 var fps_counter := preload("res://native/presentation/fps_counter.gd").new()
 var show_fps := false
 var player_face: Array = [87,78,68,20,42,-1]
@@ -149,6 +150,10 @@ const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
 var key_bindings: Dictionary = SettingsMenu.DEFAULT_KEYS.duplicate()
 var suppress_fire_until_release := false
 var auto_fire := false
+## Automatic fire a transmission interrupted in flight, resumed when it ends:
+## a message mid-fight must not leave the guns silent. Menus the player opens
+## still stop it.
+var interrupted_auto := {}
 var modern_graphics := true
 var catch_status := Label.new()
 var travel_status := Label.new()
@@ -558,6 +563,9 @@ func confirm(title: String, question: String, accept: String, act: Callable, can
 	button(accept,act)
 	button(tr("Cancel"),cancel)
 func open_page(title: String, id: String, subtitle: String="") -> void:
+	if id=="dialogue" and page.is_empty() and session!=null and not session.docked:
+		interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
+	elif not (id=="dialogue" and page=="dialogue"):interrupted_auto={}
 	clear_notice_history();wheel_throttle_remainder=0.0
 	if id!="settings" and is_instance_valid(settings_panel): settings_panel.hide()
 	dive_audio.set_context(id,session!=null and session.docked)
@@ -652,6 +660,11 @@ func close_page() -> void:
 	place_message(); suppress_fire_until_release=Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_physical_key_pressed(key_bindings.fire)
 	mouse_steer=Vector2.ZERO
 	controller.blocked=true;touch.set_active(not session.docked)
+	if not interrupted_auto.is_empty() and not session.docked:
+		auto_fire=interrupted_auto.fire
+		for key in interrupted_auto.weapons:touch.automatic_weapons[key]=true
+		touch.queue_redraw()
+	interrupted_auto={}
 	# A departure may open a briefing in this same frame. Never enqueue a
 	# browser pointer-lock request before that menu decision has finished.
 	capture_flight_mouse.call_deferred()
@@ -1662,6 +1675,7 @@ func read_settings() -> void:
 	graphics.merge(OceanOptions.read(config),true)
 	headlight_mode=Headlights.read(config);headlight_previous=Headlights.previous(config)
 	quality=GraphicsQuality.read(config);headlight_strength=GraphicsQuality.headlight_strength(config)
+	water_colour=OceanOptions.water_colour(config)
 	show_fps=bool(config.get_value("view","show_fps",false))
 	touch.mode=setting_index(config,"input","touch",0,2)
 	touch.drag_anywhere=bool(config.get_value("input","touch_drag_anywhere",false))
@@ -1760,6 +1774,7 @@ func apply_graphics() -> void:
 	view.set_ship_smoothing(graphics.ship_smoothing)
 	view.set_atmosphere(graphics)
 	abyss.set_atmosphere(graphics)
+	abyss.set_water_colour(water_colour)
 	if rebuild:view.revision=-1
 	terrain.apply_pack(view.pack)
 	fps_counter.set_enabled(show_fps)
@@ -1935,7 +1950,7 @@ func show_station_status() -> void:
 func show_system() -> void:
 	open_page(tr("System"),"system")
 	var grid := service_grid();grid.add_theme_constant_override("v_separation",10)
-	for entry in [[tr("Save game"),"save",show_save_slots],[tr("Settings"),"controls",show_settings],
+	for entry in [[tr("Save game"),"save",show_save_slots],[tr("Load game"),"resume",show_load_slots],[tr("Settings"),"controls",show_settings],
 		[tr("Help"),"help",show_help],[tr("Reference"),"book",show_reference],[tr("Transfer save"),"transfer",show_transfer]]:
 		iconic(button(entry[0],entry[2],grid),entry[1])
 	iconic(button(tr("Reload station checkpoint"),func(): confirm(tr("Reload checkpoint"),
@@ -1955,7 +1970,7 @@ func dock_back() -> void:
 	if page=="market":
 		if market_category in ["ships","equipment","manufacture"]:show_hangar();return
 		if market_category=="missions":show_station_missions();return
-	if page in ["save_slots","help"]:show_system();return
+	if page in ["save_slots","load_slots","help"]:show_system();return
 	if page=="journal":show_station_missions();return
 	if page in ["ship_status","profile"]:show_station_status();return
 	show_station()
@@ -2079,7 +2094,7 @@ func consume_events() -> void:
 				button(tr("Reload station checkpoint"),reload_game); button(tr("Main menu"),return_to_menu)
 			_:
 				if entry.kind=="notice" and (entry.text.begins_with("Cannot collect catch") or entry.text==tr("Cannot collect catch · cargo hold is full. Make room at a station.")):hold_full_seen=true
-				notice(entry.text)
+				notice(tr("%s · %s %dt")%[entry.text,item_name(entry.goods),entry.amount] if entry.has("goods") else entry.text)
 		# Preserve later events until the current dialogue/failure is resolved.
 		if not page.is_empty(): break
 	held.reverse()
@@ -2103,13 +2118,24 @@ func show_save_slots() -> void:
 			else:confirm(store.slot_title(index),session.text(31),session.text(45),func():write_slot(path),show_save_slots))
 		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT
 	back_row(dock_back if session.docked else show_pause)
+func show_load_slots() -> void:
+	"""Another save, loaded at the station, as the main menu loads one. The
+	autosave is left as it is: loading is not a reason to write over it."""
+	open_page(tr("Load game"),"load_slots")
+	for index in store.SLOT_PATHS.size()+1:
+		var path: String=save_path if index==store.SLOT_PATHS.size() else store.slot_path(index)
+		var entry: Dictionary=store.summary(path,content.data) if FileAccess.file_exists(path) else {}
+		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():
+			confirm(tr("Load game"),tr("Load this save? Everything since you last saved is lost."),tr("Load game"),func():reload_game(path),show_load_slots))
+		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT;choice.disabled=entry.is_empty()
+	back_row(show_system)
 func write_slot(path: String) -> void:
 	if store.write(path,session):notice(session.text(32))
 	else:notice(store.failure)
 	if session.docked:show_system()
 	else:close_page()
-func reload_game() -> void:
-	var restored=store.read(save_path,content.data)
+func reload_game(path: String="") -> void:
+	var restored=store.read(save_path if path.is_empty() else path,content.data)
 	if restored==null: notice(store.failure); return
 	var fell_back: bool=store.recovered
 	world.dispose(); session=restored; world.configure(session); economy.configure(session)

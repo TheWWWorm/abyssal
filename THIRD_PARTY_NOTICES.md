@@ -37,9 +37,9 @@ DEEP and the supplied JAR, game code, text, models, textures, animation and audi
 `browser/audio.js` is an original procedural synthesizer. It contains no soundfont, sampled instruments or original-game music. Music bytes come only from the user's local JAR. Browser support does not resolve the separate ownership/terms questions recorded in the release review.
 
 
-## AMD FidelityFX SDK and DirectX Agility SDK (Windows FSR build only)
+## AMD FidelityFX SDK and DirectX Agility SDK (Windows package only)
 
-`engine/godot-4.7/amd-fsr.patch` adds a Direct3D 12 integration of AMD's FidelityFX SDK 2.3.0 (FSR 3.1 and FSR 4 upscaling and frame generation) to Godot 4.7. Building with it compiles in the SDK's MIT-licensed API headers (Copyright (c) Advanced Micro Devices, Inc.), which `tools/prepare_fsr_sdk.py` fetches and checks. Only the optional Windows FSR package distributes AMD's unmodified signed runtime (`amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll`, `amd_fidelityfx_framegeneration_dx12.dll`) under the SDK's license, which it carries with AMD's third-party notices in `licenses/amd-fidelityfx/`. It also includes Microsoft's DirectX Agility SDK 1.618.5 runtime (`x86_64/D3D12Core.dll`) under its license terms in `licenses/microsoft-directx-agility/`. Standard packages and source archives contain no AMD or Microsoft runtime files.
+`engine/godot-4.7/amd-fsr.patch` adds a Direct3D 12 integration of AMD's FidelityFX SDK 2.3.0 (FSR 3.1 and FSR 4 upscaling and frame generation) to Godot 4.7. Building with it compiles in the SDK's MIT-licensed API headers (Copyright (c) Advanced Micro Devices, Inc.), which `tools/prepare_fsr_sdk.py` fetches and checks. Only the Windows package distributes AMD's unmodified signed runtime (`amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll`, `amd_fidelityfx_framegeneration_dx12.dll`) under the SDK's license, which it carries with AMD's third-party notices in `licenses/amd-fidelityfx/`. It also includes Microsoft's DirectX Agility SDK 1.618.5 runtime (`x86_64/D3D12Core.dll`) under its license terms in `licenses/microsoft-directx-agility/`. Other packages and source archives contain no AMD or Microsoft runtime files.
 
 ## AMD FSR artwork
 

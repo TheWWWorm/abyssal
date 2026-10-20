@@ -1,8 +1,8 @@
 extends RefCounted
 ## AMD FSR 3.1 and FSR 4 upscaling and frame generation from AMD's FidelityFX
-## SDK. Stock Godot has neither: they come only with the optional Windows
-## engine build that carries the FidelityFX integration, started on Direct3D
-## 12 by Play-FSR.cmd. Everywhere else every query here reports unavailable and
+## SDK. Stock Godot has neither: they come only with the Windows engine
+## build that carries the FidelityFX integration, once Direct3D 12 is chosen
+## in Settings (renderer_choice.gd). Everywhere else every query here reports unavailable and
 ## the game keeps its own upscalers. Availability is what AMD's runtime
 ## reports for this GPU and driver; a saved choice never assumes it. FSR 4
 ## needs a Radeon RX 7000 or newer, FSR 3.1 runs on other recent GPUs too.

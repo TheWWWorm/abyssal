@@ -53,9 +53,29 @@ static func scrolls(control: Control) -> bool:
 	if not (control is ScrollContainer or control is RichTextLabel):return false
 	var bar: VScrollBar=control.get_v_scroll_bar()
 	return bar.max_value>bar.page
-static func move(control: Control, by: float) -> void:
+static func move(control: Control, by: float) -> float:
+	"""Scrolls a list or rich text by a finger's travel and returns the part
+	of it the list could not take, at its top or bottom."""
+	var bar: VScrollBar=control.get_v_scroll_bar()
+	var before: float=bar.value
 	if control is ScrollContainer:control.scroll_vertical-=int(round(by))
-	elif control is RichTextLabel:control.get_v_scroll_bar().value-=by
+	elif control is RichTextLabel:bar.value-=by
+	return 0.0 if absf(by)<1.0 else by-(before-bar.value)
+static func outer(control: Control) -> Control:
+	"""The next list out from <control> that can scroll, if any."""
+	var parent := control.get_parent() as Control
+	while parent!=null:
+		if scrolls(parent):return parent
+		parent=parent.get_parent() as Control
+	return null
+func drag(by: float) -> void:
+	"""A list inside a scrolling page, such as a shop's stock beside its
+	detail, hands the rest of a drag to the page once it reaches its end, so
+	rows below the screen's edge come into view from the list itself."""
+	var list: Control=target
+	while list!=null and absf(by)>=1.0:
+		by=move(list,by)
+		list=outer(list)
 func usable() -> bool:
 	return shown(target)
 func release() -> void:
@@ -78,7 +98,7 @@ func list_at(point: Vector2) -> Control:
 func _process(delta: float) -> void:
 	if not usable() or finger>=0:return
 	if absf(velocity)<STOP_SPEED:velocity=0.0;return
-	move(target,velocity*delta)
+	drag(velocity*delta)
 	velocity=move_toward(velocity,0.0,FRICTION*delta)
 func _input(event: InputEvent) -> void:
 	guard_pointer(event)
@@ -122,7 +142,7 @@ func _input(event: InputEvent) -> void:
 		travelled+=absf(step.y)
 		if travelled>THRESHOLD:scrolling=true
 		if scrolling:
-			move(target,step.y)
+			drag(step.y)
 			velocity=step.y*60.0
 			get_viewport().set_input_as_handled()
 	elif scrolling and event is InputEventMouseButton and not event.pressed:

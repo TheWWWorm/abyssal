@@ -35,7 +35,7 @@ const MSAA := ["Off","2×","4×"]
 ## works on both Vulkan renderers; FSR 2.2 and MetalFX temporal reuse earlier
 ## frames (they replace temporal antialiasing) and need Forward+; MetalFX needs
 ## the Metal driver. OpenGL only scales bilinearly. AMD FSR 3.1 and FSR 4
-## come only with the optional Windows FSR engine build (see Amd); with it,
+## come only with the Windows engine build on Direct3D 12 (see Amd); with it,
 ## frames can also be generated.
 const UPSCALERS := ["bilinear","fsr","fsr2","metalfx_spatial","metalfx_temporal","fsr3","fsr4"]
 const TEMPORAL_UPSCALERS := ["fsr2","metalfx_temporal","fsr3","fsr4"]

@@ -268,6 +268,14 @@ func run() -> void:
  lists._input(press);lists._input(swipe)
  expect(lists.target==sheet and sheet.scroll_vertical>0 and outer.scroll_vertical==0,"A swipe scrolls the nested stock list instead of the surrounding page")
  expect(not sheet.follow_focus and not outer.follow_focus,"Touch focus does not jump the nested list under the finger")
+ # At its last row the stock list hands the rest of the swipe to the page,
+ # so rows below the screen's edge are reached from the list itself.
+ lists._input(lifted);lists.release()
+ sheet.scroll_vertical=100000;await process_frame
+ var bottom: int=sheet.scroll_vertical
+ lists._input(press);lists._input(swipe)
+ expect(sheet.scroll_vertical==bottom and outer.scroll_vertical>0,"A swipe past the end of a nested list scrolls the page around it")
+ lists._input(lifted);lists.release();outer.scroll_vertical=0;sheet.scroll_vertical=0
  lists._input(lifted)
  var arrow:=InputEventKey.new();arrow.keycode=KEY_DOWN;arrow.pressed=true;lists._input(arrow)
  expect(sheet.follow_focus and outer.follow_focus,"Keyboard navigation restores focus scrolling after a swipe")

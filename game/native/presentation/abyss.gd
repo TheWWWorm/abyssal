@@ -363,6 +363,12 @@ func set_atmosphere(choices: Dictionary) -> void:
 		if is_instance_valid(camera):update_water_particles(0.0,world.geography.anchor)
 		if is_instance_valid(camera):_process(0.0)
 
+func set_water_colour(value: float) -> void:
+	"""How strongly each region's algae colour the enhanced water."""
+	if is_equal_approx(region_strength,value):return
+	region_strength=value
+	if world!=null and world.region!=null and is_node_ready():update_water_light(world.region.player.depth,0.0,true)
+
 func update_water_particles(seconds: float, anchor: Vector3) -> void:
 	particle_material.set_shader_parameter("enhanced",1.0 if enhanced() else 0.0)
 	particle_material.set_shader_parameter("snow_enabled",atmosphere.marine_snow)
@@ -534,9 +540,13 @@ static func light_profile(depth: float) -> Vector3:
 ## region's colour, so each still reads as water.
 const WATER_HUE := Vector3(.2957,1.0753,2.2581)
 ## How much of the alga's own chroma the enhanced water keeps, and how much
-## the region's hue outweighs the plain water colour.
-const REGION_CHROMA := .45
-const REGION_HUE_WEIGHT := .9
+## the region's hue outweighs the plain water colour, at full water colour
+## (Settings: Water colour). The default share keeps .45 of the chroma at .9
+## of the weight: a muted tint, not flat paint.
+const REGION_CHROMA := .75
+const REGION_HUE_WEIGHT := 1.5
+## The Water colour setting (OceanOptions.water_colour).
+static var region_strength := OceanOptions.WATER_COLOUR_DEFAULT
 ## How much of the hue the suspended haze takes: a trace, so distant water
 ## stays water-coloured.
 const REGION_HAZE := .2
@@ -558,8 +568,8 @@ static func modern_hue(base: Vector3) -> Vector3:
 	var linear := Vector3(colour.r,colour.g,colour.b)
 	var luminance := linear.dot(Vector3(.2126,.7152,.0722))
 	if luminance<=.0001:return WATER_HUE
-	var tinted := Vector3.ONE.lerp(linear/luminance,REGION_CHROMA)
-	var hue := WATER_HUE.lerp(tinted,REGION_HUE_WEIGHT).clamp(Vector3.ZERO,Vector3.ONE*2.3)
+	var tinted := Vector3.ONE.lerp(linear/luminance,REGION_CHROMA*region_strength)
+	var hue := WATER_HUE.lerp(tinted,minf(1.0,REGION_HUE_WEIGHT*region_strength)).clamp(Vector3.ZERO,Vector3.ONE*2.3)
 	return hue/maxf(.0001,hue.dot(Vector3(.2126,.7152,.0722)))
 
 static func modern_upper(depth: float, base: Vector3) -> Vector3:
@@ -658,6 +668,7 @@ func update_water_light(depth: float, delta: float, immediate: bool=false) -> vo
 	# region's hue into layered water and tints the suspended haze with it.
 	upper_sky=sky if not enhanced() else modern_upper(depth,region_color)
 	RenderingServer.global_shader_parameter_set("ocean_classic_sky",0.0 if enhanced() else 1.0)
+	RenderingServer.global_shader_parameter_set("ocean_region_strength",region_strength)
 	RenderingServer.global_shader_parameter_set("ocean_upper_color",upper_sky)
 	var haze_tint := (modern_hue(region_color)/WATER_HUE).clamp(Vector3.ONE*.4,Vector3.ONE*2.5)
 	var albedo := (FOG_ALBEDO*Vector3.ONE.lerp(haze_tint,REGION_HAZE)).clamp(Vector3.ZERO,Vector3.ONE)

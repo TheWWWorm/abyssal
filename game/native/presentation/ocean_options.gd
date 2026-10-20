@@ -56,6 +56,16 @@ static func flag(config: ConfigFile, section: String, key: String) -> bool:
 	var value: Variant=config.get_value(section,key,default_on(key))
 	return bool(value) if value is bool or value is int else default_on(key)
 
+## How much of each region's algae colour the enhanced water takes, from
+## 0 (plain water) to 1 (the region's hue at full strength). The default is
+## the muted tint the enhanced water was tuned for.
+const WATER_COLOUR_DEFAULT := .6
+
+static func water_colour(config: ConfigFile) -> float:
+	var value: Variant=config.get_value("graphics","water_colour",WATER_COLOUR_DEFAULT)
+	if (value is not float and value is not int) or not is_finite(float(value)): return WATER_COLOUR_DEFAULT
+	return clampf(float(value),0.0,1.0)
+
 static func read(config: ConfigFile) -> Dictionary:
 	var choices := {}
 	for key in VISUALS:choices[key]=flag(config,"graphics",key)

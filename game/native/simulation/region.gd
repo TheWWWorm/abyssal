@@ -220,6 +220,10 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 			if event=="killed" and actor.is_creature: session.counters.g+=1
 			if event=="capsule_destroyed": special_destroyed+=1
 			if event in ["caught","cargo_full","salvaged","rescued","meat_collected"]: events.append({"kind":"notice","text":tr("Cannot collect catch · cargo hold is full. Make room at a station.") if event=="cargo_full" else {"caught":tr("Caught"),"salvaged":tr("Salvaged"),"rescued":tr("Rescued"),"meat_collected":tr("Meat Collected")}[event]})
+			# What went into the hold and how much, for the notice to name.
+			if event in ["caught","meat_collected"] or (event=="salvaged" and actor.loot!=null):
+				events[-1].goods=actor.species if event=="caught" else 18 if event=="meat_collected" else actor.loot.id
+				events[-1].amount=actor.loot.owned if event=="salvaged" else actor.mass
 		actor.events.clear()
 	var all_weapons: Array = weapons.duplicate()
 	for weapon in loadout.all_weapons():

@@ -2,6 +2,7 @@ extends SceneTree
 const Profile=preload("res://native/presentation/ocean_profile.gd")
 const Wrecks=preload("res://native/presentation/wreck_effects.gd")
 const Habitat=preload("res://native/simulation/habitat.gd")
+const OceanOptions=preload("res://native/presentation/ocean_options.gd")
 class SessionProbe extends RefCounted:
 	var data: Dictionary
 	var station_id := 0
@@ -95,6 +96,19 @@ func check_region_light() -> void:
 	for depth in [5000,15000,22500,30000,35000]:upper.append(abyss.modern_upper(depth,red).dot(Vector3(.2126,.7152,.0722)))
 	expect(is_equal_approx(upper[0],upper[1]) and upper[2]<upper[1] and upper[3]<upper[2] and is_equal_approx(upper[3],upper[4]) and upper[4]>0.0,"The enhanced water dims on the depth factor and keeps a faint remainder below 30000")
 	expect(abyss.modern_hue(Vector3.ZERO)==abyss.WATER_HUE,"Without an alga colour the enhanced water keeps its own blue-green")
+	# Water colour: none leaves plain water, more brings out the alga's hue.
+	var orange := Vector3(palette[2][0],palette[2][1],palette[2][2])*1.5/255.0
+	var muted: Vector3=abyss.modern_hue(orange)
+	abyss.region_strength=0.0
+	expect(abyss.modern_hue(orange).distance_to(abyss.WATER_HUE)<.02,"Water colour at 0% leaves the plain water hue")
+	abyss.region_strength=1.0
+	var strong: Vector3=abyss.modern_hue(orange)
+	expect(strong.x>muted.x and strong.z<muted.z,"A higher water colour brings out a warm alga's own hue")
+	abyss.region_strength=OceanOptions.WATER_COLOUR_DEFAULT
+	var colour_config := ConfigFile.new()
+	expect(is_equal_approx(OceanOptions.water_colour(colour_config),.6),"Water colour defaults to the muted tint")
+	colour_config.set_value("graphics","water_colour",7.0);expect(OceanOptions.water_colour(colour_config)==1.0,"Water colour is clamped")
+	colour_config.set_value("graphics","water_colour","x");expect(is_equal_approx(OceanOptions.water_colour(colour_config),.6),"An invalid water colour is the default")
 	# The colour eases in after a region change instead of switching.
 	var water=abyss.new();var probe := WorldProbe.new();probe.session.data=fixture;water.world=probe
 	fixture.tables.goods[16][2]=0

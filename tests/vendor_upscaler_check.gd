@@ -1,7 +1,8 @@
 extends SceneTree
 ## AMD FSR 3.1 and FSR 4 on the title's 3D view, through the settings
-## screen, then frame generation in a dive. Needs the Windows FSR engine
-## build, started as its Play-FSR.cmd starts it, with a window: where no
+## screen, then frame generation in a dive. Needs the Windows engine build
+## with the FidelityFX integration, on Direct3D 12 as renderer.cfg starts it
+## (renderer_choice.gd), with a window: where no
 ## vendor upscaler runs it exits 2 (blocked), never passing. Each mode must
 ## report real evaluations from AMD's runtime.
 const Quality=preload("res://native/presentation/graphics_quality.gd")
