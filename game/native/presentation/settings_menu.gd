@@ -672,7 +672,7 @@ func touch_page() -> void:
 		if can("layout_editor"): host.layout_editor.call())
 	placement.disabled=not (can("layout_editor") and active)
 	placement.tooltip_text=tr("Move and resize the on-screen controls.") if not placement.disabled else (tr("Turn touch controls on first.") if can("layout_editor") else tr("Available during gameplay."))
-	toggle(tr("Mirror fire control"),"input","touch_mirror_fire",false).tooltip_text=tr("Put the throttle arc on the right of the fire button, for a button placed on the left.")
+	toggle(tr("Mirror fire control"),"input","touch_mirror_fire",false).tooltip_text=tr("Put the throttle on the right of the fire button, for a button placed on the left.")
 	toggle(tr("Touch look area"),"input","touch_drag_anywhere",false,tr("Whole screen"),tr("Outside analog area"))
 	toggle(tr("Steering stick"),"input","touch_fixed_stick",false,tr("Fixed in place"),tr("Moves to thumb"))
 	toggle(tr("Invert vertical steering"),"keys","invert_mouse",false)
@@ -714,8 +714,10 @@ func gameplay_page() -> void:
 	toggle(tr("Autopilot status line"),"interface","autopilot_status",false)
 	toggle(tr("Friendly contact labels"),"interface","friend_labels",true)
 	group(tr("Interface"))
-	toggle(tr("Depth limit markers"),"graphics","depth_limits",false)
-	note(tr("Shows when the ship nears its depth limits."))
+	var markers: int=(2 if flag("graphics","depth_limits_always",false) else 1) if flag("graphics","depth_limits",false) else 0
+	chooser(tr("Depth limit markers"),[tr("Off"),tr("Near limits"),tr("Always")],markers,"depth_limits",func(next):
+		put("graphics","depth_limits_always",next==2,false);put("graphics","depth_limits",next>0))
+	note(tr("Shows the ship's depth limits as it nears them, or all the time."))
 	group(tr("Damage feedback"))
 	toggle(tr("Red flash on damage"),"interface","hit_flash",true)
 	toggle(tr("Screen shake on damage"),"interface","hit_shake",true)

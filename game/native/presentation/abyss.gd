@@ -84,8 +84,9 @@ const BEAM_HALF_TANGENT := .249
 ## further off than this from the chase camera.
 const BEAM_CLEARANCE := 20.0
 ## A cache imported before the palette was (or a station no alga reaches):
-## the blue alga's water at three quarters, the commonest sky in the game.
-const FALLBACK_REGION := Vector3(98,118,255)*1.125/255.0
+## plain water, WATER_HUE in sRGB, at the brightness of a typical region.
+## Guessing an alga would paint every station of an older import alike.
+const FALLBACK_REGION := Vector3(.3228,.5847,.8127)
 ## The surface light, on this engine's scale, that the phone's strongest
 ## light (ambient 2048, directional 4096 of 4096) corresponds to.
 const SURFACE_AMBIENT := .315

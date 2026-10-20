@@ -72,6 +72,9 @@ renderer/rendering_method.web="gl_compatibility"
 rendering_device/fallback_to_opengl3=true
 anti_aliasing/quality/msaa_3d=2
 anti_aliasing/quality/use_taa=false
+; The deep water is a few smooth, dark gradients; without a little dither
+; they step into visible contours on phone screens.
+anti_aliasing/quality/use_debanding=true
 lights_and_shadows/positional_shadow/atlas_size=8192
 ; Long underwater sightlines need more depth precision, including on WebGL.
 lights_and_shadows/positional_shadow/atlas_16_bits=false

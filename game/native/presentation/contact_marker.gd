@@ -48,7 +48,7 @@ func display(prefix: String, distance: String, detail: String, color: Color, per
 	if hull.visible:
 		hull.value=percentage
 		hull.position=Vector2(ICON_WIDTH,text_height+2)
-	size=Vector2(maxf(text_width,62 if hull.visible else 0),text_height+(6 if hull.visible else 0))
+	size=Vector2(maxf(text_width,ICON_WIDTH+hull.size.x if hull.visible else 0),text_height+(6 if hull.visible else 0))
 	queue_redraw();show()
 
 func track_enemy(anchor: Vector2, radius: float, offscreen: bool, captions: bool=true) -> void:

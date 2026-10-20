@@ -158,7 +158,7 @@ const MAX_NOTICE_HISTORY := 2
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 var headlight_mode := Headlights.DEFAULT
 var headlight_previous := Headlights.DEFAULT
-var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"station_smoothing":false,"ship_smoothing":false,"depth_limits":false}.merged(OceanOptions.defaults())
+var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"station_smoothing":false,"ship_smoothing":false,"depth_limits":false,"depth_limits_always":false}.merged(OceanOptions.defaults())
 var map_widget
 var map_info: RichTextLabel
 var map_title: Label
@@ -905,7 +905,9 @@ func _process(delta: float) -> void:
 		dashboard.throttle_keys=[OS.get_keycode_string(key_bindings.throttle_up),OS.get_keycode_string(key_bindings.throttle_down)]
 		dashboard.objective_text=objective_label.get_parsed_text();dashboard.update(world)
 		if not world.message.is_empty(): notice(world.message); world.message=""
-		update_markers()
+		# After the view has placed this frame's camera: projected with the
+		# last one, brackets and hull bars trail their ships through a turn.
+		update_markers.call_deferred()
 	update_notices(delta)
 	if simulated_capture:
 		capture_frames+=1
@@ -1759,7 +1761,7 @@ func apply_graphics() -> void:
 	var shadows: int=quality.shadows if modern_graphics else 3
 	view.set_shadow_level(shadows);abyss.set_shadow_level(shadows)
 	apply_headlights()
-	view.set_depth_limits(graphics.depth_limits)
+	view.set_depth_limits(graphics.depth_limits,graphics.depth_limits_always)
 	var env := abyss.environment.environment
 	env.volumetric_fog_enabled=modern_graphics and graphics.volumetric and RenderingServer.get_current_rendering_method()=="forward_plus"
 	env.ssao_enabled=modern_graphics and graphics.detail
@@ -2577,6 +2579,8 @@ func station_contacts() -> Array:
 		result.append({"key":"station" if id==session.station_id else "station:"+str(id),"p":[0,0,0],"position":position,"distance_position":distance_position,"name":session.stations[id].name,"color":Color("e5ce86") if quest_ids.has(id) else Color("7bd2d6"),"edge":id==session.station_id or quest_ids.has(id),"hull":-1.0,"station_contact":true,"quest":quest_ids.has(id)})
 	return result
 
+## How near the screen's edge a ship is still bracketed in place.
+const ENEMY_MARGIN := 12.0
 func update_markers() -> void:
 	if not page.is_empty() or world.region.cinematic() or view.transit_progress>=0:
 		for marker in markers: marker.hide()
@@ -2626,6 +2630,8 @@ func update_markers() -> void:
 	var occupied: Array[Rect2] = [instruments.gauge_rect().grow(24),condition.get_global_rect()]
 	for feedback in [hazard_warning,catch_status,struggle,travel_status,message]:
 		if feedback.visible and (not feedback is Label or not feedback.text.is_empty()):occupied.append(feedback.get_global_rect())
+	# An enemy's hull bar gives way to these panels only, not to other labels.
+	var panels:=occupied.size()
 	for target in targets:
 		if shown.size()>=MAX_CONTACT_LABELS and target.get("role","")!="enemy":continue
 		var position: Vector3 = world.render_pose(target.actor).origin if target.has("actor") else target.get("position",preload("res://scripts/model_library.gd").point(target.p))
@@ -2638,7 +2644,10 @@ func update_markers() -> void:
 		var behind: bool = camera.is_position_behind(position)
 		var reverse_edge: bool=behind and absf(camera_space.z)>=.001
 		var enemy: bool=target.get("role","")=="enemy" and not target.get("recoverable",false)
-		var on_screen: bool = not behind and Rect2(Vector2(20,160),ui.size-Vector2(40 if enemy else 200,315)).has_point(screen)
+		# A ship keeps its bracket and hull bar wherever it is drawn; the
+		# status bands reserved for labels would turn it into an edge mark
+		# sliding along their border while the ship is still in view.
+		var on_screen: bool = not behind and (Rect2(Vector2(ENEMY_MARGIN,ENEMY_MARGIN),ui.size-Vector2.ONE*ENEMY_MARGIN*2) if enemy else Rect2(Vector2(20,160),ui.size-Vector2(200,315))).has_point(screen)
 		if not on_screen and not target.edge: continue
 		if on_screen and target.get("role","")=="creature":
 			var ray:=PhysicsRayQueryParameters3D.create(camera.global_position,position,2)
@@ -2671,12 +2680,13 @@ func update_markers() -> void:
 		if enemy and not on_screen:markers[i].track_enemy(screen,18,true)
 		screen+=Vector2(24,12) if on_screen and enemy else Vector2(14,10) if on_screen else Vector2.ZERO
 		screen.x=clampf(screen.x,12,maxf(12,ui.size.x-markers[i].size.x-12))
-		screen.y=clampf(screen.y,160,maxf(160,ui.size.y-markers[i].size.y-155))
+		var top: float=ENEMY_MARGIN if on_screen and enemy else 160.0
+		screen.y=clampf(screen.y,top,maxf(top,ui.size.y-markers[i].size.y-(ENEMY_MARGIN if on_screen and enemy else 155.0)))
 		# Keep labels attached to their contacts; suppress overlaps instead of
 		# shuffling them through a stack of unrelated positions on every tick.
 		var area:=Rect2(screen,markers[i].size)
 		var overlap: bool=dashboard.visible and area.intersects(Rect2(ui.size.x-310,ui.size.y-305,310,305))
-		for previous in occupied:
+		for previous in (occupied.slice(0,panels) if enemy else occupied):
 			if previous.grow(6).intersects(area):overlap=true;break
 		if overlap and target.get("station_contact",false):
 			# Navigation labels are essential. Try nearby clear slots instead of

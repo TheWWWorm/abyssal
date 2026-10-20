@@ -1047,6 +1047,10 @@ func refresh_title() -> void:
 				title_menu.continue_button.disabled=false
 				if store.recovered and index==3:status.text=tr("Latest autosave is damaged; the previous save was loaded.")
 			elif index==3:status.text=store.failure
+		# Imported before the water palette was: every region shows the same
+		# neutral water until the JAR is imported again (saves still match).
+		if status.text.is_empty() and not content.data.has("water_palette"):
+			status.text=tr("Import your JAR again for each region's original water colour. Saves are kept.")
 	focus_title()
 
 func show_tools() -> void:

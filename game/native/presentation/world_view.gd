@@ -61,10 +61,23 @@ var player_model
 ## depth: here a drawn, hatched panel that fades in over the last stretch
 ## before each limit. Off unless asked for; the instruments show the limits.
 var depth_limits := false
+var depth_limits_always := false
 var limit_nodes: Array = []
+## pfeil (bb): more than 200 past a depth limit, an arrow 42 m ahead of the
+## camera, on the view's axis, points at that limit's panel above or below
+## the hull, drawn over everything. Drawn rather than imported, like the
+## panels: the phone's is a dim grey patch added to near-black water, and
+## would vanish in the headlight glow. Same size and four-finned head, in
+## the colour of the panel it points at.
+const ARROW_REACH := 42.0
+var limit_arrow: Node3D
 const LIMIT_EXTENT := 60.0
 ## Metres of water, in the view's units, over which the panel fades in.
 const LIMIT_FADE := 30.0
+## Always on: the panels keep this much of their strength at any distance,
+## and the water takes them back over four times the reach.
+const LIMIT_ALWAYS := .55
+const LIMIT_HAZE := [.016,.004]
 ## Radiation waits above the shallow limit, pressure below the deep one.
 const LIMIT_TINTS := [Color(1.0,0.82,0.25),Color(0.3,0.62,1.0)]
 var banking := preload("res://native/simulation/ship_transform.gd").new()
@@ -221,6 +234,7 @@ func rebuild() -> void:
 		surface.set_shader_parameter("half_extent",LIMIT_EXTENT);surface.set_shader_parameter("tint",LIMIT_TINTS[i]);panel.material_override=surface
 		panel.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;panel.visible=false
 		add_child(panel);limit_nodes.append(panel)
+	if not is_instance_valid(limit_arrow): limit_arrow=build_limit_arrow()
 	if player_model!=null: player_model.apply_range(Model.ship_animation_range(world.session.ship.id,int(world.session.ship.upgraded)))
 	for part in ([] if not station_nodes.is_empty() else world.region.station.parts):
 		var visual=model(int(part.model_id),part.frame_ms)
@@ -372,6 +386,7 @@ func _process(delta: float) -> void:
 			"friend0": target=Library.point(region.friends[0].pose.origin)
 			"friend1": target=Library.point(region.friends[1].pose.origin)
 		if camera.global_position.distance_squared_to(target)>0.01: camera.look_at(target,Vector3.UP)
+	place_limit_arrow(player_pose.origin)
 	for i in station_nodes.size():
 		var position: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(region.station.parts[i].origin,region.finale_station_offset))
 		# Avoid propagating a stationary pose through meshes, lights and bodies.
@@ -571,8 +586,8 @@ func _process(delta: float) -> void:
 static func station_trim(index: int) -> float:
 	return 1.0-0.002*(1+(index%3))
 
-func set_depth_limits(on: bool) -> void:
-	depth_limits=on
+func set_depth_limits(on: bool, always := false) -> void:
+	depth_limits=on;depth_limits_always=on and always
 	for node in limit_nodes: node.visible=false
 
 func place_depth_limits(under: Vector3) -> void:
@@ -587,10 +602,44 @@ func place_depth_limits(under: Vector3) -> void:
 		var node: MeshInstance3D=limit_nodes[i]
 		var height: float=float(player.station_depth-limits[i])*8.0*Library.UNIT
 		var strength: float=clampf(1.0-absf(height-under.y)/LIMIT_FADE,0.0,1.0)
+		if depth_limits_always: strength=maxf(strength,LIMIT_ALWAYS)
 		node.visible=depth_limits and not world.session.docked and strength>0.0
 		if not node.visible: continue
 		node.position=Vector3(under.x,height,under.z)
+		# Always on, a distant limit grows with its distance so it keeps
+		# about the size on screen it has close by.
+		node.scale=Vector3.ONE*(maxf(1.0,absf(height-under.y)/LIMIT_EXTENT) if depth_limits_always else 1.0)
 		node.material_override.set_shader_parameter("strength",strength)
+		node.material_override.set_shader_parameter("haze_rate",LIMIT_HAZE[int(depth_limits_always)])
+
+func build_limit_arrow() -> Node3D:
+	var arrow:=Node3D.new();arrow.name="LimitArrow";arrow.visible=false;add_child(arrow)
+	var surface:=StandardMaterial3D.new()
+	surface.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;surface.blend_mode=BaseMaterial3D.BLEND_MODE_ADD
+	surface.no_depth_test=true;surface.disable_fog=true;surface.cull_mode=BaseMaterial3D.CULL_DISABLED
+	surface.render_priority=Material.RENDER_PRIORITY_MAX
+	# The tip leads along -Z, so look_at aims it: a shaft and two crossed fins.
+	var shaft:=BoxMesh.new();shaft.size=Vector3(.32,.32,3.4)
+	var fin:=PrismMesh.new();fin.size=Vector3(2.2,2.2,.06)
+	for part in [[shaft,Transform3D(Basis(),Vector3(0,0,1.1))],[fin,Transform3D(Basis(Vector3.RIGHT,-PI*.5),Vector3(0,0,-1.7))],[fin,Transform3D(Basis(Vector3.BACK,PI*.5)*Basis(Vector3.RIGHT,-PI*.5),Vector3(0,0,-1.7))]]:
+		var piece:=MeshInstance3D.new();piece.mesh=part[0];piece.transform=part[1];piece.material_override=surface
+		piece.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;arrow.add_child(piece)
+	arrow.set_meta("surface",surface)
+	return arrow
+
+func place_limit_arrow(under: Vector3) -> void:
+	if not is_instance_valid(limit_arrow): return
+	var region=world.region;var player=region.player
+	limit_arrow.visible=player.outside_depth_limits and not world.session.docked and player.health.hull>0 and region.cinematic_camera.is_empty() and not region.cinematic()
+	if not limit_arrow.visible: return
+	# Too deep it points up at the deepest limit, too shallow down at the shallowest.
+	var deep: bool=player.depth>player.stats.maximum_depth
+	var limit: int=player.stats.maximum_depth if deep else player.stats.minimum_depth
+	var target:=Vector3(under.x,float(player.station_depth-limit)*8.0*Library.UNIT,under.z)
+	limit_arrow.global_position=camera.global_position-camera.global_basis.z*ARROW_REACH
+	var tint: Color=LIMIT_TINTS[int(deep)];limit_arrow.get_meta("surface").albedo_color=Color(tint.r,tint.g,tint.b)*.85+Color(0,0,0,.15)
+	# The roll is free: the head has four fins.
+	if limit_arrow.global_position.distance_squared_to(target)>.01: limit_arrow.look_at(target,camera.global_basis.x)
 
 func build_gate_field(node: Node3D) -> void:
 	"""The lit aperture inside the gate frame. gate_field.gdshader has been in the

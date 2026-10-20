@@ -6,6 +6,8 @@ render_mode unshaded, blend_add, cull_disabled, depth_draw_never, fog_disabled;
 uniform vec3 tint: source_color = vec3(1.0, 0.68, 0.28);
 uniform float strength = 0.0;
 uniform float half_extent = 60.0;
+// Shown all the time, the panel fades over a longer reach (world_view.gd).
+uniform float haze_rate = 0.016;
 varying vec2 local;
 varying vec2 world;
 // The panel rides along under the hull, so its squares are laid in world
@@ -23,7 +25,7 @@ void fragment() {
 	float line = 1.0 - smoothstep(0.15 - aa, 0.15 + aa, gap);
 	float hatch = 0.05 + 0.95 * line;
 	// The water takes it back with distance, as it does the headlight beams.
-	float haze = exp(-length(VERTEX) * 0.016);
+	float haze = exp(-length(VERTEX) * haze_rate);
 	// Nothing at the edge of its range, brighter the nearer the limit, and at
 	// the limit itself twice the level the first sight of it had.
 	float presence = pow(strength, 3.0) * (0.25 + 0.75 * strength);

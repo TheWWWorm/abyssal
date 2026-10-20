@@ -10,14 +10,14 @@ const SCALE_STEP := 0.1
 const MAX_OFFSET := 4096.0
 ## Ordered so hit tests reach the small controls before the steering stick they
 ## can overlap, and so "next control" walks the screen roughly left to right.
-## The throttle is not placed on its own: it curves round the guns.
-const IDS: Array[String] = ["time","autopilot","boost","map","menu","dock","hook","guns","stick"]
+## Until it is placed itself, the throttle follows the guns.
+const IDS: Array[String] = ["time","autopilot","boost","map","menu","dock","throttle","hook","guns","stick"]
 const NAMES := {"menu":"Pause","map":"Map","autopilot":"Route","time":"Time","dock":"Dock",
-	"boost":"Boost","hook":"Harpoon","guns":"Guns","stick":"Steering stick"}
+	"boost":"Boost","throttle":"Throttle","hook":"Harpoon","guns":"Guns","stick":"Steering stick"}
 static func names() -> Dictionary:
 	"""NAMES in the engine's language."""
 	return {"menu":EngineLanguage.translate("Pause"),"map":EngineLanguage.translate("Map"),"autopilot":EngineLanguage.translate("Route"),"time":EngineLanguage.translate("Time"),"dock":EngineLanguage.translate("Dock"),
-		"boost":EngineLanguage.translate("Boost"),"hook":EngineLanguage.translate("Harpoon"),"guns":EngineLanguage.translate("Guns"),"stick":EngineLanguage.translate("Steering stick")}
+		"boost":EngineLanguage.translate("Boost"),"throttle":EngineLanguage.translate("Throttle"),"hook":EngineLanguage.translate("Harpoon"),"guns":EngineLanguage.translate("Guns"),"stick":EngineLanguage.translate("Steering stick")}
 
 static func number(value, fallback: float=0.0) -> float:
 	if value is not float and value is not int: return fallback
