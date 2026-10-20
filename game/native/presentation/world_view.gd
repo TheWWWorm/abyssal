@@ -63,15 +63,20 @@ var player_model
 var depth_limits := false
 var depth_limits_always := false
 var limit_nodes: Array = []
-## pfeil (bb): more than 200 past a depth limit, an arrow 42 m ahead of the
-## camera, on the view's axis, points at that limit's panel above or below
-## the hull, drawn over everything. Drawn rather than imported, like the
-## panels: the phone's is a dim grey patch added to near-black water, and
-## would vanish in the headlight glow. Same size and four-finned head, in
-## the colour of the panel it points at.
+## pfeil (bb): past a depth limit, an arrow 42 m ahead of the camera, on
+## the view's axis, points the way back, drawn over everything. The original
+## shows it only more than 200 past the limit and aims it at the limit's
+## panel under the hull; here it stays until the hull is back inside, where
+## the water stops doing damage, and points straight up or down, so it cannot
+## turn about as the camera, ahead of and above the hull, passes the limit
+## first. Drawn rather than imported, like the panels: the phone's is a dim
+## grey patch added to near-black water, and would vanish in the headlight
+## glow. Same size and four-finned head, in the colour of that limit's panel.
 const ARROW_REACH := 42.0
 var limit_arrow: Node3D
-const LIMIT_EXTENT := 60.0
+## The panel's half width: a patch about the hull's size, over or under it,
+## which is all of the limit that matters, rather than a sheet across the view.
+const LIMIT_EXTENT := 16.0
 ## Metres of water, in the view's units, over which the panel fades in.
 const LIMIT_FADE := 30.0
 ## Always on: the panels keep this much of their strength at any distance,
@@ -627,19 +632,21 @@ func build_limit_arrow() -> Node3D:
 	arrow.set_meta("surface",surface)
 	return arrow
 
-func place_limit_arrow(under: Vector3) -> void:
+func place_limit_arrow(_under: Vector3) -> void:
 	if not is_instance_valid(limit_arrow): return
 	var region=world.region;var player=region.player
-	limit_arrow.visible=player.outside_depth_limits and not world.session.docked and player.health.hull>0 and region.cinematic_camera.is_empty() and not region.cinematic()
+	var outside: bool=player.depth>player.stats.maximum_depth or player.depth<player.stats.minimum_depth
+	limit_arrow.visible=outside and not world.session.docked and player.health.hull>0 and region.cinematic_camera.is_empty() and not region.cinematic()
 	if not limit_arrow.visible: return
-	# Too deep it points up at the deepest limit, too shallow down at the shallowest.
+	# Too deep it points up towards the deepest limit, too shallow down.
 	var deep: bool=player.depth>player.stats.maximum_depth
-	var limit: int=player.stats.maximum_depth if deep else player.stats.minimum_depth
-	var target:=Vector3(under.x,float(player.station_depth-limit)*8.0*Library.UNIT,under.z)
 	limit_arrow.global_position=camera.global_position-camera.global_basis.z*ARROW_REACH
 	var tint: Color=LIMIT_TINTS[int(deep)];limit_arrow.get_meta("surface").albedo_color=Color(tint.r,tint.g,tint.b)*.85+Color(0,0,0,.15)
-	# The roll is free: the head has four fins.
-	if limit_arrow.global_position.distance_squared_to(target)>.01: limit_arrow.look_at(target,camera.global_basis.x)
+	# The roll is free: the head has four fins. The camera's own axis serves
+	# as "up" unless it too is vertical, looking straight up or down.
+	var heading:=Vector3.UP if deep else Vector3.DOWN
+	var side: Vector3=camera.global_basis.z if absf(camera.global_basis.z.dot(heading))<.95 else camera.global_basis.x
+	limit_arrow.look_at(limit_arrow.global_position+heading,side)
 
 func build_gate_field(node: Node3D) -> void:
 	"""The lit aperture inside the gate frame. gate_field.gdshader has been in the

@@ -87,7 +87,7 @@ func advance_capsule(delta_ms: int) -> void:
 func advance_freighter(delta_ms: int) -> void:
 	if moving and state not in [3,4]:
 		pose.advance(delta_ms)
-		for shape in shapes:shape.origin=pose.origin.duplicate()
+		for shape in shapes:shape.origin=pose.origin.duplicate();shape.basis=pose.basis()
 	if health.hull<=0 and state not in [3,4]:
 		health.enabled=false;state=3;events.append("killed")
 	if state==5:

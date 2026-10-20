@@ -55,6 +55,7 @@ func place_labels(entries: Array, obstacles: Array, markers: Array=[]) -> Array:
 		var offset: float=entry.get("radius",6.0)+7.0
 		var top: float=marker.y-ceilf(font.get_height(entry.lines[0].font_size))*.5
 		var candidates := [Vector2(marker.x+offset,top),Vector2(marker.x-offset-extent.x,top)]
+		var fits := false
 		for position in candidates:
 			var rect := Rect2(position.round(),extent)
 			if not bounds.encloses(rect.grow(3)) or obstacles.any(func(other):return rect.grow(5).intersects(other)):continue
@@ -64,7 +65,16 @@ func place_labels(entries: Array, obstacles: Array, markers: Array=[]) -> Array:
 			var reading_room := rect.grow_individual(18,10,18,10)
 			if placed.any(func(other):return reading_room.intersects(other.rect)):continue
 			var result: Dictionary=entry.duplicate();result.rect=rect
-			placed.append(result);break
+			placed.append(result);fits=true;break
+		# The station just picked always shows its name, over its neighbours'
+		# squares if it must: on the side with room inside the chart, kept
+		# inside it at the edge.
+		if not fits and entry.get("selected",false):
+			var position: Vector2=candidates[0] if bounds.encloses(Rect2(candidates[0],extent).grow(3)) or not bounds.encloses(Rect2(candidates[1],extent).grow(3)) else candidates[1]
+			var inside:=bounds.grow(-3)
+			position=position.clamp(inside.position,inside.end-extent)
+			var result: Dictionary=entry.duplicate();result.rect=Rect2(position.round(),extent);result.forced=true
+			placed.append(result)
 	return placed
 func chart_labels() -> Array:
 	if world==null:return []
@@ -108,14 +118,18 @@ func draw_chart_labels() -> void:
 			draw_string(font,baseline,line.text,HORIZONTAL_ALIGNMENT_LEFT,-1,line.font_size,line.color)
 			top+=ceilf(font.get_height(line.font_size))
 func _get_tooltip(at: Vector2) -> String:
+	"""The name of the station under the pointer, unless the chart already
+	writes it beside the square."""
 	if world==null:return tooltip_text
 	var nearest := 16.0
-	var name := ""
+	var found := -1
 	for station in world.session.stations:
 		if not filtered.is_empty() and not str(station.name).to_lower().contains(filtered):continue
 		var distance := at.distance_to(point(station.x,station.y))
-		if distance<nearest:nearest=distance;name=station.name
-	return name if not name.is_empty() else tooltip_text
+		if distance<nearest:nearest=distance;found=station.id
+	if found<0:return tooltip_text
+	if chart_labels().any(func(entry):return entry.id==found):return ""
+	return world.session.stations[found].name
 func chart_at(position: Vector2) -> Vector2:
 	return (position-size*0.5-pan)/(minf(size.x,size.y)*0.0085*zoom)+Vector2(50,50)
 ## Pixels between neighbouring chart units at the closest zoom. Enough for

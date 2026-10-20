@@ -360,6 +360,8 @@ func check_label_rects(chart, labels: Array, obstacles: Array=[]) -> void:
 		var row_height: float=ceilf(ThemeDB.fallback_font.get_height(labels[i].lines[0].font_size))
 		expect(bounds.encloses(rect.grow(3)),"Names and their outline stay within the chart")
 		expect(absf(rect.position.y+row_height*.5-marker.y)<=.5,"Names stay on their own marker's row")
+		# Only the station just picked may cover its neighbours, when nothing else fits.
+		if labels[i].get("forced",false):continue
 		for other in obstacles:expect(not rect.grow(5).intersects(other),"Names leave markers and the scale clear")
 		for j in range(i):expect(not rect.grow_individual(18,10,18,10).intersects(labels[j].rect),"Map names have space between them")
 
@@ -375,6 +377,9 @@ func check_chart_labels(world) -> void:
 	check_label_rects(chart,labels,blockers)
 	blockers.append(labels[0].rect)
 	expect(chart.place_labels([entry],blockers).is_empty(),"Names with neither side free wait for more zoom")
+	var picked: Dictionary=entry.duplicate();picked.selected=true
+	var forced: Array=chart.place_labels([picked],blockers)
+	expect(forced.size()==1 and Rect2(Vector2(4,4),chart.size-Vector2(8,8)).encloses(forced[0].rect),"The station just picked is named even with neither side free")
 	var width: float=ThemeDB.fallback_font.get_string_size(lines[0].text,HORIZONTAL_ALIGNMENT_LEFT,-1,14).x
 	var nearby: Array=[entry.marker,entry.marker+Vector2(40,0),entry.marker-Vector2(width+26,0)]
 	expect(chart.place_labels([entry],[],nearby).is_empty(),"A name equally close to another dot is omitted")
@@ -403,9 +408,11 @@ func check_chart_labels(world) -> void:
 			chart.pan=Vector2.ZERO;chart.pan=chart.size*.5-chart.point(station.x,station.y)
 			expect(chart.chart_labels().any(func(label):return label.id==station.id),"%s is named at the closest zoom"%station.name)
 	chart.selected_id=previous_selection;chart.size=Vector2(500,390);chart.zoom=6;chart.pan=chart.size*.5-chart.point(8.5,59)
+	var named: Array=chart.chart_labels().map(func(label):return label.id)
 	for station in world.session.stations:
 		var at: Vector2=chart.point(station.x,station.y)
-		expect(chart._get_tooltip(at)==station.name,"Hover identifies a station even when its name is hidden")
+		if station.id in named:expect(chart._get_tooltip(at).is_empty(),"Hover does not repeat a name the chart already shows: %s"%station.name)
+		else:expect(chart._get_tooltip(at)==station.name,"Hover identifies a station even when its name is hidden")
 	chart.filtered="Gosu"
 	var hidden: Dictionary=world.session.stations[58]
 	expect(chart._get_tooltip(chart.point(hidden.x,hidden.y))==chart.tooltip_text,"Filtering also excludes hover names")

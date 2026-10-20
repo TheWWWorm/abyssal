@@ -42,6 +42,15 @@ const BLOOD_CAPACITY := 12
 ## cache has no fischtod model: a small dark red puff stands in.
 const BLOOD_REGION := Rect2(96,96,31,31)
 const BLOOD_ATLAS := "data/textures/fx.bmp"
+## The harpoon line (cx): two crossed strips 40 units either side of the
+## line, wearing one texel of fx.bmp picked by the harpoon (items 15, 16 and
+## 17), added to the water. So each harpoon draws its own colour, see-through.
+const HARPOON_TEXELS := {15:Vector2i(34,104),16:Vector2i(29,101),17:Vector2i(2,104)}
+const HARPOON_WIDTH := 0.4
+const HARPOON_OPACITY := 0.45
+## For a JAR whose cache has no fx atlas.
+const HARPOON_FALLBACK := Color("649a9b")
+var harpoon_colors := {}
 var blood_clouds: Array = []
 var blood_count := 0
 var puff_count := 0
@@ -94,7 +103,7 @@ func reset(keep_player_wake: bool=false) -> void:
 	for node in blood_clouds:
 		if keep_player_wake: node.hide()
 		else: node.queue_free()
-	if not keep_player_wake: blood_clouds.clear(); puffs.multimesh.mesh.material.remove_meta("atlas_checked")
+	if not keep_player_wake: blood_clouds.clear(); puffs.multimesh.mesh.material.remove_meta("atlas_checked"); harpoon_colors.clear()
 	for node in [segments,bursts,bubbles,puffs]: node.multimesh.visible_instance_count=0
 	refresh_bounds()
 	for light in lights: light.hide()
@@ -160,6 +169,22 @@ func blood_atlas() -> void:
 		var size: Vector2=owner_view.library.texture_size(BLOOD_ATLAS)
 		material.set_shader_parameter("cloud",atlas)
 		material.set_shader_parameter("cloud_region",Vector4(BLOOD_REGION.position.x/size.x,BLOOD_REGION.position.y/size.y,BLOOD_REGION.size.x/size.x,BLOOD_REGION.size.y/size.y))
+func harpoon_color(weapon) -> Color:
+	"""The texel of the atlas the harpoon's line wears, read where a player's
+	own atlas has it, at whatever size that atlas is drawn."""
+	var id: int=weapon.equipment_id
+	if not harpoon_colors.has(id):
+		var color := HARPOON_FALLBACK
+		var path: String=owner_view.library.root.path_join(BLOOD_ATLAS)+".png"
+		var atlas: Texture2D=owner_view.library.texture(BLOOD_ATLAS) if HARPOON_TEXELS.has(id) and FileAccess.file_exists(path) else null
+		var image: Image=atlas.get_image() if atlas!=null else null
+		if image!=null and not image.is_empty():
+			if image.is_compressed(): image.decompress()
+			var texels: Vector2=owner_view.library.texture_size(BLOOD_ATLAS)
+			var at: Vector2=(Vector2(HARPOON_TEXELS[id])+Vector2(.5,.5))*Vector2(image.get_size())/texels
+			color=image.get_pixelv(Vector2i(clampi(int(at.x),0,image.get_width()-1),clampi(int(at.y),0,image.get_height()-1)))
+		harpoon_colors[id]=Color(color.r,color.g,color.b,HARPOON_OPACITY)
+	return harpoon_colors[id]
 func bubble(at: Vector3, scale: float, opacity: float) -> void:
 	if bubble_count>=bubbles.multimesh.instance_count or at.distance_squared_to(owner_view.camera.global_position)>160000: return
 	var distance: float=at.distance_to(owner_view.camera.global_position)
@@ -226,7 +251,7 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 			elif weapon.fishing:
 				# From the drawn hull, not the stepped one: the model is rendered
 				# between ticks, and a line anchored a tick ahead of it judders.
-				segment(owner_view.world.render_pose(region.player).origin,at,0.035,Color("649a9b"))
+				segment(owner_view.world.render_pose(region.player).origin,at,HARPOON_WIDTH,harpoon_color(weapon))
 			elif weapon.model_id>=0:
 				var key := str(weapon.get_instance_id())+":"+str(i)
 				if not projectile_nodes.has(key):
@@ -244,7 +269,7 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 						bubble(at-velocity*float(j)/5+side,.12+float(j)*.014,.36-float(j)*.023)
 	for hook in region.fishing:
 		if hook.target!=null:
-			segment(owner_view.world.render_pose(region.player).origin,owner_view.world.render_pose(hook.target).origin,0.035,Color("649a9b"))
+			segment(owner_view.world.render_pose(region.player).origin,owner_view.world.render_pose(hook.target).origin,HARPOON_WIDTH,harpoon_color(hook.weapon))
 	for actor in region.enemies+region.friends:
 		if actor.state in [3,4] and not (actor.capturable and actor.health.enabled): continue
 		if owner_view.pack.enabled: continue

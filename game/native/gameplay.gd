@@ -102,15 +102,29 @@ var message := Label.new()
 ## on. A "+" glyph in a label sat five pixels off it, which reads as the
 ## harpoon missing what it was pointed at.
 class Reticle extends Control:
+	## Auto fire: 0 off, 1 on but the harpoon bank is selected, 2 firing.
+	var auto := 0
+	func set_auto(state: int) -> void:
+		# Firing, the outer marks turn, so it is redrawn every frame.
+		if state!=auto or state==2: auto=state;queue_redraw()
 	func _draw() -> void:
-		# A broken ring with side ticks round a centre dot.
-		var c := size*.5;var tint := Color("9fe3efcc")
+		# A broken ring with side ticks round a centre dot; amber with four
+		# outer marks while auto fire is on, turning while it fires.
+		var c := size*.5;var tint := Color("9fe3efcc") if auto==0 else Color("f0c27add")
 		for quarter in 4:
 			var middle := quarter*PI*.5+PI*.25
 			draw_arc(c,8.0,middle-.5,middle+.5,8,tint,1.5,true)
 		for side in [-1.0,1.0]:
 			draw_line(c+Vector2(side*11,-3),c+Vector2(side*11,3),tint,1.5)
 		draw_circle(c,1.5,tint)
+		if auto==0: return
+		var mark := tint if auto==2 else Color(tint,.45)
+		var turn := Time.get_ticks_msec()*.0025 if auto==2 else 0.0
+		for quarter in 4:
+			var middle := quarter*PI*.5+PI*.25+turn
+			draw_arc(c,15.0,middle-.32,middle+.32,8,mark,2.0,true)
+		var font := get_theme_default_font()
+		draw_string(font,Vector2(c.x-30,c.y+30),tr("Auto").to_upper(),HORIZONTAL_ALIGNMENT_CENTER,60,10,mark)
 var crosshair := Reticle.new()
 var struggle := ProgressBar.new()
 var instruments := preload("res://native/presentation/flight_instruments.gd").new()
@@ -150,6 +164,11 @@ const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
 var key_bindings: Dictionary = SettingsMenu.DEFAULT_KEYS.duplicate()
 var suppress_fire_until_release := false
 var auto_fire := false
+## Original weapon controls (Settings · Controls, off by default): one fire
+## control for the selected bank, Tab or the touch switch to change bank, and
+## auto fire working the guns only while they are selected. Off, auto fire
+## always works the guns. Either way auto fire never fires the harpoon.
+var original_weapons := false
 ## Automatic fire a transmission interrupted in flight, resumed when it ends:
 ## a message mid-fight must not leave the guns silent. Menus the player opens
 ## still stop it.
@@ -757,7 +776,7 @@ func time_notice(text: String) -> bool:
 	return text.begins_with("Time ·") or (not prefix.is_empty() and text.begins_with(prefix))
 const ROUTINE_NOTICES := ["Autopilot · %s","Autopilot · mission waypoint","Time · %d×","Docked · %s","Entered %s",
 	"S.T.R.E.A.M. arrival · %s","Camera · %s","Leaving %s · Enter / click to skip","Auto guns on · tap to stop","Auto guns off",
-	"Auto harpoon on · tap to stop","Auto harpoon off","Auto fire off","Tilt centred"]
+"Auto fire off","Tilt centred"]
 func routine_notice(text: String) -> bool:
 	"""A confirmation of what the player just did or of where the ship now is,
 	which the Messages at sea setting hides; refusals and warnings stay."""
@@ -839,6 +858,7 @@ func _process(delta: float) -> void:
 	if page=="freeze": return
 	if session.docked and page not in ["departure","transit","opening"]: world.advance_docked(minf(delta,.1))
 	if page.is_empty() and not session.docked:
+		watch_catches(world.region)
 		world.advance(delta,flight_input(delta))
 		if session.docked: finish_docking()
 		else:
@@ -889,13 +909,15 @@ func _process(delta: float) -> void:
 		if touch.enabled():hints.text=tr("Drag anywhere to look") if touch.drag_anywhere else (tr("Left thumb strafes · drag the screen to look") if strafe_enabled() else tr("Left thumb steers · drag the screen to look"))
 		elif controller.device>=0:hints.text=tr("%s · hold D-pad left to look · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu")%((tr("Left stick strafe · right stick turn") if strafe_enabled() else tr("Left stick steer")) if controller.default_roles() else tr("Sticks as set in Gamepad settings"))
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
-		# The fitted weapons are the player's own knowledge; the HUD keeps quiet.
-		bank_label.visible=false
+		# The fitted weapons are the player's own knowledge; the HUD keeps quiet,
+		# unless one fire control works whichever bank is selected.
+		bank_label.visible=flight_visible and original_weapons and not touch.enabled() and world.region.loadout.groups.size()>1
 		condition.info=Coin.coins(tr("%d/%dt     Cr %d     %s")%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name])
 		if touch.enabled():
 			# The dock button is there while docking, or a manual gate entry, is.
 			var dockable: bool=r.station.can_dock(r.player.pose.origin) or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
 			var banks: Array=r.loadout.groups.filter(func(group):return not group.is_empty())
+			touch.set_banks(r.loadout.selected>=0 and not guns_selected(),banks.size()>1)
 			touch.show_state(r.player.throttle_target/100.0,flight_visible and page.is_empty() and dockable,instruments.boost_state(r.player),world.autopilot,world.speed,
 				banks.any(func(group):return group[0].fishing),banks.any(func(group):return not group[0].fishing))
 		if r.loadout.selected>=0:
@@ -914,6 +936,9 @@ func _process(delta: float) -> void:
 		# The way out of a gate is a camera shot, not the chase view: its centre
 		# is not where the guns point, so the reticle waits for the hand-back.
 		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
+		var touch_auto: bool=touch.automatic_weapons.has("guns")
+		var auto_live: bool=auto_firing() or (touch_auto and (guns_selected() if original_weapons else true))
+		crosshair.set_auto(0 if not (auto_fire or touch_auto) else (2 if auto_live else 1))
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text=tr("AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED")%[world.speed,OS.get_keycode_string(key_bindings.time)]
 		travel_status.visible=flight_visible and world.autopilot and autopilot_status
@@ -946,6 +971,19 @@ func collect_damage_bearings() -> void:
 		damage_feedback.record(camera,Library.point(event.position),here)
 		damage_seen_ms=maxi(damage_seen_ms,int(event.time))
 	damage_feedback.advance(get_process_delta_time())
+func watch_catches(region) -> void:
+	"""cx lets a struggling catch go the moment it leaves the screen (am.a(v)).
+	The region's own test, a cone round the bow, reaches far past the edges
+	of the view, so in flight the frame actually drawn decides."""
+	if region==null: return
+	var watch := Callable(self,"catch_in_view")
+	for hook in region.fishing:
+		if hook.visible_to_camera!=watch: hook.visible_to_camera=watch
+func catch_in_view(point: Array) -> bool:
+	if not is_instance_valid(camera) or not camera.is_inside_tree(): return true
+	var at := Library.point(point)
+	if camera.is_position_behind(at): return false
+	return Rect2(ui.position,ui.size).has_point(camera.unproject_position(at))
 func update_catch_feedback(region, show_feedback: bool) -> void:
 	struggle.hide();catch_status.hide();catch_status.text=""
 	for hook in region.fishing:
@@ -967,6 +1005,17 @@ func update_catch_feedback(region, show_feedback: bool) -> void:
 		else:catch_status.text=tr("HARPOON ATTACHED  ·  DISABLE TARGET TO RECOVER")
 		catch_status.visible=show_feedback
 		break
+func auto_firing() -> bool:
+	"""Auto fire works the guns and never the harpoon. With the original
+	controls it works the selected bank, so selecting the harpoon pauses it
+	and selecting the guns again resumes it, as in the original."""
+	if not auto_fire or world.region==null: return false
+	if original_weapons:return guns_selected()
+	return world.region.loadout.groups.any(func(group):return not group.is_empty() and not group[0].fishing)
+func guns_selected() -> bool:
+	if world.region==null:return false
+	var loadout=world.region.loadout
+	return loadout.selected>=0 and not loadout.groups[loadout.selected].is_empty() and not loadout.groups[loadout.selected][0].fishing
 func strafe_enabled() -> bool:
 	# Auto strafes wherever something else can turn the boat: a mouse, or the
 	# right stick. A thumb on the touch stick has neither, so it keeps turning.
@@ -982,8 +1031,13 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	var stopping := mouse_wheel_throttle and throttle_down
 	var throttle := int(Input.is_physical_key_pressed(key_bindings.throttle_up))
 	if not mouse_wheel_throttle:throttle-=int(throttle_down)
-	var fire := auto_fire or Input.is_physical_key_pressed(key_bindings.fire)
+	var fire := Input.is_physical_key_pressed(key_bindings.fire)
 	var guns := not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	# Auto fire: the selected bank with the original controls, which is never
+	# the harpoon while it fires; otherwise the guns, whatever is selected.
+	if auto_firing():
+		if original_weapons:fire=true
+		else:guns=true
 	var hook := not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
 	if suppress_fire_until_release:
 		if not guns and not hook and not Input.is_physical_key_pressed(key_bindings.fire): suppress_fire_until_release=false
@@ -1018,7 +1072,10 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 		pitch=clampf(pitch+tilted.y*(-1.0 if invert_motion_pitch else 1.0),-1,1)
 	pitch=clampf(pitch+pad.pitch+screen.pitch,-1,1)
 	throttle=clampi(throttle+pad.throttle+screen.throttle,-1,1)
-	fire=fire or pad.fire;guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
+	fire=fire or pad.fire or screen.get("fire",false);guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
+	# The touch fire button's auto fire, with the original controls: only
+	# while the guns are selected.
+	if screen.get("auto",false) and guns_selected():fire=true
 	if stopping:perform("stop");throttle=0;boost=false
 	var roll := 0.0
 	if world.manual_roll:roll=clampf(float(Input.is_physical_key_pressed(key_bindings.roll_right))-int(Input.is_physical_key_pressed(key_bindings.roll_left))+pad.roll,-1,1)
@@ -1069,10 +1126,8 @@ func touch_throttle(percent: int) -> void:
 func touch_action(action: String) -> void:
 	if action=="menu":show_pause()
 	elif action=="full":toggle_fullscreen()
-	elif action in ["auto_guns","auto_hook"] and page.is_empty():
-		var weapon := action.trim_prefix("auto_")
-		var enabled: bool=touch.automatic_weapons.has(weapon)
-		notice((tr("Auto guns on · tap to stop") if enabled else tr("Auto guns off")) if weapon=="guns" else (tr("Auto harpoon on · tap to stop") if enabled else tr("Auto harpoon off")))
+	elif action=="auto_guns" and page.is_empty():
+		notice(tr("Auto guns on · tap to stop") if touch.automatic_weapons.has("guns") else tr("Auto guns off"))
 		dive_audio.cue("beep")
 	elif page.is_empty():perform(action)
 func browser_flag(expression: String) -> bool:
@@ -1691,6 +1746,7 @@ func read_settings() -> void:
 	controller.roles=controller.read_roles(config)
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
 	world.set_manual_roll(bool(config.get_value("input","manual_roll",false)))
+	original_weapons=bool(config.get_value("input","original_weapons",false));touch.original_weapons=original_weapons
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
 	motion_steering=bool(config.get_value("input","motion",false))
@@ -1751,6 +1807,7 @@ func save_settings() -> void:
 	for index in 4: config.set_value("input",controller.AXIS_KEYS[index],controller.roles[index])
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","manual_roll",world.manual_roll)
+	config.set_value("input","original_weapons",original_weapons)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
 	config.set_value("input","motion_invert",invert_motion_pitch)
 	config.set_value("input",TOUCH_LAYOUT_KEY,preload("res://native/input/touch_layout.gd").encode(touch.layout))

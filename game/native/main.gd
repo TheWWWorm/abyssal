@@ -46,10 +46,14 @@ var credits := 1000
 ## The pilot's portrait as the original draws it (ab.a), composed by
 ## compose_face() from the choices below.
 var face_layers: Array = [87,78,68,20,42,-1]
-## The character sheet's choices: a woman's face or a man's, which premade
-## head (face_heads), suit and accessory (0 for none).
+## The character sheet's choices: a woman's face or a man's, his skin (the
+## table's light- or dark-skinned column), each part of the face as the
+## original draws them apart, the suit and the accessory (0 for none).
 var face_female := false
-var face_head := 4
+var face_skin := 0
+var face_hair := 4
+var face_eyes := 4
+var face_chin := 4
 var face_suit := 1
 var face_accessory := 0
 ## An imported picture in place of the drawn face (imported_art.make_photo).
@@ -107,8 +111,12 @@ var fps_counter := preload("res://native/presentation/fps_counter.gd").new()
 ## Lists the finger drags, on the title as in the dive.
 var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
 
+## The sheet's rows, top to bottom, and the table layer each one steps
+## (-1 for the skin, which picks the column).
+const FACE_ROWS := ["skin","hair","eyes","chin","suit","accessory"]
+
 func face_part_name(row: int) -> String:
-	return [tr("Accessory"),tr("Face"),tr("Suit")][row]
+	return [tr("Skin tone"),tr("Hair"),tr("Eyes"),tr("Chin"),tr("Suit"),tr("Accessory")][row]
 
 func importer_messages() -> Array:
 	"""The importers' fixed progress and failure text (desktop/import.js,
@@ -613,19 +621,19 @@ func show_start(player_name: String="") -> void:
 	for female in [false,true]:
 		var choice := button(tr("Female") if female else tr("Male"),func(): set_face_sex(female),sexes)
 		choice.toggle_mode=true;choice.button_group=group;choice.alignment=HORIZONTAL_ALIGNMENT_CENTER;choice.custom_minimum_size=Vector2(120,44);face_sexes.append(choice)
-	# The portrait between two columns of arrows, one row each for the
-	# accessory, the face and the suit.
-	var stage := HBoxContainer.new();stage.alignment=BoxContainer.ALIGNMENT_CENTER;stage.add_theme_constant_override("separation",10);box.add_child(stage)
-	var backward := VBoxContainer.new();backward.alignment=BoxContainer.ALIGNMENT_CENTER;backward.add_theme_constant_override("separation",14);stage.add_child(backward)
-	var frame := PanelContainer.new();frame.add_theme_stylebox_override("panel",StationTheme.panel(false));stage.add_child(frame)
-	face_preview=TextureRect.new();face_preview.custom_minimum_size=Vector2(160,160);face_preview.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;face_preview.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;face_preview.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;frame.add_child(face_preview)
-	var forward := VBoxContainer.new();forward.alignment=BoxContainer.ALIGNMENT_CENTER;forward.add_theme_constant_override("separation",14);stage.add_child(forward)
-	var arrows: Array=[]
-	for row in 3: arrows.append([face_arrow("‹",row,-1,backward,arrows),face_arrow("›",row,1,forward,arrows)])
-	var captions := VBoxContainer.new();captions.add_theme_constant_override("separation",0);box.add_child(captions)
-	face_captions=[]
-	for row in 3:
-		var caption := label("",14,Color("a2c3d3"));caption.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;captions.add_child(caption);face_captions.append(caption)
+	# The portrait beside its rows, one per part with an arrow either side
+	# of its caption; where the sheet is narrow the rows wrap under it.
+	var stage := HFlowContainer.new();stage.alignment=FlowContainer.ALIGNMENT_CENTER;stage.add_theme_constant_override("h_separation",24);stage.add_theme_constant_override("v_separation",12);box.add_child(stage)
+	var portrait := CenterContainer.new();stage.add_child(portrait)
+	var frame := PanelContainer.new();frame.add_theme_stylebox_override("panel",StationTheme.panel(false));portrait.add_child(frame)
+	face_preview=TextureRect.new();face_preview.custom_minimum_size=Vector2(200,200);face_preview.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;face_preview.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;face_preview.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;frame.add_child(face_preview)
+	var rows := VBoxContainer.new();rows.alignment=BoxContainer.ALIGNMENT_CENTER;rows.add_theme_constant_override("separation",4);stage.add_child(rows)
+	var arrows: Array=[];face_captions=[]
+	for row in FACE_ROWS.size():
+		var line := HBoxContainer.new();line.alignment=BoxContainer.ALIGNMENT_CENTER;line.add_theme_constant_override("separation",6);rows.add_child(line)
+		var backward := face_arrow("‹",row,-1,line,arrows)
+		var caption := label("",14,Color("a2c3d3"));caption.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;caption.custom_minimum_size.x=180;line.add_child(caption);face_captions.append(caption)
+		arrows.append([backward,face_arrow("›",row,1,line,arrows)])
 	var actions := HBoxContainer.new();actions.alignment=BoxContainer.ALIGNMENT_CENTER;actions.add_theme_constant_override("separation",8);box.add_child(actions)
 	var random := button(content.text(302) if not content.text(302).is_empty() else tr("Generate face"),random_face,actions)
 	var photo := button(tr("Import image"),choose_photo,actions);photo.disabled=not images.available()
@@ -652,7 +660,7 @@ func face_arrow(text: String, row: int, direction: int, parent: Node, arrows: Ar
 	"""One of the portrait's arrows. On a pad or keyboard, left and right on
 	either arrow of a row step that row, so up and down choose the row."""
 	var arrow := button(text,func(): step_face(row,direction),parent)
-	arrow.alignment=HORIZONTAL_ALIGNMENT_CENTER;arrow.custom_minimum_size=Vector2(52,44);arrow.add_theme_font_size_override("font_size",26);arrow.tooltip_text=face_part_name(row)
+	arrow.alignment=HORIZONTAL_ALIGNMENT_CENTER;arrow.custom_minimum_size=Vector2(52,40);arrow.add_theme_font_size_override("font_size",24);arrow.tooltip_text=face_part_name(row)
 	arrow.gui_input.connect(func(event: InputEvent):
 		for step in [[-1,"ui_left"],[1,"ui_right"]]:
 			if event.is_action_pressed(step[1],true):
@@ -666,84 +674,95 @@ func face_table() -> Array:
 	var table: Array=content.data.get("constants",{}).get("ab",{}).get("a:[[[B",[])
 	return table if table.size()>=6 else []
 
-func face_heads(female: bool) -> Array:
-	"""The premade heads the sheet offers, each [column, chin, eyes, hair]
-	from one column of the table: for a man the light-skinned and then the
-	dark-skinned, for a woman the third column, which the original keeps for
-	its crew. The k-th head takes the k-th of each part, from the start again
-	where a part runs out, so every chin, pair of eyes and hairstyle is in
-	some head, and every head is one the original could draw."""
-	var table := face_table();var heads: Array=[]
-	if table.is_empty(): return heads
-	for column in ([2] if female else [0,1]):
-		var chins: Array=table[2][column];var eyes: Array=table[3][column];var hair: Array=table[4][column]
-		if chins.is_empty() or eyes.is_empty() or hair.is_empty(): continue
-		for k in maxi(chins.size(),maxi(eyes.size(),hair.size())): heads.append([column,int(chins[k%chins.size()]),int(eyes[k%eyes.size()]),int(hair[k%hair.size()])])
-	return heads
+func face_columns() -> Array:
+	"""The table's columns the sheet offers: for a man the light-skinned and
+	the dark-skinned, as the original's generator (ab.a(true,n)) picks from,
+	and for a woman the third column, which the original keeps for its crew.
+	A column without a part to draw is left out."""
+	var table := face_table();var columns: Array=[]
+	if table.is_empty(): return columns
+	for column in ([2] if face_female else [0,1]):
+		if column<table[2].size() and not (table[2][column].is_empty() or table[3][column].is_empty() or table[4][column].is_empty()): columns.append(column)
+	return columns
+
+func face_column() -> int:
+	var columns := face_columns()
+	return int(columns[posmod(face_skin,columns.size())]) if not columns.is_empty() else -1
 
 func face_counts() -> Array:
-	"""How many accessories (with none), heads and suits the sheet's rows hold."""
-	var table := face_table();var heads := face_heads(face_female)
-	if heads.is_empty(): return [1,0,0]
-	var column: int=heads[posmod(face_head,heads.size())][0]
-	return [1+table[5][column].size(),heads.size(),table[1][column].size()]
+	"""How many choices each row (FACE_ROWS) holds; the accessory's counts
+	none as one. The original draws chin, eyes and hair apart, each at
+	random from its column (ab.a), so every one goes with every other."""
+	var table := face_table();var column := face_column()
+	if column<0: return [0,0,0,0,0,1]
+	return [face_columns().size(),table[4][column].size(),table[3][column].size(),table[2][column].size(),table[1][column].size(),1+table[5][column].size()]
+
+func face_choice(row: int) -> int:
+	return [face_skin,face_hair,face_eyes,face_chin,face_suit,face_accessory][row]
+
+func set_face_choice(row: int, value: int) -> void:
+	var count: int=maxi(1,face_counts()[row]);value=posmod(value,count)
+	match row:
+		0: face_skin=value
+		1: face_hair=value
+		2: face_eyes=value
+		3: face_chin=value
+		4: face_suit=value
+		5: face_accessory=value
 
 func compose_face() -> void:
 	"""face_layers from the sheet's choices, in the original's drawing order
 	(ab.a): a man's suit goes under his chin, a woman's over hers. The
 	backdrop is always the plain one the original gives the player (bu.a:
 	ab.a(true,3), the fourth), or the table's last if it is shorter."""
-	var table := face_table();var heads := face_heads(face_female)
-	if heads.is_empty(): return
-	var counts := face_counts()
-	face_head=posmod(face_head,heads.size());face_accessory=posmod(face_accessory,counts[0]);face_suit=posmod(face_suit,maxi(1,counts[2]))
-	var head: Array=heads[face_head];var column: int=head[0]
+	var table := face_table();var column := face_column()
+	if column<0: return
+	# A new skin or sex keeps each choice, wrapped into the new column.
+	for row in FACE_ROWS.size(): set_face_choice(row,face_choice(row))
 	var backdrops: Array=table[0][column];var suits: Array=table[1][column]
 	var backdrop: int=int(backdrops[mini(3,backdrops.size()-1)]) if not backdrops.is_empty() else -1
 	var suit: int=int(suits[face_suit]) if not suits.is_empty() else -1
+	var chin: int=int(table[2][column][face_chin]);var eyes: int=int(table[3][column][face_eyes]);var hair: int=int(table[4][column][face_hair])
 	var accessory: int=-1 if face_accessory==0 else int(table[5][column][face_accessory-1])
-	face_layers=[backdrop,suit,head[1],head[2],head[3],accessory] if column<2 else [backdrop,head[1],suit,head[2],head[3],accessory]
+	face_layers=[backdrop,suit,chin,eyes,hair,accessory] if column<2 else [backdrop,chin,suit,eyes,hair,accessory]
 
 func step_face(row: int, direction: int) -> void:
-	"""An arrow: the next or previous accessory, head or suit, which also
-	brings back the drawn face after an imported picture."""
-	var counts := face_counts()
-	match row:
-		0: face_accessory=posmod(face_accessory+direction,counts[0])
-		1: face_head=posmod(face_head+direction,maxi(1,counts[1]))
-		2: face_suit=posmod(face_suit+direction,maxi(1,counts[2]))
+	"""An arrow: the next or previous choice of a row, which also brings back
+	the drawn face after an imported picture."""
+	set_face_choice(row,face_choice(row)+direction)
 	face_photo="";refresh_face()
 
 func set_face_sex(female: bool) -> void:
 	if female==face_female and face_photo.is_empty(): return
-	face_female=female;face_head=0;face_suit=0;face_accessory=0;face_photo="";refresh_face()
+	face_female=female;face_photo="";refresh_face()
 
 func random_face() -> void:
 	"""The original's "Generate face" (ch: 302; ab.a(true,3)): a dark-skinned
 	man at the table's own odds (c:byte), otherwise a light-skinned one, or a
-	woman when Female is chosen; then one of those heads, any suit, and an
-	accessory at the table's own odds (d:byte). The original draws chin, eyes
-	and hair apart; here they come as one premade head."""
+	woman when Female is chosen; then each part of the face apart, any suit,
+	and an accessory at the table's own odds (d:byte)."""
 	var parts: Dictionary=content.data.get("constants",{}).get("ab",{})
-	var heads := face_heads(face_female)
-	if heads.is_empty(): return
-	var column: int=2 if face_female else (1 if randi()%100<int(parts.get("c:byte",20)) else 0)
-	var choices: Array=range(heads.size()).filter(func(index): return heads[index][0]==column)
-	face_head=int(choices.pick_random()) if not choices.is_empty() else randi()%heads.size()
+	var columns := face_columns()
+	if columns.is_empty(): return
+	face_skin=maxi(0,columns.find(2 if face_female else (1 if randi()%100<int(parts.get("c:byte",20)) else 0)))
 	var counts := face_counts()
-	face_suit=randi()%maxi(1,counts[2])
-	face_accessory=1+randi()%(counts[0]-1) if counts[0]>1 and randi()%100<int(parts.get("d:byte",60)) else 0
+	face_hair=randi()%maxi(1,counts[1]);face_eyes=randi()%maxi(1,counts[2]);face_chin=randi()%maxi(1,counts[3]);face_suit=randi()%maxi(1,counts[4])
+	face_accessory=1+randi()%(counts[5]-1) if counts[5]>1 and randi()%100<int(parts.get("d:byte",60)) else 0
 	face_photo="";refresh_face()
 
 func refresh_face() -> void:
 	compose_face()
 	if is_instance_valid(face_preview): face_preview.texture=face_art.portrait(face_layers,face_photo)
-	var counts := face_counts();var chosen := [face_accessory,face_head+1,face_suit+1]
+	var counts := face_counts()
 	for row in face_captions.size():
 		if not is_instance_valid(face_captions[row]): continue
-		var total: int=counts[row]-(1 if row==0 else 0)
-		face_captions[row].text=face_part_name(row)+" · "+tr("None") if row==0 and face_accessory==0 else tr("%s %d / %d")%[face_part_name(row),chosen[row],total]
+		var accessory: bool=FACE_ROWS[row]=="accessory"
+		var total: int=counts[row]-(1 if accessory else 0)
+		face_captions[row].text=face_part_name(row)+" · "+tr("None") if accessory and face_accessory==0 else tr("%s %d / %d")%[face_part_name(row),face_choice(row)+(0 if accessory else 1),total]
 		face_captions[row].modulate.a=1.0 if face_photo.is_empty() else 0.45
+		# A row with one choice, such as a woman's skin, has nothing to step.
+		for arrow in face_captions[row].get_parent().get_children():
+			if arrow is Button: arrow.disabled=counts[row]<=1
 	for index in face_sexes.size():
 		if is_instance_valid(face_sexes[index]): face_sexes[index].set_pressed_no_signal(face_female==(index==1))
 	show_face_note("" if face_photo.is_empty() else tr("Imported image. The arrows bring back a drawn face."))

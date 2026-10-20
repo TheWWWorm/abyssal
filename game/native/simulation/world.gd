@@ -4,6 +4,7 @@ const Region = preload("res://native/simulation/region.gd")
 const Math = preload("res://native/simulation/fixed_math.gd")
 const StationBody = preload("res://native/simulation/station_body.gd")
 const CollisionShape = preload("res://native/simulation/collision_shape.gd")
+const SpecialActor = preload("res://native/simulation/special_actor.gd")
 const STEP_MS := 40
 const Spacing = preload("res://native/simulation/world_spacing.gd")
 const SPEEDS := [1,2,4,8,16]
@@ -541,7 +542,11 @@ func update_collision_bodies() -> void:
 			shape.origin=actor.pose.origin.duplicate()
 			shape.half_size=[actor.radius,actor.radius,actor.radius]
 			actor.shapes=[shape]
-		if not actor.shapes.is_empty():active_collision_bodies.append(actor)
+		if not actor.shapes.is_empty():
+			# A freighter's hull box turns with the freighter.
+			if actor is SpecialActor and actor.kind=="freighter":
+				for shape in actor.shapes:shape.origin=actor.pose.origin.duplicate();shape.basis=actor.pose.basis()
+			active_collision_bodies.append(actor)
 	var steering: Array=[]
 	for body in active_collision_bodies:
 		if body is StationBody:steering.append_array(repellers_of(body))
@@ -587,14 +592,9 @@ func collision_shapes() -> Array:
 		result.append_array(body.shapes)
 	return result
 
-func expanded_box(shape, radius: int) -> AABB:
-	var center: Vector3=Math.vector(shape.origin)+Math.vector(shape.offset)
-	var half: Vector3=Math.vector(shape.half_size)+Vector3.ONE*radius
-	return AABB(center-half,half*2.0)
-
 func inside_any_body(point: Vector3, shapes: Array) -> bool:
 	for shape in shapes:
-		if expanded_box(shape,region.player.radius).has_point(point):return true
+		if shape.local_box(region.player.radius).has_point(shape.to_local(point)):return true
 	return false
 
 func resolve_body_contact(previous: Array) -> void:
@@ -603,21 +603,24 @@ func resolve_body_contact(previous: Array) -> void:
 	var start: Vector3=Math.vector(previous)
 	var finish: Vector3=Math.vector(region.player.pose.origin)
 	for shape in shapes:
-		var box: AABB=expanded_box(shape,region.player.radius)
-		if box.has_point(start):
-			if not box.has_point(finish):continue
-			var center: Vector3=box.get_center();var half: Vector3=box.size*0.5
+		# In the box's own frame, so a turned hull is met at its hull.
+		var box: AABB=shape.local_box(region.player.radius)
+		var near: Vector3=shape.to_local(start);var far: Vector3=shape.to_local(finish)
+		if box.has_point(near):
+			if not box.has_point(far):continue
+			var half: Vector3=box.size*0.5
 			var best: Vector3=finish;var distance:=INF
 			for axis in 3:
 				for side in [-1.0,1.0]:
-					var candidate: Vector3=finish
-					candidate[axis]=center[axis]+side*(half[axis]+2.0)
+					var local: Vector3=far
+					local[axis]=side*(half[axis]+2.0)
+					var candidate: Vector3=shape.to_world(local)
 					var travel: float=finish.distance_squared_to(candidate)
 					if travel<distance and not inside_any_body(candidate,shapes):best=candidate;distance=travel
 			if distance<INF:region.player.pose.origin=Math.array(best)
 			region.player.contact=true
 			return
-		if box.has_point(finish) or box.intersects_segment(start,finish)!=null:
+		if box.has_point(far) or box.intersects_segment(near,far)!=null:
 			# Revert the entire fixed step, including a fast crossing whose
 			# endpoints lie on opposite sides of a thin hull or station wall.
 			region.player.pose.origin=previous;region.player.contact=true

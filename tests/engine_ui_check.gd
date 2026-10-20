@@ -77,6 +77,14 @@ func run():
  expect(not app.fullscreen_button.visible,"Desktop and phone apps do not show it")
  root.size=Vector2i(1280,720);app.show_start();await process_frame
  expect(app.face_preview.texture!=null,"Portrait creator reads local JAR art")
+ # The original draws chin, eyes and hair apart, so each goes with every other.
+ var table: Array=app.face_table()
+ app.set_face_sex(false);app.face_skin=0;app.refresh_face()
+ expect(app.face_counts().slice(0,4)==[2,table[4][0].size(),table[3][0].size(),table[2][0].size()],"A man's sheet offers both skins and every hair, eyes and chin of his column")
+ var face_before: Array=app.face_layers.duplicate();app.step_face(1,1)
+ expect(app.face_layers[4]!=face_before[4] and app.face_layers.slice(0,4)==face_before.slice(0,4) and app.face_layers[5]==face_before[5],"Stepping the hair changes the hair alone")
+ face_before=app.face_layers.duplicate();app.step_face(2,1)
+ expect(app.face_layers[3]!=face_before[3] and app.face_layers[2]==face_before[2] and app.face_layers[4]==face_before[4],"Stepping the eyes changes the eyes alone")
  app.close_modal();app.launch_game(false,"Engine test");await process_frame;await process_frame
  var game=current_scene
  expect(game!=null and not game.view.pack.enabled,"Native gameplay needs no material pack")
@@ -212,6 +220,9 @@ func run():
  check_source_weapon_audio(game)
  await check_catch_notice(game)
  await check_dialogue_keeps_auto_fire(game)
+ await check_auto_fire_banks(game)
+ await check_catch_view(game)
+ await check_limit_arrow(game)
  await check_load_slots(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
@@ -314,6 +325,54 @@ func check_dialogue_keeps_auto_fire(game) -> void:
  expect(game.auto_fire and game.touch.automatic_weapons.has("guns"),"Automatic fire resumes when the transmission ends")
  game.show_pause();game.close_page()
  expect(not game.auto_fire and not game.touch.automatic_weapons.has("guns"),"A menu the player opens still stops automatic fire")
+
+func check_auto_fire_banks(game) -> void:
+ # Auto fire works the guns and never the harpoon. With the original weapon
+ # controls it works the selected bank, so the bank switch starts and stops
+ # it; the reticle says it is on.
+ game.session.docked=false;game.close_page();await process_frame
+ var loadout=game.world.region.loadout;var kept:=[loadout.groups,loadout.selected]
+ var Weapon=load("res://native/simulation/weapon.gd")
+ var gun=Weapon.new();var hook=Weapon.new();hook.fishing=true
+ loadout.groups=[[gun],[hook]];loadout.selected=1;game.auto_fire=true;game.original_weapons=false
+ var input: Dictionary=game.flight_input()
+ expect(game.auto_firing() and input.get("guns",false) and not input.get("fire",false) and not input.get("hook",false),"Auto fire works the guns with the harpoon bank selected")
+ game.original_weapons=true
+ input=game.flight_input()
+ expect(not game.auto_firing() and not input.get("fire",false) and not input.get("guns",false),"With the original controls auto fire waits while the harpoon bank is selected")
+ game.crosshair.set_auto(1);expect(game.crosshair.auto==1,"The reticle shows auto fire waiting on the harpoon bank")
+ loadout.selected=0
+ input=game.flight_input()
+ expect(game.auto_firing() and input.get("fire",false),"With the original controls auto fire resumes on the gun bank")
+ loadout.groups=[[hook]];loadout.selected=0;game.original_weapons=false
+ expect(not game.auto_firing(),"Without guns auto fire has nothing to fire")
+ game.auto_fire=false;game.original_weapons=false;loadout.groups=kept[0];loadout.selected=kept[1];game.crosshair.set_auto(0)
+
+func check_catch_view(game) -> void:
+ # cx lets a struggling catch go once it leaves the screen, not a cone
+ # round the bow that reaches far past the edges of a wide view.
+ game.session.docked=false;game.close_page();game.view.camera_mode=0;game.view._process(.04)
+ var eye: Camera3D=game.camera
+ var sim:=func(at: Vector3) -> Array: return [at.x/.01,-at.y/.01,-at.z/.01]
+ var ahead:Vector3=eye.global_position-eye.global_basis.z*80
+ expect(game.catch_in_view(sim.call(ahead)),"A catch in the middle of the view is in view")
+ expect(not game.catch_in_view(sim.call(eye.global_position+eye.global_basis.z*80)),"A catch behind the camera is out of view")
+ expect(not game.catch_in_view(sim.call(ahead+eye.global_basis.x*400)),"A catch off the side of the screen is out of view")
+ game.watch_catches(game.world.region)
+ expect(game.world.region.fishing.all(func(hook): return hook.visible_to_camera==Callable(game,"catch_in_view")),"In flight the drawn view decides whether a catch is kept")
+
+func check_limit_arrow(game) -> void:
+ # The arrow stays until the hull is back within its limits, and points
+ # straight back towards them, whatever the camera is doing.
+ game.session.docked=false;game.close_page();game.view.camera_mode=0;game.view._process(.04)
+ var player=game.world.region.player;var depth:int=player.depth
+ player.depth=player.stats.maximum_depth+20;game.view.place_limit_arrow(Vector3.ZERO)
+ expect(game.view.limit_arrow.visible and game.view.limit_arrow.global_basis.z.normalized().y<-.99,"Just past the deepest limit the arrow shows and points up")
+ player.depth=maxi(0,player.stats.minimum_depth-20);game.view.place_limit_arrow(Vector3.ZERO)
+ expect(player.stats.minimum_depth<20 or (game.view.limit_arrow.visible and game.view.limit_arrow.global_basis.z.normalized().y>.99),"Just above the shallowest limit the arrow shows and points down")
+ player.depth=(player.stats.minimum_depth+player.stats.maximum_depth)/2;game.view.place_limit_arrow(Vector3.ZERO)
+ expect(not game.view.limit_arrow.visible,"Within the limits there is no arrow")
+ player.depth=depth
 
 func check_load_slots(game) -> void:
  # The station's System menu loads a save without going through the main

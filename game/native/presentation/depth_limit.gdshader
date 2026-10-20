@@ -5,7 +5,7 @@ render_mode unshaded, blend_add, cull_disabled, depth_draw_never, fog_disabled;
 // than imported: the phone game's panel is a thirty-two texel tile.
 uniform vec3 tint: source_color = vec3(1.0, 0.68, 0.28);
 uniform float strength = 0.0;
-uniform float half_extent = 60.0;
+uniform float half_extent = 16.0;
 // Shown all the time, the panel fades over a longer reach (world_view.gd).
 uniform float haze_rate = 0.016;
 varying vec2 local;
@@ -16,10 +16,10 @@ varying vec2 world;
 void vertex() { local = VERTEX.xz; world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz; }
 void fragment() {
 	float radius = length(local) / half_extent;
-	float edge = 1.0 - smoothstep(0.2, 0.9, radius);
+	float edge = 1.0 - smoothstep(0.35, 0.95, radius);
 	// Lines thirty centimetres wide, softened by one screen pixel only,
 	// so they stay crisp at every distance and angle instead of blurring.
-	vec2 cell = abs(fract(world / 12.0) - 0.5) * 12.0;
+	vec2 cell = abs(fract(world / 8.0) - 0.5) * 8.0;
 	float gap = min(cell.x, cell.y);
 	float aa = fwidth(gap);
 	float line = 1.0 - smoothstep(0.15 - aa, 0.15 + aa, gap);

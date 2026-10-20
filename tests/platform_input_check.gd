@@ -25,9 +25,11 @@ func check_weapon_taps(touch) -> void:
  expect(not touch.snapshot().guns,"One tap stops latched automatic guns")
  touch.reset()
  for i in 2:finger(touch,9,hook,true);finger(touch,9,hook,false)
- expect(touch.snapshot().hook and not touch.snapshot().guns,"Harpoon double-tap latches independently of the guns")
+ touch.snapshot()
+ expect(not touch.snapshot().hook and touch.automatic_weapons.is_empty(),"Auto fire never latches the harpoon")
+ for i in 2:finger(touch,8,guns,true);finger(touch,8,guns,false)
  touch.set_active(false);touch.set_active(true)
- expect(not touch.snapshot().hook,"Opening a menu clears touch autofire")
+ expect(not touch.snapshot().guns,"Opening a menu clears touch autofire")
  finger(touch,8,guns,true);finger(touch,8,guns,false);touch.snapshot()
  touch.last_weapon_tap_ms-=touch.DOUBLE_TAP_MS+1
  finger(touch,8,guns,true);finger(touch,8,guns,false);touch.snapshot()
@@ -41,6 +43,22 @@ func check_weapon_taps(touch) -> void:
  finger(touch,8,guns,true);drag(touch,8,guns+Vector2(70,0),Vector2(70,0));finger(touch,8,guns,false);touch.snapshot()
  expect(not touch.snapshot().guns,"Dragging out and back is not a double tap")
  touch.reset()
+ # Original weapon controls: the guns' button fires the selected bank and the
+ # harpoon's switches bank; only the guns ever fire on their own.
+ var actions: Array=[];var record:=func(name: String):actions.append(name)
+ touch.action.connect(record)
+ touch.original_weapons=true;touch.set_banks(false,true)
+ finger(touch,8,guns,true);finger(touch,8,guns,false)
+ var shot: Dictionary=touch.snapshot()
+ expect(shot.fire and not shot.guns and not shot.hook,"With the original controls the fire button fires the selected bank")
+ finger(touch,9,hook,true);finger(touch,9,hook,false)
+ expect(actions==["bank"] and not touch.snapshot().fire,"With the original controls the harpoon's button switches bank")
+ for i in 2:finger(touch,8,guns,true);finger(touch,8,guns,false)
+ touch.snapshot()
+ expect(touch.snapshot().auto and not touch.snapshot().fire,"A double tap on the fire button latches auto fire, which the flight gives to the guns only")
+ touch.set_banks(false,false)
+ expect(not touch.shown("hook") and touch.shown("guns"),"With one bank there is nothing to switch")
+ touch.action.disconnect(record);touch.original_weapons=false;touch.set_banks(false,false);touch.reset()
 
 func run() -> void:
  var pad=preload("res://native/input/flight_controls.gd").new()

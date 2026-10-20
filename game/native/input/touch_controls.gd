@@ -79,6 +79,17 @@ var autopilot_on := false
 ## Weapons the ship carries: a control for gear that is not fitted is not drawn.
 var has_hook := true
 var has_guns := true
+## Original weapon controls: the guns button fires the selected bank (its
+## double tap still only ever auto-fires the guns), and the harpoon's button
+## switches bank. fishing_selected and can_switch come from the flight.
+var original_weapons := false:
+	set(value):
+		if original_weapons==value:return
+		original_weapons=value;reset()
+		if not weapon_home.is_empty(): place_throttle()
+		queue_redraw()
+var fishing_selected := false
+var can_switch := false
 ## The dock button's pulse, so a chance to dock is noticed.
 var pulse := 0.0
 ## Where the placed layout puts the harpoon and guns; a ship with no guns
@@ -231,7 +242,7 @@ func apply_layout(s: float) -> void:
 	free_left=safe_rect().position.x+28.0*s if drag_anywhere else maxf(stick_home.x+stick_radius,zones.boost.end.x)+12*s
 	free_right=minf(zones.hook.position.x,zones.throttle.position.x)-12*s
 func harpoon_in_guns_place() -> bool:
-	return not has_guns and has_hook and not layout_preview
+	return not has_guns and has_hook and not layout_preview and not original_weapons
 func place_throttle() -> void:
 	"""A ship with no guns has its harpoon in their place, at their size. The
 	throttle follows the guns wherever the player has put them, unless it has
@@ -265,8 +276,8 @@ func shown(key: String) -> bool:
 	if layout_preview: return true
 	match key:
 		"dock": return dock_ready
-		"hook": return has_hook
-		"guns": return has_guns
+		"hook": return can_switch if original_weapons else has_hook
+		"guns": return (has_guns or has_hook) if original_weapons else has_guns
 		"boost": return boost_mode!="absent"
 	return true
 ## The default upper-left arc is reflected for a left-side fire control.
@@ -319,7 +330,7 @@ func handle(event: InputEvent) -> bool:
 			var key:=button_at(event.position)
 			if not key.is_empty() and key not in fingers.values():
 				fingers[event.index]=key
-				if key in ["guns","hook"]:
+				if key=="guns" or (key=="hook" and not original_weapons):
 					var stopping: bool=automatic_weapons.has(key)
 					if stopping:
 						automatic_weapons.erase(key);last_weapon_tap=""
@@ -341,13 +352,19 @@ func handle(event: InputEvent) -> bool:
 				fingers[event.index]="look";orbit_hold=true;return true
 		elif fingers.has(event.index):
 			var key: String=fingers[event.index];fingers.erase(event.index)
-			if key in ["guns","hook"]:
+			if key=="hook" and original_weapons:
+				# The switch: a tap changes bank.
+				last_weapon_tap=""
+				if not event.canceled and shown(key) and button_at(event.position)==key:action.emit("bank")
+			elif key in ["guns","hook"]:
 				var gesture: Dictionary=weapon_touches.get(event.index,{})
 				weapon_touches.erase(event.index)
 				var now := Time.get_ticks_msec()
 				var tapped: bool=not event.canceled and gesture.get("valid",false) and now-int(gesture.get("started",0))<=DOUBLE_TAP_MS and shown(key) and button_at(event.position)==key
 				if event.canceled:weapon_presses.erase(key)
-				if tapped:
+				# Only the guns fire on their own; a double tap on the harpoon is
+				# two shots.
+				if tapped and key=="guns":
 					if last_weapon_tap==key and now-last_weapon_tap_ms<=DOUBLE_TAP_MS:
 						automatic_weapons[key]=true;last_weapon_tap="";action.emit("auto_"+key)
 					else:last_weapon_tap=key;last_weapon_tap_ms=now
@@ -396,11 +413,21 @@ func show_state(throttle: float, dock: bool, boost: Dictionary, autopilot: bool,
 	for key in weapon_presses.keys():
 		if not shown(key):weapon_presses.erase(key)
 	if changed:queue_redraw()
+func set_banks(fishing: bool, switchable: bool) -> void:
+	if fishing==fishing_selected and switchable==can_switch:return
+	fishing_selected=fishing;can_switch=switchable
+	for index in fingers.keys():
+		if fingers[index] in zones and not shown(fingers[index]):fingers.erase(index)
+	queue_redraw()
 func snapshot() -> Dictionary:
 	var held:=fingers.values()
 	var drag:=look;look=Vector2.ZERO
 	var shots := weapon_presses.duplicate();weapon_presses.clear()
-	return {"yaw":steer.x,"pitch":-steer.y,"look":drag,"guns":"guns" in held or automatic_weapons.has("guns") or shots.has("guns"),"hook":"hook" in held or automatic_weapons.has("hook") or shots.has("hook"),"boost":"boost" in held,"throttle":0}
+	if original_weapons:
+		# The fire button works the selected bank; its auto fire waits while
+		# the harpoon is selected (gameplay.flight_input).
+		return {"yaw":steer.x,"pitch":-steer.y,"look":drag,"fire":"guns" in held or shots.has("guns"),"auto":automatic_weapons.has("guns"),"guns":false,"hook":false,"boost":"boost" in held,"throttle":0}
+	return {"yaw":steer.x,"pitch":-steer.y,"look":drag,"guns":"guns" in held or automatic_weapons.has("guns") or shots.has("guns"),"hook":"hook" in held or shots.has("hook"),"boost":"boost" in held,"throttle":0}
 func _draw() -> void:
 	if not active and not layout_preview:return
 	var held:=fingers.values()
@@ -466,11 +493,16 @@ func draw_button(key: String, area: Rect2, lit: bool) -> void:
 	glow_ring(center,r,Color(tint,.45) if waiting else tint,(3.0 if key=="guns" else 2.5)*unit)
 	var large: bool=key=="guns" or (key=="hook" and harpoon_in_guns_place())
 	if large:draw_arc(center,r*.8,0,TAU,64,Color(tint,.6),2*unit,true)
-	icon(key,center,r*(.5 if large else .56),Color(tint,.5) if waiting else tint.lerp(Color.WHITE,.12))
+	var drawn := key
+	if original_weapons and not layout_preview:
+		if key=="guns" and (fishing_selected or not has_guns):drawn="hook"
+		elif key=="hook":drawn="switch"
+	icon(drawn,center,r*(.5 if large else .56),Color(tint,.5) if waiting else tint.lerp(Color.WHITE,.12))
 	if key=="time" and time_speed>1:
 		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+16*unit),"%d×"%time_speed,HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
 	if automatic_weapons.has(key):
-		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+18*unit),tr("Auto").to_upper(),HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),LIT)
+		# Dim while the harpoon is selected and the guns wait.
+		draw_string(ThemeDB.fallback_font,center+Vector2(-r,r+18*unit),tr("Auto").to_upper(),HORIZONTAL_ALIGNMENT_CENTER,r*2,roundi(14*unit),Color(LIT,.45) if original_weapons and fishing_selected else LIT)
 func fill_level(center: Vector2, r: float, fraction: float, color: Color) -> void:
 	"""The part of a disc below a level, as liquid in a round flask."""
 	if fraction<=0: return
@@ -553,6 +585,13 @@ func icon(key: String, c: Vector2, r: float, color: Color) -> void:
 			draw_arc(bend,r*.3,0,PI,24,color,w*1.2,true)
 			draw_line(Vector2(point,bend.y),Vector2(point,c.y),color,w*1.2,true)
 			draw_colored_polygon(PackedVector2Array([Vector2(point,c.y-r*.22),Vector2(point+w*.6,c.y+r*.02),Vector2(point-r*.2,c.y+r*.06)]),color)
+		"switch":
+			# Two arrows passing each other: change weapon bank.
+			for side in [-1,1]:
+				var y: float=c.y+side*r*.28
+				var tip:=Vector2(c.x+side*r*.62,y)
+				draw_line(Vector2(c.x-side*r*.62,y),tip,color,w*1.2,true)
+				draw_colored_polygon(PackedVector2Array([tip+Vector2(side*r*.12,0),tip+Vector2(-side*r*.26,-r*.22),tip+Vector2(-side*r*.26,r*.22)]),color)
 		"guns":
 			for side in [-1,1]:
 				var x: float=c.x+side*r*.3

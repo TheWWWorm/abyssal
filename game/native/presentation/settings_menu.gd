@@ -653,6 +653,8 @@ func controls_page() -> void:
 	sub_row(tr("Touch controls"),"touch")
 	sub_row(tr("Key bindings"),"bindings")
 	sub_row(tr("Control reference"),"reference")
+	toggle(tr("Original weapon controls"),"input","original_weapons",false)
+	note(tr("On: one fire control for the selected weapon bank, as in the original. Tab, or the switch button on a touchscreen, changes bank, and auto fire works the guns only while they are selected. Off: auto fire always works the guns. Auto fire never fires the harpoon."))
 
 func steering_page() -> void:
 	chooser(tr("Helm response"),[tr("Direct"),tr("Smooth")],1 if flag("input","smooth_steering",false) else 0,"smooth_steering",func(next): put("input","smooth_steering",next==1))
