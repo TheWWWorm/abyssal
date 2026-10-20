@@ -48,6 +48,13 @@ var mirror_fire_control := false:
 		mirror_fire_control=value
 		if not weapon_home.is_empty(): place_throttle()
 		reset()
+## The throttle as a separate upright slider instead of the arc round the
+## fire button.
+var throttle_slider := false:
+	set(value):
+		if throttle_slider==value:return
+		throttle_slider=value
+		arrange()
 var steer := Vector2.ZERO
 var look := Vector2.ZERO
 var zones := {}
@@ -188,7 +195,8 @@ func arrange() -> void:
 	zones.boost=round_zone(Vector2(stick_home.x+stick_radius+80*s,zones.hook.get_center().y),44*s)
 	if size.y>size.x:
 		# Held upright there is no width for a row: the booster goes above the
-		# stick's right.
+		# stick's right, and the harpoon above the guns and their throttle arc.
+		if not throttle_slider: zones.hook=round_zone(zones.guns.get_center()+Vector2(0,-196*s),44*s)
 		zones.boost=round_zone(stick_home+Vector2(stick_radius*.8,-stick_radius-62*s),44*s)
 	unit=s
 	zones.throttle=throttle_rect(zones.guns)
@@ -229,8 +237,10 @@ func place_throttle() -> void:
 	throttle follows the guns wherever the player has put them, unless it has
 	been placed itself."""
 	zones.hook=weapon_home.guns if harpoon_in_guns_place() else weapon_home.hook
-	if layout.get("throttle") is not Dictionary: zones.throttle=throttle_rect(weapon_home.guns)
-## The throttle is a slider of its own, standing above the fire button on the
+	if not throttle_slider: zones.throttle=round_zone(weapon_home.guns.get_center(),weapon_home.guns.size.x*.5+46*unit)
+	elif layout.get("throttle") is not Dictionary: zones.throttle=throttle_rect(weapon_home.guns)
+## The arc curves round the guns, wherever the player has put them; the
+## slider is a control of its own, standing above the fire button on the
 ## side towards the screen's middle, clear of its rim: setting the speed while
 ## still (to fish, say) cannot fire, and firing cannot change the speed.
 const THROTTLE_SIZE := Vector2(48,180)
@@ -246,6 +256,8 @@ func throttle_rect(guns: Rect2) -> Rect2:
 func control_rect(id: String) -> Rect2:
 	"""The on-screen area of one control, including any player placement."""
 	if id=="stick": return Rect2(stick_home-Vector2.ONE*stick_radius,Vector2.ONE*stick_radius*2)
+	# The arc goes with the guns; only the slider is placed on its own.
+	if id=="throttle" and not throttle_slider: return Rect2()
 	return zones.get(id,Rect2())
 func shown(key: String) -> bool:
 	"""The dock button is only there while there is something to dock with,
@@ -257,6 +269,25 @@ func shown(key: String) -> bool:
 		"guns": return has_guns
 		"boost": return boost_mode!="absent"
 	return true
+## The default upper-left arc is reflected for a left-side fire control.
+const ARC_START := PI
+const ARC_SPAN := PI*.5
+func arc_radius(area: Rect2) -> float:
+	return area.size.x*.5-20*unit
+func arc_angle(level: float) -> float:
+	var angle := ARC_START+ARC_SPAN*level
+	return PI-angle if mirror_fire_control else angle
+func arc_offset(area: Rect2, point: Vector2) -> Vector2:
+	var offset := point-area.get_center()
+	if mirror_fire_control:offset.x=-offset.x
+	return offset
+func arc_level(area: Rect2, point: Vector2) -> float:
+	var angle:=wrapf(arc_offset(area,point).angle(),0,TAU)
+	return clampf((angle-ARC_START)/ARC_SPAN,0,1)
+func on_arc(area: Rect2, point: Vector2) -> bool:
+	var offset:=arc_offset(area,point);var radius:=arc_radius(area)
+	var angle:=wrapf(offset.angle(),0,TAU)
+	return absf(offset.length()-radius)<26*unit and angle>ARC_START-.2 and angle<ARC_START+ARC_SPAN+.2
 func throttle_track(area: Rect2) -> Vector2:
 	"""The heights of the slider's empty and full ends, inset by the knob."""
 	return Vector2(area.end.y-area.size.x*.5,area.position.y+area.size.x*.5)
@@ -268,8 +299,10 @@ func button_at(point: Vector2) -> String:
 		if not shown(key):continue
 		var area: Rect2=zones[key]
 		# Round buttons answer within their circle, with a little slack for
-		# a thumb landing on the rim.
-		if key in ROUND:
+		# a thumb landing on the rim; the throttle arc answers along its arc.
+		if key=="throttle" and not throttle_slider:
+			if on_arc(area,point):return key
+		elif key in ROUND:
 			if point.distance_to(area.get_center())<=area.size.x*.5+6*unit:return key
 		elif area.grow(8*unit).has_point(point):return key
 	return ""
@@ -333,8 +366,8 @@ func handle(event: InputEvent) -> bool:
 		return true
 	return false
 func slide(point: Vector2) -> void:
-	"""The throttle is set where the thumb is on the slider, in steps of five."""
-	var level: float=throttle_level_at(zones.throttle,point)
+	"""The throttle is set where the thumb is on it, in steps of five."""
+	var level: float=throttle_level_at(zones.throttle,point) if throttle_slider else arc_level(zones.throttle,point)
 	var percent: int=roundi(level*20)*5
 	if not is_equal_approx(percent/100.0,throttle_level):
 		throttle_level=percent/100.0;throttle_changed.emit(percent);queue_redraw()
@@ -375,7 +408,9 @@ func _draw() -> void:
 	for key in zones:
 		if not shown(key):continue
 		var lit: bool=key in held or automatic_weapons.has(key) or (key=="autopilot" and autopilot_on)
-		if key=="throttle":draw_throttle(zones[key],key in held)
+		if key=="throttle":
+			if throttle_slider: draw_throttle(zones[key],key in held)
+			else: draw_throttle_arc(zones[key],key in held)
 		else:draw_button(key,zones[key],lit)
 func glow_ring(center: Vector2, r: float, tint: Color, width: float) -> void:
 	"""A lit rim: a soft halo either side of a bright line, as the reference's."""
@@ -444,6 +479,20 @@ func fill_level(center: Vector2, r: float, fraction: float, color: Color) -> voi
 	var line: float=center.y+r-2*r*clampf(fraction,0,1)
 	var below := PackedVector2Array([Vector2(center.x-r-1,line),Vector2(center.x+r+1,line),Vector2(center.x+r+1,center.y+r+1),Vector2(center.x-r-1,center.y+r+1)])
 	for part in Geometry2D.intersect_polygons(disc,below): draw_colored_polygon(part,color)
+func draw_throttle_arc(area: Rect2, lit: bool) -> void:
+	var tint:=LIT if lit else IDLE
+	var c:=area.get_center();var radius:=arc_radius(area)
+	var start:=arc_angle(0);var end:=arc_angle(1);var fill:=arc_angle(throttle_level)
+	draw_arc(c,radius,minf(start,end),maxf(start,end),40,Color("031119cc"),16*unit,true)
+	draw_arc(c,radius,minf(start,end),maxf(start,end),40,Color(tint,.22),10*unit,true)
+	if throttle_level>0:draw_arc(c,radius,minf(start,fill),maxf(start,fill),40,Color(tint,.85),7*unit,true)
+	for step in 5:
+		var out:=Vector2.from_angle(arc_angle(step*.25))
+		draw_line(c+out*(radius+9*unit),c+out*(radius+14*unit),Color(tint,.6),1.5*unit,true)
+	var knob:=c+Vector2.from_angle(arc_angle(throttle_level))*radius
+	draw_circle(knob,9*unit,Color("0b3446"));draw_arc(knob,9*unit,0,TAU,24,tint,2*unit,true)
+	var label_at:=c+Vector2.from_angle(arc_angle(.5))*(radius+30*unit)
+	draw_string(ThemeDB.fallback_font,label_at+Vector2(-30*unit,5*unit),"%d%%"%roundi(throttle_level*100),HORIZONTAL_ALIGNMENT_CENTER,60*unit,roundi(12*unit),Color(tint,.85))
 func draw_throttle(area: Rect2, lit: bool) -> void:
 	var tint:=LIT if lit else IDLE
 	var k: float=area.size.x/(THROTTLE_SIZE.x*unit)*unit

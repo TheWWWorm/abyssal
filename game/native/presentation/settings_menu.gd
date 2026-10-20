@@ -672,6 +672,7 @@ func touch_page() -> void:
 		if can("layout_editor"): host.layout_editor.call())
 	placement.disabled=not (can("layout_editor") and active)
 	placement.tooltip_text=tr("Move and resize the on-screen controls.") if not placement.disabled else (tr("Turn touch controls on first.") if can("layout_editor") else tr("Available during gameplay."))
+	toggle(tr("Throttle"),"input","touch_throttle_slider",false,tr("Separate slider"),tr("Arc round fire button")).tooltip_text=tr("A separate upright slider above the fire button, apart from it, instead of the arc round its edge.")
 	toggle(tr("Mirror fire control"),"input","touch_mirror_fire",false).tooltip_text=tr("Put the throttle on the right of the fire button, for a button placed on the left.")
 	toggle(tr("Touch look area"),"input","touch_drag_anywhere",false,tr("Whole screen"),tr("Outside analog area"))
 	toggle(tr("Steering stick"),"input","touch_fixed_stick",false,tr("Fixed in place"),tr("Moves to thumb"))

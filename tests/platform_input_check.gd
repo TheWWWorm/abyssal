@@ -88,6 +88,7 @@ func run() -> void:
  await process_frame
  check_weapon_taps(touch)
  check_mirrored_throttle(touch)
+ check_throttle_slider(touch)
  for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2560,1080)]:
   touch.size=dimensions;touch.arrange()
   for name in touch.zones:expect(Rect2(Vector2.ZERO,dimensions).encloses(touch.zones[name]),"Touch target fits: "+name)
@@ -98,8 +99,8 @@ func run() -> void:
   for b in touch.ROUND:
    if a<b and touch.zones[a].get_center().distance_to(touch.zones[b].get_center())<(touch.zones[a].size.x+touch.zones[b].size.x)*.5:crowded.append(a+"/"+b)
   if not Rect2(Vector2.ZERO,touch.size).encloses(touch.zones[a]):crowded.append(a+" off screen")
- for a in touch.ROUND:
-  if touch.zones.throttle.grow(8*touch.unit).intersects(touch.zones[a]):crowded.append(a+"/throttle")
+ var arc_zone: Rect2=touch.zones.throttle
+ if arc_zone.get_center().distance_to(touch.zones.hook.get_center())<touch.arc_radius(arc_zone)+touch.zones.hook.size.x*.5+8:crowded.append("hook/throttle")
  expect(crowded.is_empty(),"Upright controls stay apart: %s"%[crowded])
  expect(is_equal_approx(touch.unit,minf(1280/1280.0,589/720.0)),"Upright controls keep their landscape size")
  # Settings held upright: no page is wider than the phone (an iPhone browser
@@ -124,7 +125,6 @@ func run() -> void:
   for a in touch.ROUND:
    for b in touch.ROUND:
     if a<b and touch.zones[a].get_center().distance_to(touch.zones[b].get_center())<(touch.zones[a].size.x+touch.zones[b].size.x)*.5+12*touch.unit:tight.append(a+"/"+b)
-   if touch.zones.throttle.grow(12*touch.unit).intersects(touch.zones[a]):tight.append(a+"/throttle")
   var label_top: float=touch.depth_rect.position.y-touch.DEPTH_LABEL
   if label_top<touch.zones.menu.end.y+12*touch.unit:tight.append("depth label/pause")
   expect(tight.is_empty(),"Controls keep clear of each other at %s: %s"%[dimensions,tight])
@@ -141,32 +141,22 @@ func run() -> void:
  touch.has_hook=false;touch.boost_mode="absent"
  expect(touch.button_at(touch.zones.hook.get_center())=="" and touch.button_at(touch.zones.boost.get_center())=="","Unfitted harpoon and booster have no buttons")
  touch.has_hook=true;touch.boost_mode="ready"
- # The throttle is a slider of its own above the guns: where the thumb is on
- # it sets the level, and nowhere on the guns or harpoon moves it.
+ # The throttle is an arc round the guns: where the thumb is on it sets the level.
  var levels: Array=[]
  touch.throttle_changed.connect(func(percent):levels.append(percent))
- var slider: Rect2=touch.zones.throttle
- var track: Vector2=touch.throttle_track(slider)
- var guns: Rect2=touch.zones.guns
- expect(slider.end.y<guns.position.y and slider.get_center().x<guns.get_center().x,"The throttle stands above the guns, towards the middle")
- var clearance: float=INF
- for step in 41:
-  var edge: Vector2=slider.grow(8*touch.unit).position+Vector2(slider.size.x+16*touch.unit,slider.size.y+16*touch.unit)*Vector2(step/40.0,1)
-  clearance=minf(clearance,edge.distance_to(guns.get_center())-guns.size.x*.5-6*touch.unit)
- expect(clearance>=24*touch.unit,"The throttle's touch area keeps well clear of the guns' rim (%.0f)"%clearance)
- finger(touch,5,Vector2(slider.get_center().x,track.x+4),true)
- drag(touch,5,Vector2(slider.get_center().x+10,lerpf(track.x,track.y,.5)),Vector2.ZERO)
- finger(touch,5,Vector2(slider.get_center().x,lerpf(track.x,track.y,.5)),false)
- expect(levels.size()>=2 and levels[0]==0 and levels[-1]==50,"The throttle slider is empty at its foot and half way at its middle")
- expect(touch.snapshot().throttle==0 and not touch.snapshot().guns,"The slider sets the level directly, without firing")
- levels.clear()
- finger(touch,6,guns.get_center()+Vector2(-1,-1).normalized()*(guns.size.x*.5+4*touch.unit),true)
- expect(levels.is_empty() and touch.fingers.get(6)=="guns","A thumb on the guns' upper rim fires and leaves the speed alone")
- finger(touch,6,guns.get_center(),false);touch.reset()
+ var arc: Rect2=touch.zones.throttle
+ var radius: float=touch.arc_radius(arc)
+ expect(arc.get_center().is_equal_approx(touch.zones.guns.get_center()),"The throttle curves round the guns")
+ finger(touch,5,arc.get_center()+Vector2.from_angle(PI+.02)*radius,true)
+ drag(touch,5,arc.get_center()+Vector2.from_angle(PI*1.25)*radius,Vector2.ZERO)
+ finger(touch,5,arc.get_center()+Vector2.from_angle(PI*1.25)*radius,false)
+ expect(levels.size()>=2 and levels[0]==0 and levels[-1]==50,"The throttle arc is empty at its left end and half way at its middle")
+ expect(touch.snapshot().throttle==0,"The arc sets the level directly rather than holding a throttle key")
+ expect(touch.button_at(touch.zones.guns.get_center())=="guns","The guns inside the arc still answer")
  var home_hook: Rect2=touch.zones.hook
  touch.has_guns=false;touch.place_throttle()
  expect(touch.zones.hook==touch.zones.guns and touch.button_at(touch.zones.guns.get_center())=="hook","Without guns the harpoon takes their place and size")
- expect(touch.zones.throttle==slider,"Without guns the throttle stays above the harpoon in their place")
+ expect(touch.zones.throttle.get_center().is_equal_approx(touch.zones.hook.get_center()),"Without guns the throttle curves round the harpoon")
  touch.has_guns=true;touch.place_throttle()
  expect(touch.zones.hook==home_hook,"Fitting guns returns the harpoon to its own place")
  expect(touch.zones.hook.position.x<touch.zones.guns.position.x,"Harpoon then guns under the right thumb")
@@ -485,7 +475,7 @@ func check_touch_placement(game) -> void:
   touch.mirror_fire_control=false;game.read_settings()
   expect(touch.mirror_fire_control,"Reloading settings restores the mirrored fire control")
   game.settings_panel.find_child("Row_touch_mirror_fire",true,false).pressed.emit();await process_frame
-  expect(not touch.mirror_fire_control,"The same switch restores the throttle's original side")
+  expect(not touch.mirror_fire_control,"The same switch restores the original throttle arc")
  game.settings_panel.back()
  touch.layout={};touch.arrange();touch.set_active(false)
 
@@ -563,6 +553,76 @@ func check_touch_margin_placement(game) -> void:
  touch.arrange();game.show_station()
 
 func check_mirrored_throttle(touch) -> void:
+ var levels: Array=[]
+ var record:=func(percent):levels.append(percent)
+ touch.throttle_changed.connect(record)
+ for dimensions in [Vector2(1280,720),Vector2(589,1280),Vector2(1920,1080)]:
+  touch.size=dimensions;touch.layout={};touch.arrange()
+  var offset: Vector2=Vector2(180*touch.unit,touch.zones.guns.get_center().y)-touch.zones.guns.get_center()
+  touch.layout={"guns":{"x":offset.x/touch.unit,"y":0,"scale":1.25}};touch.arrange()
+  var area: Rect2=touch.zones.throttle;var center: Vector2=area.get_center();var radius: float=touch.arc_radius(area)
+  var original_button: Rect2=touch.zones.guns
+  touch.mirror_fire_control=true
+  expect(touch.zones.guns==original_button,"Mirroring a moved, resized fire control keeps its placement")
+  expect(touch.button_at(center)=="guns","Mirroring keeps the centre available for firing")
+  var old_middle: Vector2=center+Vector2(-1,-1).normalized()*radius
+  expect(not touch.on_arc(area,old_middle),"The old throttle arc no longer intercepts touches")
+  touch.throttle_level=.4;levels.clear()
+  finger(touch,11,center+Vector2(radius,0),true)
+  for level in [.25,.5,.75,1.0]:drag(touch,11,center+Vector2.from_angle(-PI*.5*level)*radius,Vector2.ZERO)
+  finger(touch,11,center+Vector2(0,-radius),false)
+  expect(levels==[0,25,50,75,100],"The right-side arc increases from its outer end to the top at %s"%dimensions)
+  expect(not touch.snapshot().guns,"Dragging the mirrored throttle does not fire the weapon")
+  touch.has_guns=false;touch.place_throttle()
+  expect(touch.button_at(center)=="hook" and touch.on_arc(area,center+Vector2(1,-1).normalized()*radius),"The mirrored arc also works when the harpoon occupies the fire button")
+  touch.has_guns=true;touch.place_throttle();touch.reset()
+  touch.mirror_fire_control=false
+  expect(touch.on_arc(area,old_middle),"Turning mirroring off restores the original arc")
+ touch.throttle_changed.disconnect(record)
+ touch.layout={};touch.size=Vector2(1280,720);touch.arrange();touch.reset()
+
+func check_throttle_slider(touch) -> void:
+ # Optional: the throttle as a separate upright slider above the guns.
+ touch.throttle_slider=true
+ for dimensions in [Vector2(800,600),Vector2(1280,720),Vector2(1140,589),Vector2(2400,1080),Vector2(589,1184),Vector2(589,1280)]:
+  touch.size=dimensions;touch.layout={};touch.arrange()
+  var tight: Array=[]
+  for a in touch.ROUND:
+   if touch.zones.throttle.grow(12*touch.unit).intersects(touch.zones[a]):tight.append(a+"/throttle")
+  if not Rect2(Vector2.ZERO,dimensions).encloses(touch.zones.throttle):tight.append("throttle off screen")
+  expect(tight.is_empty(),"The throttle slider keeps clear of the buttons at %s: %s"%[dimensions,tight])
+  if dimensions.y>dimensions.x:expect(touch.zones.hook.get_center().y>touch.zones.throttle.end.y,"Held upright with the slider, the harpoon sits beside the guns")
+ touch.size=Vector2(1280,720);touch.arrange()
+ # The throttle is a slider of its own above the guns: where the thumb is on
+ # it sets the level, and nowhere on the guns or harpoon moves it.
+ var levels: Array=[]
+ touch.throttle_changed.connect(func(percent):levels.append(percent))
+ var slider: Rect2=touch.zones.throttle
+ var track: Vector2=touch.throttle_track(slider)
+ var guns: Rect2=touch.zones.guns
+ expect(slider.end.y<guns.position.y and slider.get_center().x<guns.get_center().x,"The throttle stands above the guns, towards the middle")
+ var clearance: float=INF
+ for step in 41:
+  var edge: Vector2=slider.grow(8*touch.unit).position+Vector2(slider.size.x+16*touch.unit,slider.size.y+16*touch.unit)*Vector2(step/40.0,1)
+  clearance=minf(clearance,edge.distance_to(guns.get_center())-guns.size.x*.5-6*touch.unit)
+ expect(clearance>=24*touch.unit,"The throttle's touch area keeps well clear of the guns' rim (%.0f)"%clearance)
+ finger(touch,5,Vector2(slider.get_center().x,track.x+4),true)
+ drag(touch,5,Vector2(slider.get_center().x+10,lerpf(track.x,track.y,.5)),Vector2.ZERO)
+ finger(touch,5,Vector2(slider.get_center().x,lerpf(track.x,track.y,.5)),false)
+ expect(levels.size()>=2 and levels[0]==0 and levels[-1]==50,"The throttle slider is empty at its foot and half way at its middle")
+ expect(touch.snapshot().throttle==0 and not touch.snapshot().guns,"The slider sets the level directly, without firing")
+ levels.clear()
+ finger(touch,6,guns.get_center()+Vector2(-1,-1).normalized()*(guns.size.x*.5+4*touch.unit),true)
+ expect(levels.is_empty() and touch.fingers.get(6)=="guns","A thumb on the guns' upper rim fires and leaves the speed alone")
+ finger(touch,6,guns.get_center(),false);touch.reset()
+ touch.has_guns=false;touch.place_throttle()
+ expect(touch.zones.throttle==slider,"Without guns the slider stays above the harpoon in their place")
+ touch.has_guns=true;touch.place_throttle();touch.reset()
+ check_mirrored_slider(touch)
+ touch.throttle_slider=false
+ expect(touch.control_rect("throttle").size.x==0 and touch.zones.throttle.get_center().is_equal_approx(touch.zones.guns.get_center()),"Back to the default arc round the guns, which is not placed on its own")
+
+func check_mirrored_slider(touch) -> void:
  var levels: Array=[]
  var record:=func(percent):levels.append(percent)
  touch.throttle_changed.connect(record)
