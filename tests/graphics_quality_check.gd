@@ -52,7 +52,7 @@ func check_presets() -> void:
 	expect(Quality.read(older).height==0,"An out-of-range earlier resolution is native")
 	older.set_value("view","resolution_height",777)
 	expect(Quality.read(older).height==0,"An unknown resolution is native")
-	older.set_value("view","render_scale",33)
+	older.set_value("view","render_scale",42)
 	expect(Quality.read(older).scale==100,"An unknown 3D percentage is 100%")
 	for preset in range(Quality.LOW,Quality.VERY_HIGH+1):
 		var kept := ConfigFile.new();kept.set_value("view","render_scale",75);kept.set_value("view","resolution_height",1080);Quality.write(kept,preset)
@@ -79,8 +79,15 @@ func check_presets() -> void:
 	expect(is_equal_approx(Quality.render_scale({"height":1080,"scale":50},Vector2i(2560,1440)),0.375),"The percentage applies to the display resolution")
 	expect(Quality.render_scale({"height":2160,"scale":100},Vector2i(1920,1080))==1.0,"A resolution above the screen's is the screen's")
 	expect(Quality.heights_for(1080)==[0,720,900],"Only resolutions below the screen's are offered")
-	var unknown := ConfigFile.new();unknown.set_value("view","upscaler","dlss")
+	var unknown := ConfigFile.new();unknown.set_value("view","upscaler","xess")
 	expect(Quality.read(unknown).upscaler=="fsr","An unknown upscaler reads as FSR 1.0")
+	for sdk in ["fsr3","fsr4"]:
+		unknown.set_value("view","upscaler",sdk)
+		expect(Quality.read(unknown).upscaler==sdk,"An %s choice is kept for the engine build that has it"%sdk)
+		if not Quality.Amd.upscaler(Quality.SDK_VERSIONS[sdk]):
+			expect(Quality.upscaler(Quality.read(unknown)) in ["fsr","bilinear"] and not sdk in Quality.upscalers(),"%s without AMD's runtime falls back"%sdk)
+			expect(not Quality.generates_frames(sdk),"%s generates no frames without AMD's runtime"%sdk)
+	expect(58 in Quality.SCALES and 33 in Quality.SCALES,"The Balanced and Ultra performance shares are offered")
 	unknown.set_value("view","upscaler","metalfx_temporal")
 	if RenderingServer.get_current_rendering_driver_name()!="metal": expect(Quality.upscaler(Quality.read(unknown)) in ["fsr","bilinear"],"MetalFX away from Metal falls back")
 	var strength := ConfigFile.new()
@@ -230,6 +237,7 @@ func check_display_rows(app) -> void:
 		expect(app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_BILINEAR,"FSR 1.0 has nothing to do at 100%")
 	else:
 		expect(app.settings_panel.find_child("Row_upscaler",true,false).disabled,"OpenGL offers no upscaler choice")
+	if not Quality.frame_generation_offered(): expect(app.settings_panel.find_child("Row_frame_generation",true,false)==null,"Frame generation is only offered where a vendor upscaler runs")
 	var slider := app.settings_panel.find_child("Slider_headlight_strength",true,false) as HSlider
 	expect(slider!=null and not slider.scrollable,"The mouse wheel does not move sliders")
 	app.settings_panel.back();await frames(2)

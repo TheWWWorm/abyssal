@@ -517,8 +517,18 @@ func performance_options() -> void:
 	var upscaling: Button
 	if upscalers.size()>1: upscaling=chooser(tr("Upscaling"),upscalers.map(Quality.upscaler_name),upscalers.find(Quality.upscaler(quality)),"upscaler",func(next): put("view","upscaler",upscalers[next]),grid)
 	else: upscaling=row(tr("Upscaling"),tr("Needs Vulkan"),"upscaler",func():pass,grid);upscaling.disabled=true
-	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2 and MetalFX temporal use earlier frames, replace temporal antialiasing and also smooth edges at full resolution.")
+	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2, FSR 3.1, FSR 4 and MetalFX temporal use earlier frames, replace temporal antialiasing and also smooth edges at full resolution.")
+	# Only the Windows engine build with AMD's runtime can generate frames,
+	# with its own upscalers.
+	if Quality.frame_generation_offered():
+		var chosen := Quality.upscaler(quality)
+		var generation: Button
+		if Quality.generates_frames(chosen) or not Quality.single_sampled(chosen): generation=toggle(tr("Frame generation"),"view","frame_generation",false,tr("On"),tr("Off"),grid)
+		else: generation=row(tr("Frame generation"),tr("Not on this GPU"),"frame_generation",func():pass,grid)
+		generation.disabled=not Quality.generates_frames(chosen)
+		generation.tooltip_text=tr("Adds a generated frame after every drawn frame while flying, for smoother motion with slightly more input delay. Needs AMD FSR 3.1 or FSR 4 upscaling. Menus stop it, and the FPS counter shows drawn frames.")
 	var msaa := chooser(tr("Multisample antialiasing"),Quality.msaa_names(),quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
+	msaa.disabled=Quality.single_sampled(Quality.upscaler(quality))
 	msaa.tooltip_text=tr("Smooths the edges of models.")
 	var taa: Button
 	if forward_plus(): taa=toggle(tr("Temporal antialiasing"),"view","temporal_aa",false,tr("On"),tr("Off"),grid)

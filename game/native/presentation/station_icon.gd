@@ -196,6 +196,10 @@ func _draw() -> void:
 			var hook: Array=_ring(Vector2(0,-.2),.28,PI*1.1,PI*2.4,false)
 			hook.append(Vector2(0,.24));_line(hook)
 			_line(_ring(Vector2(0,.52),.05))
+		"about":
+			_line(_ring(Vector2.ZERO,.84))
+			_line(_ring(Vector2(0,-.42),.05))
+			_line([Vector2(-.14,-.12),Vector2(0,-.12),Vector2(0,.5)]);_line([Vector2(-.18,.5),Vector2(.18,.5)])
 		"transfer":
 			_line([Vector2(-.8,-.3),Vector2(.7,-.3)]);_line([Vector2(.4,-.6),Vector2(.76,-.3),Vector2(.4,0)])
 			_line([Vector2(.8,.36),Vector2(-.7,.36)]);_line([Vector2(-.4,.06),Vector2(-.76,.36),Vector2(-.4,.66)])

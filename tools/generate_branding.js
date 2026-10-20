@@ -51,13 +51,41 @@ async function main() {
     font: 'DejaVu Sans 64', rgba: true,
   }}).png().toBuffer({resolveWithObject: true});
   const iconSize = 512, gap = 42;
-  const top = Math.floor((1024 - iconSize - gap - title.info.height) / 2);
-  const splash = await sharp({create: {width: 1024, height: 1024, channels: 4, background: {r: 0, g: 0, b: 0, alpha: 0}}})
-    .composite([
-      {input: await png(iconSize), left: 256, top},
-      {input: title.data, left: Math.floor((1024 - title.info.width) / 2), top: top + iconSize + gap},
-    ]).png().toBuffer();
-  save('game/ui/abyssal-splash.png', splash);
+  // The build with AMD's FidelityFX SDK credits it under the name: AMD's
+  // white FSR lockups, as AMD's FSR guidelines provide them, in a row of
+  // equal cells.
+  const amd = ['amd-fsr-upscaling-white.png', 'amd-fsr-frame-generation-white.png']
+    .map(name => ({file: path.join(root, 'game/ui/vendors', name)}));
+  async function row(cells) {
+    const cell = 256, logo = 144, between = 40;
+    const height = logo;
+    const width = cells.length * cell + (cells.length - 1) * between;
+    const layers = [];
+    for (let i = 0; i < cells.length; i++) {
+      const fitted = await sharp(cells[i].file).resize(cell, logo, {fit: 'inside', kernel: 'lanczos3'}).png().toBuffer({resolveWithObject: true});
+      const x = i * (cell + between);
+      layers.push({input: fitted.data, left: x + Math.floor((cell - fitted.info.width) / 2), top: Math.floor((logo - fitted.info.height) / 2)});
+    }
+    const data = await sharp({create: {width, height, channels: 4, background: {r: 0, g: 0, b: 0, alpha: 0}}}).composite(layers).png().toBuffer();
+    return {input: data, width, height, gap: 56};
+  }
+  async function splash(cells) {
+    const parts = [{input: title.data, width: title.info.width, height: title.info.height}];
+    if (cells) parts.push(await row(cells));
+    const height = iconSize + parts.reduce((total, part) => total + (part.gap || gap) + part.height, 0);
+    let y = Math.floor((1024 - height) / 2);
+    const layers = [{input: await png(iconSize), left: 256, top: y}];
+    y += iconSize;
+    for (const part of parts) {
+      y += part.gap || gap;
+      layers.push({input: part.input, left: Math.floor((1024 - part.width) / 2), top: y});
+      y += part.height;
+    }
+    return sharp({create: {width: 1024, height: 1024, channels: 4, background: {r: 0, g: 0, b: 0, alpha: 0}}})
+      .composite(layers).png().toBuffer();
+  }
+  save('game/ui/abyssal-splash.png', await splash());
+  save('game/ui/abyssal-splash-fsr.png', await splash(amd));
   for (const [name, size] of [['favicon', 64], ['apple-touch-icon', 180], ['icon-192', 192], ['icon-512', 512]]) {
     save('browser/' + name + '.png', await png(size));
   }

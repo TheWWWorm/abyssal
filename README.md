@@ -215,7 +215,7 @@ As in the original, the water above takes the colour of the most common alga aro
 | High | Medium | 2× | On | On |
 | Very high | High | 4× | On | On |
 
-**Performance** holds those settings and **3D resolution**. **Shadow quality** decides how many station lamps cast shadows at once: the ones the camera is nearest, on screen; the rest light without a shadow. On OpenGL (browsers, phones) that is 4 work lamps and 4 small sprite lamps at **High**, 2 and 2 at **Medium** and 1 work lamp at **Low**, because OpenGL draws everything a shadowed lamp reaches once more for it; on Vulkan it is 14 and 8, 8 and 4, and 4 work lamps, with Medium and Low using two hemispheres instead of six faces, where a little light can pass close to a lamp. Station lamps take their shadows from the station only, so their shadow maps are drawn once and kept; the submarine's shadows come from its headlights and the overhead light. **Off** removes all shadows, including the headlights' and the overhead light's. Phones and browsers keep smaller shadow maps at every level. **3D resolution** draws the 3D view at 100% down to 50% of the display resolution. **Upscaling** (since 1.17.0) picks how a 3D view below 100% is scaled up: **Bilinear**, **AMD FSR 1.0** (the default, as before) or, on Forward+, **AMD FSR 2.2**, which reuses earlier frames, replaces temporal antialiasing and also smooths edges at 100%. **MetalFX spatial** and **MetalFX temporal** (the temporal one works like FSR 2.2) are listed only when the engine runs on Apple's Metal driver, which none of the current builds use (the macOS build is on OpenGL). FSR 1.0 also works on Android's Vulkan Mobile renderer; OpenGL builds scale bilinearly and show the row as unavailable. Godot has no DLSS. **Multisample antialiasing** is Off, 2× or 4×.
+**Performance** holds those settings and **3D resolution**. **Shadow quality** decides how many station lamps cast shadows at once: the ones the camera is nearest, on screen; the rest light without a shadow. On OpenGL (browsers, phones) that is 4 work lamps and 4 small sprite lamps at **High**, 2 and 2 at **Medium** and 1 work lamp at **Low**, because OpenGL draws everything a shadowed lamp reaches once more for it; on Vulkan it is 14 and 8, 8 and 4, and 4 work lamps, with Medium and Low using two hemispheres instead of six faces, where a little light can pass close to a lamp. Station lamps take their shadows from the station only, so their shadow maps are drawn once and kept; the submarine's shadows come from its headlights and the overhead light. **Off** removes all shadows, including the headlights' and the overhead light's. Phones and browsers keep smaller shadow maps at every level. **3D resolution** draws the 3D view at 100% down to 33% of the display resolution; 67%, 58%, 50% and 33% are the Quality, Balanced, Performance and Ultra performance shares of FSR 2. **Upscaling** (since 1.17.0) picks how a 3D view below 100% is scaled up: **Bilinear**, **AMD FSR 1.0** (the default, as before) or, on Forward+, **AMD FSR 2.2**, which reuses earlier frames, replaces temporal antialiasing and also smooths edges at 100%. **MetalFX spatial** and **MetalFX temporal** (the temporal one works like FSR 2.2) are listed only when the engine runs on Apple's Metal driver, which none of the current builds use (the macOS build is on OpenGL). FSR 1.0 also works on Android's Vulkan Mobile renderer; OpenGL builds scale bilinearly and show the row as unavailable. **AMD FSR 3.1**, **AMD FSR 4** and **Frame generation** are offered only by the separate Windows FSR build (see [Windows FSR build](#windows-fsr-build)); stock Godot has none of them. **Multisample antialiasing** is Off, 2× or 4×.
 
 **Settings → Display** has **Resolution**, native or a lower height (720p to 2160p, below the screen's own), which the 3D view is drawn at; the interface stays at the screen's resolution. **Show FPS** puts the frame rate at the top of the screen.
 
@@ -240,6 +240,8 @@ Each page pairs the game's data with the reference's own writing: overviews, syn
 The story stops where you are. In a game it ends at the current chapter; from the main menu, at the furthest chapter any save has reached. Later chapters, characters you have not met, stations that have not yet changed sides and anything the written pages say about later events stay out of every page, and the current chapter's ending appears once you finish it.
 
 Search finds pages by name. Links move between pages, ◀ and ▶ (or Alt+Left and Alt+Right) go back and forward, and **Linked pages** lists a page's links for a controller. On desktop, **Save as web page** draws a picture of every ship, creature and station and writes the reference, with its pictures and every language (switchable in the page's header), into the user data folder's `reference` folder and opens it in your browser; it works without a server or connection and stays on your machine. Its header links to this repository and to the browser version of the game.
+
+**About**, on the main menu, has two tabs. **Original** shows the about text, copyright and credits from your imported game. **Remake** links to this project's source code, website, reference and author, and names the graphics technologies a package includes.
 
 ### Mods: how to replace textures, music and models
 
@@ -294,7 +296,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.20.2**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.21.0**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
@@ -319,6 +321,8 @@ python3 tools/export_game.py --platform linux --release --output /outside/repo/b
 python3 tools/package_releases.py --platform linux-arm64 --version 1.0.0 --output /outside/repo/releases/arm64
 ```
 
+`package_releases.py` also builds the Windows FSR package when given `--windows-fsr-template` and `--fsr-sdk` (see [Windows FSR build](#windows-fsr-build)).
+
 Builds fetch and verify pinned runtimes once into an external cache (`~/.cache/abyssal-engine` on Linux, `~/Library/Caches/abyssal-engine` on macOS, `%LOCALAPPDATA%/abyssal-engine` on Windows; override with `ABYSSAL_CACHE_HOME`). No JAR is needed to build. Pass `--godot /path/to/godot` or set `GODOT_PATH` if it is not on your PATH.
 
 Discord uses public application ID `1561821965210222642`, configured in `game/project.godot`. In the [Discord Developer Portal](https://discord.com/developers/applications), set that application's name to **Abyssal**, upload `game/ui/abyssal-icon.png` as its application icon, and add the same PNG under **Rich Presence → Art Assets** with key **abyssal**. No bot, token, client secret or player login is required for this local Rich Presence connection. Renamed forks can set `discord/application_id` to their own application ID; `ABYSSAL_DISCORD_APPLICATION_ID` overrides it for local testing.
@@ -337,6 +341,32 @@ To run from source with direct JAR conversion you also need JDK 17+ and FFmpeg:
 python3 tools/run.py --jar /private/path/deep3d.jar --compatibility
 python3 tools/serve_web.py --directory /outside/repo/builds/web --port 8060   # local web testing
 ```
+
+### Windows FSR build
+
+An optional Windows package (`abyssal-engine-<version>-windows-fsr.zip` on the releases page) adds AMD FSR 3.1 and FSR 4 upscaling and frame generation through AMD's [FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) 2.3.0. Stock Godot 4.7 has neither, so the package runs a Windows template built from Godot 4.7-stable (commit `5b4e0cb0fd279832bbdd69fed5354d4e5ad26f88`) with `engine/godot-4.7/amd-fsr.patch`, the FidelityFX integration.
+
+The SDK needs Direct3D 12. `Play-FSR.cmd` starts the game on Forward+ with Direct3D 12 and opts in to loading AMD's runtime; `abyssal.exe` alone still starts on Vulkan and loads none of it. The package shows AMD's FSR marks on the splash screen and in **About**, with AMD's attribution in the credits.
+
+Started that way, **Settings → Graphics → Performance → Upscaling** offers what the graphics card supports. **AMD FSR 3.1** runs on recent AMD, NVIDIA and Intel cards. **AMD FSR 4** needs a Radeon RX 7000 or newer and comes with the [DirectX Agility SDK](https://devblogs.microsoft.com/directx/directx12agility/) runtime in the package's `x86_64` folder.
+
+Their quality follows **3D resolution**. 100% is native antialiasing, 67% Quality, 58% Balanced and 50% Performance. Below 50% they still draw at 50%, since the integration is used from native to Performance. They replace temporal and multisample antialiasing.
+
+**Frame generation** appears with them. It works with FSR 3.1 on most of those cards; FSR 4's own frame generation needs Windows 11 and a Radeon RX 9000 or newer, and FSR 4 upscaling otherwise pairs with FSR 3.1's. Frame generation adds one generated frame per drawn frame while flying and stops in menus, on pause and when the window loses focus. The FPS counter counts drawn frames. The generated frames have no separate interface layer, so interface edges may show artefacts.
+
+The runtime also needs the [Microsoft Visual C++ x64 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/). Every option reports unavailable, and the game keeps its own upscalers, wherever the runtime, the GPU or Direct3D 12 is missing.
+
+```sh
+git clone --depth 1 --branch 4.7-stable https://github.com/godotengine/godot.git /build/godot
+git -C /build/godot apply "$PWD/engine/godot-4.7/amd-fsr.patch"
+python3 tools/prepare_fsr_sdk.py --output /build/fidelityfx --engine /build/godot
+# In /build/godot, with a Windows (MSVC or MinGW) toolchain and Godot's usual Direct3D 12 dependencies:
+scons platform=windows arch=x86_64 target=template_release production=yes use_fsr_sdk=yes
+python3 tools/export_game.py --platform windows --release --output /outside/repo/builds/windows-fsr \
+  --windows-template /build/godot/bin/godot.windows.template_release.x86_64.exe --fsr-sdk /build/fidelityfx
+```
+
+`prepare_fsr_sdk.py` downloads the pinned FidelityFX SDK files from AMD's GitHub repository and the Agility SDK from NuGet. It checks every SHA-256, and the engine checks the AMD DLLs' hashes again before loading them. The export copies the runtime files and their license terms (`licenses/amd-fidelityfx/`, `licenses/microsoft-directx-agility/`) beside the game; keep them together. None of these runtime files are part of this repository.
 
 ### Building Android
 

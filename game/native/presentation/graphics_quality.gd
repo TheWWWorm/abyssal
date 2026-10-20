@@ -10,6 +10,7 @@ extends RefCounted
 ## presets leave those as the player set them. Resolution is the player's
 ## own choice too: presets never change it.
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
+const Amd = preload("res://native/presentation/amd.gd")
 
 const PRESETS := ["Classic","Low","Medium","High","Very high"]
 static func preset_names() -> Array:
@@ -24,21 +25,29 @@ const CUSTOM := 5
 ## Display resolution: the height the 3D view is drawn for, 0 for the
 ## screen's own. The interface is always drawn at the screen's resolution.
 const HEIGHTS := [720,900,1080,1440,2160]
-## 3D resolution, in percent of the display resolution.
-const SCALES := [100,90,80,75,67,50]
+## 3D resolution, in percent of the display resolution. 67, 58, 50 and 33
+## are the Quality, Balanced, Performance and Ultra performance shares of
+## FSR 2; the FSR 3.1 and FSR 4 upscalers draw at least 50%
+## (Amd.LOWEST_SCALE).
+const SCALES := [100,90,80,75,67,58,50,33]
 const MSAA := ["Off","2×","4×"]
 ## How a 3D view drawn below the display resolution is scaled up. FSR 1.0
 ## works on both Vulkan renderers; FSR 2.2 and MetalFX temporal reuse earlier
 ## frames (they replace temporal antialiasing) and need Forward+; MetalFX needs
-## the Metal driver. OpenGL only scales bilinearly. Godot has no DLSS.
-const UPSCALERS := ["bilinear","fsr","fsr2","metalfx_spatial","metalfx_temporal"]
-const TEMPORAL_UPSCALERS := ["fsr2","metalfx_temporal"]
+## the Metal driver. OpenGL only scales bilinearly. AMD FSR 3.1 and FSR 4
+## come only with the optional Windows FSR engine build (see Amd); with it,
+## frames can also be generated.
+const UPSCALERS := ["bilinear","fsr","fsr2","metalfx_spatial","metalfx_temporal","fsr3","fsr4"]
+const TEMPORAL_UPSCALERS := ["fsr2","metalfx_temporal","fsr3","fsr4"]
+const SDK_VERSIONS := {"fsr3":3,"fsr4":4}
 static func upscaler_name(upscaler: String) -> String:
 	match upscaler:
 		"fsr": return "AMD FSR 1.0"
 		"fsr2": return "AMD FSR 2.2"
 		"metalfx_spatial": return EngineLanguage.translate("MetalFX spatial")
 		"metalfx_temporal": return EngineLanguage.translate("MetalFX temporal")
+		"fsr3": return "AMD FSR 3.1"
+		"fsr4": return "AMD FSR 4"
 	return EngineLanguage.translate("Bilinear")
 
 static func upscalers() -> Array:
@@ -50,6 +59,8 @@ static func upscalers() -> Array:
 	if method=="forward_plus": choices.append("fsr2")
 	if metal and method in ["forward_plus","mobile"]: choices.append("metalfx_spatial")
 	if metal and method=="forward_plus": choices.append("metalfx_temporal")
+	for sdk in SDK_VERSIONS:
+		if Amd.upscaler(SDK_VERSIONS[sdk]): choices.append(sdk)
 	return choices
 
 static func upscaler(quality: Dictionary) -> String:
@@ -104,6 +115,7 @@ static func read(config: ConfigFile) -> Dictionary:
 		"scale":scale if scale in SCALES else 100,
 		"msaa":integer(config,"view","msaa",default_msaa(),2),
 		"taa":bool(config.get_value("view","temporal_aa",false)),
+		"frame_generation":bool(config.get_value("view","frame_generation",false)),
 		"upscaler":str(config.get_value("view","upscaler","fsr")) if str(config.get_value("view","upscaler","fsr")) in UPSCALERS else "fsr",
 		"shadows":integer(config,"graphics","shadows",3,3),
 		"volumetric":bool(config.get_value("graphics","volumetric",true)),
@@ -194,12 +206,16 @@ static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vect
 	# size. The temporal ones also antialias at 100%; the others then do nothing.
 	var chosen := upscaler(quality)
 	if scale>1.0 or (scale==1.0 and not chosen in TEMPORAL_UPSCALERS): chosen="bilinear"
-	var mode: int={"bilinear":Viewport.SCALING_3D_MODE_BILINEAR,"fsr":Viewport.SCALING_3D_MODE_FSR,"fsr2":Viewport.SCALING_3D_MODE_FSR2,"metalfx_spatial":Viewport.SCALING_3D_MODE_METALFX_SPATIAL,"metalfx_temporal":Viewport.SCALING_3D_MODE_METALFX_TEMPORAL}[chosen]
+	if chosen in SDK_VERSIONS:
+		scale=maxf(scale,Amd.LOWEST_SCALE)
+		Amd.select(SDK_VERSIONS[chosen])
+	var mode: int={"bilinear":Viewport.SCALING_3D_MODE_BILINEAR,"fsr":Viewport.SCALING_3D_MODE_FSR,"fsr2":Viewport.SCALING_3D_MODE_FSR2,"metalfx_spatial":Viewport.SCALING_3D_MODE_METALFX_SPATIAL,"metalfx_temporal":Viewport.SCALING_3D_MODE_METALFX_TEMPORAL,"fsr3":Amd.mode(),"fsr4":Amd.mode()}[chosen]
 	# The mode first: a temporal upscaler rejects scales above 1.
 	if viewport.scaling_3d_mode!=mode: viewport.scaling_3d_mode=mode
 	viewport.scaling_3d_scale=scale
 	viewport.use_taa=quality.modern and quality.taa and forward and not chosen in TEMPORAL_UPSCALERS
-	var msaa: int=[Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X][clampi(quality.msaa,0,2)]
+	# The FSR SDK upscalers reconstruct edges from single-sampled frames.
+	var msaa: int=Viewport.MSAA_DISABLED if single_sampled(chosen) else [Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X][clampi(quality.msaa,0,2)]
 	if viewport.msaa_3d!=msaa: viewport.msaa_3d=msaa
 	var level: int=quality.shadows if quality.modern else 3
 	var small := handheld()
@@ -209,6 +225,34 @@ static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vect
 	var filter: int=[RenderingServer.SHADOW_QUALITY_HARD,RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW,RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW,RenderingServer.SHADOW_QUALITY_SOFT_LOW][level]
 	RenderingServer.positional_soft_shadow_filter_set_quality(filter)
 	RenderingServer.directional_soft_shadow_filter_set_quality(filter)
+
+static func single_sampled(chosen: String) -> bool:
+	"""Upscalers that take single-sampled frames: multisampling is off with them."""
+	return chosen in SDK_VERSIONS
+
+static func frame_generation_offered() -> bool:
+	"""Whether this engine and GPU can generate frames with any upscaler."""
+	return Amd.upscaler(3) or Amd.upscaler(4)
+
+static func generates_frames(chosen: String) -> bool:
+	"""Whether frames can be generated with the upscaler <chosen>."""
+	return chosen in SDK_VERSIONS and Amd.frame_generation(SDK_VERSIONS[chosen])>0
+
+static func update_frame_generation(viewport: Viewport, quality: Dictionary, allowed: bool) -> void:
+	"""Generates frames while the player flies with frame generation on and
+	an upscaler that can; menus, pauses and other windows stop it, since it
+	would also interpolate the interface. AMD's runtime is told first,
+	then the view."""
+	if not "frame_generation" in viewport: return
+	var chosen := upscaler(quality)
+	var wanted: bool=allowed and bool(quality.get("frame_generation",false))
+	var version: int=Amd.frame_generation(SDK_VERSIONS[chosen]) if wanted and chosen in SDK_VERSIONS else 0
+	var on := Amd.generate(version)
+	if bool(viewport.get("frame_generation"))!=on: viewport.set("frame_generation",on)
+
+static func upscaler_failed(viewport: Viewport) -> bool:
+	"""The FSR SDK upscaler in use has since stopped: the view needs another."""
+	return Amd.failed(viewport)
 
 ## Station lights by shadow level. A shadowed lamp is not a fixed cost: the
 ## Compatibility renderer (browsers, phones) draws every object in its reach

@@ -9,6 +9,8 @@ from paths import ROOT
 # Exact paths only; imported game images are never distributable inputs.
 ARTWORK = {
     'game/ui/abyssal-icon.png', 'game/ui/abyssal-splash.png',
+    'game/ui/abyssal-splash-fsr.png', 'game/ui/vendors/amd-fsr-upscaling-white.png',
+    'game/ui/vendors/amd-fsr-frame-generation-white.png',
     'game/ui/abyssal-icon.ico', 'game/ui/abyssal-icon.icns',
     'browser/favicon.png', 'browser/apple-touch-icon.png',
     'browser/icon-192.png', 'browser/icon-512.png',

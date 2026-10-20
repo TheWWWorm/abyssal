@@ -7,6 +7,7 @@ signal tools_requested
 signal quit_requested
 signal help_requested
 signal mods_requested
+signal about_requested
 var continue_button: Button
 var new_button: Button
 var status: Label
@@ -47,7 +48,9 @@ func _ready() -> void:
 	var skin := StationTheme.panel(false);skin.bg_color.a=.72
 	skin.content_margin_left=16;skin.content_margin_right=16;skin.content_margin_top=14;skin.content_margin_bottom=16
 	panel.add_theme_stylebox_override("panel",skin)
-	panel.add_child(choices);choices.add_theme_constant_override("separation",8)
+	# Seven entries with About; rows a little tighter than the station menus'
+	# keep the status line clear of the footer in a 720p window.
+	panel.add_child(choices);choices.add_theme_constant_override("separation",6)
 	menu_title=Label.new();menu_title.text=tr("Main menu").to_upper();menu_title.add_theme_font_size_override("font_size",15);menu_title.add_theme_color_override("font_color",palette.dim)
 	menu_title.add_theme_font_override("font",StationTheme.spaced(menu_title.get_theme_font("font"),5));choices.add_child(menu_title)
 	var accent := ColorRect.new();accent.color=palette.accent;accent.custom_minimum_size=Vector2(48,2);accent.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN;choices.add_child(accent)
@@ -56,6 +59,7 @@ func _ready() -> void:
 	entry(tr("Options"),func():settings_requested.emit(),true,"system")
 	entry(tr("Mods"),func():mods_requested.emit(),true,"workshop")
 	entry(tr("Help"),func():help_requested.emit(),true,"help")
+	entry(tr("About"),func():about_requested.emit(),true,"about")
 	if not OS.has_feature("web"):entry(tr("Exit"),func():quit_requested.emit(),true,"exit")
 	status=caption(tr("Choose your DEEP JAR to begin."),15,palette.dim);status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT
 	footer=entry(tr("Choose game JAR…"),func():tools_requested.emit(),false,"cargo")
@@ -82,7 +86,7 @@ func caption(value: String, font_size: int, color: Color) -> Label:
 
 func entry(value: String, action: Callable, in_list: bool=true, icon: String="") -> Button:
 	var node := Button.new();node.text=value;node.alignment=HORIZONTAL_ALIGNMENT_LEFT if in_list else HORIZONTAL_ALIGNMENT_CENTER
-	node.custom_minimum_size=Vector2(310,46);node.add_theme_font_size_override("font_size",19)
+	node.custom_minimum_size=Vector2(310,43 if in_list else 46);node.add_theme_font_size_override("font_size",19)
 	for state in ["normal","hover","focus","pressed","disabled"]:
 		var skin := StationTheme.button_state(false,state)
 		if not icon.is_empty(): skin.content_margin_left=54
@@ -115,7 +119,8 @@ func layout() -> void:
 	panel.scale=Vector2.ONE*unit;panel.size=Vector2(column,0);panel.position=Vector2(left,top)
 	var below: float=top+panel.get_combined_minimum_size().y*unit+14*unit
 	status.scale=Vector2.ONE*unit;status.position=Vector2(left,below);status.size=Vector2(column,65)
-	help.scale=Vector2.ONE*unit;help.position=Vector2(left,below);help.size=Vector2(minf(620,size.x/unit-80),150)
+	help.scale=Vector2.ONE*unit;help.size=Vector2(minf(620,size.x/unit-80),150)
+	help.position=Vector2(left,minf(below,size.y-(help.get_combined_minimum_size().y+12)*unit))
 	footer.scale=Vector2.ONE*unit;footer.size=Vector2(column,42);footer.position=Vector2(left,size.y-94*unit)
 	edition.scale=Vector2.ONE*unit;edition.position=Vector2(left,size.y-33*unit)
 	rule.position=Vector2(16,size.y-110*unit);rule.size=Vector2(size.x-32,1)

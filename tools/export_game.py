@@ -63,15 +63,29 @@ def stamp_web_build(output):
     temporary=page.with_suffix('.html.tmp');temporary.write_text(html);temporary.replace(page)
     return digest[:12]
 
-def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
+# The Windows FSR package, from a template with AMD's FidelityFX SDK: its
+# splash and the vendor artwork belong to that package only.
+FSR_SPLASH = 'game/ui/abyssal-splash-fsr.png'
+SDK_ARTWORK = (FSR_SPLASH, 'game/ui/vendors/')
+
+
+def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, template=None, sdks=()):
     names=json.loads((ROOT/'source-manifest.json').read_text())['files']
     for name in names:
         if not name.startswith('game/'):continue
+        # Vendor-attributed artwork belongs to the packages with their SDKs.
+        if name.startswith(SDK_ARTWORK) and not sdks:continue
+        if name.endswith('/NOTICE.md'):continue
         source=ROOT/name
         if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK):raise ValueError('Unexpected runtime source: '+name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text()
+    if sdks:
+        splash='res://'+str(pathlib.Path(FSR_SPLASH).relative_to('game'))
+        text=text.replace('boot_splash/image="res://ui/abyssal-splash.png"','boot_splash/image="%s"'%splash)
+        # The credits name the SDKs the package bundles (graphics_credits.gd).
+        text+='\n[abyssal]\n\n'+''.join(f'graphics_sdk/{sdk}=true\n' for sdk in sdks)
     # The title shows the package's version under its logo.
     text=text.replace('[application]\n','[application]\n\nconfig/version="%s"\n'%version,1)
     # Desktop x86-64 keeps the project's Forward+ renderer (Vulkan), which the
@@ -95,6 +109,7 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5):
     else:options['binary_format/architecture']='"x86_64"'
     if platform=='windows':options.update({'application/icon':'"res://ui/abyssal-icon.ico"','application/modify_resources':'true'})
     if platform=='android':options['launcher_icons/adaptive_monochrome_432x432']='"res://ui/abyssal-monochrome.svg"'
+    if template:options['custom_template/debug']=options['custom_template/release']=json.dumps(str(template))
     header=f'''[preset.0]
 name="{platform}"
 platform="{PLATFORMS[platform][0]}"
@@ -132,21 +147,52 @@ def write_static_headers(output):
     (pathlib.Path(output)/'_headers').write_text(WEB_HEADERS)
 
 
+# Direct3D 12 with Forward+, and the opt-in that lets the engine load AMD's
+# runtime. abyssal.exe alone keeps Vulkan and loads none of it.
+LAUNCHER='@echo off\r\ncd /d "%~dp0"\r\nstart "" "%~dp0abyssal.exe" --rendering-method forward_plus --rendering-driver d3d12 --render-thread safe -- --experimental-fsr\r\n'
+
+
+def check_template(template):
+    """The template has AMD's integration."""
+    if b'amd_fidelityfx_loader_dx12.dll' not in template.read_bytes():raise ValueError('The Windows template lacks the AMD FidelityFX integration')
+
+
+def stage_vendor_runtimes(output, fsr_sdk):
+    """AMD's signed runtime, the DirectX Agility runtime and their license
+    terms, and the launcher, beside a Windows export from the patched engine."""
+    from prepare_fsr_sdk import DLLS as AMD_DLLS, NOTICES as AMD_NOTICES, AGILITY_FILES, AGILITY_CORE_SHA256, digest
+    fsr_sdk=pathlib.Path(fsr_sdk)
+    for name in AMD_DLLS:shutil.copyfile(fsr_sdk/'Kits/FidelityFX/signedbin'/name,output/name)
+    if digest(fsr_sdk/'agility/x86_64/D3D12Core.dll')!=AGILITY_CORE_SHA256:raise ValueError('DirectX Agility runtime checksum mismatch')
+    (output/'x86_64').mkdir(exist_ok=True);shutil.copyfile(fsr_sdk/'agility/x86_64/D3D12Core.dll',output/'x86_64/D3D12Core.dll')
+    notices=output/'licenses/amd-fidelityfx';notices.mkdir(parents=True,exist_ok=True)
+    for name in AMD_NOTICES:shutil.copyfile(fsr_sdk/name,notices/pathlib.Path(name).name)
+    notices=output/'licenses/microsoft-directx-agility';notices.mkdir(parents=True,exist_ok=True)
+    for name in AGILITY_FILES.values():
+        if name.startswith('licenses/'):shutil.copyfile(fsr_sdk/'agility'/name,notices/pathlib.Path(name).name)
+    (output/'Play-FSR.cmd').write_bytes(LAUNCHER.encode())
+
+
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');args=p.parse_args()
     if args.version_code<1:p.error("Android version code must be positive")
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):p.error('Export outside the source directory.')
     if not args.godot and not args.stage_only:p.error('Install Godot 4.7 and matching export templates, or pass --godot.')
+    if bool(args.windows_template)!=bool(args.fsr_sdk) or (args.windows_template and args.platform!='windows'):p.error('The vendor SDK build needs --windows-template and --fsr-sdk, for Windows only.')
+    template=args.windows_template.expanduser().resolve() if args.windows_template else None
+    if template and not template.is_file():p.error('No Windows template at '+str(template))
+    if template:check_template(template)
+    sdks=('amd',) if template else ()
     # Same reviewed input set as source packaging. Exported resources never include the local cache.
     from package_source import source_files
     source_files()
     output.mkdir(parents=True,exist_ok=True)
     home=cache_home()/'exports';home.mkdir(parents=True,exist_ok=True)
     if args.stage_only:
-        stage=output/'project';stage.mkdir(exist_ok=False);stage_project(stage,args.platform,args.version,args.version_code);print(stage);return
+        stage=output/'project';stage.mkdir(exist_ok=False);stage_project(stage,args.platform,args.version,args.version_code,template,sdks);print(stage);return
     with tempfile.TemporaryDirectory(prefix=args.platform+'-',dir=home) as temporary:
-        stage=pathlib.Path(temporary);stage_project(stage,args.platform,args.version,args.version_code)
+        stage=pathlib.Path(temporary);stage_project(stage,args.platform,args.version,args.version_code,template,sdks)
         if args.platform=='android':
             from android_runtime import stage as stage_android
             stage_android(stage,args.godot,args.release)
@@ -161,6 +207,7 @@ def main():
         from desktop_runtime import stage as stage_desktop_runtime, embed_macos
         stage_desktop_runtime(output,args.platform)
         if args.platform=="macos":embed_macos(output)
+    if template:stage_vendor_runtimes(output,args.fsr_sdk)
     # Preserve bundled engine attribution in native/web distributions as well as source.
     subprocess.run([args.godot,'--headless','--script',str(ROOT/'tools/export_notices.gd'),'--',str(output/'GODOT_LICENSES.txt')],check=True)
     shutil.copyfile(ROOT/'THIRD_PARTY_NOTICES.md',output/'THIRD_PARTY_NOTICES.md')

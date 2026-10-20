@@ -21,6 +21,7 @@ const EquipmentInfo = preload("res://native/presentation/equipment_info.gd")
 const Library = preload("res://scripts/model_library.gd")
 const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
+const GraphicsCredits = preload("res://native/presentation/graphics_credits.gd")
 var content
 var imported_art := preload("res://native/presentation/imported_art.gd").new()
 var stream_prompted := false
@@ -789,6 +790,8 @@ func discord_context() -> Dictionary:
 
 func _process(delta: float) -> void:
 	if session==null: return
+	GraphicsQuality.update_frame_generation(get_viewport(),quality,page.is_empty() and get_window().has_focus())
+	if GraphicsQuality.upscaler_failed(get_viewport()): update_render_resolution()
 	view.stabilize_touch_horizon=touch.enabled()
 	if world.region!=null:world.region.player.touch_horizon_assist=touch.enabled()
 	if not page.is_empty() and Input.mouse_mode!=Input.MOUSE_MODE_VISIBLE:release_flight_mouse()
@@ -2057,7 +2060,7 @@ func consume_events() -> void:
 		match entry.kind:
 			"briefing": show_dialogue(session.dialogue(entry.mission,0),close_page)
 			"departure_briefing": briefing()
-			"credits": show_dialogue([{"speaker":tr("Credits"),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)}],func(): world.region.acknowledge_credits(); close_page())
+			"credits": show_dialogue([{"speaker":tr("Credits"),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)+("\n\n"+GraphicsCredits.text() if GraphicsCredits.amd() else "")}],func(): world.region.acknowledge_credits(); close_page())
 			"mission_complete": show_dialogue(session.dialogue(entry.mission,1),func(): world.region.acknowledge_completion(); close_page())
 			"transmission":
 				var speaker: String = str(content.data.constants.ah["a:[Ljava.lang.String;"][entry.entry.speaker])

@@ -19,6 +19,17 @@ func run():
  app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
  expect(app.title_menu.continue_button.disabled,"No checkpoint disables load")
+ # About: the original game's own credits from the JAR, and the remake's links.
+ app.show_about();await process_frame
+ var about_text:=func() -> String:
+  return "\n".join(app.modal.find_child("AboutPage",true,false).get_children().filter(func(node):return node is Label).map(func(node):return node.text))
+ expect(root.gui_get_focus_owner()!=null and root.gui_get_focus_owner().name=="OriginalTab","About opens on the original game's tab")
+ expect(about_text.call().contains(app.content.text(25)) and about_text.call().contains("Martin Brüning") and not about_text.call().contains("\n\n\n"),"The original's copyright and credits come from the JAR, without the phone's blank screens")
+ app.show_about("remake");await process_frame
+ var links: Array=app.modal.find_child("AboutPage",true,false).get_children().filter(func(node):return node is Button).map(func(node):return node.tooltip_text)
+ expect(links==["https://github.com/TheWWWorm/abyssal","https://abyssal.wwworm.com/","https://abyssal.wwworm.com/wiki/","https://github.com/TheWWWorm"],"The remake's tab links the source, website, wiki and author")
+ expect(about_text.call().contains("Apache"),"The remake's tab names its licence")
+ app.close_modal()
  # A window that ignores a dropped game file looks broken, so a drop it cannot
  # use has to say so rather than do nothing at all.
  app.status.text=""

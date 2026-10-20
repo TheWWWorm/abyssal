@@ -99,6 +99,7 @@ const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
 const TouchControls = preload("res://native/input/touch_controls.gd")
 const Display = preload("res://native/presentation/display_settings.gd")
 const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
+const GraphicsCredits = preload("res://native/presentation/graphics_credits.gd")
 const GraphicsProbe = preload("res://native/presentation/graphics_probe.gd")
 ## Measures the device on first start (or when asked) and picks a preset.
 var graphics_probe: Node
@@ -203,6 +204,7 @@ func _ready() -> void:
 	title_menu.quit_requested.connect(func(): get_tree().quit())
 	title_menu.help_requested.connect(show_help)
 	title_menu.mods_requested.connect(show_mods)
+	title_menu.about_requested.connect(show_about)
 	fullscreen_button=FullscreenButton.new(func(): FullscreenButton.toggle(func(text): status.text=text))
 	var start_config := ConfigFile.new();start_config.load(settings_path)
 	title_menu.update_help(bool(start_config.get_value("input","mouse_wheel_throttle",false)))
@@ -461,6 +463,8 @@ func toggle_lights() -> void:
 	abyss.set_headlights(light_enabled)
 
 func _process(delta: float) -> void:
+	GraphicsQuality.update_frame_generation(get_viewport(),{},false)
+	if GraphicsQuality.upscaler_failed(get_viewport()): apply_render_quality()
 	if tools_status.text!=status.text: tools_status.text=status.text
 	var settings_open: bool=is_instance_valid(settings_panel) and settings_panel.visible
 	fullscreen_button.place(title_menu.visible and not inspector_open and not modal.visible and not loading.visible and not settings_open)
@@ -841,6 +845,53 @@ func show_help(topic: int=-1) -> void:
 			box.remove_child(entry);last.add_child(entry);entry.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scrim.show();modal.show();layout_ui()
 	(first if first!=null else back).grab_focus.call_deferred()
+
+func show_about(page: String="") -> void:
+	"""About, in two tabs: the original game's own title, credits and
+	copyright, read from the player's JAR, and the remake with its links.
+	Without content there is only the remake's."""
+	if page.is_empty() or not ready_for_preview: page="original" if ready_for_preview else "remake"
+	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
+	for child in modal.get_children():modal.remove_child(child);child.queue_free()
+	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
+	box.add_child(label(tr("About").to_upper(),24,Color("8bd6ee")))
+	var tabs := HBoxContainer.new();tabs.name="AboutTabs";tabs.add_theme_constant_override("separation",10);box.add_child(tabs)
+	var current: Button=null
+	for entry in [["original",tr("Original")],["remake",tr("Remake")]]:
+		var tab := button(entry[1],func():show_about(entry[0]),tabs);tab.name=str(entry[0]).capitalize()+"Tab"
+		tab.alignment=HORIZONTAL_ALIGNMENT_CENTER;tab.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		tab.disabled=entry[0]=="original" and not ready_for_preview
+		if entry[0]==page:
+			current=tab
+			# The open tab keeps its lit frame whether or not it holds focus.
+			var lit := StationTheme.button_state(false,"focus");lit.border_width_bottom=3
+			tab.add_theme_stylebox_override("normal",lit);tab.add_theme_stylebox_override("pressed",lit)
+	var scroller := ScrollContainer.new();scroller.custom_minimum_size=Vector2(560,300);scroller.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	scroller.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;box.add_child(scroller)
+	var body := VBoxContainer.new();body.name="AboutPage";body.size_flags_horizontal=Control.SIZE_EXPAND_FILL;body.add_theme_constant_override("separation",10);scroller.add_child(body)
+	var paragraph := func(text: String, font_size: int, color: Color=Color("d6e8ee")) -> Label:
+		var node := label(text,font_size,color);node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;node.custom_minimum_size.x=520;body.add_child(node);return node
+	if page=="original":
+		paragraph.call(content.text(26),20,Color("aedbec"))
+		paragraph.call(content.text(25),12,Color("a2c3d3"))
+		# The phone scrolled its credits with screens of blank lines between.
+		var credits := RegEx.create_from_string("\\n{3,}").sub(content.text(28),"\n\n",true)
+		paragraph.call(credits,15)
+	else:
+		var version := str(ProjectSettings.get_setting("application/config/version",""))
+		paragraph.call("ABYSSAL" if version.is_empty() else "ABYSSAL  ·  "+version,20,Color("aedbec"))
+		paragraph.call(tr("ABYSSAL is a free 3D remake of DEEP, the 2007 phone game by FISHLABS. It contains nothing of the original: the art, text and music come from your own copy of the DEEP JAR."),15)
+		var Links := preload("res://native/wiki/wiki_export.gd")
+		for link in [[tr("Source code"),Links.SOURCE_URL],[tr("Website"),Links.PLAY_URL],[tr("Reference"),Links.PLAY_URL+"wiki/"],[tr("Made by %s")%"TheWWWorm","https://github.com/TheWWWorm"]]:
+			var address: String=link[1]
+			var visit := button(str(link[0])+"  ·  "+address.trim_prefix("https://").trim_suffix("/"),func():OS.shell_open(address),body)
+			visit.name="Link"+str(body.get_child_count());visit.tooltip_text=address
+		paragraph.call(tr("Free software under the Apache License 2.0."),12,Color("a2c3d3"))
+		var sdks: Control=GraphicsCredits.panel()
+		if sdks!=null: body.add_child(sdks)
+	var back := button(tr("Back"),close_modal,box)
+	scrim.show();modal.show();layout_ui()
+	(current if current!=null else back).grab_focus.call_deferred()
 
 func show_reference() -> void:
 	"""The reference of the imported game. Its story stops at the furthest
