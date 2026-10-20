@@ -4,6 +4,7 @@ extends SceneTree
 const Quality=preload("res://native/presentation/graphics_quality.gd")
 const Probe=preload("res://native/presentation/graphics_probe.gd")
 const RendererChoice=preload("res://native/platform/renderer_choice.gd")
+const Amd=preload("res://native/presentation/amd.gd")
 const SETTINGS := "user://graphics-quality-check/settings.cfg"
 const SAVE := "user://graphics-quality-check/campaign.json"
 var failures := 0
@@ -119,21 +120,40 @@ func check_renderer_choice() -> void:
 	var kept := {}
 	for path in [RendererChoice.OVERRIDE,RendererChoice.TRIAL]:
 		if FileAccess.file_exists(path):kept[path]=FileAccess.get_file_as_bytes(path)
+	var started: String=RendererChoice.started_with
 	RendererChoice.reset();RendererChoice.notice=""
 	expect(RendererChoice.chosen()=="vulkan","Vulkan is the default renderer")
-	RendererChoice.choose("d3d12")
+	expect(RendererChoice.choices()==["vulkan","opengl"] or Amd.mode()>=0,"Stock engines offer Vulkan and OpenGL")
+	RendererChoice.choose("opengl")
 	var override := ConfigFile.new()
-	expect(override.load(RendererChoice.OVERRIDE)==OK and override.get_value("rendering","rendering_device/driver.windows")=="d3d12" and override.get_value("rendering","fsr_sdk/enabled")==true,"Choosing Direct3D 12 writes the override that also loads AMD's runtime")
-	expect(RendererChoice.chosen()=="d3d12" and FileAccess.file_exists(RendererChoice.TRIAL),"The choice starts as a trial")
-	# This run is not on Direct3D 12, as a start where it failed would be.
-	expect(not RendererChoice.startup() and RendererChoice.notice=="failed" and RendererChoice.chosen()=="vulkan","A start that is not on Direct3D 12 goes back to Vulkan and says so")
-	RendererChoice.notice="";RendererChoice.choose("d3d12")
+	expect(override.load(RendererChoice.OVERRIDE)==OK and override.get_value("rendering","renderer/rendering_method")=="gl_compatibility" and override.get_value("rendering","renderer/rendering_method.mobile")=="gl_compatibility","Choosing OpenGL writes an override for every renderer method the project names")
+	expect(RendererChoice.chosen()=="opengl" and FileAccess.file_exists(RendererChoice.TRIAL),"The choice starts as a trial")
+	if RendererChoice.running()=="opengl":
+		# A compatibility run is the trial's first start on OpenGL.
+		expect(RendererChoice.startup() and not FileAccess.file_exists(RendererChoice.OVERRIDE) and RendererChoice.notice=="","The first start on the chosen renderer runs the trial without its override")
+		RendererChoice.confirm()
+		expect(RendererChoice.pending()=="opengl" and FileAccess.file_exists(RendererChoice.OVERRIDE) and not FileAccess.file_exists(RendererChoice.TRIAL),"A trial run that works keeps its renderer")
+		RendererChoice.reset();RendererChoice.choose("opengl")
+		var other := ConfigFile.new();other.load(RendererChoice.OVERRIDE);other.set_value("abyssal","renderer","d3d12");other.save(RendererChoice.OVERRIDE);other.save(RendererChoice.TRIAL)
+		var pending := ConfigFile.new();pending.load(RendererChoice.TRIAL);pending.set_value("trial","state","pending");pending.save(RendererChoice.TRIAL)
+		expect(not RendererChoice.startup() and RendererChoice.notice=="failed" and RendererChoice.failed_choice=="d3d12" and RendererChoice.chosen()=="vulkan","A start on another renderer goes back to Vulkan and says which failed")
+	else:
+		# This run is on Forward+, as a start where OpenGL failed would be.
+		expect(not RendererChoice.startup() and RendererChoice.notice=="failed" and RendererChoice.failed_choice=="opengl" and RendererChoice.chosen()=="vulkan","A start on another renderer goes back to Vulkan and says which failed")
+	RendererChoice.notice="";RendererChoice.choose("opengl")
 	var trial := ConfigFile.new();trial.load(RendererChoice.TRIAL);trial.set_value("trial","state","running");trial.save(RendererChoice.TRIAL)
 	expect(not RendererChoice.startup() and RendererChoice.notice=="crashed" and RendererChoice.chosen()=="vulkan","A trial that never finished goes back to Vulkan and says so")
-	RendererChoice.notice="";RendererChoice.choose("d3d12");RendererChoice.confirm()
-	expect(FileAccess.file_exists(RendererChoice.TRIAL),"Only a run on Direct3D 12 confirms the trial")
+	RendererChoice.notice="";RendererChoice.choose("opengl");RendererChoice.confirm()
+	expect(FileAccess.file_exists(RendererChoice.TRIAL),"Only a run on the chosen renderer confirms the trial")
 	RendererChoice.choose("vulkan")
 	expect(not FileAccess.file_exists(RendererChoice.OVERRIDE) and not FileAccess.file_exists(RendererChoice.TRIAL),"Choosing Vulkan removes the override")
+	RendererChoice.choose("d3d12")
+	expect(Amd.mode()>=0 or not FileAccess.file_exists(RendererChoice.OVERRIDE),"Direct3D 12 needs the engine build with AMD's integration")
+	# 1.21.1 wrote its Direct3D 12 override without naming the renderer.
+	var older := ConfigFile.new();older.set_value("rendering","rendering_device/driver","d3d12");older.save(RendererChoice.OVERRIDE)
+	expect(RendererChoice.pending()=="d3d12","An override from 1.21.1 still reads as Direct3D 12")
+	RendererChoice.reset();RendererChoice.notice=""
+	RendererChoice.started_with=started
 	for path in kept:
 		var file := FileAccess.open(path,FileAccess.WRITE);file.store_buffer(kept[path])
 
@@ -189,7 +209,31 @@ func check_settings_rows(app) -> void:
 	var row := preset_row(app)
 	expect(row!=null and row.get_node("Value").text==Quality.PRESETS[Quality.current(saved())]+" (Recommended)","The Graphics page names the measured preset as recommended")
 	expect((app.settings_panel.scroll.get_child(0) as MarginContainer).get_theme_constant("margin_right")>0,"Rows keep clear of the scroll bar")
-	expect(RendererChoice.available() or app.settings_panel.find_child("Row_renderer",true,false)==null,"Only the Windows build with AMD's integration offers a renderer")
+	var renderer_row: Node=app.settings_panel.find_child("Row_renderer",true,false)
+	expect((renderer_row!=null)==RendererChoice.available(),"The renderer row appears where the export runs Vulkan (%s)"%RendererChoice.available())
+	if renderer_row!=null:
+		expect((renderer_row.get_node("List") as OptionButton).item_count==RendererChoice.choices().size(),"The renderer row lists every renderer offered")
+		var kept := {}
+		for path in [RendererChoice.OVERRIDE,RendererChoice.TRIAL]:
+			if FileAccess.file_exists(path):kept[path]=FileAccess.get_file_as_bytes(path)
+		var other: String="vulkan" if RendererChoice.running()=="opengl" else "opengl"
+		(renderer_row.get_node("List") as OptionButton).item_selected.emit(RendererChoice.choices().find(other));await frames(3)
+		renderer_row=app.settings_panel.find_child("Row_renderer",true,false)
+		var shown := renderer_row.get_node("Value") as Label
+		var style := renderer_row.get_theme_stylebox("normal") as StyleBoxFlat
+		expect(shown.text.contains(RendererChoice.name_of(other)) and style.content_margin_right>=shown.get_combined_minimum_size().x-shown.offset_right,"A choice for the next start keeps the row's name clear of its longer value")
+		if other=="vulkan":
+			# OpenGL without a choice is Godot's fallback; a chosen OpenGL run going back is not.
+			var started: String=RendererChoice.started_with
+			expect(shown.text==tr("OpenGL · Vulkan unavailable")==started.is_empty(),"Only Godot's own fallback to OpenGL reads as Vulkan unavailable")
+			RendererChoice.started_with="opengl" if started.is_empty() else "";app.show_settings("graphics");await frames(3)
+			shown=app.settings_panel.find_child("Row_renderer",true,false).get_node("Value") as Label
+			expect(shown.text==tr("OpenGL · Vulkan unavailable")==RendererChoice.started_with.is_empty(),"A run on a chosen OpenGL that goes back to Vulkan says from the next start")
+			RendererChoice.started_with=started
+		RendererChoice.reset()
+		for path in kept:
+			var file := FileAccess.open(path,FileAccess.WRITE);file.store_buffer(kept[path])
+		app.show_settings("graphics");await frames(3);row=preset_row(app)
 	expect(app.settings_panel.find_child("Row_lighting",true,false)==null and app.settings_panel.find_child("Row_detect_graphics",true,false)==null,"Lighting and measuring are presets, not rows")
 	var list := row.get_node("List") as OptionButton
 	expect(list.item_count==5 and list.selected==Quality.current(saved()),"The preset row opens a list with the current preset chosen")

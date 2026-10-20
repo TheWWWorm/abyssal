@@ -330,13 +330,22 @@ func row(title: String, value: String, key: String, action: Callable, parent: No
 		shown.add_theme_font_size_override("font_size",18 if touch else 15);shown.add_theme_color_override("font_color",colours().value)
 		shown.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;shown.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		node.add_child(shown);shown.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);shown.offset_right=-16;shown.offset_left=16
-		# The name wraps short of the value rather than running under it.
-		var room:=shown.get_combined_minimum_size().x
-		for state in ["normal","hover","pressed","focus","disabled"]:
-			var style := node.get_theme_stylebox(state) as StyleBoxFlat
-			if style!=null: style.content_margin_right=room+28
+		make_room(node,shown)
 		node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	return node
+
+func make_room(node: Button, shown: Label, extra := 0.0) -> void:
+	"""The name wraps short of the value rather than running under it."""
+	var room:=shown.get_combined_minimum_size().x+extra
+	for state in ["normal","hover","pressed","focus","disabled"]:
+		var style := node.get_theme_stylebox(state) as StyleBoxFlat
+		if style!=null: style.content_margin_right=room+28
+
+func show_value(node: Button, text: String) -> void:
+	"""Another value for a row already built, with room made for it."""
+	var shown := node.get_node("Value") as Label
+	shown.text=text;node.accessibility_name=node.text+" · "+text
+	make_room(node,shown,-shown.offset_right-16)
 
 func toggle(title: String, section_name: String, key: String, fallback: bool, on_text := "", off_text := "", parent: Node=null) -> Button:
 	var value := flag(section_name,key,fallback)
@@ -517,14 +526,6 @@ func performance_options() -> void:
 	var scales: Array=Quality.SCALES
 	var resolution := chooser(tr("3D resolution"),scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
 	resolution.tooltip_text=tr("Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp.")
-	if RendererChoice.available():
-		var choices: Array=RendererChoice.CHOICES
-		var names: Array=RendererChoice.names()
-		var next: String=RendererChoice.chosen()
-		var renderer := chooser(tr("Renderer"),names,choices.find(next),"renderer",func(index): RendererChoice.choose(choices[index]);focus_key="renderer";rebuild(true),grid)
-		# A choice waiting for the next start says so.
-		if next!=RendererChoice.running(): renderer.get_node("Value").text=tr("%s · from the next start")%names[choices.find(next)]
-		renderer.tooltip_text=tr("Direct3D 12 adds AMD FSR 3.1 and FSR 4 upscaling and frame generation where the graphics card supports them. Vulkan is the default. A change applies when the game starts again.")
 	var upscalers: Array=Quality.upscalers()
 	var upscaling: Button
 	if upscalers.size()>1: upscaling=chooser(tr("Upscaling"),upscalers.map(Quality.upscaler_name),upscalers.find(Quality.upscaler(quality)),"upscaler",func(next): put("view","upscaler",upscalers[next]),grid)
@@ -547,6 +548,21 @@ func performance_options() -> void:
 	else: taa=row(tr("Temporal antialiasing"),tr("Needs Vulkan"),"temporal_aa",func():pass,grid)
 	taa.disabled=not enhanced or not forward_plus() or Quality.upscaler(quality) in Quality.TEMPORAL_UPSCALERS
 	taa.tooltip_text=tr("Smooths edges further; slightly blurs motion.")
+	# Full width below the others: a choice for the next start is a long value.
+	if RendererChoice.available():
+		var choices: Array=RendererChoice.choices()
+		var names: Array=RendererChoice.names()
+		var next: String=RendererChoice.chosen()
+		var running: String=RendererChoice.running()
+		var renderer := chooser(tr("Renderer"),names,choices.find(next),"renderer",func(index): RendererChoice.choose(choices[index]);focus_key="renderer";rebuild(true))
+		# A choice waiting for the next start says so; Vulkan that the engine
+		# could not start (it falls back to OpenGL by itself) says that.
+		if next!=running:
+			if RendererChoice.pending().is_empty() and RendererChoice.started_with.is_empty() and running=="opengl": show_value(renderer,tr("OpenGL · Vulkan unavailable"))
+			else: show_value(renderer,tr("%s · from the next start")%names[choices.find(next)])
+		var about := tr("Vulkan is the default. OpenGL is simpler and can help where a graphics driver draws Vulkan wrongly, with fewer enhanced effects. A change applies when the game starts again.")
+		if "d3d12" in choices: about+=" "+tr("Direct3D 12 adds AMD FSR 3.1 and FSR 4 upscaling and frame generation where the graphics card supports them.")
+		renderer.tooltip_text=about
 
 func graphics_grid() -> GridContainer:
 	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1

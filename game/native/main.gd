@@ -310,10 +310,11 @@ func _ready() -> void:
 	title_menu.footer.text=content_picker_label()
 	if not ready_for_preview:status.text=tr("Choose your private .abyss content pack.") if not source_import_available() and not OS.has_feature("web") and portable.android==null else tr("Choose your JAR or private .abyss content pack.")
 	refresh_title()
-	# A Direct3D 12 start that failed or crashed has gone back to Vulkan.
+	# A renderer trial that failed or crashed has gone back to Vulkan.
 	var RendererChoice = preload("res://native/platform/renderer_choice.gd")
-	if RendererChoice.notice=="crashed": status.text=tr("The game closed unexpectedly after switching to Direct3D 12. It uses Vulkan again.")
-	elif RendererChoice.notice=="failed": status.text=tr("Direct3D 12 could not be started. The game uses Vulkan again.")
+	var renderer: String=RendererChoice.name_of(RendererChoice.failed_choice)
+	if RendererChoice.notice=="crashed": status.text=tr("The game closed unexpectedly after switching to %s. It uses Vulkan again.")%renderer
+	elif RendererChoice.notice=="failed": status.text=tr("%s could not be started. The game uses Vulkan again.")%renderer
 	RendererChoice.notice=""
 	if not reopen_settings.is_empty():
 		show_settings(reopen_settings);reopen_settings="";settings_panel.focus_key="language"

@@ -43,7 +43,9 @@ def main():
     for name,argument in cases.items():
         command=[args.godot,'--path',str(ROOT/'game')]
         if not args.gpu:command+=['--headless']
-        if args.compatibility:command+=['--rendering-method','gl_compatibility']
+        # Named either way: a renderer chosen in this machine's game settings
+        # (renderer_choice.gd) must not change what the checks run on.
+        command+=['--rendering-method','gl_compatibility' if args.compatibility else 'forward_plus']
         command+=['--script',str(ROOT/'tests'/name),'--',str(argument)]
         try:
             result=subprocess.run(command,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180)

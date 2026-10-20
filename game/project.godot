@@ -21,8 +21,10 @@ boot_splash/use_filter=true
 boot_splash/bg_color=Color(0.012, 0.035, 0.055, 1)
 config/use_custom_user_dir=true
 config/custom_user_dir_name="abyssal-engine"
-; Windows: the renderer chosen in Settings, read at start (renderer_choice.gd).
+; The renderer chosen in Settings, read at start (renderer_choice.gd).
 config/project_settings_override.windows="user://renderer.cfg"
+config/project_settings_override.linuxbsd="user://renderer.cfg"
+config/project_settings_override.android="user://renderer.cfg"
 run/main_scene="res://scenes/native_main.tscn"
 config/features=PackedStringArray("4.7")
 
