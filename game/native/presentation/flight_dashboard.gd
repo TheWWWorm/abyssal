@@ -96,7 +96,7 @@ func draw_top_console(w: float) -> void:
 	text(Vector2(left+10,64),lines[0] if not lines.is_empty() else tr("Explore the ocean"),INK,15,280)
 	text(Vector2(left+10,86),lines[1] if lines.size()>1 else world.session.stations[world.session.station_id].name.to_upper(),MINT,12,280)
 	if lines.size()>2:text(Vector2(left+10,126),lines[2],AMBER,11,280)
-	text(Vector2(left+10,106),(tr("Cargo %d/%d   •   %d cr")%[world.session.ship.cargo_used,world.session.ship.capacity(),world.session.credits]).to_upper(),DIM,11,290)
+	text(Vector2(left+10,106),preload("res://native/presentation/coin_glyph.gd").coins((tr("Cargo %d/%d   •   %d cr")%[world.session.ship.cargo_used,world.session.ship.capacity(),world.session.credits]).to_upper()),DIM,11,290)
 	var f: Array=world.region.player.pose.forward
 	var heading=fposmod(rad_to_deg(atan2(f[0],f[2])),360)
 	var pivot=Vector2(center-50,64)

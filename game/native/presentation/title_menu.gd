@@ -10,7 +10,6 @@ signal mods_requested
 var continue_button: Button
 var new_button: Button
 var status: Label
-var subtitle: Label
 var headline: Label
 var rule: ColorRect
 var choices := VBoxContainer.new()
@@ -39,7 +38,6 @@ func _ready() -> void:
 		theme=Theme.new();theme.default_font=sharp_font
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	headline=caption("ABYSSAL",42,palette.text);headline.add_theme_font_override("font",StationTheme.spaced(headline.get_theme_font("font"),10))
-	subtitle=caption(tr("Compatibility engine").to_upper(),13,palette.dim);subtitle.add_theme_font_override("font",StationTheme.spaced(subtitle.get_theme_font("font"),5))
 	add_child(logo);logo.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;logo.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;logo.mouse_filter=Control.MOUSE_FILTER_IGNORE;logo.hide()
 	add_child(panel)
@@ -77,7 +75,7 @@ func load_content(directory: String) -> void:
 	if not FileAccess.file_exists(file):return
 	var pixels := Image.load_from_file(file)
 	if pixels==null:return
-	logo.texture=ImageTexture.create_from_image(pixels);logo.show();headline.hide();subtitle.hide();layout()
+	logo.texture=ImageTexture.create_from_image(pixels);logo.show();headline.hide();layout()
 
 func caption(value: String, font_size: int, color: Color) -> Label:
 	var node := Label.new();node.text=value;node.add_theme_font_size_override("font_size",font_size);node.modulate=color;node.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(node);return node
@@ -111,7 +109,6 @@ func layout() -> void:
 		var wanted: float=unit*maxf(1.0,get_window().get_oversampling())
 		if not is_equal_approx(sharp_font.oversampling,wanted):sharp_font.oversampling=wanted
 	headline.scale=Vector2.ONE*unit;headline.position=Vector2(left,38*unit)
-	subtitle.scale=Vector2.ONE*unit;subtitle.position=Vector2(left,91*unit)
 	logo.position=Vector2(left,44*unit);logo.size=Vector2(column,column*81.0/354.0)*unit
 	# A column-wide logo is taller than the landscape one; the menu starts under it.
 	var top: float=maxf(150*unit,logo.position.y+logo.size.y+18*unit) if logo.visible else 150*unit

@@ -1,16 +1,14 @@
-# Abyssal Engine 1.19.0 — platform support
+# Abyssal 1.20.0 — platform support
 
 A compatible DEEP JAR must be supplied separately. Original game assets and data are not included.
 
 ## Validation
 
-All 42 Python checks, seven Discord IPC checks and 25 of 26 headless Godot suites passed on Linux x86-64. The ocean atmosphere suite reports the existing cabin-light limits also present in 1.18.3; its errors are not new to this release. Engine UI, gamepad menus, gameplay/session, coordinates, S.T.R.E.A.M., language, reference and Discord activity checks pass. All 1,111 engine texts and 14 translation catalogs passed consistency checks.
+All 42 Python checks, seven Discord IPC checks and 25 of 26 Godot suites passed on Linux x86-64, both with the default renderer and in compatibility mode. The ocean atmosphere suite reports the existing cabin-light limits also present in 1.19.0; its errors are not new to this release. The enhanced sky-light checks run on a GPU and pass with the new light columns. Engine UI, gamepad menus, gameplay/session, open-world missions, coordinates, S.T.R.E.A.M., language, reference and Discord activity checks pass. All 1,111 engine texts and 14 translation catalogs passed consistency checks.
 
-Discord IPC checks use synthetic local peers, including the actual Godot-to-Node process pipe, reconnects, update coalescing and exit cleanup. Live Discord account display has not been verified. Profile artwork uses the application's configured Discord assets.
+Enhanced lighting was compared at 1920 × 1080 on the Very high preset across five regions at 6000, 9000, 22500 and 33000 depth, near stations and while boosting; Classic lighting was compared against a recording of the original game.
 
-The packaged Linux x86-64 executable passed startup and shipped-pack checks. Windows PE icon resources match the approved ICO frames, and the macOS bundle contains the generated ICNS. Android launcher, adaptive, themed and system startup icons are checked in the APK. A local Chromium browser displayed the branded loading screen and reached the main menu; this browser check did not import a JAR.
-
-The Android APK passed verification against the existing release certificate and 16 KiB alignment checks. Its package is org.abyssal.engine, version 1.19.0, version code 68. It requests no network or broad storage permissions. Inventory and SHA-256 checks cover all six platform packages and the source archive.
+The packaged Linux x86-64 executable passed startup and shipped-pack checks. The Android APK passed verification against the existing release certificate and 16 KiB alignment checks. Its package is org.abyssal.engine, version 1.20.0, version code 69. It requests no network or broad storage permissions. Inventory and SHA-256 checks cover all six platform packages and the source archive.
 
 ## Platform status
 

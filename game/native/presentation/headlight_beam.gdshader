@@ -22,6 +22,19 @@ uniform vec4 clip_plane=vec4(0.0);
 // its lamp does; the player's never fades.
 uniform float fade_begin=100000.0;
 uniform float fade_length=100.0;
+// Its light is also drawn only from this many metres beyond the camera
+// (zero draws all of it). A lamp shining past right beside the camera
+// smeared a bright wedge with a hard rim across a corner of the screen; the
+// beam now emerges smoothly a little way ahead instead.
+uniform float clearance=0.0;
+// The water's suspended matter, after the Deeper project's headlight
+// (Apache-2.0, same author): the drifting density the marine snow follows
+// (abyss.gd), anchored in the open world by ocean_suspension_phase. Light
+// scatters off the matter, so the beam is brighter where the water is
+// thicker with it, on average as bright as before.
+uniform sampler3D suspension : repeat_enable, filter_linear;
+global uniform vec3 ocean_suspension_phase;
+const vec3 SUSPENSION_SCALE=vec3(.014,.032,.014);
 varying vec3 cam_local;
 varying mat3 view_to_local;
 const int STEPS=16;
@@ -100,6 +113,7 @@ void fragment(){
  float angle_in=atan(-(o.z+d.z*t_in)/4.0);
  float angle_out=atan(-(o.z+d.z*t_out)/4.0);
  float light=0.0;
+ float world_scale=length(MODEL_MATRIX[0].xyz);
  for(int i=0;i<STEPS;i++){
   float fraction=(float(i)+.5)/float(STEPS);
   float t=t_in+fraction*span;
@@ -110,7 +124,9 @@ void fragment(){
    weight=-4.0*(angle_out-angle_in)*(1.0+tangent*tangent)/(d.z*float(STEPS));
   }
   vec3 p=o+d*t;
-  if(clip_enabled&&dot(clip_plane.xyz,(MODEL_MATRIX*vec4(p,1.0)).xyz)+clip_plane.w<0.0)continue;
+  if(clearance>0.0){weight*=smoothstep(1.5,clearance,t*world_scale);}
+  vec3 water_point=(MODEL_MATRIX*vec4(p,1.0)).xyz;
+  if(clip_enabled&&dot(clip_plane.xyz,water_point)+clip_plane.w<0.0)continue;
   float along=-p.z;
   float across=length(p.xy)/max(half_tangent*along,1e-3);
   float radial=pow(clamp(1.0-across*across,0.0,1.0),2.0);
@@ -118,7 +134,9 @@ void fragment(){
   vec2 direction_uv=p.xy/max(half_tangent*along,1e-3)*.5+.5;
   float reach=texture(occlusion,clamp(direction_uv,0.0,1.0)).r;
   float lit=1.0-smoothstep(reach-.6,reach+.6,along);
-  light+=radial*falloff*lit*(1.0-smoothstep(beam_length*.8,beam_length,along))*weight;
+  float matter=textureLod(suspension,(water_point+ocean_suspension_phase)*SUSPENSION_SCALE,0.0).r;
+  float scatter=.32+matter*1.35;
+  light+=scatter*radial*falloff*lit*(1.0-smoothstep(beam_length*.8,beam_length,along))*weight;
  }
  light*=26.0;
  // Henyey-Greenstein, g=.15: the scattering angle is between the light

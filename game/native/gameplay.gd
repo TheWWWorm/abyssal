@@ -54,7 +54,9 @@ var quality := GraphicsQuality.read(ConfigFile.new())
 var headlight_strength := 1.0
 var fps_counter := preload("res://native/presentation/fps_counter.gd").new()
 var show_fps := false
-var player_face: Array = [85,65,75,16,43,-1]
+var player_face: Array = [87,78,68,20,42,-1]
+## The character sheet's imported picture, if any (session.face_photo).
+var player_photo := ""
 var dock_prompt := Label.new()
 var dock_caption := Label.new()
 var market_selection := 0
@@ -221,7 +223,7 @@ var gameplay_hints := true
 ## gate prompt, the autopilot status line and the labels on friendly contacts.
 var flight_messages := true
 var dock_prompts := true
-var autopilot_status := true
+var autopilot_status := false
 var friend_labels := true
 var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
@@ -240,6 +242,7 @@ const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 var aspect_ratio := "auto"
 var settings_path := "user://native/settings.cfg"
 var world_spacing := preload("res://native/simulation/world_spacing.gd").new()
+const Coin=preload("res://native/presentation/coin_glyph.gd")
 func _ready() -> void:
 	original_ui_size=get_window().content_scale_size
 	# The first layout below already applies the ratio, so it is read first.
@@ -247,7 +250,7 @@ func _ready() -> void:
 	get_window().size_changed.connect(update_render_resolution)
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): save_path="user://native/capture-only.json"
 	add_child(camera); camera.current=true; camera.fov=65; camera.near=0.5; camera.far=View.DRAW_DISTANCE
-	abyss.camera=camera; abyss.world=world; abyss.view=view; abyss.import_sky_ramp(content.root); add_child(abyss); dive_audio.world=world; add_child(dive_audio)
+	abyss.camera=camera; abyss.world=world; abyss.view=view; abyss.import_sky_ramp(content.root); Coin.install(content.root); add_child(abyss); dive_audio.world=world; add_child(dive_audio)
 	add_child(view); terrain.world=world; terrain.camera=camera; add_child(terrain); add_child(canvas); canvas.add_child(ui); ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); ui.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	classic_frame.imported_art=imported_art;condition.imported_art=imported_art
 	ui.add_child(classic_frame);classic_frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -309,7 +312,7 @@ func _ready() -> void:
 		if session==null: session=Session.new(); session.new_game(content.data,player_name,Time.get_unix_time_from_system()); notice(store.failure)
 		elif store.recovered: notice(tr("Your save could not be read. Restored the previous checkpoint."))
 	else:
-		session=Session.new(); session.new_game(content.data,player_name,int(Time.get_unix_time_from_system())); session.face_layers=player_face.duplicate()
+		session=Session.new(); session.new_game(content.data,player_name,int(Time.get_unix_time_from_system())); session.face_layers=player_face.duplicate(); session.face_photo=player_photo
 	imported_art.root=content.root
 	world.configure(session); economy.configure(session); view.configure(world,content,camera); dive_audio.configure(world,content.root);dive_audio.read_title_track(content.data)
 	apply_graphics()
@@ -513,8 +516,14 @@ func iconic(node: Button, icon: String, extent: float=26.0) -> Button:
 		var style := node.get_theme_stylebox(state) as StyleBoxFlat
 		if style!=null: style.content_margin_left=24+extent
 	return node
+## The imported text writes money as "$", which the phone's font drew as a
+## gold coin; the engine's own amounts show the same coin (coin_glyph.gd).
+static func plain_money(text: String) -> String:
+	return Coin.dollars(text)
+func money_text(body: RichTextLabel, text: String) -> void:
+	body.text=Coin.dollars(text)
 func label(text: String, size: int=18, parent: Node=null) -> Label:
-	var node := Label.new(); node.text=text; node.add_theme_font_size_override("font_size",size); node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var node := Label.new(); node.text=plain_money(text); node.add_theme_font_size_override("font_size",size); node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	(parent if parent!=null else column).add_child(node); return node
 func information_card(title: String) -> VBoxContainer:
 	var panel := glass(column)
@@ -681,6 +690,7 @@ func watch_browser_capture() -> void:
 		return
 	web_lock_observed=captured
 func notice(text: String) -> void:
+	text=plain_money(text)
 	if not flight_messages and routine_notice(text):return
 	if text.is_empty() or (text==message.text and notification_time>0):return
 	var flight: bool=page.is_empty() and not session.docked
@@ -842,6 +852,8 @@ func _process(delta: float) -> void:
 		elif world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation):
 			dock_prompt.visible=page.is_empty() and not session.docked and not r.cinematic()
 			dock_prompt.text=tr("[ %s ]  Enter the S.T.R.E.A.M.")%control_name("dock")
+		elif not world.dock_denial().is_empty():
+			dock_prompt.text=world.dock_denial()
 		instruments.update(r,OS.get_keycode_string(key_bindings.boost))
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
 		hazard_warning.update(r,flight_visible and page.is_empty(),not modern_graphics)
@@ -849,6 +861,8 @@ func _process(delta: float) -> void:
 		# bd draws the hull readout in the depth warning's place; over a
 		# warning that is showing, it moves up into the gap above it.
 		damage_feedback.readout_top=hazard_warning.position.y-damage_feedback.position.y-(40.0 if hazard_warning.visible else 0.0)
+		# Over a warning doing damage the warning's own bar reads the hull.
+		damage_feedback.readout_covered=hazard_warning.visible and hazard_warning.status.get("damaging",false)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
 		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost))
 		instruments.visible=flight_visible
@@ -861,7 +875,7 @@ func _process(delta: float) -> void:
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
 		# The fitted weapons are the player's own knowledge; the HUD keeps quiet.
 		bank_label.visible=false
-		condition.info=tr("%d/%dt     Cr %d     %s")%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name]
+		condition.info=Coin.coins(tr("%d/%dt     Cr %d     %s")%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name])
 		if touch.enabled():
 			# The dock button is there while docking, or a manual gate entry, is.
 			var dockable: bool=r.station.can_dock(r.player.pose.origin) or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
@@ -874,7 +888,7 @@ func _process(delta: float) -> void:
 			if r.loadout.groups.size()>1: bank_label.text+="\n"+(tr("%s · Switch to combat") if bank[0].fishing else tr("%s · Switch to fishing"))%OS.get_keycode_string(key_bindings.bank)
 		else: bank_label.text=tr("NO WEAPONS INSTALLED")
 		pressure_material.set_shader_parameter("strength",instruments.pressure_strength if flight_visible else 0.0)
-		hud.text=tr("%d cr · %s")%[session.credits,session.stations[session.station_id].name]
+		hud.text=Coin.coins(tr("%d cr · %s")%[session.credits,session.stations[session.station_id].name])
 		if hud.text!=previous_hud_text: previous_hud_text=hud.text; fit_hud()
 		var objective=current_objective()
 		var objective_text: String=objective_hud(objective)
@@ -1166,11 +1180,15 @@ func perform(action: String) -> void:
 func control_name(action: String) -> String:
 	"""What the player presses for action with the controls in use: the touch
 	button's caption, the pad button or the bound key."""
-	if touch.enabled():return touch.labels().get(action,action.to_upper())
+	if touch.enabled() and touch.labels().has(action):return touch.labels()[action]
 	if controller.device>=0:
 		for button in controller.ACTIONS:
 			if controller.ACTIONS[button]==action:return pad_name(button)
 	return OS.get_keycode_string(key_bindings[action])
+func keyed_text(id: int) -> String:
+	"""Imported text id, naming the controls in use where it names a phone key."""
+	return preload("res://native/presentation/instructions.gd").with_controls(id,session.text(id,session.name),func(action: String) -> String:
+		return tr("System")+" → "+tr("Help") if action=="help" else control_name(action))
 func pad_name(button: int) -> String:
 	match button:
 		JOY_BUTTON_X:return "X"
@@ -1234,7 +1252,7 @@ func show_journal() -> void:
 				var arrived: bool=session.docked and mission.destination==session.station_id
 				var navigate := button(tr("At destination") if arrived else (tr("Depart & autonavigate") if session.docked else tr("Autonavigate to destination")),func():autonavigate_from_journal(mission.destination),card)
 				navigate.disabled=arrived;navigate.set_meta("journal_destination",mission.destination)
-		if mission.reward>0: label(tr("Reward: %d cr")%mission.reward,16,card)
+		if mission.reward>0: label(Coin.coins(tr("Reward: %d cr")%mission.reward),16,card)
 		var deadline: String = info.deadline(mission)
 		if not deadline.is_empty(): label(deadline,16,card)
 		if mission==session.campaign.secondary: button(tr("Abandon contract"),func(): confirm(tr("Abandon contract"),
@@ -1347,7 +1365,7 @@ func show_profile(medal_view: bool=false) -> void:
 	var top := HBoxContainer.new();top.add_theme_constant_override("separation",12);column.add_child(top)
 	var rank := glass(top,false,10);rank.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	var rank_row := HBoxContainer.new();rank_row.add_theme_constant_override("separation",12);rank.add_child(rank_row)
-	var portrait := art_image(imported_art.portrait(session.face_layers),rank_row,72)
+	var portrait := art_image(imported_art.portrait(session.face_layers,session.face_photo),rank_row,72)
 	if portrait!=null:portrait.name="PilotPortrait"
 	else:line_icon("person",30,rank_row)
 	var pilot := label(tr("%s · Rank %d")%[session.name,session.counters.k],22,rank_row);pilot.add_theme_color_override("font_color",palette.text)
@@ -1455,7 +1473,7 @@ func show_help(topic: int=-1) -> void:
 	"""The phone game's Help: Instructions, its ten topics of imported text,
 	Controls, and the Credits."""
 	var guide=preload("res://native/presentation/instructions.gd")
-	var topics: Array=guide.topics(content)
+	var topics: Array=guide.topics(content,control_name)
 	if topic>=0 and topic<topics.size():
 		open_page(topics[topic].title,"help")
 		var card := information_card(session.text(18))
@@ -1661,7 +1679,7 @@ func read_settings() -> void:
 	gameplay_hints=bool(config.get_value("interface","hints",true))
 	flight_messages=bool(config.get_value("interface","flight_messages",true))
 	dock_prompts=bool(config.get_value("interface","dock_prompts",true))
-	autopilot_status=bool(config.get_value("interface","autopilot_status",true))
+	autopilot_status=bool(config.get_value("interface","autopilot_status",false))
 	friend_labels=bool(config.get_value("interface","friend_labels",true))
 	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
 	hit_shake=bool(config.get_value("interface","hit_shake",true))
@@ -1764,7 +1782,7 @@ func station_identity(parent: Node) -> void:
 	# Unwrapped: a wrapping label measured before the panel has its width
 	# reports a column of single words, and the dock panel is sized from it.
 	var faction := label(tr("Colonists") if session.is_colonist_station() else tr("Rebels"),20,words);faction.add_theme_color_override("font_color",colours().text);faction.autowrap_mode=TextServer.AUTOWRAP_OFF
-	var standing := label(tr("Tech level %d  ·  %d cr")%[station.tech,session.credits],15,words);standing.add_theme_color_override("font_color",colours().dim);standing.autowrap_mode=TextServer.AUTOWRAP_OFF
+	var standing := label(Coin.coins(tr("Tech level %d  ·  %d cr")%[station.tech,session.credits]),15,words);standing.add_theme_color_override("font_color",colours().dim);standing.autowrap_mode=TextServer.AUTOWRAP_OFF
 func tile(text: String, icon: String, action: Callable, parent: Node) -> Button:
 	"""A station service: its icon over its name."""
 	var node := button(text,action,parent)
@@ -1798,6 +1816,7 @@ func service_card(title: String, text: String, icon: String, art: Texture2D, act
 	return node
 func unavailable(node: Button, reason: String) -> void:
 	if reason.is_empty():return
+	reason=plain_money(reason)
 	# The original answers these selections with a refusal. Keep mouse, touch
 	# and keyboard activation, while making the unavailable action look dim.
 	node.set_meta("unavailable_reason",reason)
@@ -1989,8 +2008,12 @@ func dialogue_page() -> void:
 	column=VBoxContainer.new();column.add_theme_constant_override("separation",8);overlay.add_child(column)
 	label((tr("Radio  /   %s")%str(lines[line_index].get("speaker",tr("Transmission")))).to_upper(),14).add_theme_color_override("font_color",Color("8bd6ee"))
 	var transmission := HBoxContainer.new(); transmission.add_theme_constant_override("separation",10);transmission.size_flags_vertical=Control.SIZE_EXPAND_FILL; column.add_child(transmission)
-	art_image(imported_art.portrait(session.face_layers if lines[line_index].get("speaker","")==session.name else lines[line_index].get("portrait",[])),transmission,112)
-	var body := RichTextLabel.new();body.text=str(lines[line_index].get("text",""));body.custom_minimum_size=Vector2(0,92);body.size_flags_horizontal=Control.SIZE_EXPAND_FILL;body.size_flags_vertical=Control.SIZE_EXPAND_FILL;body.add_theme_font_size_override("normal_font_size",18);body.add_theme_color_override("default_color",Color("c9ded5"));transmission.add_child(body)
+	var own_line: bool=lines[line_index].get("speaker","")==session.name
+	art_image(imported_art.portrait(session.face_layers if own_line else lines[line_index].get("portrait",[]),session.face_photo if own_line else ""),transmission,112)
+	var body := RichTextLabel.new();body.custom_minimum_size=Vector2(0,92);body.size_flags_horizontal=Control.SIZE_EXPAND_FILL;body.size_flags_vertical=Control.SIZE_EXPAND_FILL;body.add_theme_font_size_override("normal_font_size",18);body.add_theme_color_override("default_color",Color("c9ded5"));transmission.add_child(body)
+	var line_text: String=str(lines[line_index].get("text",""))
+	if lines[line_index].has("text_id"):line_text=keyed_text(int(lines[line_index].text_id))
+	money_text(body,line_text)
 	var footer := HBoxContainer.new();column.add_child(footer);label("%02d / %02d"%[line_index+1,lines.size()],10,footer)
 	var previous := button("< "+tr("Back"),func():
 		line_index-=1;dialogue_page(),footer)
@@ -2036,7 +2059,7 @@ func consume_events() -> void:
 				var speaker: String = str(content.data.constants.ah["a:[Ljava.lang.String;"][entry.entry.speaker])
 				# cq announces a radio call in the water with the signal cue; the
 				# message cue is M.A.I.'s, for the mission screens.
-				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":session.text(entry.entry.text_id,session.name),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],func(): world.region.acknowledge_transmission(); close_page(),"signal")
+				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":keyed_text(entry.entry.text_id),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],func(): world.region.acknowledge_transmission(); close_page(),"signal")
 			"death","mission_failed":
 				dive_audio.cue("pressure")
 				# The heading names what happened; what to do next is the
@@ -2107,7 +2130,7 @@ func trade_amount(station: Dictionary, item, buying: bool, count: int) -> void:
 		if not economy.trade(station,item.id,buying): break
 		moved+=1
 	if moved<1: notice(tr("Insufficient credits, cargo space or stock.")); return
-	notice((tr("Bought %d t of %s for %d cr") if buying else tr("Sold %d t of %s for %d cr"))%[moved,item_name(item.id),absi(session.credits-before)])
+	notice(Coin.coins((tr("Bought %d t of %s for %d cr") if buying else tr("Sold %d t of %s for %d cr"))%[moved,item_name(item.id),absi(session.credits-before)]))
 func show_market(kind: String, reset: bool=false) -> void:
 	if reset: equipment_tab=0
 	if reset or market_category!=kind: market_selection=0;list_offsets.clear();market_category=kind
@@ -2115,7 +2138,7 @@ func show_market(kind: String, reset: bool=false) -> void:
 	if denial>=0: notice(session.text(denial)); return
 	open_page({"equipment":tr("Equipment shop"),"ships":tr("Ship dealer"),"trade":tr("Trade"),"manufacture":tr("Workshop"),"missions":tr("Available contracts")}.get(kind,kind),"market",
 		{"equipment":tr("Outfit your ship"),"ships":tr("Buy a hull · trade in your current one"),"trade":tr("Buy and sell cargo"),"manufacture":tr("Craft products from your cargo"),"missions":tr("Contracts offered at this station")}.get(kind,""))
-	header_chip("credits",tr("%d CR")%session.credits,tr("Your credits"))
+	header_chip("credits",Coin.coins(tr("%d CR")%session.credits),tr("Your credits"))
 	if kind=="ships" and ui.size.x>=1100: header_chip("hangar",content.ship_name(session.ship.id),tr("Current ship"))
 	var station: Dictionary = session.stations[session.station_id]
 	match kind:
@@ -2178,8 +2201,8 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 	for detail in [info.progress(session,mission),info.requirements(mission),info.deadline(mission)]:
 		if not detail.is_empty(): label(detail,15,body).add_theme_color_override("font_color",palette.text)
 	var terms := HBoxContainer.new();terms.add_theme_constant_override("separation",10);body.add_child(terms)
-	figure_tile("credits",tr("Reward"),tr("%d cr")%mission.reward,terms)
-	figure_tile("shield",tr("Deposit"),tr("%d cr")%mission.deposit,terms)
+	figure_tile("credits",tr("Reward"),Coin.coins(tr("%d cr")%mission.reward),terms)
+	figure_tile("shield",tr("Deposit"),Coin.coins(tr("%d cr")%mission.deposit),terms)
 	# Cards side by side share a row's height; the button keeps to the foot.
 	var foot := Control.new();foot.size_flags_vertical=Control.SIZE_EXPAND_FILL;foot.mouse_filter=Control.MOUSE_FILTER_IGNORE;body.add_child(foot)
 	primary(iconic(button(tr("Accept contract"),func():
@@ -2583,11 +2606,10 @@ func update_markers() -> void:
 		var actors: Array = region.friends if role=="friend" else (region.enemies if role=="enemy" else region.creatures)
 		for actor in actors:
 			var entry: Dictionary = Scanner.describe(actor,role,radar,region.mission.kind,region.player.pose.origin)
-			if role=="creature":
-				entry.visible=actor.get_instance_id()==focused_contact;entry.identify=entry.visible;entry.edge=false
 			if not entry.visible or (role=="friend" and not friend_labels): continue
 			entry.p=actor.pose.origin; entry.actor=actor; entry.key=actor.get_instance_id()
-			entry.name=tr("Friendly") if role=="friend" else (tr("Protected school") if role=="creature" and region.mission.kind==6 else tr("Contact"))
+			# cb brackets ships without a caption; the hull bar is their reading.
+			entry.name=tr("Protected school") if role=="creature" and region.mission.kind==6 else ""
 			entry.color=Color("ef9b83") if role=="enemy" else Color("85bda4")
 			if entry.recoverable: entry.name=tr("Rescue") if actor.protected_target else tr("Salvage"); entry.color=Color("e5ce86")
 			targets.append(entry)
@@ -2623,14 +2645,15 @@ func update_markers() -> void:
 			ray.hit_back_faces=true
 			if not view.get_world_3d().direct_space_state.intersect_ray(ray).is_empty():continue
 		var detail := "\n"+tr("Quest destination") if target.get("quest",false) else ""
-		if on_screen and target.get("identify",false) and (target.get("role","")=="creature" or Scanner.in_scan_window(screen,ui.size)):
+		# cb: only what is in the middle of the view is scanned. The fishing
+		# radars (3, 4) name a creature's catch and its weight, the combat
+		# ones (2, 4) the cargo a ship carries; no radar names a ship's type.
+		if on_screen and target.get("identify",false) and Scanner.in_scan_window(screen,ui.size):
 			var actor=target.actor
 			if actor.is_creature:
 				target.name=tr("Meat") if actor.meat else item_name(actor.species)
-				detail="\n"+tr("%d t · Cargo %d / %d")%[actor.mass,session.ship.cargo_used,session.ship.capacity()]
-			else:
-				if not target.recoverable: target.name=content.ship_name(actor.original_model_id) if actor.original_model_id<content.data.tables.ships.size() else (tr("Mine") if actor.model_id==13 else tr("Contact"))
-				if actor.capturable and actor.loot!=null: detail="\n"+tr("%s · %d t")%[item_name(actor.loot.id),actor.loot.owned]
+				detail="\n"+tr("%d t")%actor.mass
+			elif actor.loot!=null: detail="\n"+tr("%s · %d t")%[item_name(actor.loot.id),actor.loot.owned]
 		elif target.get("role","")=="creature" and region.mission.kind!=6: continue
 		var anchor:=screen
 		var direction: Vector2 = Vector2.ZERO if on_screen else Scanner.edge_direction(screen,ui.size,reverse_edge).normalized()
@@ -2640,7 +2663,11 @@ func update_markers() -> void:
 			marker_by_contact[target.key]=available.pop_back()
 		var i: int = marker_by_contact[target.key]
 		markers[i].set_symbol(direction);markers[i].quest=target.get("quest",false)
-		markers[i].display(target.name+" · ",RangeText.format_distance(distance),detail,target.color,float(target.hull) if on_screen else -1.0)
+		# The original gives the range of stations and marks, not of ships or animals.
+		var ranged: bool=not target.has("actor")
+		var caption: String=target.name
+		if not ranged and caption.is_empty(): caption=detail.trim_prefix("\n");detail=""
+		markers[i].display(caption+(" · " if ranged else ""),RangeText.format_distance(distance) if ranged else "",detail,target.color,float(target.hull) if on_screen else -1.0)
 		if enemy and not on_screen:markers[i].track_enemy(screen,18,true)
 		screen+=Vector2(24,12) if on_screen and enemy else Vector2(14,10) if on_screen else Vector2.ZERO
 		screen.x=clampf(screen.x,12,maxf(12,ui.size.x-markers[i].size.x-12))
@@ -2752,8 +2779,9 @@ func show_destinations() -> void:
 	objective_action.disabled=not objective_has_location(mission)
 	var actions:=GridContainer.new();actions.columns=2;actions.add_theme_constant_override("h_separation",10);column.add_child(actions)
 	var dock_locked: bool=world.region.success!=null or world.region.failure!=null
-	var dock_action := button(tr("Docking locked · encounter active") if dock_locked else tr("Dock at %s")%session.stations[session.station_id].name,func(): world.route_to(session.station_id); close_page(),actions)
-	dock_action.disabled=dock_locked
+	var dock_refusal: String=world.dock_denial()
+	var dock_action := button(tr("Docking locked · encounter active") if dock_locked else (dock_refusal if not dock_refusal.is_empty() else tr("Dock at %s")%session.stations[session.station_id].name),func(): world.route_to(session.station_id); close_page(),actions)
+	dock_action.disabled=dock_locked or not dock_refusal.is_empty()
 	button(tr("Approach S.T.R.E.A.M. gate"),func():
 		var gate: int=world.nearest_safe_gate()
 		if gate<0:notice(tr("No S.T.R.E.A.M. gate in this area."));return
@@ -2774,9 +2802,9 @@ func check_flight_hints() -> void:
 	if r==null or session.docked or r.cinematic() or r.failed:return
 	var chapter: int=session.campaign.chapter
 	if world.at_gate(world.departure_gate) and chapter>2 and not (chapter==6 and r.mission.kind==0):
-		if say_hint("gate",session.text(342)):return
-	if flight_ms>20000 and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000):
-		if say_hint("dock",session.text(343)):return
+		if say_hint("gate",keyed_text(342)):return
+	if flight_ms>20000 and world.dock_denial().is_empty() and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000):
+		if say_hint("dock",keyed_text(343)):return
 	if r.player.depth<session.ship.minimum_depth and say_hint("radiation",session.text(344)):return
 	if r.player.depth>session.ship.maximum_depth and say_hint("pressure",session.text(345)):return
 	if chapter>14 and flight_ms>20000 and session.ship.boost_cooldown<=0 and r.enemies.is_empty():
@@ -2788,7 +2816,7 @@ func check_dock_hints() -> void:
 	first time one is aboard, the two story asides of chapters 16 and 18,
 	and the medal collection's rewards."""
 	var chapter: int=session.campaign.chapter
-	if session.ship.boost_cooldown>0 and say_hint("booster_card",session.text(346)):return
+	if session.ship.boost_cooldown>0 and say_hint("booster_card",keyed_text(346)):return
 	if chapter==16 and session.station_id!=5 and say_hint("intranet%d"%session.station_id,session.text(280,session.name)):return
 	if chapter==18 and not session.is_colonist_station() and session.station_id!=6 and say_hint("nothing%d"%session.station_id,session.text(281)):return
 	if session.medals.complete_set() and say_hint("all_medals",session.text(350)):return
@@ -2824,6 +2852,7 @@ func check_hull_buzz() -> void:
 	hull_seen=total
 	hull_only_seen=health.hull
 	damage_feedback.update_hull(int(float(health.hull)/maxf(1.0,health.max_hull)*100.0),health.hull>0)
+	hazard_warning.hull_percent=damage_feedback.hull_percent
 func check_stream_proximity() -> void:
 	# The chart must not reopen over the shot of the submarine leaving the far
 	# aperture: it arrives at a gate that is already open, and inside range of it.
@@ -2923,10 +2952,13 @@ func show_stream_menu() -> void:
 	select.call(stream_selection)
 
 func show_habitat(id: int, parent: Node) -> void:
-	"""Which species live at a station, and which of them this expedition has
-	already caught. Every station carries six, stored as pairs of species and a
-	constant weight; only the species half is meaningful to a reader."""
-	var habitat: Array = content.data.habitats[id] if id>=0 and id<content.data.habitats.size() else []
+	"""Which species live at a station, the most common first, and which of
+	them this expedition has already caught."""
+	var habitat: Array = preload("res://native/simulation/habitat.gd").prevalence(content.data,id)
+	var living: Array = []
+	for index in range(0,habitat.size(),2):
+		if int(habitat[index+1])>0:living.append_array([habitat[index],habitat[index+1]])
+	habitat=living
 	label(tr("Species found here").to_upper(),13,parent).modulate=Color("93b5aa")
 	# Two columns where they fit beside the card's figures; one on a narrow
 	# card, where two broke the names in the middle of a word.
@@ -3074,7 +3106,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var named := label(title,17,words);named.add_theme_color_override("font_color",palette.text);named.autowrap_mode=TextServer.AUTOWRAP_OFF;named.clip_text=true;named.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
 		var stats := tr("Hull %d · Cargo %d · Slots %d")%[item.hull,item.capacity(),item.slots] if ships else EquipmentInfo.stats(item)
 		var spec := label(stats,13,words);spec.add_theme_color_override("font_color",palette.dim);spec.max_lines_visible=1;spec.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS;spec.autowrap_mode=TextServer.AUTOWRAP_OFF;spec.clip_text=true
-		var value := label(tr("%d cr")%price if entry.buy else tr("Installed").to_upper(),15,cells);value.custom_minimum_size.x=96;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		var value := label(Coin.coins(tr("%d cr")%price) if entry.buy else tr("Installed").to_upper(),15,cells);value.custom_minimum_size.x=96;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value if entry.buy else palette.good);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 		control.tooltip_text=title+"\n"+stats
 	if ships:
@@ -3104,9 +3136,9 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		rule(detail)
 		# be: a hull once owned is worth its catalogue price divided by 1.25.
 		var balance: int=session.credits+economy.ship_price(session.ship)-economy.ship_price(item)
-		figure_rows([["",tr("Trade-in for your %s")%content.ship_name(session.ship.id),tr("%d cr")%economy.ship_price(session.ship),palette.value],
-			["",tr("Balance after exchange"),tr("%d cr")%balance,palette.value if balance>=0 else palette.bad]],detail)
-		var purchase := primary(iconic(button(tr("Buy · %d cr")%economy.ship_price(item),func():transaction_result(economy.buy_ship(station,item),content.ship_name(item.id)+" "+session.text(89));show_market(kind),detail),"depart",22))
+		figure_rows([["",tr("Trade-in for your %s")%content.ship_name(session.ship.id),Coin.coins(tr("%d cr")%economy.ship_price(session.ship)),palette.value],
+			["",tr("Balance after exchange"),Coin.coins(tr("%d cr")%balance),palette.value if balance>=0 else palette.bad]],detail)
+		var purchase := primary(iconic(button(Coin.coins(tr("Buy · %d cr")%economy.ship_price(item)),func():transaction_result(economy.buy_ship(station,item),content.ship_name(item.id)+" "+session.text(89));show_market(kind),detail),"depart",22))
 		market_action(purchase,economy.buy_ship_denial(station,item))
 	else:
 		# A phone held landscape has the row's own icon to go by.
@@ -3126,10 +3158,10 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 					caption(tr("Currently equipped"),11,current,3)
 					label(item_name(installed.id,"equipment"),15,current).add_theme_color_override("font_color",palette.text)
 					label(EquipmentInfo.stats(installed),13,current).add_theme_color_override("font_color",palette.dim)
-			var purchase := primary(iconic(button(tr("Buy · %d cr")%item.price,func():transaction_result(economy.buy_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(91));show_market(kind),detail),"cart",22))
+			var purchase := primary(iconic(button(Coin.coins(tr("Buy · %d cr")%item.price),func():transaction_result(economy.buy_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(91));show_market(kind),detail),"cart",22))
 			market_action(purchase,economy.buy_equipment_denial(station,item))
 		else:
-			var sale := iconic(button(tr("Sell · %d cr")%item.price,func():transaction_result(economy.sell_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(90));show_market(kind),detail),"credits",22);sale.alignment=HORIZONTAL_ALIGNMENT_CENTER
+			var sale := iconic(button(Coin.coins(tr("Sell · %d cr")%item.price),func():transaction_result(economy.sell_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(90));show_market(kind),detail),"credits",22);sale.alignment=HORIZONTAL_ALIGNMENT_CENTER
 			market_action(sale,economy.sell_equipment_denial(station,item))
 func header_chip(icon: String, value: String, note: String) -> void:
 	"""A figure beside the page title, as the reference shows the purse."""
@@ -3186,7 +3218,7 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		label(title,17,words).add_theme_color_override("font_color",palette.text)
 		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Needs materials")) if manufacturing else tr("In hold %d · Station stock %d")%[item.owned,item.stock]
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
-		var value:=label(str(maxi(0,item.owned)) if manufacturing else tr("%d cr")%item.price,16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		var value:=label(str(maxi(0,item.owned)) if manufacturing else Coin.coins(tr("%d cr")%item.price),16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
 	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)
@@ -3199,7 +3231,7 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var described := label(item_description(item.id),14,about);described.add_theme_color_override("font_color",palette.text);described.size_flags_vertical=Control.SIZE_SHRINK_CENTER
 	if art==null: holder.hide()
 	if manufacturing:
-		var price_range := figure_rows([["credits",tr("Unit price"),"%s – %s"%[tr("%d cr")%item.minimum_price,tr("%d cr")%item.maximum_price],palette.value]],detail)
+		var price_range := figure_rows([["credits",tr("Unit price"),"%s – %s"%[Coin.coins(tr("%d cr")%item.minimum_price),Coin.coins(tr("%d cr")%item.maximum_price)],palette.value]],detail)
 		price_range.name="PriceRange"
 		caption(tr("Ingredients (in cargo / per unit)"),11,detail,3)
 		for index in item.ingredients.size():
@@ -3226,7 +3258,7 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 			else:notice(tr("Made %d %s")%[item.owned,item_name(item.id)])
 			show_market(kind),actions),"trade",22).disabled=item.owned<2
 	else:
-		figure_rows([["credits",tr("Unit price"),tr("%d cr")%item.price,palette.value],["cargo",tr("In hold"),tr("%d t")%item.owned],["trade",tr("Station stock"),tr("%d t")%item.stock]],detail)
+		figure_rows([["credits",tr("Unit price"),Coin.coins(tr("%d cr")%item.price),palette.value],["cargo",tr("In hold"),tr("%d t")%item.owned],["trade",tr("Station stock"),tr("%d t")%item.stock]],detail)
 		var affordable := buy_limit(item)
 		var sellable: int = maxi(0,item.owned)
 		var reachable: int = maxi(1,maxi(affordable,sellable))
@@ -3246,11 +3278,11 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		var buying: int=mini(market_quantity,affordable)
 		var selling: int=mini(market_quantity,sellable)
 		var actions := action_row(detail)
-		var purchase := iconic(button(tr("Buy %d · %d cr")%[maxi(1,buying),item.price*maxi(1,buying)],func():
+		var purchase := iconic(button(Coin.coins(tr("Buy %d · %d cr")%[maxi(1,buying),item.price*maxi(1,buying)]),func():
 			trade_amount(station,item,true,buying)
 			show_market(kind),actions),"cart",22)
 		purchase.disabled=buying<1
 		if not purchase.disabled: primary(purchase)
-		iconic(button(tr("Sell %d · %d cr")%[maxi(1,selling),item.price*maxi(1,selling)],func():
+		iconic(button(Coin.coins(tr("Sell %d · %d cr")%[maxi(1,selling),item.price*maxi(1,selling)]),func():
 			trade_amount(station,item,false,selling)
 			show_market(kind),actions),"credits",22).disabled=selling<1

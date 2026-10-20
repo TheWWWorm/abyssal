@@ -8,6 +8,7 @@ var projectile_nodes: Dictionary = {}
 var segments := MultiMeshInstance3D.new()
 var bursts := MultiMeshInstance3D.new()
 var bubbles := MultiMeshInstance3D.new()
+var puffs := MultiMeshInstance3D.new()
 var lights: Array[OmniLight3D] = []
 var segment_count := 0
 var burst_count := 0
@@ -22,6 +23,28 @@ var wake_previous: Array[Vector3]=[]
 var effect_bounds: Dictionary={}
 var wrecks := preload("res://native/presentation/wreck_effects.gd").new()
 var aftermath_enabled := true
+## A creature's death, and the aquar's (a ship that dies as a fish): the
+## original's ao(1,2) sets the fischtod model (resource 9995) at the body at
+## half scale (f(2048)), steps its animation once at 60 ms a frame (e(60),
+## played with a((byte)1)) and draws it until 4000 ms. Its ten double-sided
+## quads carry the dark red cloud of fx.bmp, added to the water by the MBAC
+## blend: the red cloud that marks a kill.
+const BLOOD_MODEL := 9995
+const BLOOD_FRAME_MS := 60
+## fischtod's 40 frames: the cloud billows, then shrinks to nothing by the
+## last (2.4 s), and the remaining time to 4000 ms draws nothing more.
+const BLOOD_FRAMES := 40
+const BLOOD_LIFETIME_MS := 4000
+const BLOOD_SCALE := 0.5
+## Clouds drawn at once; in a larger fight the latest kills go unshown.
+const BLOOD_CAPACITY := 12
+## fx.bmp's blood cloud, in texels of its 128-texel atlas, for a JAR whose
+## cache has no fischtod model: a small dark red puff stands in.
+const BLOOD_REGION := Rect2(96,96,31,31)
+const BLOOD_ATLAS := "data/textures/fx.bmp"
+var blood_clouds: Array = []
+var blood_count := 0
+var puff_count := 0
 
 func set_aftermath(on: bool) -> void:
 	if aftermath_enabled==on:return
@@ -43,7 +66,7 @@ func include_bounds(node: MultiMeshInstance3D, at: Vector3, radius: float) -> vo
 	effect_bounds[node]=box if not effect_bounds.has(node) else effect_bounds[node].merge(box)
 
 func refresh_bounds() -> void:
-	for node in [segments,bursts,bubbles]:
+	for node in [segments,bursts,bubbles,puffs]:
 		node.custom_aabb=effect_bounds.get(node,AABB(Vector3.ONE*-1,Vector3.ONE*2))
 func _ready() -> void:
 	add_child(wrecks)
@@ -56,6 +79,9 @@ func _ready() -> void:
 	var bubble_quad := QuadMesh.new();bubble_quad.size=Vector2.ONE
 	var bubble_material := ShaderMaterial.new();bubble_material.shader=preload("res://native/presentation/bubble.gdshader")
 	bubble_quad.material=bubble_material;pool(bubbles,bubble_quad,1024)
+	var puff_quad := QuadMesh.new();puff_quad.size=Vector2.ONE
+	var puff_material := ShaderMaterial.new();puff_material.shader=preload("res://native/presentation/blood_puff.gdshader")
+	puff_quad.material=puff_material;pool(puffs,puff_quad,BLOOD_CAPACITY)
 	for i in 4:
 		var light := OmniLight3D.new(); light.shadow_enabled=false; light.omni_range=55; light.light_volumetric_fog_energy=0.2; light.hide(); add_child(light); lights.append(light)
 func reset(keep_player_wake: bool=false) -> void:
@@ -64,10 +90,15 @@ func reset(keep_player_wake: bool=false) -> void:
 	if not keep_player_wake:wrecks.reset()
 	for node in projectile_nodes.values(): node.queue_free()
 	projectile_nodes.clear()
-	for node in [segments,bursts,bubbles]: node.multimesh.visible_instance_count=0
+	# A full rebuild may change the graphics mode the clouds were built for.
+	for node in blood_clouds:
+		if keep_player_wake: node.hide()
+		else: node.queue_free()
+	if not keep_player_wake: blood_clouds.clear(); puffs.multimesh.mesh.material.remove_meta("atlas_checked")
+	for node in [segments,bursts,bubbles,puffs]: node.multimesh.visible_instance_count=0
 	refresh_bounds()
 	for light in lights: light.hide()
-	segment_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0
+	segment_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0; blood_count=0; puff_count=0
 static func segment_pose(start: Vector3, end: Vector3, width: float) -> Transform3D:
 	var delta := end-start
 	if delta.length_squared()<0.000001: return Transform3D(Basis.IDENTITY.scaled(Vector3.ZERO),start)
@@ -100,6 +131,35 @@ func burst(at: Vector3, radius: float, age: float, color: Color, debris: bool=fa
 			segment(start,start+direction*radius*0.22*(1-age),0.045*(1-age),Color(color,1-age/0.65))
 	if age<0.25 and light_count<lights.size() and at.distance_to(owner_view.camera.global_position)<300:
 		var light := lights[light_count]; light.position=at; light.light_color=color; light.light_energy=3*(1-age*4); light.show(); light_count+=1
+func blood(at: Vector3, age_ms: int) -> void:
+	if owner_view.registry.has(BLOOD_MODEL):
+		if blood_count>=BLOOD_CAPACITY: return
+		if blood_count==blood_clouds.size():
+			var created=owner_view.model(BLOOD_MODEL,BLOOD_FRAME_MS,self,false)
+			if created==null: return
+			blood_clouds.append(created)
+		var visual=blood_clouds[blood_count]; blood_count+=1
+		visual.transform=Transform3D(Basis.IDENTITY.scaled(Vector3.ONE*BLOOD_SCALE),at)
+		# The frame follows the event's age, so a paused or frozen
+		# simulation holds the cloud and a reopened view resumes it.
+		visual.clock.playing=false
+		visual.clock.frame=mini(visual.clock.end_frame,age_ms/BLOOD_FRAME_MS)
+		visual.refresh(); visual.show()
+		return
+	# fischtod has shrunk away by its last frame; the stand-in fades with it.
+	var fade: float=float(age_ms)/float(BLOOD_FRAME_MS*BLOOD_FRAMES)
+	if fade>=1.0 or puff_count>=puffs.multimesh.instance_count: return
+	sprite(puffs,puff_count,at,6.0,fade,0,Color("5a0606")); puff_count+=1
+func blood_atlas() -> void:
+	# The stand-in puff wears the atlas's cloud when the JAR supplied one.
+	var material: ShaderMaterial=puffs.multimesh.mesh.material
+	var path: String=owner_view.library.root.path_join(BLOOD_ATLAS)+".png"
+	var atlas: Texture2D=owner_view.library.texture(BLOOD_ATLAS) if FileAccess.file_exists(path) else null
+	material.set_shader_parameter("cloud_enabled",atlas!=null)
+	if atlas!=null:
+		var size: Vector2=owner_view.library.texture_size(BLOOD_ATLAS)
+		material.set_shader_parameter("cloud",atlas)
+		material.set_shader_parameter("cloud_region",Vector4(BLOOD_REGION.position.x/size.x,BLOOD_REGION.position.y/size.y,BLOOD_REGION.size.x/size.x,BLOOD_REGION.size.y/size.y))
 func bubble(at: Vector3, scale: float, opacity: float) -> void:
 	if bubble_count>=bubbles.multimesh.instance_count or at.distance_squared_to(owner_view.camera.global_position)>160000: return
 	var distance: float=at.distance_to(owner_view.camera.global_position)
@@ -145,7 +205,7 @@ func update_player_wake(region, milliseconds: float) -> void:
 		sprite(bubbles,bubble_count,at,particle.size*(1.0+age*1.8),1-opacity,2,Color("c4e3e9"));bubble_count+=1
 func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 	effect_bounds.clear()
-	segment_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0
+	segment_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0; blood_count=0; puff_count=0
 	update_player_wake(region,float(milliseconds) if render_milliseconds<0 else render_milliseconds)
 	wrecks.update(region,float(milliseconds) if render_milliseconds<0 else render_milliseconds,owner_view.world.geography.anchor,owner_view.camera.global_position,owner_view.modern_graphics and aftermath_enabled)
 	for light in lights: light.hide()
@@ -198,16 +258,23 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 		var age_ms: int = region.elapsed_ms-event.time
 		if event.kind=="impact":
 			if age_ms<400: burst(Library.point(event.position),3.0,float(age_ms)/400,Color("d2dfd7"),true)
+		elif event.creature:
+			# A kill leaves only the blood cloud: the original draws no flash.
+			if age_ms>=0 and age_ms<BLOOD_LIFETIME_MS: blood(Library.point(event.position),age_ms)
 		else:
 			for i in event.delays.size():
-				var duration := 550.0 if owner_view.modern_graphics and aftermath_enabled and not event.creature else (1000.0 if event.delays.size()>1 else 4000.0)
+				var duration := 550.0 if owner_view.modern_graphics and aftermath_enabled else (1000.0 if event.delays.size()>1 else 4000.0)
 				var age: float = float(age_ms-int(event.delays[i]))/duration
 				if age<0 or age>=1: continue
 				var offset: Array = event.offsets[i] if i<event.offsets.size() else [0,0,0]
-				burst(Library.point(Math.added(event.position,offset)),14 if event.creature else (36 if event.delays.size()>1 else 24),age,Color("82d6ad") if event.creature else Color("ffbe85"),not event.creature and not owner_view.modern_graphics)
+				burst(Library.point(Math.added(event.position,offset)),36 if event.delays.size()>1 else 24,age,Color("ffbe85"),not owner_view.modern_graphics)
+	for i in range(blood_count,blood_clouds.size()): blood_clouds[i].hide()
+	if puff_count>0 and not puffs.multimesh.mesh.material.has_meta("atlas_checked"):
+		puffs.multimesh.mesh.material.set_meta("atlas_checked",true); blood_atlas()
 	segments.multimesh.visible_instance_count=segment_count
 	bursts.multimesh.visible_instance_count=burst_count
 	bubbles.multimesh.visible_instance_count=bubble_count
+	puffs.multimesh.visible_instance_count=puff_count
 	refresh_bounds()
 func _exit_tree() -> void:
-	for node in [segments,bursts,bubbles]: node.multimesh=null
+	for node in [segments,bursts,bubbles,puffs]: node.multimesh=null

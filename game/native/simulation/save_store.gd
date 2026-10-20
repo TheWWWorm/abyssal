@@ -6,6 +6,7 @@ const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Session = preload("res://native/simulation/session.gd")
 const Mission = preload("res://native/simulation/mission.gd")
 const Ship = preload("res://native/simulation/ship_stats.gd")
+const ImportedArt = preload("res://native/presentation/imported_art.gd")
 const MISSION_FIELDS := ["kind","sponsor","sponsor_faction","portrait","reward","deposit","destination","destination_name","difficulty","jump_limit","jumps","terminal","story","failed","completed","briefing","item_id","item_count","target_kind","total","minimum","percentage","threshold"]
 const SESSION_FIELDS := ["name","credits","elapsed_ms","counters","discovered","fish_found","goods_found","station_id","recent_stations","hull","shield","armor","docked","entered_gate","last_arrival_ms","pending_cargo_payment","notices"]
 var failure := ""
@@ -46,6 +47,10 @@ static func mission_state(mission) -> Dictionary:
 static func capture(session) -> Dictionary:
 	var result := fields(session,SESSION_FIELDS)
 	result.face_layers=session.face_layers.duplicate()
+	# Optional: only a pilot with an imported picture has one (cw.a stores it
+	# in place of the layers; here the layers stay for older readers).
+	var photo=session.get("face_photo")
+	if photo is String and not photo.is_empty(): result.face_photo=photo
 	result.hints_said=session.hints_said.duplicate()
 	result.trail=session.trail.duplicate()
 	result.schema=2; result.random_engine="java-lcg"; result.jar_sha256=session.data.jar_sha256
@@ -105,7 +110,8 @@ func restore(data: Dictionary, value: Dictionary):
 	# Optional, as saves from before it existed have none: those start the
 	# trail where the expedition stands.
 	session.trail=integral(value.trail) if value.has("trail") else [session.station_id]
-	if value.has("face_layers"): session.face_layers=integral(value.face_layers)
+	if value.has("face_layers"): session.face_layers=face_order(integral(value.face_layers),data)
+	if value.has("face_photo"): session.face_photo=str(value.face_photo)
 	# Saves from the engine's own generator carry a state this one cannot
 	# continue; their value seeds the game's generator instead.
 	if value.get("schema",1)==1 or value.get("random_engine","")!="java-lcg":session.rng.seed_from(str(value.random_state).to_int())
@@ -131,6 +137,19 @@ func restore(data: Dictionary, value: Dictionary):
 		if session.campaign.chapter>2:session.hints_said.gate=true
 	return session
 
+static func face_order(layers: Array, data: Dictionary) -> Array:
+	"""Earlier versions of this remake kept every face as backdrop, chin, suit:
+	the order the original draws a woman in (ab.a), which put a man's suit
+	over his chin. The original never puts a man's chin second, so a face with
+	one there and a suit third is turned back to the man's order."""
+	var table: Array=data.get("constants",{}).get("ab",{}).get("a:[[[B",[])
+	if layers.size()!=6 or table.size()<3 or table[1].size()<3 or table[2].size()<2: return layers
+	var whole:=func(values: Array) -> Array: return values.map(func(id): return int(id))
+	var chins: Array=whole.call(table[2][0]+table[2][1])
+	var suits: Array=whole.call(table[1][0]+table[1][1]+table[1][2])
+	if int(layers[1]) in chins and int(layers[2]) in suits: return [layers[0],layers[2],layers[1]]+layers.slice(3)
+	return layers
+
 func validate(value: Dictionary, data: Dictionary) -> bool:
 	if value.has("trail"):
 		if value.trail is not Array or value.trail.size()>6:return false
@@ -144,6 +163,7 @@ func validate(value: Dictionary, data: Dictionary) -> bool:
 		if value.face_layers is not Array or value.face_layers.size()!=6: return false
 		for layer in value.face_layers:
 			if (layer is not int and layer is not float) or int(layer)!=layer or layer< -1 or layer>94: return false
+	if value.has("face_photo") and (value.face_photo is not String or ImportedArt.photo_image(value.face_photo)==null): return false
 	if value.has("medals"):
 		if value.medals is not Dictionary: return false
 		for key in ["levels","pending"]:

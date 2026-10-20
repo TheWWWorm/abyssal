@@ -22,6 +22,7 @@ var hull_percent := 100
 var readout_time := 0.0
 var readout_clock := 0.0
 var readout_top := 220.0
+var readout_covered := false
 var low := false
 var pulse := 0.0
 var font := SystemFont.new()
@@ -98,7 +99,7 @@ func edge(strength: float) -> void:
 
 func _draw() -> void:
 	edge((flash*.42 if flash_enabled else 0.0)+(0.10+0.14*(0.5-0.5*cos(pulse/1.2*TAU)) if low else 0.0))
-	if readout_enabled and readout_time>0.0 and readout_clock>=BLINK_PERIOD*.5:
+	if readout_enabled and not readout_covered and readout_time>0.0 and readout_clock>=BLINK_PERIOD*.5:
 		var label := "%s %d%%"%[EngineLanguage.translate("Hull").to_upper(),hull_percent]
 		var pixels := 26
 		var width := font.get_string_size(label,HORIZONTAL_ALIGNMENT_LEFT,-1,pixels).x

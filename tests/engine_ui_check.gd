@@ -500,7 +500,7 @@ func check_dialogue_history(game) -> void:
  for i in 2:
   game.column.find_child("DialoguePrevious",true,false).pressed.emit();await process_frame;await process_frame
  expect(game.line_index==0 and completed.is_empty(),"Back rereads earlier dialogue without completing its event")
- expect(game.column.find_children("*","RichTextLabel",true,false)[0].text=="First line","Back restores the earlier text")
+ expect(game.column.find_children("*","RichTextLabel",true,false)[0].get_parsed_text()=="First line","Back restores the earlier text")
  expect(game.column.find_child("DialoguePrevious",true,false).disabled,"Returning to the first line disables Back again")
  for i in 3:
   game.column.find_child("DialogueNext",true,false).pressed.emit();await process_frame;await process_frame

@@ -13,7 +13,7 @@ config_version=5
 config/icon="res://ui/abyssal-icon.png"
 config/windows_native_icon="res://ui/abyssal-icon.ico"
 config/macos_native_icon="res://ui/abyssal-icon.icns"
-config/name="Abyssal Compatibility Engine"
+config/name="Abyssal"
 boot_splash/show_image=true
 boot_splash/image="res://ui/abyssal-splash.png"
 boot_splash/stretch_mode=1
@@ -118,6 +118,26 @@ ocean_sun_color={
 ocean_shaft_gain={
 "type": "float",
 "value": 0.0
+}
+ocean_model_light={
+"type": "vec2",
+"value": Vector2(1, 1)
+}
+ocean_eye={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+ocean_station_warmth={
+"type": "float",
+"value": 1.0
+}
+ocean_classic_sky={
+"type": "float",
+"value": 0.0
+}
+ocean_suspension_phase={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
 }
 
 ocean_radiance_map={

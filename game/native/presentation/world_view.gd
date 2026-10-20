@@ -715,7 +715,11 @@ func add_station_lights(visual) -> void:
 		# adjoining bridges instead of pooling both highlights on the roof.
 		# Local space is the rolled module's: overhead in the world is local -y.
 		lamp.position=center+Model.STATION_ROLL.basis*Vector3(side*box.size.x*.32,box.size.y*(.62 if side==-1 else -.12),side*box.size.z*.64)
-		lamp.light_color=Color("ffd39a") if side==-1 else Color("ffbc76")
+		# Pale cream like the original's window texels, or the optional warm
+		# amber pair; abyss.gd recolours the group when the choice changes.
+		var options=preload("res://native/presentation/ocean_options.gd")
+		lamp.light_color=options.station_lamp_color(side==-1,options.warm_station)
+		lamp.set_meta("overhead",side==-1);lamp.add_to_group("station_work_lamps")
 		lamp.light_energy=8.0 if side==-1 else 6.0
 		# No light size: a size turns on contact-hardening (PCSS) shadows, which
 		# add a blocker search per pixel for every lamp covering it. With a
@@ -730,6 +734,7 @@ func add_station_lights(visual) -> void:
 		var halo := MeshInstance3D.new();var quad := QuadMesh.new();quad.size=Vector2(4,4)
 		var material := ShaderMaterial.new();material.shader=preload("res://native/presentation/beacon.gdshader")
 		material.set_shader_parameter("tint",lamp.light_color);quad.material=material;halo.mesh=quad
+		lamp.set_meta("halo",material)
 		halo.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;lamp.add_child(halo)
 
 func set_shadow_level(level: int) -> void:
@@ -815,6 +820,7 @@ func add_actor_lights(visual, occluder=null) -> Array:
 		beam.material_override.set_shader_parameter("tint",lamp.light_color)
 		beam.material_override.set_shader_parameter("energy",Abyss.BEAM_ENERGY*headlight_strength)
 		beam.material_override.set_shader_parameter("fade_begin",400.0);beam.material_override.set_shader_parameter("fade_length",200.0)
+		beam.material_override.set_shader_parameter("clearance",Abyss.BEAM_CLEARANCE)
 		beam.visible=actor_beams_enabled
 		var own: Array[RID]=[]
 		if occluder!=null: own.append(occluder.get_rid())

@@ -11,6 +11,9 @@ var compact := false
 var info := ""
 var compact_fill := [0.0,0.0]
 var compact_colors := [Color.WHITE,Color.WHITE]
+## bd: once the hull is below full, its percentage stays on screen beside the
+## hull icon, whatever layer the gauge above it is showing.
+var hull_percent := 100
 const ARMOR_COLOR := Color("f0cc4a")
 const HULL_COLOR := Color("7ee08e")
 const SHIELD_COLOR := Color("5fd0ea")
@@ -48,6 +51,7 @@ func update(health, stats) -> void:
 	else:
 		compact_fill[0]=clampf(float(health.hull)/maxi(1,stats.hull),0,1)
 		compact_colors[0]=Color("f5795f") if compact_fill[0]<=.25 else HULL_COLOR
+	hull_percent=int(float(health.hull)/maxf(1.0,health.max_hull)*100.0)
 	compact_fill[1]=clampf(float(health.shield)/maxi(1,stats.shield),0,1) if stats.shield>0 else 0.0
 	compact_colors[1]=SHIELD_COLOR if stats.shield>0 else Color("5d717a")
 	queue_redraw()
@@ -74,5 +78,14 @@ func draw_compact() -> void:
 			var lit: bool=(segment+.5)/count<=compact_fill[row]
 			draw_rect(Rect2(start+segment*7,y+3,4,15),compact_colors[row] if lit else Color("1d3c48cc"))
 	var font := get_theme_default_font()
+	if hull_percent<100:
+		var reading := "%d%%"%maxi(0,hull_percent)
+		var x := width+8.0
+		var icon: Texture2D=imported_art.symbol("hull_icon") if imported_art!=null else null
+		if icon==null and imported_art!=null:icon=imported_art.symbol("i_hull")
+		var tone := Color("ff8a6e") if hull_percent<=25 else Color("f0c27a")
+		if icon!=null:draw_texture_rect(icon,Rect2(x,2,18,18),false,tone);x+=22
+		draw_string_outline(font,Vector2(x,18),reading,HORIZONTAL_ALIGNMENT_LEFT,-1,17,4,Color(0,.04,.07,.7))
+		draw_string(font,Vector2(x,18),reading,HORIZONTAL_ALIGNMENT_LEFT,-1,17,tone)
 	draw_string_outline(font,Vector2(2,84),info,HORIZONTAL_ALIGNMENT_LEFT,-1,17,4,Color(0,.04,.07,.7))
 	draw_string(font,Vector2(2,84),info,HORIZONTAL_ALIGNMENT_LEFT,-1,17,Color("c9e7ea"))

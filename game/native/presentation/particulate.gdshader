@@ -24,6 +24,19 @@ uniform vec3 lamp_color_a : source_color=vec3(.72,.9,1.0);
 uniform vec3 lamp_color_b : source_color=vec3(.72,.9,1.0);
 uniform vec4 disturbance[10];
 uniform float disturbance_strength[10];
+// The enhanced snow, after the Deeper project's suspension (Apache-2.0, same
+// author): the water's movement past the camera, in metres a second, which
+// the flakes are drawn stretched along; and the drifting density of the
+// suspended matter, shared with the headlight beams (headlight_beam.gdshader).
+uniform vec3 water_motion=vec3(0.0);
+uniform sampler3D suspension : repeat_enable, filter_linear;
+global uniform vec3 ocean_suspension_phase;
+const vec3 SUSPENSION_SCALE=vec3(.014,.032,.014);
+// An exposure of a twentieth of a second: Deeper's .0028 s was set for its
+// much faster hulls, and left the snow round at this game's cruising and
+// boost speeds. Ends at a metre, as long as the old boost streak.
+const float SNOW_EXPOSURE=.05;
+const float SNOW_LONGEST=1.0;
 varying float shine;
 varying float bubble;
 varying float mote_seed;
@@ -73,7 +86,10 @@ void vertex(){
 		}
 		living_glow*=bioluminescence_enabled ? 1.0-bubble : 0.0;
 		float density=1.0-smoothstep(snow_density/1.3-0.04,snow_density/1.3,fract(mote_seed*17.37+0.19));
-		float suspended=snow_enabled ? 1.0 : bubble;
+		// The snow is brighter where the water is thicker with matter, as
+		// the beam is, so the lit flakes and the lit water agree.
+		float matter=textureLod(suspension,(center+ocean_suspension_phase)*SUSPENSION_SCALE,0.0).r;
+		float suspended=(snow_enabled ? 1.0 : bubble)*mix(.32+matter*1.35,1.0,bubble);
 		shine=((0.085+light*2.8)*suspended+living_glow*3.5)*density*(1.0-smoothstep(26.0,42.0,length(center-focus)))*smoothstep(3.0,8.0,distance);
 	}
 	vec3 view_center=(VIEW_MATRIX*vec4(center,1.0)).xyz;
@@ -88,7 +104,21 @@ void vertex(){
 	float pixel_size=2.0*mix(snow_pixels,9.0,bubble)*abs(view_center.z)/(max(abs(PROJECTION_MATRIX[1][1]),0.001)*VIEWPORT_SIZE.y);
 	float radius=INSTANCE_CUSTOM.z;
 	if(enhanced>0.5 && INSTANCE_CUSTOM.y>0.5 && bubble<0.5){radius=0.03+mote_seed*0.045;}
-	VERTEX=view_center+vec3(streak*max(radius,pixel_size),0.0);
+	float size=max(radius,pixel_size);
+	vec2 offset=streak*size;
+	if(enhanced>0.5){
+		// Enhanced snow streaks along its own movement on screen, the water's
+		// movement past the camera projected at the flake's depth: away from
+		// the centre going forward, towards it in reverse, and across the
+		// screen when the camera slides sideways or the current carries it.
+		// Bubbles keep their round shape.
+		vec3 relative=(VIEW_MATRIX*vec4(water_motion,0.0)).xyz;
+		vec2 projected=relative.xy-view_center.xy*relative.z/min(view_center.z,-0.01);
+		vec2 along=length(projected)>0.001?normalize(projected):vec2(0.0,1.0);
+		float smear=min(length(projected)*SNOW_EXPOSURE,SNOW_LONGEST)*(1.0-bubble);
+		offset=vec2(-along.y,along.x)*VERTEX.x*size+along*VERTEX.y*(size+smear);
+	}
+	VERTEX=view_center+vec3(offset,0.0);
 	POSITION=PROJECTION_MATRIX*vec4(VERTEX,1.0);
 }
 void fragment(){

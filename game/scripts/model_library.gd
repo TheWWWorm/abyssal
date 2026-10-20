@@ -589,6 +589,9 @@ func affine_material(resource: String, blend: int, double_sided: bool, lit: bool
 		elif pixelated:filtering="filter_nearest_mipmap"
 		var code := "shader_type spatial;\nrender_mode %s;\n" % ", ".join(modes)
 		code += '#include "res://native/presentation/ocean_background.gdshaderinc"\nglobal uniform float ocean_visual_time;\nuniform float distance_haze=0.0;\n'
+		# Set each frame by abyss.gd: the depth-dimmed ambient and directional
+		# scale of the classic light, and the station window warmth choice.
+		code += "global uniform vec2 ocean_model_light;\nglobal uniform float ocean_station_warmth;\n"
 		# Sky samples are numeric byte-color data. Avoid losing dark ramp values
 		# in Compatibility's 8-bit linear intermediate target.
 		code += "uniform sampler2D albedo : %s%s, repeat_disable;\n" % ["source_color, " if sky_pass == 0 else "",filtering]
@@ -704,7 +707,9 @@ void vertex() {
 			code += "if(color.a<0.5||all(greaterThanEqual(color.rgb,vec3(0.97)))){discard;}\n"
 		if lit and not modern:
 			# Mascot applies per-fragment Lambert lighting to byte-space colors.
-			code += "float brightness=clamp(clamp(source_ambient,0.0,1.0)+clamp(source_intensity,0.0,4.0)*max(dot(normalize(original_normal),-source_light),0.0),0.0,1.0);\n"
+			# The game dims its one light with depth (cy.c); ocean_model_light
+			# carries that scale for the ambient and the directional term.
+			code += "float brightness=clamp(clamp(source_ambient,0.0,1.0)*ocean_model_light.x+clamp(source_intensity,0.0,4.0)*ocean_model_light.y*max(dot(normalize(original_normal),-source_light),0.0),0.0,1.0);\n"
 			code += "color.rgb=OUTPUT_IS_SRGB?color.rgb*brightness:to_linear(to_srgb(color.rgb)*brightness);\n"
 		if sky_pass != 0:
 			code += "if(OUTPUT_IS_SRGB){color.rgb=to_srgb(color.rgb);}\n"
@@ -719,8 +724,10 @@ if(station_coating){
  RADIANCE=vec4(0.0,0.0,0.0,1.0);
 	// Preserve imported paint and panels. Only warm, bright window texels
 	// emit; pale bulkheads must still depend on the scene's actual lights.
+	// The original's windows are those pale cream texels; the optional warm
+	// look shifts their light to amber.
 	vec3 hints=texture(surface_map,(UV+vec2(0.5))/texture_size).rgb;
-	EMISSION=color.rgb*vec3(1.0,0.83,0.56)*hints.b*2.2;
+	EMISSION=color.rgb*mix(vec3(1.0),vec3(1.0,0.83,0.56),ocean_station_warmth)*hints.b*2.2;
 	ROUGHNESS=hints.g; SPECULAR=0.38; METALLIC=0.08;
 }
 if(hull_coating && !replacement_enabled){
@@ -853,7 +860,7 @@ if(replacement_enabled && architecture_enabled){
 	float occupied=step(0.28,fract(sin(dot(cell,vec2(12.9898,78.233)))*43758.5453));
 	ALBEDO=mix(ALBEDO,vec3(0.018,0.035,0.042),window);
 	ROUGHNESS=mix(ROUGHNESS,0.22,window); METALLIC=mix(METALLIC,0.05,window);
-	EMISSION+=vec3(1.0,0.48,0.16)*window*occupied*0.75;
+	EMISSION+=mix(vec3(0.45,0.43,0.36),vec3(0.75,0.36,0.12),ocean_station_warmth)*window*occupied;
 }
 """
 		if modern and blend == 4:

@@ -2,7 +2,9 @@ extends Node3D
 ## Art direction only: light scattering, particulate and rising bubbles.
 const OceanProfile=preload("res://native/presentation/ocean_profile.gd")
 const CabinWindows=preload("res://native/presentation/cabin_windows.gd")
-var atmosphere := preload("res://native/presentation/ocean_options.gd").defaults()
+const OceanOptions=preload("res://native/presentation/ocean_options.gd")
+const Habitat=preload("res://native/simulation/habitat.gd")
+var atmosphere := OceanOptions.defaults()
 var camera: Camera3D
 var world
 var view
@@ -22,9 +24,43 @@ const HEADLIGHT_ENERGY := 32.0
 const BEAM_ENERGY := .7
 var daylight := DirectionalLight3D.new()
 var water_gain := 1.0
-var warm_sky := Vector3(.4,.4,.1)
 var sun_color := Vector3.ONE
-var upper_sky := Vector3(.018,.08,.16)
+## The region colour (cy.b) as shown, easing towards region_target after a
+## gate or a dive into another station's water; sRGB bytes over 255.
+var region_color := FALLBACK_REGION
+var region_target := FALLBACK_REGION
+var region_station := -1
+var region_data: Dictionary
+var region_known := false
+## The water column in front of the scene (water_column.gdshader): a
+## full-screen pass shown with enhanced graphics and volumetric light.
+var column_material := ShaderMaterial.new()
+var column_volume := MeshInstance3D.new()
+## The density's repeat in metres along each axis (the shader's SCALE).
+const COLUMN_PERIOD := Vector3(1.0/.0017,1.0/.0045,1.0/.0017)
+## The same density at a finer scale, as the suspended matter the headlight
+## beams scatter off and the marine snow follows (SUSPENSION_SCALE in
+## headlight_beam.gdshader and particulate.gdshader). It drifts with the
+## current, and slowly of its own accord, as in the Deeper project.
+const SUSPENSION_PERIOD := Vector3(1.0/.014,1.0/.032,1.0/.014)
+const SUSPENSION_DRIFT := Vector3(.0011/.014,0.0,.0005/.014)
+## Marine snow settles at about this rate, metres a second, on average.
+const SNOW_SINKING := .28
+static var suspension: NoiseTexture3D
+## The camera's own velocity in the open world, smoothed over a few frames;
+## the enhanced snow is stretched along the water's movement past it.
+var camera_velocity := Vector3.ZERO
+var previous_eye := Vector3.ZERO
+var eye_known := false
+## region_base per station of region_data, which a blend asks for often.
+var region_cache := {}
+## How gradually, in chart units, the water turns from one station's colour
+## to the next: the mix runs over about a unit either side of half way, and
+## neighbouring stations lie about three and a half apart.
+const REGION_BLEND := 1.0
+## Gates move the ship at once; the colour then follows over a few seconds.
+const REGION_EASE := .8
+var upper_sky := FALLBACK_REGION
 var water_tint := Vector3.ONE
 var water_sun := 1.0
 var sun_gain := 1.0
@@ -43,6 +79,17 @@ var trail_region := 0
 const BEAM_LENGTH := 70.0
 const OCCLUSION_SIZE := 12
 const BEAM_HALF_TANGENT := .249
+## Another vessel's beam is drawn only from this many metres beyond the
+## camera (headlight_beam.gdshader's clearance); the player's lamps are
+## further off than this from the chase camera.
+const BEAM_CLEARANCE := 20.0
+## A cache imported before the palette was (or a station no alga reaches):
+## the blue alga's water at three quarters, the commonest sky in the game.
+const FALLBACK_REGION := Vector3(98,118,255)*1.125/255.0
+## The surface light, on this engine's scale, that the phone's strongest
+## light (ambient 2048, directional 4096 of 4096) corresponds to.
+const SURFACE_AMBIENT := .315
+const SURFACE_DAYLIGHT := .85
 
 func _ready() -> void:
 	process_priority=1
@@ -106,7 +153,15 @@ func _ready() -> void:
 		# each cone follows the position and direction of its own source lamp.
 		var beam := create_beam()
 		lamp.add_child(beam);beams.append(beam)
+	column_material.shader=preload("res://native/presentation/water_column.gdshader")
+	column_material.render_priority=-125
+	column_material.set_shader_parameter("density_texture",suspension_density())
+	var screen := QuadMesh.new();screen.size=Vector2(2,2)
+	column_volume.name="WaterColumn";column_volume.mesh=screen;column_volume.material_override=column_material
+	column_volume.extra_cull_margin=16384;column_volume.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;column_volume.visible=false
+	add_child(column_volume)
 	particle_material.shader=preload("res://native/presentation/particulate.gdshader")
+	particle_material.set_shader_parameter("suspension",suspension_density())
 	var mesh := QuadMesh.new()
 	mesh.size=Vector2.ONE
 	mesh.material=particle_material
@@ -128,6 +183,14 @@ func _ready() -> void:
 	particles.custom_aabb=AABB(Vector3.ONE*-60,Vector3.ONE*120)
 	particles.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(particles)
+
+static func suspension_density() -> NoiseTexture3D:
+	"""The drifting density of the water, one texture for the water column,
+	the headlight beams and the snow, so they show the same banks."""
+	if suspension==null:
+		var noise := FastNoiseLite.new();noise.seed=1413;noise.frequency=.052;noise.fractal_octaves=3
+		suspension=NoiseTexture3D.new();suspension.width=64;suspension.height=64;suspension.depth=64;suspension.seamless=true;suspension.noise=noise
+	return suspension
 
 static var tested_beam: Shader
 static func beam_shader(tested: bool) -> Shader:
@@ -155,6 +218,7 @@ static func create_beam() -> MeshInstance3D:
 	beam.mesh=beam_mesh(BEAM_LENGTH,BEAM_LENGTH*BEAM_HALF_TANGENT)
 	var material := ShaderMaterial.new();material.shader=preload("res://native/presentation/headlight_beam.gdshader")
 	material.set_shader_parameter("beam_length",BEAM_LENGTH);material.set_shader_parameter("half_tangent",BEAM_HALF_TANGENT)
+	material.set_shader_parameter("suspension",suspension_density())
 	# The beam's own shadow map: how far the light gets along each direction
 	# of the cone before a station wall stops it, cast from the lens each frame.
 	var reach := Image.create(OCCLUSION_SIZE,OCCLUSION_SIZE,false,Image.FORMAT_RF);reach.fill(Color(BEAM_LENGTH+10,0,0))
@@ -248,9 +312,20 @@ func _process(delta: float) -> void:
 	var anchor: Vector3=world.geography.anchor if world!=null and world.region!=null else Vector3.ZERO
 	particles.global_position=camera.global_position
 	var absolute_eye: Vector3=camera.global_position+anchor
+	# A gate or a new dive moves the camera at once; that is not movement
+	# through the water.
+	if eye_known and seconds>0.0:
+		var moved: Vector3=(absolute_eye-previous_eye)/seconds
+		if moved.length()<400.0:camera_velocity=camera_velocity.lerp(moved,1.0-exp(-seconds*10.0))
+	previous_eye=absolute_eye;eye_known=true
 	# Reduce the world phase on the CPU; WebGL never subtracts large world
 	# coordinates to recover centimetre-size billboards during open-world travel.
 	particle_material.set_shader_parameter("eye_phase",Vector3(fposmod(absolute_eye.x,90),fposmod(absolute_eye.y,90),fposmod(absolute_eye.z,90)))
+	# The water's light columns are anchored in the open world. At the chart's
+	# widest a float still resolves well under a metre, against columns about
+	# a hundred metres across.
+	RenderingServer.global_shader_parameter_set("ocean_eye",absolute_eye)
+	update_water_column(anchor)
 	particle_material.set_shader_parameter("cloud_origin",particles.global_position)
 	particle_material.set_shader_parameter("eye",camera.global_position)
 	particle_material.set_shader_parameter("lamp_origin",(lamps[0].global_position+lamps[1].global_position)*.5)
@@ -258,11 +333,28 @@ func _process(delta: float) -> void:
 	particle_material.set_shader_parameter("lamps_on",1.0 if headlights_enabled and world!=null and not world.session.docked else 0.0)
 	update_water_particles(seconds,anchor)
 
+func update_water_column(anchor: Vector3) -> void:
+	var env: Environment=environment.environment
+	column_volume.visible=enhanced() and env.volumetric_fog_enabled
+	if not column_volume.visible:return
+	column_volume.global_position=camera.global_position
+	column_material.set_shader_parameter("visual_time",ambient_clock)
+	column_material.set_shader_parameter("phase",Vector3(fposmod(anchor.x,COLUMN_PERIOD.x),fposmod(anchor.y,COLUMN_PERIOD.y),fposmod(anchor.z,COLUMN_PERIOD.z)))
+	var albedo: Color=env.volumetric_fog_albedo
+	column_material.set_shader_parameter("water_color",Vector3(albedo.r,albedo.g,albedo.b)*Vector3(.45,.62,.55))
+	var depth: float=world.region.player.depth if world!=null and world.region!=null else 0.0
+	column_material.set_shader_parameter("depth_fade",lerpf(.33,1.0,direct_light(depth)))
+	column_material.set_shader_parameter("density_gain",COLUMN_DENSITY*haze_gain)
+
+## Suspended matter in the water column, per metre at full density.
+const COLUMN_DENSITY := .001
+
 func enhanced() -> bool:
 	return view!=null and view.modern_graphics
 
 func set_atmosphere(choices: Dictionary) -> void:
-	for key in atmosphere:atmosphere[key]=bool(choices.get(key,preload("res://native/presentation/ocean_options.gd").default_on(key)))
+	for key in atmosphere:atmosphere[key]=bool(choices.get(key,OceanOptions.default_on(key)))
+	update_station_lights()
 	# Settings are usable over a frozen dive: refresh the picture without
 	# advancing particle ages, the luminous trail or the simulation clock.
 	if world!=null and world.region!=null and is_node_ready():
@@ -282,6 +374,11 @@ func update_water_particles(seconds: float, anchor: Vector3) -> void:
 	particles.custom_aabb=AABB(focus-Vector3.ONE*60,Vector3.ONE*120)
 	drift_offset+=current*seconds
 	particle_material.set_shader_parameter("current_offset",Vector3(fposmod(drift_offset.x,90),0,fposmod(drift_offset.z,90)))
+	# The suspended matter is carried with the snow, anchored in the open
+	# world and reduced to its repeat on the CPU, as the water column is.
+	var matter: Vector3=anchor-drift_offset+SUSPENSION_DRIFT*ambient_clock
+	RenderingServer.global_shader_parameter_set("ocean_suspension_phase",Vector3(fposmod(matter.x,SUSPENSION_PERIOD.x),fposmod(matter.y,SUSPENSION_PERIOD.y),fposmod(matter.z,SUSPENSION_PERIOD.z)))
+	particle_material.set_shader_parameter("water_motion",current+Vector3(0,-SNOW_SINKING,0)-camera_velocity)
 	particle_material.set_shader_parameter("snow_density",snow_density)
 	for i in lamps.size():
 		var suffix := "_a" if i==0 else "_b"
@@ -378,50 +475,158 @@ func import_sky_ramp(cache: String) -> void:
 	var pixels:=Image.load_from_file(path)
 	if pixels==null:return
 	# Original sky geometry uses the right-hand ramp at rows 1..9 for the
-	# bright opening, with warmer rows below. Average that opening, scaled
-	# for compatible replacement textures, rather than inventing a sun hue.
+	# bright opening. Average that opening, scaled for compatible replacement
+	# textures, as the enhanced sunlight's colour rather than inventing one.
 	var scale := Vector2(pixels.get_size())/Vector2(8,64)
 	var opening := Vector3.ZERO
 	for y in range(1,10):
 		var color := pixels.get_pixelv(Vector2i(Vector2(6,y)*scale)).srgb_to_linear()
 		opening+=Vector3(color.r,color.g,color.b)/9.0
 	sun_color=opening
-	var warm := pixels.get_pixelv(Vector2i(Vector2(6,16)*scale)).srgb_to_linear()
-	warm_sky=Vector3(warm.r,warm.g,warm.b)*.45
-static func sky_profile(depth: float, warm: Vector3=Vector3(.4,.4,.1)) -> Vector3:
-	var shallow:=exp(-maxf(depth-8000,0)/12000.0)
-	var blue:=Vector3(.004,.013,.03).lerp(Vector3(.055,.20,.42),shallow)
-	var warm_band:=exp(-pow((depth-11000.0)/6500.0,2.0))
-	return blue.lerp(warm,warm_band*.75)
+
+static func depth_factor(depth: float) -> float:
+	"""bb.c: 1 down to 15000, then falling by one per further 15000 with no
+	floor; below 30000 it is negative and the region colour is black."""
+	return 1.0-maxf(0.0,depth-15000.0)/15000.0
+
+static func region_base(data: Dictionary, station_id: int) -> Vector3:
+	"""cy.b: the first alga in the station's prevalence list colours its
+	water, at 1.5 times its share of the palette colour (sRGB over 255, so
+	it may exceed 1 before the depth factor and the clamp)."""
+	var palette: Array=data.get("water_palette",[])
+	var alga: Dictionary=Habitat.alga(data,station_id)
+	if alga.is_empty():return FALLBACK_REGION
+	var index: int=int(alga.species)-13
+	if index<0 or index>=palette.size() or palette[index].size()!=3:return FALLBACK_REGION
+	var colour: Array=palette[index]
+	return Vector3(float(colour[0]),float(colour[1]),float(colour[2]))*1.5*float(alga.percent)/100.0/255.0
+
+static func sky_profile(depth: float, base: Vector3=FALLBACK_REGION) -> Vector3:
+	"""cy.c: the clear colour, the region colour times the depth factor, each
+	channel clamped to a byte. The skybox is composited over it in
+	ocean_radiance.gdshaderinc."""
+	return (base*depth_factor(depth)).clamp(Vector3.ZERO,Vector3.ONE)
+
+static func direct_light(depth: float) -> float:
+	"""cy.c: setDirIntensity(min(4096, 4096·(f+0.25))) as a fraction of 4096."""
+	return clampf(depth_factor(depth)+.25,0.0,1.0)
+
+static func ambient_light(depth: float) -> float:
+	"""cy.c: setAmbientIntensity(min(2048, 1024+1024·(f+0.25))) over 4096.
+	The phone's value reaches zero below any station; a small floor keeps
+	the deepest water readable."""
+	return clampf(.25+.25*(depth_factor(depth)+.25),.04,.5)
 
 static func sunlight_profile(depth: float) -> float:
-	# The original's water has illuminated upper layers even at its stylised
-	# kilometre depths. Keep those openings, then lose them in the abyss.
+	# The enhanced sunlight shafts: illuminated upper layers even at the
+	# original's stylised kilometre depths, lost in the abyss.
 	return exp(-pow(maxf(depth-11000.0,0.0)/14000.0,2.0))
 
 static func light_profile(depth: float) -> Vector3:
-	# Independent art-direction curve in the engine's depth units. Shelter
-	# lights take over gradually as daylight is absorbed by the water column.
-	var transmission := exp(-maxf(depth-8000.0,0.0)/15000.0)
-	return Vector3(.095+.22*transmission,.025+.8*transmission*transmission,.3+.8*transmission)
+	"""The ambient energy, daylight energy and water gain at a depth: the
+	phone's light curves on this engine's scale, so the surface keeps its
+	brightness and the deep is as much darker as it was on the phone."""
+	return Vector3(SURFACE_AMBIENT*ambient_light(depth)/.5,SURFACE_DAYLIGHT*direct_light(depth),1.0)
+
+## The enhanced open water's hue: the previous art-directed water colour
+## (.055, .2, .42) at unit luminance. A little of it stays under every
+## region's colour, so each still reads as water.
+const WATER_HUE := Vector3(.2957,1.0753,2.2581)
+## How much of the alga's own chroma the enhanced water keeps, and how much
+## the region's hue outweighs the plain water colour.
+const REGION_CHROMA := .45
+const REGION_HUE_WEIGHT := .9
+## How much of the hue the suspended haze takes: a trace, so distant water
+## stays water-coloured.
+const REGION_HAZE := .2
+## Luminance of the enhanced water overhead at the surface, and what is left
+## below 30000 where the phone's sky has gone black.
+const ENHANCED_UPPER := .08
+const ENHANCED_FLOOR := .035
+const FOG_ALBEDO := Vector3(.36,.5,.52)
+
+static func modern_hue(base: Vector3) -> Vector3:
+	"""The alga's colour as a hue for the enhanced water, at unit luminance.
+	The palette colour is taken at full strength (the phone's share and
+	byte clamp only brighten it, and washed a golden sky out to cream),
+	softened towards grey and laid over a little of the water's blue-green,
+	so a region reads as tinted water rather than flat paint."""
+	var peak := maxf(base.x,maxf(base.y,base.z))
+	if peak<=.0001:return WATER_HUE
+	var colour := Color(base.x/peak,base.y/peak,base.z/peak).srgb_to_linear()
+	var linear := Vector3(colour.r,colour.g,colour.b)
+	var luminance := linear.dot(Vector3(.2126,.7152,.0722))
+	if luminance<=.0001:return WATER_HUE
+	var tinted := Vector3.ONE.lerp(linear/luminance,REGION_CHROMA)
+	var hue := WATER_HUE.lerp(tinted,REGION_HUE_WEIGHT).clamp(Vector3.ZERO,Vector3.ONE*2.3)
+	return hue/maxf(.0001,hue.dot(Vector3(.2126,.7152,.0722)))
+
+static func modern_upper(depth: float, base: Vector3) -> Vector3:
+	"""The enhanced water overhead: the region hue dimmed by the phone's
+	depth factor, with a faint remainder in the deep."""
+	return modern_hue(base)*(ENHANCED_UPPER*clampf(depth_factor(depth),0.0,1.0)+ENHANCED_FLOOR)
+
+func update_region(delta: float, immediate: bool) -> void:
+	"""The water colour where the ship is. The phone switched it with the
+	region; here it shades from one station's colour into the next across
+	the water between them, and eases in after a gate."""
+	if world==null or world.session==null:return
+	var data: Dictionary=world.session.data
+	var station: int=world.session.station_id
+	if not is_same(data,region_data):region_data=data;region_cache.clear()
+	region_station=station
+	var chart=null
+	if world.has_method("global_position") and world.get("region")!=null:
+		var point: Array=world.global_position()
+		chart=Vector2(point[0],point[2])/float(world.map_scale())
+	region_target=region_blend(data,chart,station,region_cache)
+	if not region_known:region_color=region_target;region_known=true
+	if immediate:region_color=region_target
+	else:region_color=region_color.lerp(region_target,1.0-exp(-maxf(delta,0.0)*REGION_EASE))
+
+static func region_blend(data: Dictionary, chart, station: int, cache: Dictionary={}) -> Vector3:
+	"""The stations' colours weighted by nearness: the nearest one's alone
+	close to it, an even mix half way to a neighbour of another colour."""
+	var stations: Array=data.get("tables",{}).get("stations",[])
+	if chart==null or stations.is_empty():return region_base(data,station)
+	var distances: Array[float]=[];var nearest := INF
+	for entry in stations:
+		var distance: float=(chart as Vector2).distance_to(Vector2(float(entry[2]),float(entry[3])))
+		distances.append(distance);nearest=minf(nearest,distance)
+	var colour := Vector3.ZERO;var total := 0.0
+	for id in stations.size():
+		var excess: float=distances[id]-nearest
+		if excess>REGION_BLEND*8.0:continue
+		var weight := exp(-excess/REGION_BLEND)
+		if not cache.has(id):cache[id]=region_base(data,id)
+		colour+=cache[id]*weight;total+=weight
+	return colour/total
 
 func update_water_light(depth: float, delta: float, immediate: bool=false) -> void:
+	# The first region seen sets the water at once rather than easing in.
+	if not region_known and world!=null:immediate=true
+	update_region(delta,immediate)
 	var profile := light_profile(depth)
 	var blend := 1.0 if immediate else 1.0-exp(-maxf(delta,0.0)*2.0)
 	var regional_blend := 1.0 if immediate else blend*.35
-	var sky := sky_profile(depth,warm_sky)
+	var sky := sky_profile(depth,region_color)
 	var sun := sunlight_profile(depth)
 	var water := {"tint":Vector3.ONE,"haze":1.0,"snow":1.0,"current":Vector3.ZERO,"sun":1.0}
 	if enhanced() and atmosphere.regional_water and world!=null:
 		var point: Array=world.global_position()
 		water=OceanProfile.sample(Vector2(point[0],point[2])/world.map_scale(),world.session.data)
-	if not enhanced() or not atmosphere.deep_darkness:
-		# The classic presentation retains its original sky and particle light.
-		var transmission := exp(-maxf(depth-8000.0,0.0)/15000.0)
-		profile=Vector3(.065+.25*transmission,.06+.85*transmission,.32+1.2*transmission)
-		var shallow := exp(-maxf(depth-8000,0)/13000.0)
-		sky=Vector3(.012,.045,.1).lerp(Vector3(.055,.19,.38),shallow).lerp(warm_sky,exp(-pow((depth-11000.0)/6500.0,2.0))*.85)
-	if not enhanced():sun=1.0
+	if enhanced() and atmosphere.deep_darkness:
+		# Past the phone's own curve: the ambient keeps falling with the
+		# directional light, and the open water above dims with it.
+		var dusk := lerpf(.7,1.0,direct_light(depth))
+		profile.x*=dusk;profile.z=lerpf(.45,1.0,direct_light(depth))
+	if enhanced():
+		# Enhanced hulls are physically lit; below the phone's curve a little
+		# ambient and overhead light stays, as it did before the curve, so
+		# the deep remains readable beyond the headlights.
+		profile.x=maxf(profile.x,.14);profile.y=maxf(profile.y,.05)
+	# The classic presentation draws the original sky and its glow only.
+	if not enhanced():sun=0.0
 	water_tint=water_tint.lerp(water.tint,regional_blend)
 	water_sun=lerpf(water_sun,water.sun,regional_blend)
 	sun_gain=lerpf(sun_gain,sun*water_sun,blend)
@@ -431,6 +636,10 @@ func update_water_light(depth: float, delta: float, immediate: bool=false) -> vo
 	current=current.lerp(water.current,regional_blend)
 	environment.environment.ambient_light_energy=lerpf(environment.environment.ambient_light_energy,profile.x,blend)
 	daylight.light_energy=lerpf(daylight.light_energy,profile.y,blend)
+	# The phone dims its one white light with depth (cy.c). Classic models
+	# shade with their own Lambert term; scale its ambient and directional
+	# parts by the same curves.
+	RenderingServer.global_shader_parameter_set("ocean_model_light",Vector2(ambient_light(depth)/.5,direct_light(depth)))
 	# A reversible art-direction experiment: tint the existing illumination,
 	# retaining its depth fade, shadows and the imported surface colours.
 	var cool: bool=enhanced() and atmosphere.cool_lighting
@@ -443,6 +652,22 @@ func update_water_light(depth: float, delta: float, immediate: bool=false) -> vo
 	RenderingServer.global_shader_parameter_set("ocean_sun_gain",sun_gain)
 	RenderingServer.global_shader_parameter_set("ocean_sun_color",sun_color)
 	RenderingServer.global_shader_parameter_set("ocean_shaft_gain",sun_gain if enhanced() and atmosphere.filtered_sunlight else 0.0)
-	upper_sky=upper_sky.lerp(sky*water_tint,blend)
+	# The depth already changes continuously and the region colour eases in.
+	# Classic shows the phone's sky itself; the enhanced water takes the
+	# region's hue into layered water and tints the suspended haze with it.
+	upper_sky=sky if not enhanced() else modern_upper(depth,region_color)
+	RenderingServer.global_shader_parameter_set("ocean_classic_sky",0.0 if enhanced() else 1.0)
 	RenderingServer.global_shader_parameter_set("ocean_upper_color",upper_sky)
+	var haze_tint := (modern_hue(region_color)/WATER_HUE).clamp(Vector3.ONE*.4,Vector3.ONE*2.5)
+	var albedo := (FOG_ALBEDO*Vector3.ONE.lerp(haze_tint,REGION_HAZE)).clamp(Vector3.ZERO,Vector3.ONE)
+	environment.environment.volumetric_fog_albedo=Color(albedo.x,albedo.y,albedo.z)
 	environment.environment.volumetric_fog_density=.00024*haze_gain
+
+func update_station_lights() -> void:
+	"""Station lamps and windows follow the warm station lights choice."""
+	OceanOptions.warm_station=atmosphere.warm_station_lights
+	RenderingServer.global_shader_parameter_set("ocean_station_warmth",OceanOptions.station_window_warmth(OceanOptions.warm_station))
+	if not is_inside_tree():return
+	for lamp in get_tree().get_nodes_in_group("station_work_lamps"):
+		lamp.light_color=OceanOptions.station_lamp_color(lamp.get_meta("overhead",true),OceanOptions.warm_station)
+		if lamp.has_meta("halo"):lamp.get_meta("halo").set_shader_parameter("tint",lamp.light_color)

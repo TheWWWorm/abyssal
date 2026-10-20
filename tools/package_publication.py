@@ -271,7 +271,7 @@ def assemble(release, output):
         target_release.mkdir(parents=True)
         for name in names:
             shutil.copyfile(release / name, target_release / name)
-        (stage / 'README.md').write_text(f'''# Abyssal Engine — publication bundle
+        (stage / 'README.md').write_text(f'''# Abyssal — publication bundle
 
 This is the single distribution root. It contains the reviewed engine source and the prepared {version} releases. Copy this folder as a whole; the development workspace outside it is not part of the distribution.
 

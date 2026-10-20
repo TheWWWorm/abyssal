@@ -6,6 +6,9 @@ var status: Dictionary={}
 var classic := false
 var font := SystemFont.new()
 var accent := Color("e9977d")
+## Once the water is doing damage the exposure bar has nothing left to say;
+## it shows the hull instead, so the warning cannot hide how much is left.
+var hull_percent := 100
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	font.font_names=PackedStringArray(["Nimbus Sans Narrow","Liberation Sans Narrow"])
@@ -28,7 +31,7 @@ func content_layout() -> Dictionary:
 	if status.is_empty():return {"height":108.0}
 	var damage: String=tr("Damage active").to_upper() if status.damaging else (tr("Damage in %.1f s")%status.remaining).to_upper()
 	var safe: String=(tr("Safe depth %s %d")%["≤" if status.kind=="pressure" else "≥",status.limit]).to_upper()
-	var exposure: String=tr("Exposure").to_upper()
+	var exposure: String=(tr("Hull").to_upper()+" %d%%"%maxi(0,hull_percent)) if status.damaging else tr("Exposure").to_upper()
 	# Keep the columns steady as the countdown gives way to active damage.
 	var damage_width:=maxf(text_width(tr("Damage active").to_upper(),16),text_width((tr("Damage in %.1f s")%(Region.PRESSURE_GRACE_MS/1000.0)).to_upper(),16))
 	var left_width:=maxf(text_width(status.title,19),damage_width)
@@ -39,7 +42,7 @@ func content_layout() -> Dictionary:
 	var offset:=64.0 if stacked else 0.0
 	return {"height":172.0 if stacked else 108.0,"stacked":stacked,"right":right,"offset":offset,
 		"arrow":Vector2(right+action_width+21,30+offset),"damage":damage,"safe":safe,"exposure":exposure,
-		"track_left":maxf(88,22+text_width(exposure,11)+12)}
+		"track_left":maxf(88,22+maxf(text_width(exposure,11),text_width(tr("Hull").to_upper()+" 100%",11))+12)}
 func fit_width(width: float) -> void:
 	size.x=width;size.y=content_layout().height
 func text(at: Vector2, value: String, color: Color, pixels: int) -> void:
@@ -78,7 +81,9 @@ func _draw() -> void:
 	draw_line(arrow-Vector2(0,14),arrow+Vector2(0,14),accent,2,true)
 	draw_polyline(PackedVector2Array([arrow+Vector2(-7,sign_y*6),arrow+Vector2(0,sign_y*14),arrow+Vector2(7,sign_y*6)]),accent,2,true)
 	text(Vector2(right,61+offset),layout.safe,Color("bbd5c4"),14)
-	text(Vector2(22,h-18),layout.exposure,Color("a3ac8d"),11)
+	var hull_tone:=Color("ff8a6e") if hull_percent<=25 else Color("f0c27a")
+	text(Vector2(22,h-18),layout.exposure,hull_tone if status.damaging else Color("a3ac8d"),11 if not status.damaging else 13)
 	var track:=Rect2(layout.track_left,h-27,w-layout.track_left-22,8)
-	draw_rect(track,Color("203131"));draw_rect(Rect2(track.position,Vector2(track.size.x*status.fraction,track.size.y)),accent)
+	var filled: float=clampf(hull_percent/100.0,0,1) if status.damaging else status.fraction
+	draw_rect(track,Color("203131"));draw_rect(Rect2(track.position,Vector2(track.size.x*filled,track.size.y)),hull_tone if status.damaging else accent)
 	draw_rect(track,Color("9f8a55"),false,1)

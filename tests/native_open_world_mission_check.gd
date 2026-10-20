@@ -40,11 +40,15 @@ func _initialize():
   var waypoint: Array=w.region.route.current().duplicate()
   w.region.player.pose.origin=Math.added(waypoint,[0,0,-13000])
   w.region.player.pose.face([0,0,4096]);w.region.player.health.configure(100000,100000,100000)
-  for i in 800:
+  # An interception's guards may all wait at the convoy's mark rather than
+  # the first one, depending on the area's draws; keep to the route until
+  # they are met.
+  for i in 2400:
    w.advance(.04)
-   if not w.autopilot or w.region.route.index>=1:break
+   if not w.autopilot:break
+   if w.region.route.index>=1 and (kind!=5 or w.region.enemies.any(func(a):return a.health.enabled)):break
   expect(w.region.route.index>=1,"Local autopilot crosses the strict mission trigger for kind "+str(kind))
-  expect(w.region.enemies.any(func(a):return a.health.enabled),"Proximity activates mission enemies")
+  expect(w.region.enemies.any(func(a):return a.health.enabled),"Proximity activates mission enemies for kind "+str(kind))
   w.region.player.pose.origin=[0,0,-14000]
   expect(not w.dock() and "autopilot" in w.message and "quest objective" in w.message,"Encounter docking lock offers an actionable explanation")
   # Mission completion acknowledgement must remove the restriction.

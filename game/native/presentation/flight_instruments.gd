@@ -41,7 +41,9 @@ func layout() -> void:
 	depth_bar.hide()
 	boost_label.position=Vector2(size.x*.5-220,size.y-118); boost_label.size=Vector2(260,20)
 	boost_bar.position=boost_label.position+Vector2(0,23); boost_bar.size=Vector2(170,6)
-	boost_label.visible=compact_rect.size.x<=0
+	# The helm strip (classic_frame) carries the booster on the desktop and the
+	# touch throttle its own button: the caption stays only as their source.
+	boost_label.visible=false
 	queue_redraw()
 func scale_range() -> Vector2:
 	"""The depths the gauge spans: the hull's safe band with a short margin of
@@ -109,6 +111,6 @@ func update(region, boost_key: String) -> void:
 		"charging": boost_label.text=tr("BOOST · Recharging %.1f s")%boost.seconds
 		"ready": boost_label.text=tr("BOOST READY · %s")%boost_key
 	# On touch the boost button shows its own charge.
-	boost_bar.visible=boost.mode!="absent" and compact_rect.size.x<=0; boost_bar.value=boost.fraction*100
+	boost_bar.visible=false; boost_bar.value=boost.fraction*100
 	var boost_color := Color("8ce6df") if boost.mode in ["ready","active"] else Color("8a9da8")
 	boost_label.modulate=boost_color; boost_fill.bg_color=boost_color

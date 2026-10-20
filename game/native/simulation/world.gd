@@ -323,12 +323,24 @@ func enter_region(id: int) -> void:
 func dock() -> bool:
 	if session.docked: return true
 	if region==null or not region.station.can_dock(region.player.pose.origin): message=tr("Approach the station's docking area."); return false
-	if region.success!=null or region.failure!=null: message=tr("Docking locked · finish the encounter. Open autopilot and choose the quest objective."); return false
+	message=dock_denial()
+	if not message.is_empty(): return false
 	var hull_percent := int(Math.f32(Math.f32(float(region.player.health.hull)/float(region.player.health.max_hull))*100.0)) if region.player.health.max_hull>0 else 0
 	session.medals.evaluate(session,hull_percent)
 	# The station panel says where you are; no notice repeats it over it.
 	cancel_autopilot(); reset_gates(); session.arrive()
 	return true
+func dock_denial() -> String:
+	"""Why the station turns the ship away, or nothing. Besides a live
+	encounter, br.a refuses with "Can't dock while in a mission." (269) while
+	the area's assigned mission is anything but a journey (8): the first
+	chapter's catch has to be aboard before Gosu takes the ship in. An
+	equipment job (17) is only ever done docked, so it never bars the berth."""
+	if region==null: return ""
+	if region.success!=null or region.failure!=null: return tr("Docking locked · finish the encounter. Open autopilot and choose the quest objective.")
+	var mission=region.mission
+	if mission!=null and mission.kind>=0 and not mission.kind in [8,17] and not mission.completed and not mission.failed: return session.text(269)
+	return ""
 func remaining_distance() -> float:
 	if local_target==null or region==null: return 0
 	var d := Math.subtracted(local_target,region.player.pose.origin)

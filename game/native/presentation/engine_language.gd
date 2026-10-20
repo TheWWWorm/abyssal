@@ -74,6 +74,7 @@ static func apply(code: String) -> void:
 		var font := cjk_font(script_code)
 		if font!=null: fallbacks.append(font)
 	ThemeDB.fallback_font.fallbacks=fallbacks
+	preload("res://native/presentation/coin_glyph.gd").refresh()
 
 static func catalog(code: String) -> Translation:
 	"""A language's catalog, loaded once; null for English, the source text."""

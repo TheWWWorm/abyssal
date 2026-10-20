@@ -394,9 +394,9 @@ func station_point(id: int) -> Dictionary:
 
 func habitat(id: int) -> Array:
 	var result: Array = []
-	var pairs: Array = data.habitats[id] if id < data.habitats.size() else []
+	var pairs: Array = preload("res://native/simulation/habitat.gd").prevalence(data, id)
 	for index in range(0, pairs.size(), 2):
-		if not int(pairs[index]) in result: result.append(int(pairs[index]))
+		if int(pairs[index + 1]) > 0 and not int(pairs[index]) in result: result.append(int(pairs[index]))
 	return result
 
 func mission(chapter: int) -> Dictionary: return data.campaign[chapter - 1].mission
@@ -638,7 +638,7 @@ func species_page(id: int) -> String:
 		rows.append([translate("Toughness"), str(mass * 2)])
 		rows.append([translate("Harpoon struggle"), esc(translate("%.1f s") % ((2100 + resistance / 10.0 * 2100) / 1000.0))])
 	out += facts(rows + price_rows(id))
-	var homes := range(data.habitats.size()).filter(func(station): return id in habitat(station))
+	var homes := range(data.tables.stations.size()).filter(func(station): return id in habitat(station))
 	homes.sort_custom(func(x, y): return station_name(x).naturalnocasecmp_to(station_name(y)) < 0)
 	out += h2(translate("Found at %d stations") % homes.size()) + p(links(homes.map(func(s): return "station/%d" % s)))
 	var uses := ingredient_of(id)

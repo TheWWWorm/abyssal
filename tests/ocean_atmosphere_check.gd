@@ -1,6 +1,12 @@
 extends SceneTree
 const Profile=preload("res://native/presentation/ocean_profile.gd")
 const Wrecks=preload("res://native/presentation/wreck_effects.gd")
+const Habitat=preload("res://native/simulation/habitat.gd")
+class SessionProbe extends RefCounted:
+	var data: Dictionary
+	var station_id := 0
+class WorldProbe extends RefCounted:
+	var session := SessionProbe.new()
 class ViewProbe extends Node3D:
 	var modern_graphics := true
 	var player_model: Node3D
@@ -44,6 +50,73 @@ func check_profiles(data: Dictionary) -> void:
 		var next: float=abyss.sunlight_profile(depth)
 		expect(next<=last and last-next<.01,"Sunlight fades smoothly with depth")
 		last=next
+
+func check_region_light() -> void:
+	# cy.b and cy.c with a synthetic data set: the first alga (13..17) in a
+	# station's prevalence list colours its water at 1.5 times its share.
+	var abyss=load("res://native/presentation/abyss.gd")
+	var palette := [[255,255,128],[98,118,255],[234,149,55],[239,90,95],[154,220,109]]
+	var fixture := {"tables":{"stations":[["Red",0,0,0],["Blue",0,100,0],["Far",0,60,60]],"goods":[]},"constants":{"ah":{"b:[S":[]}},"water_palette":palette}
+	for i in 18:
+		fixture.constants.ah["b:[S"].append(i)
+		# Red algae live at the first station, blue at the second, the rest
+		# out of reach of both at the third.
+		fixture.tables.goods.append([i,0,0 if i==16 else 1 if i==14 else 2])
+	expect(Habitat.alga(fixture,0)=={"species":16,"percent":100} and Habitat.alga(fixture,1)=={"species":14,"percent":100},"The fixture's prevalent algae are its home species")
+	expect(abyss.region_base(fixture,0).is_equal_approx(Vector3(239,90,95)*1.5/255.0),"Red algae colour their station's water at 1.5 times the palette colour")
+	expect(abyss.region_base(fixture,1).is_equal_approx(Vector3(98,118,255)*1.5/255.0),"Each station takes its own prevalent alga")
+	fixture.tables.goods[16][2]=1
+	expect(abyss.region_base(fixture,0)==Vector3.ZERO and Habitat.alga(fixture,1).species==14,"Moving a home in the supplied data moves its colour; with no alga in reach the water is black")
+	var older := fixture.duplicate(true);older.erase("water_palette")
+	expect(abyss.region_base(older,0)==abyss.FALLBACK_REGION,"Older caches without the palette keep a neutral blue sky")
+	# bb.c's depth factor and the light curves of cy.c.
+	var curve := {0:[1.0,1.0,.5],15000:[1.0,1.0,.5],22500:[.5,.75,.4375],30000:[0.0,.25,.3125],35000:[-1.0/3.0,0.0,.25+.25*(.25-1.0/3.0)]}
+	for depth in curve:
+		var expected: Array=curve[depth]
+		expect(is_equal_approx(abyss.depth_factor(depth),expected[0]),"Depth factor at %d"%depth)
+		expect(is_equal_approx(abyss.direct_light(depth),expected[1]),"Directional light at %d"%depth)
+		expect(is_equal_approx(abyss.ambient_light(depth),expected[2]),"Ambient light at %d"%depth)
+	var red := Vector3(239,90,95)*1.5/255.0
+	expect(abyss.sky_profile(10000,red).is_equal_approx(Vector3(1.0,90*1.5/255.0,95*1.5/255.0)),"The clear colour is clamped to a byte near the surface")
+	expect(abyss.sky_profile(22500,red).is_equal_approx(red*.5),"Halfway down the sky has half the region colour")
+	expect(abyss.sky_profile(35000,red)==Vector3.ZERO,"Below 30000 the region colour is black")
+	var surface: Vector3=abyss.light_profile(5000);var deep: Vector3=abyss.light_profile(30000)
+	expect(deep.x<surface.x*.7 and deep.y<surface.y*.3,"Rising from deep water clearly brightens the scene")
+	# The enhanced water keeps the alga's hue at a bounded saturation, still
+	# different between regions, and is dimmed by the same depth factor.
+	var hues: Array[Vector3]=[]
+	for colour in palette:
+		var hue: Vector3=abyss.modern_hue(Vector3(colour[0],colour[1],colour[2])*1.5/255.0)
+		expect(absf(hue.dot(Vector3(.2126,.7152,.0722))-1.0)<.001 and hue.x<=2.6 and hue.z<=2.6,"An enhanced region hue has unit luminance and bounded chroma (%s)"%hue)
+		for other in hues:expect(hue.distance_to(other)>.12,"Each alga gives the enhanced water its own hue (%s / %s)"%[hue,other])
+		hues.append(hue)
+	expect(hues[3].x>hues[3].z and hues[1].z>hues[1].x*2 and hues[4].y>hues[4].z,"Red, blue and green algae give red, blue and green water")
+	var upper: Array[float]=[]
+	for depth in [5000,15000,22500,30000,35000]:upper.append(abyss.modern_upper(depth,red).dot(Vector3(.2126,.7152,.0722)))
+	expect(is_equal_approx(upper[0],upper[1]) and upper[2]<upper[1] and upper[3]<upper[2] and is_equal_approx(upper[3],upper[4]) and upper[4]>0.0,"The enhanced water dims on the depth factor and keeps a faint remainder below 30000")
+	expect(abyss.modern_hue(Vector3.ZERO)==abyss.WATER_HUE,"Without an alga colour the enhanced water keeps its own blue-green")
+	# The colour eases in after a region change instead of switching.
+	var water=abyss.new();var probe := WorldProbe.new();probe.session.data=fixture;water.world=probe
+	fixture.tables.goods[16][2]=0
+	water.update_region(0.0,false)
+	expect(water.region_color.is_equal_approx(abyss.region_base(fixture,0)),"The first region is shown at once")
+	probe.session.station_id=1;water.update_region(1.0/60,false)
+	var target: Vector3=abyss.region_base(fixture,1)
+	expect(water.region_color.distance_to(target)>abyss.region_base(fixture,0).distance_to(target)*.9,"Arriving in another region does not switch the sky at once")
+	for i in 160:water.update_region(.05,false)
+	expect(water.region_color.distance_to(target)<.01,"The new region's colour is reached within a few seconds")
+	# Between two stations of different algae the water shades across.
+	var red_water: Vector3=abyss.region_base(fixture,0);var blue_water: Vector3=abyss.region_base(fixture,1)
+	expect(abyss.region_blend(fixture,Vector2(0,0),1).is_equal_approx(red_water),"At a station the water has its own colour, whichever region is loaded")
+	var middle: Vector3=abyss.region_blend(fixture,Vector2(50,0),0)
+	expect(middle.is_equal_approx((red_water+blue_water)*.5),"Half way between two stations the colours mix evenly")
+	var last: Vector3=red_water;var smooth := true
+	for step in range(1,1001):
+		var next: Vector3=abyss.region_blend(fixture,Vector2(step*.1,0),0)
+		if next.distance_to(last)>red_water.distance_to(blue_water)*.06:smooth=false
+		last=next
+	expect(smooth and last.is_equal_approx(blue_water),"Travelling from one station to the next the colour changes gradually")
+	water.free()
 
 func check_glass_mask() -> void:
 	var hints=load("res://native/presentation/imported_surface.gd")
@@ -160,6 +233,19 @@ func check_aftermath(region) -> void:
 	expect(wrecks.events.is_empty(),"Creatures never produce metal wreckage")
 	wrecks.queue_free()
 
+func extent(viewport: SubViewport) -> Vector2:
+	"""The size in pixels of what is drawn brighter than a tenth of the brightest."""
+	await process_frame;await RenderingServer.frame_post_draw
+	var pixels := viewport.get_texture().get_image();var brightest := 0.0
+	for y in pixels.get_height():
+		for x in pixels.get_width():brightest=maxf(brightest,pixels.get_pixel(x,y).get_luminance())
+	var box := Rect2i()
+	for y in pixels.get_height():
+		for x in pixels.get_width():
+			if brightest>0.0 and pixels.get_pixel(x,y).get_luminance()>brightest*.1:
+				box=Rect2i(x,y,1,1) if box.size==Vector2i.ZERO else box.expand(Vector2i(x,y)).expand(Vector2i(x+1,y+1))
+	return Vector2(box.size)
+
 func energy(viewport: SubViewport) -> float:
 	await process_frame;await RenderingServer.frame_post_draw
 	var pixels := viewport.get_texture().get_image();var result := 0.0
@@ -245,6 +331,16 @@ func check_lit_snow() -> void:
 	material.set_shader_parameter("lamp_active_a",1.0)
 	var lit: float=await energy(viewport)
 	expect(lit>unlit*5 and lit>1,"Marine snow becomes much brighter inside a headlight cone")
+	# Enhanced snow is drawn stretched along the water's movement past the
+	# camera; a flake dead ahead stays round going straight at it.
+	var still: Vector2=await extent(viewport)
+	material.set_shader_parameter("water_motion",Vector3(40,0,0))
+	var sideways: Vector2=await extent(viewport)
+	material.set_shader_parameter("water_motion",Vector3(0,0,40))
+	var ahead: Vector2=await extent(viewport)
+	material.set_shader_parameter("water_motion",Vector3.ZERO)
+	expect(sideways.x>still.x*1.5 and sideways.y<=still.y+1,"Marine snow stretches along the water's movement across the view")
+	expect(ahead.x<=still.x+1 and ahead.y<=still.y+1,"A flake at the centre of the camera's motion is not stretched")
 	material.set_shader_parameter("lamp_color_a",Color(1,.3,.33))
 	await energy(viewport)
 	var red_pixels := viewport.get_texture().get_image();var red := Vector3.ZERO
@@ -368,6 +464,7 @@ func run() -> void:
 	var content=load("res://native/content.gd").new()
 	if not content.load_cache(OS.get_cmdline_user_args()[0]):quit(1);return
 	check_profiles(content.data)
+	check_region_light()
 	await check_cabins(content)
 	var session=load("res://native/simulation/session.gd").new();session.new_game(content.data,"Atmosphere check",612)
 	var world=load("res://native/simulation/world.gd").new();world.configure(session);world.build_docked_view()
@@ -527,6 +624,23 @@ func check_beam_intersections() -> void:
 		var beam: MeshInstance3D=lighting.create_beam();scene.add_child(beam);beam.position.x=x
 		beam.material_override.set_shader_parameter("tint",Color.WHITE);beam.material_override.set_shader_parameter("energy",.2);beams.append(beam)
 	camera.look_at_from_position(Vector3(0,5,3),Vector3(0,5,-40))
+	# The beam scatters off the water's matter, which stays in the world as
+	# the lamps move through it: shifting the matter alone changes the beam.
+	RenderingServer.global_shader_parameter_set("ocean_suspension_phase",Vector3.ZERO)
+	var here := await beam_frame(viewport)
+	RenderingServer.global_shader_parameter_set("ocean_suspension_phase",lighting.SUSPENSION_PERIOD*Vector3(.37,.5,.29))
+	var there := await beam_frame(viewport)
+	RenderingServer.global_shader_parameter_set("ocean_suspension_phase",Vector3.ZERO)
+	var shifted := 0.0;var lit := 0
+	for y in 192:
+		for x in 256:
+			var a := here.get_pixel(x,y).r
+			if a>.05:shifted+=absf(a-there.get_pixel(x,y).r);lit+=1
+	expect(lit>400 and shifted/maxi(1,lit)>.01,"The headlight beam brightens and dims with the suspended matter it passes through")
+	# Uniform matter for the geometry: only the cone itself must not change.
+	var even := Image.create(4,4,false,Image.FORMAT_RF);even.fill(Color(.5,0,0))
+	var uniform := ImageTexture3D.new();uniform.create(Image.FORMAT_RF,4,4,4,false,[even,even,even,even])
+	for beam in beams:beam.material_override.set_shader_parameter("suspension",uniform)
 	var open := await beam_frame(viewport)
 	# A common rigid transform cannot carve curves or polygonal sheets into
 	# clear water. This also checks precision away from the world origin.

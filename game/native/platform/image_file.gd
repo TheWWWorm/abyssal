@@ -6,6 +6,8 @@ signal chosen(path: String)
 signal failed(message: String)
 ## "image" or "audio"; set before the node enters the tree.
 var kind := "image"
+## With kind "image": also offer JPEG, WebP and BMP pictures, as for a portrait.
+var any_image := false
 var open_dialog := FileDialog.new()
 var android: Object
 var callback: JavaScriptObject
@@ -43,8 +45,10 @@ func available() -> bool:
 
 func choose() -> void:
 	if android!=null:android.call("choose_"+kind)
-	elif OS.has_feature("web"):JavaScriptBridge.get_interface("abyssalImages").choose(callback,".png,image/png" if kind=="image" else ".ogg,.oga,.mp3,.wav,audio/*")
-	elif available():open_dialog.popup_centered_ratio(.8)
+	elif OS.has_feature("web"):JavaScriptBridge.get_interface("abyssalImages").choose(callback,(".png,.jpg,.jpeg,.webp,.bmp,image/*" if any_image else ".png,image/png") if kind=="image" else ".ogg,.oga,.mp3,.wav,audio/*")
+	elif available():
+		if kind=="image":open_dialog.filters=PackedStringArray(["*.png,*.jpg,*.jpeg,*.webp,*.bmp ; "+tr("Pictures")+" ; image/png,image/jpeg,image/webp,image/bmp"] if any_image else ["*.png ; PNG image ; image/png"])
+		open_dialog.popup_centered_ratio(.8)
 	else:failed.emit(tr("No file picker is available on this device."))
 
 func received(args: Array) -> void:

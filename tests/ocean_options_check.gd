@@ -54,6 +54,10 @@ func run() -> void:
 	expect(app.title_dock.view.library.ship_smoothing and not app.title_dock.view.library.station_smoothing,"Ship smoothing can be enabled independently from its pixelated default")
 	await press(app.settings_panel,"ship_smoothing")
 	expect(not app.title_dock.view.library.ship_smoothing and not app.title_dock.view.library.station_smoothing,"Ship filtering updates the title independently of station filtering")
+	expect(Options.default_on("warm_station_lights") and Options.defaults().warm_station_lights,"Stations start with the warm lamp look; the original's pale light is the alternative")
+	expect(Options.station_lamp_color(true,false)==Color("fff3dc") and Options.station_lamp_color(false,false)==Color("fff3dc"),"The accurate station lamps are a near-white cream")
+	expect(Options.station_lamp_color(true,true)==Color("ffd39a") and Options.station_lamp_color(false,true)==Color("ffbc76"),"The warm look keeps the amber lamp pair")
+	expect(Options.station_window_warmth(false)==0.0 and Options.station_window_warmth(true)==1.0,"Window warmth follows the choice")
 	for key in Options.VISUALS:
 		expect(app.title_dock.abyss.atmosphere[key]==(key!="blue_headlights"),"Fresh settings enable %s; White/Blue remains a colour choice"%key)
 		if not Options.default_on(key):
@@ -138,6 +142,13 @@ func run() -> void:
 	await press(game.settings_panel,"explosion_aftermath")
 	expect(game.view.combat.wrecks.events.is_empty() and game.view.combat.wrecks.clouds.multimesh.visible_instance_count==0,"Turning aftermath off clears it while frozen")
 	await press(game.settings_panel,"explosion_aftermath")
+	var station_lamp := OmniLight3D.new();station_lamp.set_meta("overhead",true);station_lamp.add_to_group("station_work_lamps");game.add_child(station_lamp)
+	station_lamp.light_color=Options.station_lamp_color(true,Options.warm_station)
+	# The title switched the warm look off before this dive began.
+	expect(not Options.warm_station and station_lamp.light_color==Color("fff3dc"),"A new dive reads the saved pale station light")
+	await press(game.settings_panel,"warm_station_lights")
+	expect(game.graphics.warm_station_lights and Options.warm_station and station_lamp.light_color==Color("ffd39a"),"Warm station lights recolour existing station lamps in a frozen dive")
+	station_lamp.queue_free()
 	var original_tint: Color=game.abyss.daylight.light_color
 	var white: Color=game.abyss.lamps[0].light_color
 	var neighbor=game.view.model(8);var neighbor_lamps: Array=game.view.add_actor_lights(neighbor)

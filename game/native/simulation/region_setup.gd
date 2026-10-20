@@ -11,6 +11,7 @@ const NPC=preload("res://native/simulation/npc.gd")
 const Special=preload("res://native/simulation/special_actor.gd")
 const Creature=preload("res://native/simulation/creature.gd")
 const Route=preload("res://native/simulation/route.gd")
+const Habitat=preload("res://native/simulation/habitat.gd")
 const Goal=preload("res://native/simulation/encounter_goal.gd")
 const Shape=preload("res://native/simulation/collision_shape.gd")
 const WILDLIFE := 20
@@ -105,12 +106,14 @@ func gate_approach(divisor: int) -> Array:
 	return gate.map(func(v):return v+Math.i32(-v<<12)/divisor)
 
 func wildlife() -> void:
-	# The habitat table pairs species with a percentage; the original draws
-	# down the table, taking each species when its roll comes in, round
-	# and round until the water is stocked. The algae chapter stocks the
-	# five algae, ten of each, instead.
+	# The habitat table (cl.a) pairs species with a percentage, the most
+	# common first; the original draws down it, taking each species when its
+	# roll comes in and starting over at the top when one misses, until the
+	# water is stocked. The algae chapter stocks the five algae, ten of each,
+	# instead.
 	if r.mission.kind==6:return
-	var habitat: Array=data.habitats[s.station_id]
+	var habitat: Array=Habitat.prevalence(data,s.station_id)
+	if habitat.is_empty():return
 	var algae_only: bool=r.mission.story and s.campaign.chapter==7 and r.mission.target_kind>=13
 	if algae_only:
 		for index in ALGAE_WILDLIFE:r.creatures.append(fish(13+index/10))

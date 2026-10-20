@@ -5,7 +5,11 @@ global uniform float ocean_haze_gain;
 global uniform sampler2D ocean_radiance_map;
 #include "res://native/presentation/ocean_direction.gdshaderinc"
 vec3 ocean_radiance(vec3 direction){
- return textureLod(ocean_radiance_map,ocean_direction_uv(normalize(direction)),0.0).rgb;
+ // The octahedral edges fold onto themselves; filtering across to the
+ // opposite edge samples another direction and leaves a line in the water.
+ vec2 inset=vec2(.5)/vec2(textureSize(ocean_radiance_map,0));
+ vec2 uv=clamp(ocean_direction_uv(normalize(direction)),inset,vec2(1.)-inset);
+ return textureLod(ocean_radiance_map,uv,0.0).rgb;
 }
 vec3 ocean_background(vec3 direction){
  vec3 water=ocean_radiance(direction);

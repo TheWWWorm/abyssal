@@ -72,16 +72,14 @@ func run() -> void:
  await tap(JOY_BUTTON_A);await settle()
  expect(app.modal.visible and root.gui_get_focus_owner() is LineEdit,"A opens diver creation")
  await tap(JOY_BUTTON_DPAD_DOWN)
- var portrait:=root.gui_get_focus_owner() as OptionButton
- expect(portrait!=null,"D-pad leaves the name field for portrait options")
- if portrait!=null:
-  var original:=portrait.selected
-  await tap(JOY_BUTTON_A);await settle()
-  expect(portrait.get_popup().visible,"A opens a portrait dropdown")
-  await tap(JOY_BUTTON_DPAD_DOWN);await tap(JOY_BUTTON_A);await settle()
-  expect(not portrait.get_popup().visible and portrait.selected!=original,"D-pad and A select a dropdown item")
-  await tap(JOY_BUTTON_A);await tap(JOY_BUTTON_B);await settle()
-  expect(not portrait.get_popup().visible and app.modal.visible,"B cancels only the open dropdown")
+ var sex:=root.gui_get_focus_owner() as Button
+ expect(sex!=null and sex.toggle_mode,"D-pad leaves the name field for the Male/Female choice")
+ await tap(JOY_BUTTON_DPAD_DOWN)
+ var arrow:=root.gui_get_focus_owner() as Button
+ expect(arrow!=null and arrow.text in ["‹","›"],"D-pad reaches the portrait's arrows")
+ var face_before:Array=app.face_layers.duplicate()
+ await tap(JOY_BUTTON_DPAD_RIGHT);await settle()
+ expect(app.face_layers!=face_before and root.gui_get_focus_owner() is Button and root.gui_get_focus_owner().text=="›","D-pad right steps the focused portrait row")
  await tap(JOY_BUTTON_B);await settle()
  expect(not app.modal.visible,"B returns from diver creation")
  await tap(JOY_BUTTON_A);await settle()

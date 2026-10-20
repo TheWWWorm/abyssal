@@ -12,7 +12,12 @@ const Mission = preload("res://native/simulation/mission.gd")
 const WorldLayout = preload("res://native/simulation/world_layout.gd")
 var world_layout := WorldLayout.new()
 var data: Dictionary = {}
-var face_layers: Array = [85,65,75,16,43,-1]
+## The pilot's portrait layers (ab.a): the plain backdrop, then for a man the
+## suit under the chin, eyes and hair, and the accessory (-1 for none).
+var face_layers: Array = [87,78,68,20,42,-1]
+## A picture the player imported in place of the drawn face, as base64 PNG of
+## the portrait's 40×40 pixels; empty for the drawn face (cv.a, bs.a).
+var face_photo := ""
 var name := "Player"
 var credits := 15000
 var elapsed_ms := 0
@@ -256,7 +261,7 @@ func dialogue(mission, phase: int) -> Array:
   for line in campaign.dialogue(mission,phase):
    var speaker: String = name if line.speaker==0 else str(data.constants.ah["a:[Ljava.lang.String;"][line.speaker])
    if speaker in ["Colonist","Rebel","Pirate"]: speaker=text({"Colonist":238,"Rebel":239,"Pirate":240}[speaker])
-   result.append({"speaker":speaker,"text":text(line.text_id,name),"portrait":data.constants.ah["a:[[B"][line.speaker] if line.speaker>0 else []})
+   result.append({"speaker":speaker,"text":text(line.text_id,name),"text_id":line.text_id,"portrait":data.constants.ah["a:[[B"][line.speaker] if line.speaker>0 else []})
   return result
  var key := "l:[S" if phase==0 else ("m:[S" if phase==1 else "n:[S")
  var choices: Array = data.constants.e[key]

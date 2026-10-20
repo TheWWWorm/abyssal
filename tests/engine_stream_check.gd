@@ -489,7 +489,7 @@ func check_scene_particle_pitch(app) -> void:
   app.abyss.particles.show()
 func check_depth_lighting() -> void:
  var palette=load("res://native/presentation/abyss.gd")
- expect(palette.sky_profile(11000).x>palette.sky_profile(22500).x,"Shallow water retains the warm sky band")
+ expect(palette.sky_profile(11000).x>palette.sky_profile(22500).x,"The region sky darkens below 15000")
  expect(palette.sky_profile(22500).z>palette.sky_profile(22500).x*2,"The middle-depth sky remains blue")
  var last: Vector3=palette.sky_profile(0)
  for depth in range(100,45000,100):
@@ -562,6 +562,8 @@ func run():
  app.abyss._process(0)
  expect(app.abyss.beams.size()==2 and app.abyss.beams[0].get_parent()==app.abyss.lamps[0] and app.abyss.beams[1].get_parent()==app.abyss.lamps[1],"Each headlight carries its own visible beam cone: two beams, not one blob")
  expect(app.abyss.beams.all(func(beam):return beam.visible and beam.material_override.shader in [preload("res://native/presentation/headlight_beam.gdshader"),app.abyss.beam_shader(true)] and beam.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF),"Beam cones are on by default, drawn by the beam shader and cast no shadow")
+ var matter: Texture3D=app.abyss.suspension_density()
+ expect(app.abyss.beams.all(func(beam):return beam.material_override.get_shader_parameter("suspension")==matter) and app.abyss.particle_material.get_shader_parameter("suspension")==matter and app.abyss.column_material.get_shader_parameter("density_texture")==matter,"The beams, the marine snow and the water column share one suspended matter")
  var tested: Shader=app.abyss.beam_shader(true)
  expect(tested.code.contains("cull_back") and not tested.code.contains("depth_test_disabled") and app.abyss.beam_shader(false).code.contains("depth_test_disabled"),"Seen from outside, a beam is drawn depth tested so a nearer hull hides it on any GPU")
  var cone_probe:=Node3D.new();app.add_child(cone_probe)
