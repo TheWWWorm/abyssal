@@ -16,7 +16,7 @@ func run():
  expect(not app.title_menu.logo.visible,"Original logo is absent before import")
  expect(app.title_menu.help.text.contains("W / S · Throttle"),"Title help describes graduated keyboard throttle by default")
  expect(app.title_dock.abyss.lamps.all(func(lamp):return not lamp.visible) and app.title_dock.abyss.beams.all(func(beam):return not beam.visible),"The empty title has no orphaned submarine headlights or beam cones")
- app.open_cache(args[0]);await process_frame
+ await app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
  expect(app.title_menu.continue_button.disabled,"No checkpoint disables load")
  # An import from before the water palette waits for the JAR again; a build

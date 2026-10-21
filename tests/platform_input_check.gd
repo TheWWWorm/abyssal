@@ -336,7 +336,7 @@ func run() -> void:
  var args:=OS.get_cmdline_user_args()
  var app=load("res://scenes/native_main.tscn").instantiate();app.settings_path="user://platform-check.cfg";app.save_path="user://platform-check.json"
  DirAccess.remove_absolute(app.settings_path);root.add_child(app);await process_frame
- app.open_cache(args[0]);app.launch_game(false,"Control check");await process_frame;await process_frame
+ await app.open_cache(args[0]);app.launch_game(false,"Control check");await process_frame;await process_frame
  var game=current_scene;game.close_page();game.touch.mode=1;game._process(0)
  expect(game.touch.active,"Touch overlay active while flying")
  var previous_size:=root.size

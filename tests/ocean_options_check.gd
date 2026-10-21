@@ -33,7 +33,8 @@ func app_from(cache: String):
 	var app=load("res://scenes/native_main.tscn").instantiate()
 	app.save_path=SAVE;app.settings_path=SETTINGS
 	root.add_child(app)
-	if not app.ready_for_preview:app.open_cache(cache)
+	if not app.ready_for_preview and not app.content_starting:await app.open_cache(cache)
+	while app.content_starting:await process_frame
 	await process_frame;await process_frame
 	return app
 

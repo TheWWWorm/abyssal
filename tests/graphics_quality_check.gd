@@ -30,7 +30,8 @@ func run() -> void:
 	var app=load("res://scenes/native_main.tscn").instantiate()
 	app.save_path=SAVE;app.settings_path=SETTINGS
 	root.add_child(app)
-	if not app.ready_for_preview:app.open_cache(OS.get_cmdline_user_args()[0])
+	if not app.ready_for_preview and not app.content_starting:await app.open_cache(OS.get_cmdline_user_args()[0])
+	while app.content_starting:await process_frame
 	await frames(4)
 	expect(app.wants_graphics_probe()==false,"A headless run never measures the device")
 	await check_detection(app)

@@ -73,7 +73,7 @@ func run() -> void:
  expect(is_instance_valid(app.settings_panel) and app.settings_panel.visible and app.settings_panel.is_ancestor_of(root.gui_get_focus_owner()),"A opens title Options with focus inside it")
  await tap(JOY_BUTTON_B);await settle()
  expect(not app.settings_panel.visible and focused_text()=="Options","B closes Options and returns to its entry")
- app.open_cache(OS.get_cmdline_user_args()[0]);await settle()
+ await app.open_cache(OS.get_cmdline_user_args()[0]);await settle()
  expect(root.gui_get_focus_owner()==app.title_menu.new_button,"Imported content focuses Start")
  await tap(JOY_BUTTON_A);await settle()
  expect(app.modal.visible and root.gui_get_focus_owner() is LineEdit,"A opens diver creation")

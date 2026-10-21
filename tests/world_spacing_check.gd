@@ -93,7 +93,7 @@ func check_ui(cache: String) -> void:
 	app.settings_path="user://world-spacing-check.cfg";app.save_path="user://world-spacing-check.json"
 	for path in [app.settings_path,app.save_path,app.save_path+".bak"]:DirAccess.remove_absolute(path)
 	root.add_child(app);await process_frame;root.size=Vector2i(800,600);await process_frame
-	app.open_cache(cache);app.show_settings("gameplay");await process_frame;await process_frame
+	await app.open_cache(cache);app.show_settings("gameplay");await process_frame;await process_frame
 	var controls=app.settings_panel.find_child("WorldSpacingPreset",true,false).get_parent()
 	expect(controls.selector.get_selected_id()==Spacing.Preset.MEDIUM_SHORT,"Title settings initially select Medium short")
 	expect(controls.selector.item_count==6 and controls.selector.get_item_text(1)=="Medium short · 15 km squares","Medium short appears between Short and Normal")

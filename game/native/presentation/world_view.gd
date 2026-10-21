@@ -177,7 +177,10 @@ func refresh_atmosphere(parent: Node) -> void:
 		if child is Model:child.refresh()
 		else:refresh_atmosphere(child)
 
+signal preparation_progress(done: int, total: int)
+var rebuilding := false
 func rebuild() -> void:
+	rebuilding=true
 	clear_player_clip()
 	shadow_clock=SHADOW_INTERVAL
 	var keep_scene: bool=revision>=0 and rendered_modern==modern_graphics and rendered_pack==pack.enabled and rendered_map_scale==world.map_scale()
@@ -241,7 +244,9 @@ func rebuild() -> void:
 		add_child(panel);limit_nodes.append(panel)
 	if not is_instance_valid(limit_arrow): limit_arrow=build_limit_arrow()
 	if player_model!=null: player_model.apply_range(Model.ship_animation_range(world.session.ship.id,int(world.session.ship.upgraded)))
-	for part in ([] if not station_nodes.is_empty() else world.region.station.parts):
+	var parts: Array=[] if not station_nodes.is_empty() else world.region.station.parts
+	var prepared:=0;var frame_started:=Time.get_ticks_usec()
+	for part in parts:
 		var visual=model(int(part.model_id),part.frame_ms)
 		if visual==null: continue
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine; pose.origin=part.origin; pose.set_euler(0,part.yaw,0)
@@ -258,6 +263,11 @@ func rebuild() -> void:
 		station_nodes.append(visual)
 		add_station_collision(visual)
 		if int(part.model_id)>=3300: add_station_lights(visual)
+		prepared+=1
+		if menu_backdrop and (prepared%4==0 or Time.get_ticks_usec()-frame_started>=6000):
+			preparation_progress.emit(prepared,parts.size())
+			await get_tree().process_frame
+			frame_started=Time.get_ticks_usec()
 	for i in 2:
 		var visual=model(15)
 		if visual==null: continue
@@ -272,7 +282,10 @@ func rebuild() -> void:
 	rendered_modern=modern_graphics;rendered_pack=pack.enabled
 	rendered_map_scale=world.map_scale()
 	revision=world.revision
-	if not keep_scene: bake_shaders()
+	# A menu needs only its station. Baking the entire catalogue five times
+	# here blocks first-run dialogs and can exhaust a mobile browser's memory.
+	if not keep_scene and not menu_backdrop: bake_shaders()
+	rebuilding=false
 
 ## Room between the oven's lighting groups: wider than the largest station
 ## module, so no light reaches the next group.
@@ -341,12 +354,14 @@ static func gate_idle_transform(rest: Transform3D, units: float) -> Transform3D:
 	return Transform3D(rest.basis*Basis(Vector3.FORWARD,units*TAU/4096.0),rest.origin)
 
 func _process(delta: float) -> void:
+	if rebuilding:return
 	if oven!=null:
 		oven_frames-=1
 		if oven_frames<=0: oven.queue_free();oven=null
 	if world==null or world.region==null: return
 	preload("res://native/presentation/replacement_geometry.gd").collect_ready()
 	if revision!=world.revision: rebuild()
+	if rebuilding:return
 	var region=world.region
 	var framed: float=preload("res://native/presentation/display_settings.gd").framed_fov(70.0 if region.player.boost_active and not region.cinematic() else 65.0,camera.get_viewport().get_visible_rect().size)
 	camera.fov=lerpf(camera.fov,framed,1-exp(-delta*5))

@@ -9,6 +9,7 @@ var callback: JavaScriptObject
 var browser: JavaScriptObject
 var busy := false
 var android: Object
+var temporary_path := ""
 func _ready() -> void:
 	if OS.has_feature("android") and Engine.has_singleton("AbyssalImporter"):
 		android=Engine.get_singleton("AbyssalImporter")
@@ -16,8 +17,8 @@ func _ready() -> void:
 		android.connect("failed",func(message):failed.emit(message))
 		android.connect("busy_changed",set_busy)
 		android.connect("selected",func(path):
-			selected.emit(path)
-			DirAccess.remove_absolute(path))
+			temporary_path=path
+			selected.emit(path))
 	elif OS.has_feature("web"):
 		callback=JavaScriptBridge.create_callback(received)
 		JavaScriptBridge.eval("""
@@ -88,15 +89,22 @@ func received(args: Array) -> void:
 	set_busy(false)
 	if str(args[0])!="complete":failed.emit(str(args[1]));return
 	var bytes:=JavaScriptBridge.js_buffer_to_packed_byte_array(args[1])
-	var path:="user://selected.abyss"
+	# The transfer is scratch space, not another persistent copy of the game.
+	var path:="/tmp/abyssal-selected.abyss"
 	var file:=FileAccess.open(path,FileAccess.WRITE)
 	if file==null:failed.emit(tr("Browser storage is unavailable."));return
 	file.store_buffer(bytes)
 	var result:=file.get_error();file.close()
 	if result!=OK:
 		DirAccess.remove_absolute(path);failed.emit(tr("Browser storage is full. Free space and try again."));return
-	selected.emit(path);DirAccess.remove_absolute(path)
+	temporary_path=path;selected.emit(path)
+func release(path: String) -> void:
+	# Installation yields between batches, so the receiver releases the copy
+	# only after ZIPReader has finished with it. Never remove a chosen desktop file.
+	if path!=temporary_path or path.is_empty():return
+	DirAccess.remove_absolute(temporary_path);temporary_path=""
 func _exit_tree() -> void:
+	release(temporary_path)
 	if android!=null and busy:android.cancel()
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("if(window.abyssalFiles){window.abyssalFiles.closePicker();window.abyssalFiles.generation++;if(window.abyssalFiles.worker)window.abyssalFiles.worker.terminate();window.abyssalFiles.worker=null;window.abyssalFiles.busy=false;}",true)

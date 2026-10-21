@@ -176,6 +176,7 @@
     "tests/browser_audio_check.js",
     "tests/browser_file_check.js",
     "tests/content_pack_check.gd",
+    "tests/startup_flow_check.gd",
     "tests/engine_stream_check.gd",
     "tests/engine_ui_check.gd",
     "tests/gamepad_ui_check.gd",

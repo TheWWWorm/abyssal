@@ -26,6 +26,8 @@ Each picture opens at its full 5120x2880. There is also a [one-minute trailer in
 
 **[Play now at abyssal.wwworm.com](https://abyssal.wwworm.com/)** - nothing to install. Open the page, choose your own DEEP JAR, and it converts in your browser. Your JAR is never uploaded; the conversion runs entirely on your machine and the converted content stays in your browser's local storage.
 
+Installation and title preparation show progress. If the game and device languages differ, the language choice appears before the 3D title is built. Reopening checks saved content; an incomplete or damaged import returns to the content picker while keeping expedition saves.
+
 Needs WebGL 2 and a desktop-class browser. For the smoothest experience, and to keep your imported content across browsers, use a desktop package below.
 
 ## Reference wiki
@@ -301,7 +303,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.21.7**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.21.8**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 

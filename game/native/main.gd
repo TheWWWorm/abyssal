@@ -25,6 +25,9 @@ var importer := Thread.new()
 var portable := preload("res://native/platform/file_access.gd").new()
 var pack_importer := preload("res://native/platform/content_pack.gd").new()
 var import_busy := false
+var content_starting := false
+var waiting_for_language := false
+var content_progress := ""
 var bundled_import := false
 var import_output := ""
 var import_progress := ""
@@ -285,6 +288,10 @@ func _ready() -> void:
 	portable.busy_changed.connect(func(active):
 		title_menu.footer.text=tr("Cancel import") if active else content_picker_label()
 		refresh_title())
+	pack_importer.progress.connect(func(done,total):
+		if content_starting:loading_caption.text=content_progress+"  %d / %d"%[done,total])
+	title_dock.view.preparation_progress.connect(func(done,total):
+		if content_starting:loading_caption.text=content_progress+"  %d / %d"%[done,total])
 	add_child(chooser)
 	chooser.file_mode=FileDialog.FILE_MODE_OPEN_FILE
 	chooser.access=FileDialog.ACCESS_FILESYSTEM
@@ -331,7 +338,7 @@ func _ready() -> void:
 func dropped_files(paths: PackedStringArray) -> void:
 	"""A dropped file is the same request the picker makes, so it takes the same
 	two routes. Anything else is said out loud rather than quietly ignored."""
-	if paths.is_empty() or import_busy or portable.busy: return
+	if paths.is_empty() or import_busy or portable.busy or content_starting or waiting_for_language: return
 	var path: String = paths[0]
 	match path.get_extension().to_lower():
 		"abyss": import_pack(path)
@@ -357,16 +364,31 @@ func source_import_available() -> bool:
 	return bundled_import_available() or (not OS.has_feature("web") and not OS.has_feature("android") and FileAccess.file_exists(project_root.path_join("tools/import_native.py")))
 
 func choose_content() -> void:
-	if import_busy:return
+	if import_busy or content_starting or waiting_for_language:return
 	if source_import_available():chooser.popup_centered_ratio(.8)
 	else:portable.choose()
 
-func import_pack(path: String) -> void:
-	if import_busy:return
-	status.text=tr("Installing local content…")
-	var cache:=pack_importer.install(path)
-	if cache.is_empty():status.text=pack_importer.failure;return
-	selected_jar="";open_cache(cache)
+func import_pack(path: String, remember_jar: bool=false) -> void:
+	if import_busy or content_starting or waiting_for_language:portable.release(path);return
+	begin_content_work(tr("Installing local content…"))
+	# Paint the loading state before processing the first batch, including on
+	# the single-threaded Web export. The picker copy lives until installation ends.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var cache:=await pack_importer.install(path,"user://content",get_tree())
+	portable.release(path)
+	if cache.is_empty():finish_content_work();status.text=pack_importer.failure;return
+	if not remember_jar:selected_jar=""
+	await open_cache(cache,false)
+
+func begin_content_work(message: String) -> void:
+	content_starting=true;content_progress=message
+	cancel_graphics_probe();refresh_title();show_loading(message)
+
+func finish_content_work() -> void:
+	content_starting=false;loading.hide();scrim.hide()
+	title_menu.focus_behavior_recursive=Control.FOCUS_BEHAVIOR_INHERITED
+	refresh_title()
 
 ## Set while fit_window changes the canvas, which emits size_changed again.
 var fitting := false
@@ -403,7 +425,7 @@ func layout_ui() -> void:
 	loading.size=loading.get_combined_minimum_size();loading.position=(ui.size-loading.size)*0.5
 
 func import_jar(path: String) -> void:
-	if import_busy: return
+	if import_busy or content_starting or waiting_for_language: return
 	if not source_import_available():status.text=tr("Prepare a .abyss content pack on desktop first.");return
 	import_busy=true
 	selected_jar=path
@@ -425,33 +447,59 @@ func import_jar(path: String) -> void:
 		var code:=OS.execute(executable,arguments,output,true)
 		return {"code":code,"text":"\n".join(output)})
 
-func open_cache(path: String) -> void:
-	if not content.load_cache(path): status.text=content.failure; return
+func open_cache(path: String, verify_files: bool=true) -> void:
+	# Restore after the first title frame, so a saved import cannot keep the
+	# browser on its engine splash while the whole station is constructed.
+	begin_content_work(tr("Loading…"))
+	await get_tree().process_frame
+	await get_tree().process_frame
+	pack_importer.discard_incomplete()
+	if OS.has_feature("web"):DirAccess.remove_absolute("user://selected.abyss")
+	var verified:=not verify_files or await pack_importer.verify(path,get_tree())
+	if not verified or not content.load_cache(path):
+		var failure: String=pack_importer.failure if not verified else content.failure
+		var config:=start_config_now()
+		if str(config.get_value("content","cache",""))==path:
+			config.erase_section_key("content","cache");config.save(settings_path)
+		finish_content_work();status.text=failure;return
 	status.text=""
 	set_preference("content","cache",path)
 	if not selected_jar.is_empty():set_preference("content","jar",selected_jar)
 	content_language=EngineLanguage.content_language(str(content.data.get("language","")),content.data.strings)
 	set_preference("interface","content_language",content_language)
+	finish_content_work()
+	var question:=language_question()
+	# No imported models, shaders or scene reloads run behind this choice.
+	if not question.is_empty() and not inspector_open and not (is_instance_valid(settings_panel) and settings_panel.visible):
+		ask_language(question[0],question[1]);return
+	await prepare_title()
+
+func prepare_title() -> void:
 	if apply_language():
 		# Another game's language: the title is drawn again in it.
 		get_tree().reload_current_scene.call_deferred();return
+	begin_content_work(tr("Preparing your local game content…"))
+	await get_tree().process_frame
+	await get_tree().process_frame
 	catalog.clear()
 	for record: Dictionary in content.registry: catalog.add_item(content.record_name(record))
-	ready_for_preview=true
 	title_menu.load_content(content.root)
 	preload("res://native/presentation/coin_glyph.gd").install(content.root)
 	var initial := 0
 	for i in content.registry.size():
 		if int(content.registry[i].id)==0: initial=i; break
 	catalog.select(initial)
-	if inspector_open: show_model(initial)
 	title_dock.load_content(content,save_path,settings_path)
-	refresh_title()
 	apply_render_quality()
-	var question := language_question()
-	# The graphics measurement waits for the answer: both use the dialog.
-	if not question.is_empty():ask_language.call_deferred(question[0],question[1])
-	elif wants_graphics_probe():start_graphics_probe.call_deferred()
+	# The title builds station modules in batches; keep its progress visible
+	# until the final batch has also had a chance to render.
+	while title_dock.view.rebuilding or title_dock.view.revision!=title_dock.world.revision:
+		await get_tree().process_frame
+	await get_tree().process_frame
+	ready_for_preview=true
+	if inspector_open:show_model(initial)
+	finish_content_work();update_old_import()
+	if wants_graphics_probe():start_graphics_probe.call_deferred()
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): launch_game.call_deferred()
 
 func show_model(index: int) -> void:
@@ -493,9 +541,8 @@ func _process(delta: float) -> void:
 		var failure := ""
 		if int(result.code)==0:
 			if bundled_import:
-				var cache:=pack_importer.install(import_output)
-				if cache.is_empty():failure=pack_importer.failure
-				else:open_cache(cache)
+				await import_pack(import_output,true)
+				failure=pack_importer.failure
 			else:open_cache(str(result.text).strip_edges().split("\n")[-1])
 		else:
 			failure=tr("Import failed. %s")%importer_message(str(result.text).strip_edges().split("\n")[-1]) if bundled_import else tr("Import failed. Check your JAR and local converter dependencies.")
@@ -597,12 +644,13 @@ func refresh_systems() -> void:
 	trade_label.text=tr("Credits %d  ·  Cargo %d / 2  ·  Stock %d\nTest item: 100 credits each") % [credits,trade.owned,trade.stock]
 
 func close_modal() -> void:
+	if waiting_for_language or content_starting:return
 	stop_music_preview()
 	modal.hide()
 	scrim.hide()
 	if inspector_open: catalog.grab_focus()
 	elif is_instance_valid(modal_origin) and modal_origin.is_visible_in_tree() and not modal_origin.disabled: modal_origin.grab_focus.call_deferred();modal_origin=null
-	else: focus_title()
+	else: focus_title.call_deferred()
 
 func _exit_tree() -> void:
 	if importer.is_started(): importer.wait_to_finish()
@@ -1114,17 +1162,18 @@ func apply_textures() -> void:
 	title_dock.view.library.reload_textures()
 
 func focus_title() -> void:
-	if not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus.call_deferred()
-	elif not title_menu.new_button.disabled: title_menu.new_button.grab_focus.call_deferred()
-	else: title_menu.footer.grab_focus.call_deferred()
+	if not is_inside_tree() or modal.visible or loading.visible:return
+	if not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus()
+	elif not title_menu.new_button.disabled: title_menu.new_button.grab_focus()
+	else: title_menu.footer.grab_focus()
 
 func refresh_title() -> void:
-	title_menu.new_button.disabled=not ready_for_preview or import_busy or portable.busy or outdated_import()
+	title_menu.new_button.disabled=not ready_for_preview or import_busy or portable.busy or content_starting or waiting_for_language or outdated_import()
 	title_menu.continue_button.disabled=true
 	status.text=""
 	if outdated_import() and not import_busy and not portable.busy:
 		status.text=tr("This content was imported by an older version. Import your JAR again to play. Saves are kept.")
-	elif ready_for_preview and not import_busy and not portable.busy:
+	elif ready_for_preview and not import_busy and not portable.busy and not content_starting and not waiting_for_language:
 		var store := preload("res://native/simulation/save_store.gd").new()
 		for index in 4:
 			var path: String=save_path if index==3 else store.slot_path(index)
@@ -1133,7 +1182,7 @@ func refresh_title() -> void:
 				title_menu.continue_button.disabled=false
 				if store.recovered and index==3:status.text=tr("Latest autosave is damaged; the previous save was loaded.")
 			elif index==3:status.text=store.failure
-	focus_title()
+	focus_title.call_deferred()
 
 func outdated_import() -> bool:
 	"""Content imported before the water palette was read has no palette key
@@ -1263,6 +1312,7 @@ func ask_language(system: String, game: String) -> void:
 	question is put in both, since either may be the one the player reads."""
 	if launching or inspector_open:return
 	if is_instance_valid(settings_panel) and settings_panel.visible:return
+	waiting_for_language=true
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.name="LanguageChoice";box.add_theme_constant_override("separation",12);modal.add_child(box)
@@ -1276,9 +1326,9 @@ func ask_language(system: String, game: String) -> void:
 	var answer := func(code: String):
 		# Auto keeps following the game for everything; a language is fixed.
 		set_preference("interface","language",code)
+		waiting_for_language=false
 		close_modal()
-		if apply_language():get_tree().reload_current_scene.call_deferred()
-		elif wants_graphics_probe():start_graphics_probe()
+		prepare_title()
 	var first := button(EngineLanguage.native_name(system),answer.bind(system),box)
 	button(EngineLanguage.native_name(game),answer.bind(EngineLanguage.AUTO),box)
 	box.add_child(label(EngineLanguage.text_in(system,"You can change this in Settings › Display › Language."),13,Color("a2c3d3")))
