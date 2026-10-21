@@ -143,6 +143,14 @@ func cycle_speed() -> void:
 	var available: Array=SPEEDS if autopilot and not region.danger() else [1,2]
 	speed=available[(available.find(speed)+1)%available.size()]
 	message=tr("Time · %d×")%speed
+func step_speed(direction: int) -> void:
+	"""One time speed up or down, held at the ends rather than wrapping."""
+	if region==null or session.docked:return
+	var available: Array=SPEEDS if autopilot and not region.danger() else [1,2]
+	var index: int=available.find(speed)
+	if index<0:index=0
+	speed=available[clampi(index+direction,0,available.size()-1)]
+	message=tr("Time · %d×")%speed
 func refresh_local_encounter() -> void:
 	if region==null or session.docked or region.failed or region.pending_mission!=null or region.active_transmission!=null:return
 	if region.success!=null or region.failure!=null or not region.events.is_empty():return
@@ -336,7 +344,10 @@ func enter_region(id: int) -> void:
 	region.player.depth=session.stations[id].depth+(int(pose.origin[1])>>3)
 	revision+=1; speed=1; reset_gates()
 	message=tr("Entered %s")%session.stations[id].name
-	if region.mission.story and region.mission.briefing and region.success!=null:
+	# A story trip to a station has no encounter goal, but the original still
+	# plays its arrival exchange (br.c(), e.g. Talon hailing the sub in chapter
+	# 12). Its flag is the chapter record's own (e), so it plays once.
+	if region.mission.story and region.mission.briefing and (region.success!=null or region.mission.kind==8):
 		region.events.append({"kind":"briefing","mission":region.mission})
 		region.mission.briefing=false
 func dock() -> bool:

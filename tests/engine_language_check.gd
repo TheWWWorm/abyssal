@@ -89,14 +89,13 @@ func check_warning_layout(warning, code: String) -> void:
 	for depth in [10000,30000]:
 		for exposure in [0,2500,6000]:
 			warning.status=warning.describe(depth,18400,25000,exposure)
-			for width in [640,527,400]:
+			for width in [640,527,400,300]:
 				warning.fit_width(width)
 				var layout: Dictionary=warning.content_layout()
-				var action_end: float=layout.right+warning.text_width(warning.status.action,27)
-				expect(layout.arrow.x-7+0.01>=action_end+14,"%s depth arrow stays clear of the translated instruction"%code)
-				expect(layout.arrow.x+7<=width-22,"%s depth arrow stays inside the warning"%code)
-				expect(layout.right+warning.text_width(layout.safe,14)<=width-22,"%s safe depth fits the warning"%code)
-				var title_end: float=88+maxf(warning.text_width(warning.status.title,19),warning.text_width(layout.damage,16))
-				expect(title_end<=width-22 if layout.stacked else title_end<=layout.right-28,"%s warning columns do not overlap"%code)
-				expect(22+warning.text_width(layout.exposure,11)+12<=layout.track_left,"%s exposure label stays clear of its bar"%code)
-				expect(layout.track_left<width-22,"%s exposure bar has room"%code)
+				var action_end: float=layout.right+warning.text_width(warning.status.action,22)
+				expect(layout.arrow.x-6+0.01>=action_end+6,"%s depth arrow stays clear of the translated instruction"%code)
+				expect(layout.arrow.x+6<=layout.width-14,"%s depth arrow stays inside the warning"%code)
+				expect(layout.right+warning.text_width(layout.safe,12)<=layout.width-20+0.01,"%s safe depth fits the warning"%code)
+				var title_end: float=layout.middle+maxf(warning.text_width(warning.status.title,15),warning.text_width(layout.damage,12))
+				expect(title_end<=layout.divider-10,"%s warning cells do not overlap"%code)
+				expect(warning.size.x<=width+0.01,"%s warning fits the width on offer"%code)

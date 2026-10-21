@@ -88,6 +88,7 @@ func _initialize():
  audit_objectives()
  audit_milestone_handoff()
  audit_persistent_chapters()
+ check_travel_arrival_radio()
  audit_failure_and_saves()
  audit_radio_predicates()
  audit_swept_waypoints()
@@ -215,6 +216,22 @@ func audit_milestone_handoff() -> void:
  expect(world.region.mission==session.campaign.primary and world.region.mission.kind==11,"Next encounter at the same station activates without docking or teleporting")
  expect(world.global_position()==location and session.counters.q==journeys,"Local story handoff preserves position and journey count")
  expect(world.region.events.filter(func(event):return event.kind=="briefing").size()==1,"Open-world encounter produces one arrival briefing")
+ world.dispose()
+
+func check_travel_arrival_radio() -> void:
+ # Chapter 12 sends the Ino to Talon; arriving there plays Talon's hail (br.c).
+ var session=Session.new();session.new_game(data,"Travel arrival radio",502)
+ while session.campaign.chapter<12:session.campaign.next_chapter(session.counters)
+ var mission=session.campaign.primary
+ expect(mission.kind==8 and mission.story,"Chapter 12 is a story trip")
+ var start: int=0 if mission.destination!=0 else 1
+ session.prepare_station(start);unlock(session)
+ var world=World.new();world.configure(session);world.depart()
+ world.enter_region(mission.destination)
+ expect(world.region.events.filter(func(event):return event.kind=="briefing").size()==1,"Arriving on a story trip plays the arrival exchange once")
+ expect(not session.dialogue(mission,0).is_empty(),"Chapter 12 has arrival lines")
+ world.enter_region(start);world.enter_region(mission.destination)
+ expect(world.region.events.filter(func(event):return event.kind=="briefing").is_empty(),"The exchange is not repeated on a second arrival")
  world.dispose()
 
 func audit_persistent_chapters() -> void:

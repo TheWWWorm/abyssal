@@ -192,17 +192,18 @@ func run() -> void:
  expect(game.touch.enabled() and not game.touch.visible,"Touch in a menu selects touch mode without overlaying flight controls")
  await tap(JOY_BUTTON_START);await settle()
  expect(game.page.is_empty() and not game.touch.visible,"Resuming with a pad keeps touch controls hidden")
- # D-pad left: a tap changes the camera; held, the right stick turns it.
+ # Standard layout: Y changes the camera; the right stick held in turns it.
+ expect(game.controller.layout==game.controller.Layout.STANDARD,"A fresh install uses the Standard pad layout")
  var mode: int=game.view.camera_mode
- await tap(JOY_BUTTON_DPAD_LEFT)
- expect(game.view.camera_mode==(mode+1)%4,"A tap on D-pad left changes the camera")
+ await tap(JOY_BUTTON_Y)
+ expect(game.view.camera_mode==(mode+1)%4,"Y changes the camera")
  game.view.camera_mode=0;mode=0;game.view.look_offset=Vector2.ZERO
- var hold:=InputEventJoypadButton.new();hold.device=3;hold.button_index=JOY_BUTTON_DPAD_LEFT;hold.pressed=true
+ var hold:=InputEventJoypadButton.new();hold.device=3;hold.button_index=JOY_BUTTON_RIGHT_STICK;hold.pressed=true
  Input.parse_input_event(hold);await process_frame
  await tilt(JOY_AXIS_RIGHT_X,.9)
  # The game's own frame step is off here; run it by hand.
  for i in 8:game._process(.05)
- expect(game.view.look_offset.x>.1 and game.view.look_held,"Holding D-pad left turns the camera with the right stick")
+ expect(game.view.look_offset.x>.1 and game.view.look_held,"Holding the right stick in turns the camera with it")
  expect(game.flight_input(.016).yaw==0,"The held right stick does not steer the hull")
  await tilt(JOY_AXIS_RIGHT_X,0)
  hold=hold.duplicate();hold.pressed=false;Input.parse_input_event(hold);await settle()

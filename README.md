@@ -105,21 +105,23 @@ If a build does not match, import stops with a message naming what did not fit, 
 
 | Action | Keyboard / mouse | Gamepad (Xbox labels) | Touch |
 | --- | --- | --- | --- |
-| Steer | Mouse, Up / Down pitch | Right stick, or the left stick when set to turn | Left thumb stick, or drag any free area |
-| Strafe left / right | A / D | Left stick (analog) | Left thumb stick, which turns by default |
-| Throttle | W / S | D-pad up / down | Slide along the arc round GUNS |
+| Steer | Mouse, Up / Down pitch | Right stick | Left thumb stick, or drag any free area |
+| Strafe left / right | A / D | Left stick left / right | Left thumb stick, which turns by default |
+| Throttle | W / S | Left stick up / down | Slide along the arc round GUNS |
 | Guns / harpoon | Left / right mouse (harpoon also F) | RT / LT | Hold GUNS / HOOK |
-| Selected weapon / switch weapons | Space / Tab | A / X | GUNS or HOOK |
-| Boost | Shift | Left stick click (L3) | Hold BOOST |
-| Dock / STREAM gate | E | Y | DOCK (shown when in range) |
-| World map / autopilot | M / R (hold R for objective) | View (Back) / LB | MAP / ROUTE |
-| Time: 1×/2×, autopilot to 16× | T | RB | TIME |
-| Camera / lights | C / L | D-pad left / right | Pause menu / Settings → Graphics |
-| Look around the hull | Hold Alt or Ctrl, move the mouse | - | - |
+| Selected weapon / switch weapons | Space / Tab | RB / D-pad left | GUNS or HOOK |
+| Boost | Shift | LB or left stick click (L3) | Hold BOOST |
+| Dock / STREAM gate | E | A | DOCK (shown when in range) |
+| World map / autopilot | M / R (hold R for objective) | View (Back) / X | MAP / ROUTE |
+| Time: 1×/2×, autopilot to 16× | T | D-pad up / down | TIME |
+| Camera / lights | C / L | Y / D-pad right | Pause menu / Settings → Graphics |
+| Look around the hull | Hold Alt or Ctrl, move the mouse | Hold the right stick in, move it | - |
 | Save (docked) | F5 | - | Pause menu |
 | Pause / back | Escape | Start / B | Pause / Back |
 | Menus | Arrows / Enter | D-pad or stick / A | Tap |
 | Auto fire / fullscreen | Q / F11 | - | Hold weapon / Pause menu |
+
+The gamepad column is the **Standard** layout. **Settings → Controls → Gamepad → Button layout** switches to **Classic**, the layout of earlier releases (D-pad throttle, A selected weapon, X switch weapons, Y dock, LB autopilot, RB time, D-pad left camera and held to look).
 
 **Settings** is one screen, the same from the main menu, the pause menu and a station's System menu, with five tabs: **Audio**, **Graphics**, **Display**, **Controls** and **Gameplay**. LB / RB switch tabs. **Controls** opens **Steering**, **Gamepad**, **Touch controls**, **Key bindings** and **Control reference**; leaving one puts the highlight back on the row that opened it. Between them they offer keyboard remapping, mouse sensitivity and inversion, tilt steering, controller deadzone and inversion, touch look sensitivity, Touch **Auto / On / Off**, touch control placement, and left/right handling as **Auto / Always strafe / Always turn**. **Gameplay tips & control hints** (Settings → Gameplay) hides loading tips, one-time M.A.I. guidance and the control reminder; objectives and action prompts remain visible. **On-screen messages** below it has separate switches for messages at sea (autopilot, time speed, camera, arrival and auto-fire confirmations; refusals and warnings still show), dock and gate prompts, the autopilot status line and friendly contact labels. Only the most recently used controller steers the submarine. The game pauses if a controller disconnects or the window loses focus. In the browser it also pauses if the page gives your pointer back, which is what pressing Escape there does.
 
@@ -169,7 +171,7 @@ The new-game screen builds the captain's portrait from the JAR's own parts. **Ma
 
 **Settings → Audio → Menu and opening music** picks the title and opening track. **Auto** plays the track the JAR's own build uses: intro.mid for 1.0.3 builds, station.mid for 1.0.8. **Intro** and **Station** force one. Docked, station.mid always plays. Auto needs content imported with 1.7.0 or later; older imports play station.mid until the JAR is imported again.
 
-The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop, ship dealer and workshop; Status holds your ship, cargo and pilot record. Station names stay visible at sea, and quest destinations get gold labels and off-screen direction markers.
+The dock keeps the original Hangar, Missions, Map, Trade, Status and System grouping, and shows each station's ownership and tech level. Hangar holds the equipment shop and ship dealer; Trade has the market and the workshop on two tabs, as the original's Trade screen did, with the goods in your hold at the top; Status holds your ship, cargo and pilot record. Station names stay visible at sea, and quest destinations get gold labels and off-screen direction markers.
 
 Objectives that count discoveries, completed contracts or other progress have no fixed destination. Their journal entries show progress without a station or an autopilot action, and the chart and on-screen markers show destinations only for travel, encounters and deliveries. A separate accepted contract keeps its own destination while a story counter objective is active. A timed job, such as junk removal, shows the time left under its objective and fails when it runs out.
 

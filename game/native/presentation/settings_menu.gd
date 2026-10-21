@@ -697,6 +697,13 @@ func steering_page() -> void:
 
 func gamepad_page() -> void:
 	note(tr("Gamepad connected.") if not Input.get_connected_joypads().is_empty() else tr("No gamepad connected."))
+	var layout: int=Pad.read_layout(load_config())
+	chooser(tr("Button layout"),Pad.layout_names(),layout,"pad_layout",func(next):
+		# A new layout brings its own sticks; they can be reassigned below.
+		var defaults: Array=Pad.CLASSIC_ROLES if next==Pad.Layout.CLASSIC else Pad.DEFAULT_ROLES
+		for axis in 4: put("input",Pad.AXIS_KEYS[axis],defaults[axis],false)
+		put("input","pad_layout",next))
+	for line in pad_reference(layout):note(line)
 	toggle(tr("Invert gamepad pitch"),"input","invert_gamepad",false)
 	var vibration := flag("input","vibration",true)
 	row(text(10,tr("Vibration")),text(14,tr("On")) if vibration else text(15,tr("Off")),"vibration",func():
@@ -752,11 +759,16 @@ func bindings_page() -> void:
 		row(action_name(action),"…" if waiting else OS.get_keycode_string(keycode(action)),"key_"+action,func():
 			binding=action;binding_notice="";focus_key="key_"+action;rebuild(),grid)
 
+func pad_reference(layout: int) -> Array:
+	"""The gamepad's controls in a layout, for the reference and Gamepad pages."""
+	if layout==Pad.Layout.CLASSIC:return [tr("Gamepad: right stick turns · left stick strafes or turns (sticks can be reassigned in Gamepad) · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost"),
+		tr("X bank · Y dock · LB route · RB time · View map · D-pad left camera, hold to look with the right stick · D-pad right lights · Start/B menu")]
+	return [tr("Gamepad: right stick aims · left stick up/down throttle, left/right strafe · RT guns · LT hook · RB selected weapon · LB or L3 boost"),
+		tr("A dock · X route · Y camera · View map · D-pad up/down time speed · D-pad left switch weapon · D-pad right lights · hold the right stick in to look around · Start/B menu")]
 func reference_page() -> void:
 	for line in [tr("Mouse turns · Left-click guns · Right-click harpoon · W throttle up · S stop") if flag("input","mouse_wheel_throttle",false) else tr("Mouse turns · Left-click guns · Right-click harpoon · W/S throttle"),
 		tr("Mouse pitch and yaw allow full loops; your camera follows the submarine’s orientation."),
-		tr("Gamepad: right stick turns · left stick strafes or turns (sticks can be reassigned in Gamepad) · D-pad up/down throttle · A selected weapon · RT guns / LT hook · L3 boost"),
-		tr("X bank · Y dock · LB route · RB time · View map · D-pad left camera, hold to look with the right stick · D-pad right lights · Start/B menu")]:
+		]+pad_reference(Pad.read_layout(load_config())):
 		plain(line,16,column).add_theme_color_override("font_color",colours().text)
 
 func gameplay_page() -> void:

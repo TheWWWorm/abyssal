@@ -62,6 +62,10 @@ var player_photo := ""
 var dock_prompt := Label.new()
 var dock_caption := Label.new()
 var market_selection := 0
+## The good picked in Trade or the Workshop, by id, so the row stays picked as
+## a trade moves it between the hold and the station's stock, and a product
+## just made is the one the Cargo tab opens on.
+var market_selected_id := -1
 var equipment_tab := 0
 ## How many tonnes one press of Buy or Sell moves. Kept between rows so a run of
 ## identical trades is set up once rather than once per commodity.
@@ -146,7 +150,7 @@ var ship_strip: Node
 const STATION_PAGES := ["station","hangar","station_missions","station_status","system","market","ship_status","profile"]
 func page_subtitle(id: String) -> String:
 	match id:
-		"hangar":return tr("Equipment, ships and manufacture")
+		"hangar":return tr("Equipment and ships")
 		"station_missions":return tr("Objectives, journal and contracts")
 		"station_status":return tr("Your ship, pilot profile and medals")
 		"system":return tr("Save, controls and settings")
@@ -912,6 +916,7 @@ func _process(delta: float) -> void:
 		hud.visible=false;hints.visible=flight_visible and gameplay_hints;objective_label.visible=flight_visible
 		hints.text=tr("LMB guns · RMB hook · %s fire · %s destination · %s chart")%[OS.get_keycode_string(key_bindings.fire),OS.get_keycode_string(key_bindings.autopilot),OS.get_keycode_string(key_bindings.map)]
 		if touch.enabled():hints.text=tr("Drag anywhere to look") if touch.drag_anywhere else (tr("Left thumb strafes · drag the screen to look") if strafe_enabled() else tr("Left thumb steers · drag the screen to look"))
+		elif controller.device>=0 and controller.layout==controller.Layout.STANDARD:hints.text=(tr("Right stick aim · left stick throttle and strafe") if controller.default_roles() else tr("Sticks as set in Gamepad settings"))+" · "+tr("RT guns · LT hook · RB fire · LB boost · A dock · X route · View map · Start menu")
 		elif controller.device>=0:hints.text=tr("%s · hold D-pad left to look · D-pad speed · RT guns / LT hook · Y dock · View map · Start menu")%((tr("Left stick strafe · right stick turn") if strafe_enabled() else tr("Left stick steer")) if controller.default_roles() else tr("Sticks as set in Gamepad settings"))
 		condition.update(r.player.health,session.ship); condition.visible=flight_visible
 		# The fitted weapons are the player's own knowledge; the HUD keeps quiet,
@@ -1130,12 +1135,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		for action in key_bindings:
 			if action in ["fullscreen","save"]:continue
 			if event.physical_keycode==key_bindings[action]: perform("stop" if action=="throttle_down" and mouse_wheel_throttle else action)
-	if event is InputEventJoypadButton and page.is_empty() and controller.ACTIONS.has(event.button_index):
+	if event is InputEventJoypadButton and page.is_empty() and controller.actions().has(event.button_index):
 		# The camera button acts on release: held, it lends the right stick
 		# to the camera instead.
-		if event.button_index==controller.LOOK_BUTTON:
-			if not event.pressed and not controller.look_hold_used:perform(controller.ACTIONS[event.button_index])
-		elif event.pressed:perform(controller.ACTIONS[event.button_index])
+		if event.button_index==controller.look_button():
+			if not event.pressed and not controller.look_hold_used:perform(controller.actions()[event.button_index])
+		elif event.pressed:perform(controller.actions()[event.button_index])
 func touch_throttle(percent: int) -> void:
 	if not page.is_empty() or world.region==null or session.docked: return
 	if world.autopilot: world.cancel_autopilot()
@@ -1193,7 +1198,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled();return
 	controller.accept(event)
 	# A camera button pressed in a menu is not a tap in flight when let go.
-	if event is InputEventJoypadButton and event.pressed and event.button_index==controller.LOOK_BUTTON and not page.is_empty():controller.look_hold_used=true
+	if event is InputEventJoypadButton and event.pressed and event.button_index==controller.look_button() and not page.is_empty():controller.look_hold_used=true
 	if event is InputEventMouseButton and not event.pressed:
 		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(key_bindings.fire) and not Input.is_physical_key_pressed(key_bindings.harpoon):suppress_fire_until_release=false
 	if page.is_empty() and not suppress_fire_until_release:
@@ -1204,6 +1209,8 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode==key_bindings.harpoon:weapon_presses.hook=true
 	if touch.handle(event):get_viewport().set_input_as_handled();return
 	if page=="transit":return
+	if page=="market" and market_category in ["trade","manufacture"] and event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_LEFT_SHOULDER,JOY_BUTTON_RIGHT_SHOULDER]:
+		switch_goods_tab("trade" if event.button_index==JOY_BUTTON_LEFT_SHOULDER else "manufacture");get_viewport().set_input_as_handled();return
 	if page=="map" and event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_LEFT_SHOULDER,JOY_BUTTON_RIGHT_SHOULDER] and is_instance_valid(map_slice):
 		map_slice.step(-1 if event.button_index==JOY_BUTTON_LEFT_SHOULDER else 1);get_viewport().set_input_as_handled();return
 	if event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_B,JOY_BUTTON_START]:
@@ -1237,7 +1244,7 @@ func focus_page() -> void:
 		if node is Button and node.is_visible_in_tree() and not node.disabled:node.grab_focus();return
 		pending.append_array(node.get_children())
 func perform(action: String) -> void:
-	if action in ["auto_fire","camera","bank","autopilot","time","lights"]: dive_audio.cue("beep")
+	if action in ["auto_fire","camera","bank","autopilot","time","time_up","time_down","lights"]: dive_audio.cue("beep")
 	match action:
 		"auto_fire":
 			auto_fire=not auto_fire
@@ -1265,6 +1272,7 @@ func perform(action: String) -> void:
 			auto_fire=false
 			show_destinations()
 		"time": world.cycle_speed()
+		"time_up","time_down": world.step_speed(1 if action=="time_up" else -1)
 		"lights":
 			if modern_graphics:
 				if headlight_mode!=Headlights.Mode.OFF:headlight_previous=headlight_mode;headlight_mode=Headlights.Mode.OFF
@@ -1276,8 +1284,9 @@ func control_name(action: String) -> String:
 	button's caption, the pad button or the bound key."""
 	if touch.enabled() and touch.labels().has(action):return touch.labels()[action]
 	if controller.device>=0:
-		for button in controller.ACTIONS:
-			if controller.ACTIONS[button]==action:return pad_name(button)
+		for button in controller.actions():
+			var performed: String=controller.actions()[button]
+			if performed==action or (action=="time" and performed=="time_up"):return pad_name(button)
 	return OS.get_keycode_string(key_bindings[action])
 func keyed_text(id: int) -> String:
 	"""Imported text id, naming the controls in use where it names a phone key."""
@@ -1285,6 +1294,7 @@ func keyed_text(id: int) -> String:
 		return tr("System")+" → "+tr("Help") if action=="help" else control_name(action))
 func pad_name(button: int) -> String:
 	match button:
+		JOY_BUTTON_A:return "A"
 		JOY_BUTTON_X:return "X"
 		JOY_BUTTON_Y:return "Y"
 		JOY_BUTTON_LEFT_SHOULDER:return "LB"
@@ -1292,6 +1302,8 @@ func pad_name(button: int) -> String:
 		JOY_BUTTON_BACK:return tr("View")
 		JOY_BUTTON_DPAD_LEFT:return tr("D-pad left")
 		JOY_BUTTON_DPAD_RIGHT:return tr("D-pad right")
+		JOY_BUTTON_DPAD_UP:return tr("D-pad up")
+		JOY_BUTTON_DPAD_DOWN:return tr("D-pad down")
 	return tr("Pad %d")%button
 func ask_dock() -> void:
 	"""br.a: the dock key asks "Dock to #?" (272) over the paused sea;
@@ -1772,6 +1784,7 @@ func read_settings() -> void:
 	strafe_mode=setting_index(config,"input","strafe",0,2)
 	mouse_wheel_throttle=bool(config.get_value("input","mouse_wheel_throttle",false))
 	if not mouse_wheel_throttle:wheel_throttle_remainder=0.0
+	controller.layout=controller.read_layout(config)
 	controller.roles=controller.read_roles(config)
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
 	world.set_manual_roll(bool(config.get_value("input","manual_roll",false)))
@@ -1834,6 +1847,7 @@ func save_settings() -> void:
 	config.set_value("input","touch_throttle_slider",touch.throttle_slider)
 	config.set_value("input","strafe",strafe_mode)
 	config.set_value("input","mouse_wheel_throttle",mouse_wheel_throttle)
+	config.set_value("input","pad_layout",controller.layout)
 	for index in 4: config.set_value("input",controller.AXIS_KEYS[index],controller.roles[index])
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","manual_roll",world.manual_roll)
@@ -1977,10 +1991,10 @@ func show_station() -> void:
 	if not session.cargo_receipt.is_empty():
 		var receipt:=label(session.cargo_receipt,15);receipt.name="CargoReceipt";receipt.add_theme_color_override("font_color",colours().good)
 	var services := [
-		[tr("Hangar").to_upper(),tr("Equipment shop, ship dealer and workshop"),"hangar",show_hangar],
+		[tr("Hangar").to_upper(),tr("Equipment shop and ship dealer"),"hangar",show_hangar],
 		[tr("Missions").to_upper(),tr("Current objectives and available contracts"),"missions",show_station_missions],
 		[tr("Map").to_upper(),tr("Stations, routes and S.T.R.E.A.M."),"map",show_map],
-		[tr("Trade").to_upper(),tr("Buy and sell cargo"),"trade",func():show_market("trade")],
+		[tr("Trade").to_upper(),tr("Buy, sell and manufacture"),"trade",func():show_market("trade",true)],
 		[tr("Status").to_upper(),tr("Your ship, cargo and pilot record"),"status",show_station_status],
 		[tr("System").to_upper(),tr("Save, controls and settings"),"system",show_system]]
 	var grid:=GridContainer.new();grid.name="Services";grid.columns=3;grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",10);column.add_child(grid)
@@ -2015,7 +2029,6 @@ func show_hangar() -> void:
 	var grid := service_grid()
 	station_service(tr("Equipment shop"),tr("Buy and fit systems for your ship, or sell what is installed."),"equipment","cart",first_art(station.equipment,"equipment"),grid)
 	station_service(tr("Ship dealer"),tr("Buy a new hull. Your current ship is traded in."),"ships","hangar",first_art(station.ships,"ships"),grid)
-	station_service(tr("Workshop / Manufacture"),tr("Turn the cargo in your hold into products."),"manufacture","workshop",first_art(economy.recipes(station),"goods"),grid)
 	service_card(tr("Your ship & cargo"),tr("Hull, cargo manifest and installed systems."),"cargo",imported_art.item(session.ship.id,"ships"),func():show_ship_status(show_hangar),grid)
 func show_station_missions() -> void:
 	open_page(tr("Missions"),"station_missions")
@@ -2056,7 +2069,7 @@ func dock_back() -> void:
 		var way := page_back;page_back=Callable();way.call();return
 	if not session.docked:close_page();return
 	if page=="market":
-		if market_category in ["ships","equipment","manufacture"]:show_hangar();return
+		if market_category in ["ships","equipment"]:show_hangar();return
 		if market_category=="missions":show_station_missions();return
 	if page in ["save_slots","load_slots","help"]:show_system();return
 	if page=="journal":show_station_missions();return
@@ -2254,6 +2267,9 @@ func trade_amount(station: Dictionary, item, buying: bool, count: int) -> void:
 	notice(Coin.coins((tr("Bought %d t of %s for %d cr") if buying else tr("Sold %d t of %s for %d cr"))%[moved,item_name(item.id),absi(session.credits-before)]))
 func show_market(kind: String, reset: bool=false) -> void:
 	if reset: equipment_tab=0
+	# The Workshop opens on what the hold can make; Cargo keeps the good
+	# picked, which after a Make is the product, ready to sell.
+	if reset or (kind=="manufacture" and market_category!=kind): market_selected_id=-1
 	if reset or market_category!=kind: market_selection=0;list_offsets.clear();market_category=kind
 	var denial: int = session.service_denial(kind)
 	if denial>=0: notice(session.text(denial)); return
@@ -2281,10 +2297,9 @@ func show_market(kind: String, reset: bool=false) -> void:
 			equipment_browser(station)
 		"ships":
 			equipment_browser(station,true)
-		"trade":
-			goods_browser(station)
-		"manufacture":
-			goods_browser(station,true)
+		"trade","manufacture":
+			goods_tabs(kind)
+			goods_browser(station,kind=="manufacture")
 		"missions":
 			if session.campaign.secondary.kind>=0: label(tr("An accepted contract is already in your journal.")).add_theme_color_override("font_color",colours().dim)
 			elif station.missions.is_empty(): label(tr("No contracts on this station's board.")).add_theme_color_override("font_color",colours().dim)
@@ -3314,15 +3329,46 @@ func action_row(parent: Node) -> HBoxContainer:
 	var row := HBoxContainer.new();row.name="Actions";row.add_theme_constant_override("separation",10);parent.add_child(row);return row
 func rule(parent: Node) -> void:
 	var line := ColorRect.new();line.color=Color(colours().edge,.7);line.custom_minimum_size.y=1;parent.add_child(line)
+static func sorted_recipes(entries: Array) -> Array:
+	"""cp's order: recipes the hold can make first, the most batches first,
+	then those wanting the fewest of their ingredients; ties keep the table."""
+	var order: Dictionary={}
+	for index in entries.size():order[entries[index]]=index
+	var share:=func(entry)->float:return INF if entry.missing_ingredients<=0 else float(entry.ingredients.size())/entry.missing_ingredients
+	var sorted: Array=entries.duplicate()
+	sorted.sort_custom(func(a,b):
+		var left: float=share.call(a);var right: float=share.call(b)
+		if left!=right:return left>right
+		if a.owned!=b.owned:return a.owned>b.owned
+		return order[a]<order[b])
+	return sorted
+func goods_tabs(kind: String) -> void:
+	"""Cargo and Workshop as the original Trade screen's two tabs (ds): the
+	product just made is one tab away from its sale. LB/RB switch them."""
+	var tabs := HBoxContainer.new();tabs.name="TradeTabs";tabs.add_theme_constant_override("separation",10);column.add_child(tabs)
+	for entry in [["trade",tr("Cargo"),"cart","CargoTab"],["manufacture",tr("Workshop"),"workshop","WorkshopTab"]]:
+		var target: String=entry[0]
+		var tab := iconic(button(str(entry[1]).to_upper(),func():switch_goods_tab(target),tabs),entry[2],24)
+		tab.name=entry[3];tab.toggle_mode=true;tab.button_pressed=kind==target;tab.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		tab.alignment=HORIZONTAL_ALIGNMENT_CENTER;tab.add_theme_font_override("font",heading_font(4))
+		if ui.size.y<700: tab.custom_minimum_size.y=52
+		if kind==target:
+			var lit := StationTheme.button_state(golden(),"focus");lit.content_margin_left=50;lit.border_width_bottom=3
+			tab.add_theme_stylebox_override("normal",lit);tab.add_theme_stylebox_override("pressed",lit)
+func switch_goods_tab(target: String) -> void:
+	if market_category!=target:show_market(target)
 func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var kind: String="manufacture" if manufacturing else "trade"
 	var palette := colours()
 	# Leave room for the recipe actions on shorter screens.
 	var compact := ui.size.y<800
-	var entries: Array=economy.recipes(station) if manufacturing else economy.market(station)
-	entries.sort_custom(func(a,b):return a.id<b.id)
+	# The market comes hold first, as the original lists it (aa.a); recipes
+	# sort as cp does, those the hold can make first.
+	var entries: Array=sorted_recipes(economy.recipes(station)) if manufacturing else economy.market(station)
 	if entries.is_empty():label(tr("No recipes available here.") if manufacturing else tr("No cargo available for exchange.")).add_theme_color_override("font_color",palette.dim);return
-	market_selection=clampi(market_selection,0,entries.size()-1)
+	var picked: int=entries.map(func(entry):return entry.id).find(market_selected_id)
+	market_selection=picked if picked>=0 else clampi(market_selection,0,entries.size()-1)
+	market_selected_id=entries[market_selection].id
 	# The hold, as a gauge: how much there is room for decides both trades.
 	if compact:
 		header_chip("cargo",tr("%d / %d t")%[session.ship.cargo_used,session.ship.capacity()],tr("Cargo hold"))
@@ -3348,12 +3394,12 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	stock.get_parent().get_parent().custom_minimum_size.y=list_height(entries.size(),row_height,row)
 	for index in entries.size():
 		var item=entries[index];var title:=item_name(item.id)
-		var cells:=stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;show_market(kind),stock)
+		var cells:=stock_row("Stock_"+str(index),index==market_selection,row_height,func():market_selection=index;market_selected_id=item.id;show_market(kind),stock)
 		(cells.get_parent() as Button).accessibility_name=title
 		var icon:=TextureRect.new();icon.texture=imported_art.item(item.id);icon.custom_minimum_size=Vector2(48,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
 		var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",0);words.alignment=BoxContainer.ALIGNMENT_CENTER;words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
 		label(title,17,words).add_theme_color_override("font_color",palette.text)
-		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Needs materials")) if manufacturing else tr("In hold %d · Station stock %d")%[item.owned,item.stock]
+		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Missing %d of %d materials")%[maxi(1,item.missing_ingredients),item.ingredients.size()]) if manufacturing else tr("In hold %d · Station stock %d")%[item.owned,item.stock]
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
 		var value:=label(str(maxi(0,item.owned)) if manufacturing else Coin.coins(tr("%d cr")%item.price),16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
@@ -3386,13 +3432,13 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		var actions := action_row(detail)
 		var one := iconic(button(tr("Make one"),func():
 			if not economy.manufacture(station,item.id,1):notice(tr("Required ingredients or cargo space are missing."))
-			else:notice(tr("Made 1 %s")%item_name(item.id))
+			else:notice(tr("Made 1 %s")%item_name(item.id));market_selected_id=item.id
 			show_market(kind),actions),"cargo",22)
 		one.disabled=item.owned<1
 		if not one.disabled: primary(one)
 		iconic(button(tr("Make all (%d)")%maxi(0,item.owned),func():
 			if not economy.manufacture(station,item.id,item.owned):notice(tr("Required ingredients or cargo space are missing."))
-			else:notice(tr("Made %d %s")%[item.owned,item_name(item.id)])
+			else:notice(tr("Made %d %s")%[item.owned,item_name(item.id)]);market_selected_id=item.id
 			show_market(kind),actions),"trade",22).disabled=item.owned<2
 	else:
 		figure_rows([["credits",tr("Unit price"),Coin.coins(tr("%d cr")%item.price),palette.value],["cargo",tr("In hold"),tr("%d t")%item.owned],["trade",tr("Station stock"),tr("%d t")%item.stock]],detail)
