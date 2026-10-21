@@ -318,6 +318,7 @@ func _ready() -> void:
 	title_menu.footer.text=content_picker_label()
 	if not ready_for_preview:status.text=tr("Choose your private .abyss content pack.") if not source_import_available() and not OS.has_feature("web") and portable.android==null else tr("Choose your JAR or private .abyss content pack.")
 	refresh_title()
+	update_old_import()
 	# A renderer trial that failed or crashed has gone back to Vulkan.
 	var RendererChoice = preload("res://native/platform/renderer_choice.gd")
 	var renderer: String=RendererChoice.name_of(RendererChoice.failed_choice)
@@ -489,19 +490,22 @@ func _process(delta: float) -> void:
 	if import_busy and not importer.is_alive():
 		var result: Dictionary = importer.wait_to_finish()
 		import_busy=false
+		var failure := ""
 		if int(result.code)==0:
 			if bundled_import:
 				var cache:=pack_importer.install(import_output)
-				if cache.is_empty():status.text=pack_importer.failure
+				if cache.is_empty():failure=pack_importer.failure
 				else:open_cache(cache)
 			else:open_cache(str(result.text).strip_edges().split("\n")[-1])
 		else:
-			status.text=tr("Import failed. %s")%importer_message(str(result.text).strip_edges().split("\n")[-1]) if bundled_import else tr("Import failed. Check your JAR and local converter dependencies.")
+			failure=tr("Import failed. %s")%importer_message(str(result.text).strip_edges().split("\n")[-1]) if bundled_import else tr("Import failed. Check your JAR and local converter dependencies.")
 			push_error(result.text)
 		if bundled_import:
 			for temporary in [import_output,import_output+".partial",import_progress]:
 				if FileAccess.file_exists(temporary):DirAccess.remove_absolute(temporary)
 		refresh_title()
+		# The title's own notices would hide why the import did not finish.
+		if not failure.is_empty():status.text=failure
 	if ready_for_preview and inspector_open and model!=null:
 		elapsed_fraction+=delta*1000.0
 		var milliseconds := int(elapsed_fraction)
@@ -530,16 +534,20 @@ func _input(event: InputEvent) -> void:
 		close_modal()
 		get_viewport().set_input_as_handled()
 
+## The flight key the player bound to an action, for the same key here.
+func bound_key(action: String) -> int:
+	var config := ConfigFile.new();config.load(settings_path)
+	var code: Variant=config.get_value("keys",action,SettingsMenu.default_key(config,action))
+	return int(code) if code is int or code is float else SettingsMenu.DEFAULT_KEYS[action]
 func _unhandled_input(event: InputEvent) -> void:
 	if modal.visible and event.is_action_pressed("ui_cancel"):
 		close_modal()
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_ESCAPE: hide_tools() if inspector_open else close_modal()
-			KEY_L: toggle_lights()
-			KEY_F11: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		if event.keycode==KEY_ESCAPE: hide_tools() if inspector_open else close_modal()
+		elif event.physical_keycode==bound_key("lights"): toggle_lights()
+		elif event.physical_keycode==bound_key("fullscreen"): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
 	if modal.visible or not inspector_open: return
 	if event is InputEventMouseButton:
 		if event.button_index==MOUSE_BUTTON_RIGHT: dragging=event.pressed
@@ -808,7 +816,7 @@ func loading_hint(chapter: int) -> String:
 func show_load() -> void:
 	"""The four saves of the phone game's Load screen: three of the player's
 	own and the autosave, each with who and where it is."""
-	if not ready_for_preview:return
+	if not ready_for_preview or outdated_import():return
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
 	box.add_child(label(content.text(1).to_upper(),26,Color("8bd6ee")))
@@ -1111,10 +1119,12 @@ func focus_title() -> void:
 	else: title_menu.footer.grab_focus.call_deferred()
 
 func refresh_title() -> void:
-	title_menu.new_button.disabled=not ready_for_preview or import_busy or portable.busy
+	title_menu.new_button.disabled=not ready_for_preview or import_busy or portable.busy or outdated_import()
 	title_menu.continue_button.disabled=true
 	status.text=""
-	if ready_for_preview and not import_busy and not portable.busy:
+	if outdated_import() and not import_busy and not portable.busy:
+		status.text=tr("This content was imported by an older version. Import your JAR again to play. Saves are kept.")
+	elif ready_for_preview and not import_busy and not portable.busy:
 		var store := preload("res://native/simulation/save_store.gd").new()
 		for index in 4:
 			var path: String=save_path if index==3 else store.slot_path(index)
@@ -1123,11 +1133,22 @@ func refresh_title() -> void:
 				title_menu.continue_button.disabled=false
 				if store.recovered and index==3:status.text=tr("Latest autosave is damaged; the previous save was loaded.")
 			elif index==3:status.text=store.failure
-		# Imported before the water palette was: every region shows the same
-		# neutral water until the JAR is imported again (saves still match).
-		if status.text.is_empty() and not content.data.has("water_palette"):
-			status.text=tr("Import your JAR again for each region's original water colour. Saves are kept.")
 	focus_title()
+
+func outdated_import() -> bool:
+	"""Content imported before the water palette was read has no palette key
+	(a build without the table gets an empty one). Play waits for the JAR
+	again; saves still match the new import."""
+	return ready_for_preview and not content.data.has("water_palette")
+
+func update_old_import() -> void:
+	"""At start, an outdated import is replaced: from the remembered JAR on
+	desktop, otherwise by opening the file picker for it. A browser opens
+	its picker only on a click, so there the title asks and its content
+	button does the rest."""
+	if not outdated_import() or import_busy or portable.busy:return
+	if source_import_available() and FileAccess.file_exists(selected_jar):import_jar(selected_jar)
+	elif source_import_available() or portable.android!=null:choose_content()
 
 func show_tools() -> void:
 	cancel_graphics_probe()
@@ -1338,7 +1359,7 @@ func apply_setting(section: String, key: String) -> void:
 		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))
 
 func launch_game(resume: bool=false, player_name: String="Pilot", path: String="") -> void:
-	if not ready_for_preview or launching: return
+	if not ready_for_preview or launching or outdated_import(): return
 	if path.is_empty():path=save_path
 	var chapter := 1
 	if resume:

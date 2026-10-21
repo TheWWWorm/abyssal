@@ -19,6 +19,16 @@ func run():
  app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
  expect(app.title_menu.continue_button.disabled,"No checkpoint disables load")
+ # An import from before the water palette waits for the JAR again; a build
+ # whose JAR has no palette table imports an empty one and plays.
+ var palette=app.content.data.water_palette
+ app.content.data.erase("water_palette");app.refresh_title()
+ expect(app.title_menu.new_button.disabled and app.title_menu.continue_button.disabled and app.status.text.contains("JAR"),"An import from an older version asks for the JAR before play")
+ app.launch_game(false,"Outdated")
+ expect(not app.launching,"An outdated import cannot be launched")
+ app.content.data.water_palette=[];app.refresh_title()
+ expect(not app.title_menu.new_button.disabled and app.status.text.is_empty(),"A build without a palette table plays with neutral water")
+ app.content.data.water_palette=palette;app.refresh_title()
  # About: the original game's own credits from the JAR, and the remake's links.
  app.show_about();await process_frame
  var about_text:=func() -> String:
@@ -105,6 +115,11 @@ func run():
  expect(hook.launch_serial==launched,"Short click waits for a fixed simulation tick")
  game.world.advance(.04,game.flight_input())
  expect(hook.launch_serial==launched+1,"A quick hook click survives release and a render frame with no simulation step")
+ hook.remaining.fill(-1);hook.elapsed=hook.cooldown;launched=hook.launch_serial
+ var harpoon_key:=InputEventKey.new();harpoon_key.physical_keycode=game.key_bindings.harpoon;harpoon_key.keycode=harpoon_key.physical_keycode;harpoon_key.pressed=true
+ game._input(harpoon_key)
+ game.world.accumulator=0;game.world.advance(.04,game.flight_input())
+ expect(hook.launch_serial==launched+1,"The harpoon key fires the harpoon")
  game.show_pause();expect(game.weapon_presses.is_empty() and game.world.weapon_pending.is_empty(),"Opening a menu clears pending weapon presses")
  game.set_process(true)
  game.close_page();game.world.depart();game.view._process(0);game._process(0);await process_frame
@@ -344,6 +359,15 @@ func check_auto_fire_banks(game) -> void:
  loadout.selected=0
  input=game.flight_input()
  expect(game.auto_firing() and input.get("fire",false),"With the original controls auto fire resumes on the gun bank")
+ # A shot latched for the next tick belongs to the bank it was fired on, and
+ # fire held through a switch waits for a fresh press.
+ game.world.weapon_pending.fire=true;game.perform("bank")
+ expect(loadout.selected==1 and not game.world.weapon_pending.has("fire"),"Switching banks drops a shot still waiting for the gun bank")
+ game.auto_fire=false;game.weapon_presses.fire=true
+ expect(not game.flight_input().get("fire",false),"Fire held through a bank switch does not fire the harpoon")
+ game.flight_input();game.weapon_presses.fire=true
+ expect(game.flight_input().get("fire",false),"A fresh press after the switch fires the selected bank")
+ game.auto_fire=true;loadout.selected=0
  loadout.groups=[[hook]];loadout.selected=0;game.original_weapons=false
  expect(not game.auto_firing(),"Without guns auto fire has nothing to fire")
  game.auto_fire=false;game.original_weapons=false;loadout.groups=kept[0];loadout.selected=kept[1];game.crosshair.set_auto(0)
@@ -1209,6 +1233,13 @@ func check_controls_sections(game) -> void:
 
 func check_key_rebinding(game) -> void:
  var panel=game.settings_panel
+ for action in ["bank","harpoon","free_look","save","fullscreen"]:
+  expect(panel.find_option(panel.column,"key_"+action)!=null,"The %s key can be rebound"%action)
+ var Settings=load("res://native/presentation/settings_menu.gd");var saved:=ConfigFile.new()
+ saved.set_value("keys","lights",KEY_F)
+ expect(Settings.default_key(saved,"harpoon")==KEY_G,"A key added by an update skips one a saved layout already uses")
+ saved.set_value("keys","harpoon",KEY_F)
+ expect(Settings.default_key(saved,"harpoon")==KEY_F,"A saved binding keeps its own default")
  panel.find_option(panel.column,"key_camera").pressed.emit();await process_frame
  expect(panel.binding=="camera","Choosing an action waits for its key")
  var key:=InputEventKey.new();key.physical_keycode=KEY_V;key.keycode=KEY_V;key.pressed=true;panel._input(key);await process_frame

@@ -29,6 +29,9 @@ func detach(count_miss: bool) -> void:
 	target=null;hooked=false;towing=false;tow_sound_started=false;tow_start_distance=0
 	weapon.hooked_target=null;weapon.hook_busy=false;weapon.active=false;weapon.fired=false
 	for index in weapon.remaining.size():weapon.remaining[index]=-1
+	# The harpoon reloads from the moment the line comes free, so letting a
+	# catch go never sends the next shot straight after it.
+	weapon.elapsed=0
 
 func release() -> void:detach(true)
 

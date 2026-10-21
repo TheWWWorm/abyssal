@@ -170,8 +170,11 @@ def read_profile(jar,root,digest=None):
     out={'schema':1,'jar_sha256':digest or hashlib.sha256(pathlib.Path(jar).read_bytes()).hexdigest(),'importer':'native-6','language':language.name,'constants':constants,'tables':tables,'campaign':campaign,'timelines':timelines,'strings':strings,'name_pools':names,'habitats':habitats,'data_reader':'restricted-class-data-1','station_geometry':geometry}
     if music:out['music']=music
     # Optional presentation metadata. Read only a complete literal palette;
-    # never evaluate the original scene setup or ecology code. Older caches
-    # and compatible builds without this table retain neutral regional colour.
+    # never evaluate the original scene setup or ecology code. A compatible
+    # build without this table gets an empty one and neutral regional
+    # colour; only an import from before this table has no key at all, and
+    # the game asks for the JAR again before play.
+    out['water_palette']=[]
     try:
         palettes=[matrix for matrix in literal_matrices(classes['cy'],'b','()V')
                   if len(matrix)==5 and all(len(row)==3 and all(0<=v<=255 for v in row) for row in matrix)]

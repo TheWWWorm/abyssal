@@ -25,7 +25,7 @@ const DiscordPresence = preload("res://native/platform/discord_presence.gd")
 const TABS := [["audio","Audio","audio"],["graphics","Graphics","graphics"],["display","Display","fullscreen"],
 	["controls","Controls","controls"],["gameplay","Gameplay","world"]]
 const CONTROL_PAGES := {"steering":"Steering","gamepad":"Gamepad","touch":"Touch controls","bindings":"Key bindings","reference":"Control reference"}
-const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L,"roll_left":KEY_Z,"roll_right":KEY_X}
+const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"harpoon":KEY_F,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L,"roll_left":KEY_Z,"roll_right":KEY_X,"free_look":KEY_ALT,"save":KEY_F5,"fullscreen":KEY_F11}
 
 ## Reopening settings returns to the tab last used, in the title or a dive.
 static var last_section := "audio"
@@ -173,11 +173,25 @@ func modern() -> bool:
 func forward_plus() -> bool:
 	return RenderingServer.get_current_rendering_method()=="forward_plus"
 
+## A key added by an update takes its default only while no other binding
+## holds it, so a saved layout never gains a key that does two things.
+static func default_key(config: ConfigFile, action: String) -> int:
+	var key: int=DEFAULT_KEYS[action]
+	if config.has_section_key("keys",action):return key
+	var taken: Array=[]
+	for other in DEFAULT_KEYS:
+		var value: Variant=config.get_value("keys",other,DEFAULT_KEYS[other])
+		if other!=action and (value is int or value is float):taken.append(int(value))
+	for spare in [key,KEY_F,KEY_G,KEY_V,KEY_B,KEY_H,KEY_J,KEY_K,KEY_N]:
+		if spare not in taken:return spare
+	return key
+
 func keycode(action: String) -> int:
-	var value: Variant=load_config().get_value("keys",action,DEFAULT_KEYS[action])
-	if value is not int and value is not float: return DEFAULT_KEYS[action]
+	var config := load_config();var fallback := default_key(config,action)
+	var value: Variant=config.get_value("keys",action,fallback)
+	if value is not int and value is not float: return fallback
 	var code := int(value)
-	return code if code>0 and not OS.get_keycode_string(code).is_empty() else DEFAULT_KEYS[action]
+	return code if code>0 and not OS.get_keycode_string(code).is_empty() else fallback
 
 func can(capability: String) -> bool:
 	return host.has(capability) and host[capability] is Callable and host[capability].is_valid()
@@ -631,7 +645,7 @@ func display_page() -> void:
 			# The window reports its new mode a frame later.
 			await get_tree().process_frame
 			focus_key="fullscreen";rebuild())
-		if not OS.has_feature("web"): note(tr("F11 toggles fullscreen."))
+		if not OS.has_feature("web"): note(tr("%s toggles fullscreen.")%OS.get_keycode_string(keycode("fullscreen")))
 	if Display.orientation_setting_available():
 		chooser(tr("Screen orientation"),Display.orientation_names(),index("view","orientation",0,2),"orientation",func(next): put("view","orientation",next))
 		note(tr("Auto rotates with the device."))
@@ -722,7 +736,7 @@ func touch_page() -> void:
 
 func action_name(action: String) -> String:
 	return {"autopilot":tr("Autopilot (tap / hold)"),"time":tr("Time acceleration"),"throttle_up":tr("Throttle up"),"throttle_down":tr("Stop") if flag("input","mouse_wheel_throttle",false) else tr("Throttle down"),"auto_fire":tr("Auto fire"),"up":tr("Pitch up"),"down":tr("Pitch down"),"left":tr("Left"),"right":tr("Right"),
-		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"bank":tr("Bank"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights"),"roll_left":tr("Roll left"),"roll_right":tr("Roll right")}.get(action,action.capitalize())
+		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"harpoon":tr("Harpoon"),"bank":tr("Switch weapons"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights"),"roll_left":tr("Roll left"),"roll_right":tr("Roll right"),"free_look":tr("Look around (hold)"),"save":tr("Save game"),"fullscreen":tr("Fullscreen")}.get(action,action.capitalize())
 
 func bindings_page() -> void:
 	if binding!="": note(tr("Press a key for %s. Esc cancels.")%action_name(binding)).add_theme_color_override("font_color",colours().value)

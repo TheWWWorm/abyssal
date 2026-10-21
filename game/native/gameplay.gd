@@ -123,8 +123,6 @@ class Reticle extends Control:
 		for quarter in 4:
 			var middle := quarter*PI*.5+PI*.25+turn
 			draw_arc(c,15.0,middle-.32,middle+.32,8,mark,2.0,true)
-		var font := get_theme_default_font()
-		draw_string(font,Vector2(c.x-30,c.y+30),tr("Auto").to_upper(),HORIZONTAL_ALIGNMENT_CENTER,60,10,mark)
 var crosshair := Reticle.new()
 var struggle := ProgressBar.new()
 var instruments := preload("res://native/presentation/flight_instruments.gd").new()
@@ -164,6 +162,7 @@ const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
 var key_bindings: Dictionary = SettingsMenu.DEFAULT_KEYS.duplicate()
 var suppress_fire_until_release := false
 var auto_fire := false
+var bank_fire_hold := false
 ## Original weapon controls (Settings · Controls, off by default): one fire
 ## control for the selected bank, Tab or the touch switch to change bank, and
 ## auto fire working the guns only while they are selected. Off, auto fire
@@ -676,7 +675,7 @@ func close_page() -> void:
 	if is_instance_valid(settings_panel): settings_panel.hide()
 	# A notice given while the menu was up sat beside the menu; with the menu
 	# gone it belongs in the flight's own band, not over the hull.
-	place_message(); suppress_fire_until_release=Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_physical_key_pressed(key_bindings.fire)
+	place_message(); suppress_fire_until_release=Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or Input.is_physical_key_pressed(key_bindings.fire) or Input.is_physical_key_pressed(key_bindings.harpoon)
 	mouse_steer=Vector2.ZERO
 	controller.blocked=true;touch.set_active(not session.docked)
 	if not interrupted_auto.is_empty() and not session.docked:
@@ -703,9 +702,12 @@ func mouse_is_captured() -> bool:
 	if OS.has_feature("web"): return browser_flag("document.pointerLockElement !== null")
 	return Input.mouse_mode==Input.MOUSE_MODE_CAPTURED
 func free_look_held() -> bool:
-	# Either modifier: Alt is the one a browser leaves alone, Ctrl the one a
-	# desktop pilot reaches for. Neither steers while held.
-	return page.is_empty() and not touch.enabled() and (Input.is_key_pressed(KEY_ALT) or Input.is_key_pressed(KEY_CTRL))
+	# Alt by default, the modifier a browser leaves alone; Ctrl, the one a
+	# desktop pilot reaches for, also works while that default is kept and no
+	# other action has Ctrl. Neither steers while held.
+	if not page.is_empty() or touch.enabled():return false
+	if Input.is_physical_key_pressed(key_bindings.free_look):return true
+	return key_bindings.free_look==KEY_ALT and not KEY_CTRL in key_bindings.values() and Input.is_physical_key_pressed(KEY_CTRL)
 func mouse_steering_enabled() -> bool:
 	if touch.enabled(): return false
 	# Some browsers refuse to re-lock after Escape even from a fresh click, so
@@ -1035,10 +1037,11 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	var guns := not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	# Auto fire: the selected bank with the original controls, which is never
 	# the harpoon while it fires; otherwise the guns, whatever is selected.
+	var auto_shot := false
 	if auto_firing():
-		if original_weapons:fire=true
+		if original_weapons:auto_shot=true
 		else:guns=true
-	var hook := not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	var hook := (not touch.enabled() and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)) or Input.is_physical_key_pressed(key_bindings.harpoon)
 	if suppress_fire_until_release:
 		if not guns and not hook and not Input.is_physical_key_pressed(key_bindings.fire): suppress_fire_until_release=false
 		else: guns=false; hook=false; fire=false
@@ -1073,9 +1076,14 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	pitch=clampf(pitch+pad.pitch+screen.pitch,-1,1)
 	throttle=clampi(throttle+pad.throttle+screen.throttle,-1,1)
 	fire=fire or pad.fire or screen.get("fire",false);guns=guns or pad.guns or screen.guns;hook=hook or pad.hook or screen.hook;boost=boost or pad.boost or screen.boost
-	# The touch fire button's auto fire, with the original controls: only
-	# while the guns are selected.
-	if screen.get("auto",false) and guns_selected():fire=true
+	# Fire held through a bank switch waits for a fresh press, so switching
+	# to the harpoon mid-burst never looses it.
+	if bank_fire_hold:
+		if fire:fire=false
+		else:bank_fire_hold=false
+	# Auto fire with the original controls, from the key or the touch fire
+	# button: only while the guns are selected.
+	if auto_shot or (screen.get("auto",false) and guns_selected()):fire=true
 	if stopping:perform("stop");throttle=0;boost=false
 	var roll := 0.0
 	if world.manual_roll:roll=clampf(float(Input.is_physical_key_pressed(key_bindings.roll_right))-int(Input.is_physical_key_pressed(key_bindings.roll_left))+pad.roll,-1,1)
@@ -1108,10 +1116,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			if page.is_empty(): show_pause()
 			else: dock_back()
 			return
-		if event.keycode==KEY_F11: toggle_fullscreen()
-		if event.keycode==KEY_F5: save_game()
+		if event.physical_keycode==key_bindings.fullscreen: toggle_fullscreen()
+		if event.physical_keycode==key_bindings.save: save_game()
 		if not page.is_empty(): return
 		for action in key_bindings:
+			if action in ["fullscreen","save"]:continue
 			if event.physical_keycode==key_bindings[action]: perform("stop" if action=="throttle_down" and mouse_wheel_throttle else action)
 	if event is InputEventJoypadButton and page.is_empty() and controller.ACTIONS.has(event.button_index):
 		# The camera button acts on release: held, it lends the right stick
@@ -1178,12 +1187,13 @@ func _input(event: InputEvent) -> void:
 	# A camera button pressed in a menu is not a tap in flight when let go.
 	if event is InputEventJoypadButton and event.pressed and event.button_index==controller.LOOK_BUTTON and not page.is_empty():controller.look_hold_used=true
 	if event is InputEventMouseButton and not event.pressed:
-		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(key_bindings.fire):suppress_fire_until_release=false
+		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not Input.is_physical_key_pressed(key_bindings.fire) and not Input.is_physical_key_pressed(key_bindings.harpoon):suppress_fire_until_release=false
 	if page.is_empty() and not suppress_fire_until_release:
 		if event is InputEventMouseButton and event.pressed and not touch.enabled():
 			if event.button_index==MOUSE_BUTTON_LEFT:weapon_presses.guns=true
 			elif event.button_index==MOUSE_BUTTON_RIGHT:weapon_presses.hook=true
 		elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode==key_bindings.fire:weapon_presses.fire=true
+		elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode==key_bindings.harpoon:weapon_presses.hook=true
 	if touch.handle(event):get_viewport().set_input_as_handled();return
 	if page=="transit":return
 	if page=="map" and event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_LEFT_SHOULDER,JOY_BUTTON_RIGHT_SHOULDER] and is_instance_valid(map_slice):
@@ -1234,7 +1244,9 @@ func perform(action: String) -> void:
 			world.region.player.stop()
 		"camera":
 			view.camera_mode=(view.camera_mode+1)%4; save_settings(); notice(tr("Camera · %s")%view.camera_names()[view.camera_mode])
-		"bank": world.region.loadout.cycle()
+		"bank":
+			# A shot still waiting for the next tick belonged to the old bank.
+			world.region.loadout.cycle();world.weapon_pending.erase("fire");bank_fire_hold=true
 		"dock":
 			if world.at_gate(0):
 				show_stream_menu()
@@ -1713,7 +1725,7 @@ func read_settings() -> void:
 	the file; everything that reads a preference reads it from here."""
 	var config := ConfigFile.new()
 	if config.load(settings_path)==OK:
-		for key in key_bindings: key_bindings[key]=setting_keycode(config,key,key_bindings[key])
+		for key in key_bindings: key_bindings[key]=setting_keycode(config,key,SettingsMenu.default_key(config,key))
 		migrate_travel_bindings()
 		for key in graphics: graphics[key]=bool(config.get_value("graphics",key,graphics[key]))
 		modern_graphics=bool(config.get_value("graphics","modern",graphics.materials))

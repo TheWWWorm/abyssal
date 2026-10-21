@@ -76,6 +76,9 @@ func run():
  a.hook.visible_to_camera=func(_point):return false
  a.hook.advance(40)
  expect(not a.hook.hooked and not a.fish.towing and a.world.session.counters.i==1,"Losing sight of the catch loses it, and the log counts it")
+ expect(not a.hook.weapon.request_fire(a.world.region.player.pose,40),"A harpoon line that comes free reloads before the next shot")
+ a.hook.weapon.advance(300)
+ expect(a.hook.weapon.request_fire(a.world.region.player.pose,40),"The harpoon fires again once it has reloaded")
  b.fish.subdued=true;b.fish.pose.origin=[0,0,-25000]
  var before: int=b.world.session.counters.h
  for i in 200:

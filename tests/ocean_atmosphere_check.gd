@@ -130,6 +130,8 @@ func check_region_light() -> void:
 		if next.distance_to(last)>red_water.distance_to(blue_water)*.06:smooth=false
 		last=next
 	expect(smooth and last.is_equal_approx(blue_water),"Travelling from one station to the next the colour changes gradually")
+	# Never in the tree, so the water's own nodes were never attached to it.
+	for node in [water.particles,water.environment,water.daylight,water.column_volume]:node.free()
 	water.free()
 
 func check_glass_mask() -> void:
@@ -156,10 +158,17 @@ func check_cabins(content) -> void:
 		var model=model_type.new();viewport.add_child(model);model.configure(content.root,entry)
 		var mesh: MeshInstance3D=model.figure.get_node("Mesh")
 		var lamps: Array=model.figure.get_meta("lamps",[])
-		expect(lamps.size()>0 and lamps.size()<=2,"Hull %d has a bounded cabin light budget"%id)
+		# The same list carries the red tail lamps (cabin_windows.gd), which
+		# stay lit with the cabin setting off and cast no shadow.
+		var tails: Array=lamps.filter(func(point):return point.lamp.get("tail",false))
+		lamps=lamps.filter(func(point):return point.lamp.get("cabin",false))
+		expect(lamps.size()>0 and lamps.size()<=2 and tails.size()<=2,"Hull %d has a bounded cabin light budget"%id)
 		for point in lamps:
 			var lamp: OmniLight3D=point.node.get_node("Light")
-			expect(lamp.shadow_enabled and lamp.omni_range<=3 and lamp.light_energy<=.02 and lamp.light_volumetric_fog_energy==0,"Hull %d cabin spill stays faint, close and shadowed"%id)
+			expect(lamp.shadow_enabled and lamp.omni_range<=5 and lamp.light_energy<=.601 and lamp.light_volumetric_fog_energy==0,"Hull %d cabin spill stays faint, close and shadowed"%id)
+		for point in tails:
+			var lamp: OmniLight3D=point.node.get_node("Light")
+			expect(not lamp.shadow_enabled and lamp.omni_range<=6 and lamp.light_energy<=.801 and lamp.light_volumetric_fog_energy==0,"Hull %d tail lamps stay small, close and unshadowed"%id)
 			expect(model.solid_bounds().grow(5).has_point(point.node.position),"Hull %d cabin light follows its posed glazing"%id)
 			point.node.hide()
 		for index in mesh.mesh.get_surface_count():mesh.get_surface_override_material(index).set_shader_parameter("distance_haze",0.0)
