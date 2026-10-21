@@ -200,9 +200,10 @@ func run():
     detail=app.column.find_child("SelectedItem",true,false)
     expect(app.page_scroll.get_global_rect().encloses(detail.get_global_rect()),"Detail fits for %s item %d touch %d"%[kind,index,mode])
  # Exercise the actual new transaction buttons, not just the economy methods.
- app.touch.mode=2;app.market_selection=0;app.show_market("trade");await settle()
+ app.touch.mode=2;app.market_selection=0;app.market_selected_id=-1;app.show_market("trade");await settle()
  var station: Dictionary=app.session.stations[app.session.station_id]
- var rows: Array=app.economy.market(station);rows.sort_custom(func(a,b):return a.id<b.id)
+ # The market lists the hold first, in the order the screen shows.
+ var rows: Array=app.economy.market(station)
  var credits: int=app.session.credits;var cargo: int=app.session.ship.cargo_used;var price: int=rows[0].price
  var detail=app.column.find_child("SelectedItem",true,false)
  var actions=detail.get_node("Actions").get_children().filter(func(node):return node is Button)
