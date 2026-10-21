@@ -1,25 +1,23 @@
-# Abyssal 1.21.6 — platform support
+# Abyssal 1.21.7 — platform support
 
-A compatible DEEP JAR must be supplied separately. Original game assets and data are not included.
+A compatible DEEP JAR must be supplied separately. Original game assets and data are not included in the downloads.
 
-## Validation
+## Browser import
 
-All 45 Python checks and all 26 Godot suites passed on Linux x86-64, both in default and OpenGL compatibility mode. These include the Standard and Classic controller layouts, migration of customized controls, Trade and Workshop navigation, story arrival exchanges, station shadows, and graphics presets preserving independent antialiasing choices. All 1,153 engine texts and 14 translation catalogs passed consistency checks. Importer, browser audio and Discord IPC checks also passed.
+JAR conversion passed in WebKit 26.5 and Chromium 151 on Linux, including a JAR with a different filename and uppercase extension, rejection of an invalid archive, and subsequent retry. The original picker lifetime failure was reproduced in WebKit. The fixed picker remained available while the file chooser was open.
 
-The packaged Linux x86-64 game passed rendered Vulkan and OpenGL startup checks and a shipped-content check of the title, settings, controller layout, compact depth warning, map labels and About page. The Windows package started on Vulkan, OpenGL and Direct3D 12 with AMD's FidelityFX runtime under Wine and VKD3D-Proton on an NVIDIA GeForce RTX 3090. Chromium launched the exported WebGL 2 build at 1920 × 1080, with the versioned JavaScript and WebAssembly runtime.
+The compiled 1.21.7 Web build imported a supplied JAR from its main menu in WebKit, displayed the imported 3D title scene and enabled Start new game. The 46 Python checks include seven JavaScript checks for picker lifetime, cancellation, repeated selection, file errors and late converter responses.
 
-Rendered shadow-cache checks passed on Linux, Windows under Wine, Chromium WebGL, and the Retroid Pocket 5 with Vulkan and OpenGL ES. Cached shadows matched freshly rendered shadows after caster and light movement, visibility and layer changes, atlas resizing and LOD changes. The synthetic OpenGL lighting check reduced draw calls from 28 to 12 with matching rendered colours. The RP5 check used a separate test application.
+## Packages
 
-The Android APK passed verification against the existing release certificate and 16 KiB alignment checks. Its package is org.abyssal.engine, version 1.21.6, version code 78. It requests no network or broad storage permissions. All six platform packages and the source archive are checked for inventory, private-content exclusion and SHA-256 integrity.
+All six platform packages were exported from the same source. The Linux x86-64 package passed rendered Vulkan and OpenGL startup checks and packaged UI and version checks. The Linux x86-64 and ARM64 executables retain the portable 1.21.6 runtimes and require no glibc symbols newer than 2.28.
 
-## Performance and runtime coverage
+The Android APK uses the existing release certificate, passes signature and 16 KiB alignment verification, and identifies itself as org.abyssal.engine version 1.21.7, version code 79. It requests no network or broad storage permission. Package contents, the source archive and SHA-256 checksums are verified before publication.
 
-The custom Godot runtime contains station shadow caching and lighting optimizations in the Windows, Linux x86-64, Linux ARM64, Android ARM64 and Web packages. macOS and Android x86-64 retain their existing runtimes and receive the shared game-side station shader and shadow-geometry improvements. Antialiasing remains independent of graphics presets; native-resolution rendering does not require upscaling.
-
-In controlled native 1920 × 1080, Very high, AA-off Gosu close-up checks on a Linux desktop with an RTX 3090, the patched runtime improved the sampled Vulkan result from about 122 to 171 FPS and OpenGL from about 124 to 141 FPS. Those comparisons used the same local compiler settings for both runtimes; they are not measurements of every packaged platform. Browser results varied between runs and stations. A locked 60 FPS at native 1080p has not been established on every device or station.
+The station-rendering runtimes and Windows AMD FidelityFX runtime are unchanged from 1.21.6. This release changes the browser file picker and its cleanup; gameplay and rendering settings are unchanged.
 
 ## Platform limits
 
-The Linux x86-64 and ARM64 executables were built with Godot’s portable Buildroot SDK and require no glibc symbols newer than 2.28. The final x86-64 binaries passed Vulkan and OpenGL startup and rendered shadow-cache checks.
+Physical iPhone, iPad and macOS Safari were not tested. The browser checks use Linux WebKit and Chromium; they do not establish Apple-device compatibility or performance. Linux WebKit rendered the title but logged framebuffer validation messages. Browser play requires WebGL 2 and an HTTPS host or localhost.
 
-Windows and macOS packages are unsigned; macOS is not notarized and supports Apple Silicon. Direct3D 12 with AMD FSR requires the Microsoft Visual C++ x64 runtime. Native Windows, macOS and Linux ARM64 gameplay was not exercised for this release. Physical controller navigation and fresh JAR import were not retested on every target device. Mobile browsers were not tested. Browser play requires WebGL 2. Discord integration requires the Discord desktop app and activity sharing. Source checks and cross-compilation do not establish device performance.
+Windows, macOS, Linux ARM64 and Android gameplay were not rerun for this browser fix. Windows and macOS packages are unsigned; macOS is not notarized and supports Apple Silicon. Direct3D 12 with AMD FSR requires the Microsoft Visual C++ x64 runtime. A build or signature check does not establish native device performance.

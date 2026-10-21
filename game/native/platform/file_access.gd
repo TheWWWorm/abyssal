@@ -22,16 +22,26 @@ func _ready() -> void:
 		callback=JavaScriptBridge.create_callback(received)
 		JavaScriptBridge.eval("""
 window.abyssalFiles = {
- worker:null, generation:0, busy:false,
+ worker:null, input:null, generation:0, busy:false,
+ closePicker:function() {
+  if(!this.input)return;
+  this.input.onchange=null;this.input.oncancel=null;this.input.remove();this.input=null;
+ },
  cancel:function(callback) {
+  this.closePicker();
   this.generation++; if(this.worker)this.worker.terminate(); this.worker=null;
   this.busy=false; callback('cancel','Import cancelled.');
  },
  choose:function(callback) {
   if(this.busy){this.cancel(callback);return;}
-  const input=document.createElement('input');input.type='file';input.accept='.jar,.abyss';
+  this.closePicker();
+  const input=document.createElement('input');input.type='file';input.accept='.jar,.abyss';input.hidden=true;
+  // WebKit can collect a detached input while its native picker is open,
+  // silently dropping the selection. Keep it in the page until it answers.
+  this.input=input;document.body.appendChild(input);
+  input.oncancel=()=>this.closePicker();
   input.onchange=async()=>{
-   const file=input.files[0];if(!file)return;
+   const file=input.files[0];this.closePicker();if(!file)return;
    const jar=file.name.toLowerCase().endsWith('.jar');
    if(!jar&&!file.name.toLowerCase().endsWith('.abyss')){callback('error','Choose a .jar or .abyss file.');return;}
    if(file.size>(jar?16777216:134217728)){callback('error','The selected file exceeds import limits.');return;}
@@ -53,7 +63,9 @@ window.abyssalFiles = {
     };
     this.worker.postMessage(bytes,[bytes]);
    }catch(error){finish('error',String(error.message||error));}
-  };input.click();
+  };
+  try{input.click();}
+  catch(error){this.closePicker();callback('error',String(error.message||error));}
  }
 };
 """,true)
@@ -87,4 +99,4 @@ func received(args: Array) -> void:
 func _exit_tree() -> void:
 	if android!=null and busy:android.cancel()
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("if(window.abyssalFiles){window.abyssalFiles.generation++;if(window.abyssalFiles.worker)window.abyssalFiles.worker.terminate();window.abyssalFiles.worker=null;}",true)
+		JavaScriptBridge.eval("if(window.abyssalFiles){window.abyssalFiles.closePicker();window.abyssalFiles.generation++;if(window.abyssalFiles.worker)window.abyssalFiles.worker.terminate();window.abyssalFiles.worker=null;window.abyssalFiles.busy=false;}",true)

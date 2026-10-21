@@ -1,11 +1,17 @@
 """Synthetic portable decoder and pack boundary regressions; no game fixtures."""
-import hashlib, io, json, pathlib, struct, sys, tempfile, unittest, zipfile
+import hashlib, io, json, pathlib, shutil, struct, subprocess, sys, tempfile, unittest, zipfile
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
 from import_jar import bitmap, decode, pack, read_entry, model_format_problem
 from extract_data import has_converted_resource
 
 class BrowserImportTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed for browser picker checks')
+    def test_web_picker_lifecycle(self):
+        result=subprocess.run([shutil.which('node'),str(pathlib.Path(__file__).with_name('browser_file_check.js'))],
+                              capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     def test_registered_bmp_uses_converted_png(self):
         with tempfile.TemporaryDirectory() as folder:
             root=pathlib.Path(folder)
