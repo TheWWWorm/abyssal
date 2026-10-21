@@ -33,7 +33,7 @@ def stage_mobile_page(html):
 
 
 def stamp_web_build(output):
-    """Give each game pack a fresh URL and show which build the page loaded."""
+    """Version the game pack and runtime independently, including engine-only updates."""
     output=pathlib.Path(output)
     pack=output/'index.pck'
     digest=hashlib.sha256(pack.read_bytes()).hexdigest()
@@ -48,9 +48,27 @@ def stamp_web_build(output):
     config['mainPack']=pack_name
     config['fileSizes'].pop('index.pck',None)
     config['fileSizes'][pack_name]=pack.stat().st_size
+    # A custom engine can change without changing the PCK. Static hosts may
+    # cache the WASM for days, so its URL must change along with its JS loader.
+    previous=config['executable']
+    suffixes=['.js','.wasm','.audio.worklet.js','.audio.position.worklet.js','.side.wasm']
+    runtime=[(suffix,output/(previous+suffix)) for suffix in suffixes if (output/(previous+suffix)).is_file()]
+    if not all((output/(previous+suffix)).is_file() for suffix in ['.js','.wasm']):
+        raise ValueError('Cannot locate the exported JavaScript and WebAssembly runtime')
+    runtime_hash=hashlib.sha256()
+    for suffix,path in runtime:
+        runtime_hash.update(suffix.encode());runtime_hash.update(path.read_bytes())
+    executable='engine-'+runtime_hash.hexdigest()[:16]
+    for suffix,path in runtime:
+        name=executable+suffix
+        if path.name!=name:
+            shutil.copyfile(path,output/name);path.unlink()
+        if previous+suffix in config['fileSizes']:
+            config['fileSizes'].pop(previous+suffix)
+            config['fileSizes'][name]=(output/name).stat().st_size
+    config['executable']=executable
     html=html[:match.start(1)]+json.dumps(config,separators=(',',':'))+html[match.end(1):]
-    loader_digest=hashlib.sha256((output/'index.js').read_bytes()).hexdigest()[:12]
-    html=html.replace('src="index.js"',f'src="index.js?v={loader_digest}"')
+    html=re.sub(r'src="'+re.escape(previous)+r'\.js(?:\?[^\"]*)?"',f'src="{executable}.js"',html)
     html=stage_mobile_page(html)
     html=web_assets(output,html)
     # Development-build identity stays outside Godot so cached game code cannot
@@ -170,16 +188,19 @@ def stage_vendor_runtimes(output, fsr_sdk):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--template',type=pathlib.Path,help='Custom desktop or web export template for the selected platform and build type');p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');p.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory; supplied architectures replace the official native libraries');args=p.parse_args()
+    if args.template and (args.platform not in {'linux','linux-arm64','windows','macos','web'} or args.windows_template):p.error('--template is for desktop or web exports and cannot be combined with --windows-template.')
+    if args.android_native_libs and args.platform!='android':p.error('--android-native-libs is only supported for Android.')
     if args.version_code<1:p.error("Android version code must be positive")
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):p.error('Export outside the source directory.')
     if not args.godot and not args.stage_only:p.error('Install Godot 4.7 and matching export templates, or pass --godot.')
     if bool(args.windows_template)!=bool(args.fsr_sdk) or (args.windows_template and args.platform!='windows'):p.error('The vendor SDK build needs --windows-template and --fsr-sdk, for Windows only.')
-    template=args.windows_template.expanduser().resolve() if args.windows_template else None
-    if template and not template.is_file():p.error('No Windows template at '+str(template))
-    if template:check_template(template)
-    sdks=('amd',) if template else ()
+    selected_template=args.windows_template or args.template
+    template=selected_template.expanduser().resolve() if selected_template else None
+    if template and not template.is_file():p.error('No export template at '+str(template))
+    if args.windows_template:check_template(template)
+    sdks=('amd',) if args.windows_template else ()
     # Same reviewed input set as source packaging. Exported resources never include the local cache.
     from package_source import source_files
     source_files()
@@ -191,7 +212,7 @@ def main():
         stage=pathlib.Path(temporary);stage_project(stage,args.platform,args.version,args.version_code,template,sdks)
         if args.platform=='android':
             from android_runtime import stage as stage_android
-            stage_android(stage,args.godot,args.release)
+            stage_android(stage,args.godot,args.release,args.android_native_libs.expanduser().resolve() if args.android_native_libs else None)
         subprocess.run([args.godot,'--headless','--path',str(stage),'--editor','--import','--quit'],check=True)
         subprocess.run([args.godot,'--headless','--path',str(stage),'--export-release' if args.release else '--export-debug',args.platform,str(output/PLATFORMS[args.platform][1])],check=True)
     if args.platform=='web':
@@ -203,7 +224,7 @@ def main():
         from desktop_runtime import stage as stage_desktop_runtime, embed_macos
         stage_desktop_runtime(output,args.platform)
         if args.platform=="macos":embed_macos(output)
-    if template:stage_vendor_runtimes(output,args.fsr_sdk)
+    if args.windows_template:stage_vendor_runtimes(output,args.fsr_sdk)
     # Preserve bundled engine attribution in native/web distributions as well as source.
     subprocess.run([args.godot,'--headless','--script',str(ROOT/'tools/export_notices.gd'),'--',str(output/'GODOT_LICENSES.txt')],check=True)
     shutil.copyfile(ROOT/'THIRD_PARTY_NOTICES.md',output/'THIRD_PARTY_NOTICES.md')

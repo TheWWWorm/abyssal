@@ -7,6 +7,25 @@ import package_source as packaging
 import audit_provenance as provenance
 
 class DistributionTests(unittest.TestCase):
+    def test_patched_android_library_preserves_java_and_other_architectures(self):
+        from android_runtime import replace_native_libraries
+        with tempfile.TemporaryDirectory() as temporary:
+            root=pathlib.Path(temporary);build=root/'build';native=root/'native'
+            archive=build/'libs/release/godot-lib.template_release.aar';archive.parent.mkdir(parents=True)
+            original={'classes.jar':b'Java runtime','jni/arm64-v8a/libgodot_android.so':b'ARM64','jni/x86_64/libgodot_android.so':b'x86-64'}
+            with zipfile.ZipFile(archive,'w') as target:
+                for name,data in original.items():target.writestr(name,data)
+            library=native/'release/arm64-v8a/libgodot_android.so';library.parent.mkdir(parents=True)
+            header=bytearray(20);header[:6]=b'\x7fELF\x02\x01';header[18:20]=(183).to_bytes(2,'little');library.write_bytes(header)
+            replace_native_libraries(build,native,True)
+            with zipfile.ZipFile(archive) as result:
+                self.assertEqual(set(result.namelist()),set(original))
+                for name,data in original.items():
+                    self.assertEqual(result.read(name),bytes(header) if name=='jni/arm64-v8a/libgodot_android.so' else data)
+            kept=archive.read_bytes();header[18:20]=(62).to_bytes(2,'little');library.write_bytes(header)
+            with self.assertRaisesRegex(ValueError,'arm64-v8a'):replace_native_libraries(build,native,True)
+            self.assertEqual(archive.read_bytes(),kept)
+
     def test_unsupported_archive_never_starts_java(self):
         with tempfile.TemporaryDirectory() as temporary:
             jar=pathlib.Path(temporary)/'untrusted.jar';jar.write_bytes(b'not a MIDlet archive')

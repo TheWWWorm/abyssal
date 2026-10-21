@@ -4,6 +4,7 @@ extends MeshInstance3D
 var bone_bounds: Dictionary = {}
 var posed_bones: Array[Transform3D] = []
 var materials: Array[ShaderMaterial] = []
+var bone_parts: Dictionary = {}
 var coverage := {"stream_visibility":1.0,"hangar_open":0.0,"smoothed":false}
 
 func configure(library, call: Dictionary, mesh_data: Array) -> void:
@@ -33,11 +34,23 @@ func configure(library, call: Dictionary, mesh_data: Array) -> void:
 			material.set_shader_parameter("albedo_smooth",texture)
 			material.set_shader_parameter("texture_size",library.texture_size(resource))
 		set_surface_override_material(materials.size(),material);materials.append(material)
+	# Separate moving machinery from the fixed structure. A rotor then
+	# invalidates only the shadow-map faces intersecting that rotor.
+	if geometry.parts.size()>1:
+		cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var caster_layers := layers;layers=0
+		for bone: int in geometry.parts:
+			var part: Dictionary=geometry.parts[bone]
+			var caster := MeshInstance3D.new();caster.name="Bone%d"%bone
+			caster.mesh=part.mesh;caster.layers=caster_layers
+			caster.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			for i in part.surfaces.size():caster.set_surface_override_material(i,materials[part.surfaces[i]])
+			add_child(caster);bone_parts[bone]=caster
 	set_coverage("smoothed",bool(call.get("smoothed_station",false)))
 
 static func build_geometry(mesh_data: Array) -> Dictionary:
 	var source: ArrayMesh=mesh_data[0]
-	var groups := {};var bones := {};var surfaces: Array=[]
+	var groups := {};var bones := {};var surfaces: Array=[];var rigid_triangles := true
 	for i in mesh_data[1].size():
 		var surface: Dictionary=mesh_data[1][i]
 		if int(surface.blend)!=0:continue
@@ -52,6 +65,7 @@ static func build_geometry(mesh_data: Array) -> Dictionary:
 		for j in arrays[Mesh.ARRAY_VERTEX].size():
 			var point: Vector3=arrays[Mesh.ARRAY_VERTEX][j]
 			var bone := int(arrays[Mesh.ARRAY_TEX_UV2][j].x)
+			if bone!=int(arrays[Mesh.ARRAY_TEX_UV2][j-j%3].x):rigid_triangles=false
 			group.vertices.append(point);group.uv.append(arrays[Mesh.ARRAY_TEX_UV][j])
 			group.normals.append(arrays[Mesh.ARRAY_NORMAL][j])
 			group.bones.append(Vector2(bone,0))
@@ -62,27 +76,55 @@ static func build_geometry(mesh_data: Array) -> Dictionary:
 		arrays[Mesh.ARRAY_VERTEX]=group.vertices;arrays[Mesh.ARRAY_NORMAL]=group.normals
 		arrays[Mesh.ARRAY_TEX_UV]=group.uv;arrays[Mesh.ARRAY_TEX_UV2]=group.bones
 		compact.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arrays)
-	return {"mesh":compact,"surfaces":surfaces,"bones":bones}
+	var parts := {}
+	if bones.size()>1 and rigid_triangles:
+		for i in compact.get_surface_count():
+			var arrays := compact.surface_get_arrays(i);var split := {}
+			for j in arrays[Mesh.ARRAY_VERTEX].size():
+				var bone := int(arrays[Mesh.ARRAY_TEX_UV2][j].x)
+				if not split.has(bone):split[bone]={"vertices":PackedVector3Array(),"normals":PackedVector3Array(),"uv":PackedVector2Array(),"bones":PackedVector2Array()}
+				var group: Dictionary=split[bone]
+				group.vertices.append(arrays[Mesh.ARRAY_VERTEX][j]);group.normals.append(arrays[Mesh.ARRAY_NORMAL][j])
+				group.uv.append(arrays[Mesh.ARRAY_TEX_UV][j]);group.bones.append(arrays[Mesh.ARRAY_TEX_UV2][j])
+			for bone: int in split:
+				if not parts.has(bone):parts[bone]={"mesh":ArrayMesh.new(),"surfaces":[]}
+				var group: Dictionary=split[bone];var packed := [];packed.resize(Mesh.ARRAY_MAX)
+				packed[Mesh.ARRAY_VERTEX]=group.vertices;packed[Mesh.ARRAY_NORMAL]=group.normals
+				packed[Mesh.ARRAY_TEX_UV]=group.uv;packed[Mesh.ARRAY_TEX_UV2]=group.bones
+				parts[bone].mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,packed);parts[bone].surfaces.append(i)
+	return {"mesh":compact,"surfaces":surfaces,"bones":bones,"parts":parts}
 
 func pose(transforms: Array[Transform3D]) -> void:
 	var solid_pose: Array[Transform3D]=[]
 	for bone: int in bone_bounds:solid_pose.append(transforms[bone])
 	if solid_pose==posed_bones:return
-	posed_bones=solid_pose
+	var previous := posed_bones;posed_bones=solid_pose
 	var bounds := AABB();var first := true
+	var index := 0
 	for bone: int in bone_bounds:
 		var moved: AABB=transforms[bone]*bone_bounds[bone]
 		bounds=moved if first else bounds.merge(moved);first=false
+		if bone_parts.has(bone) and (index>=previous.size() or previous[index]!=transforms[bone]):
+			var caster: MeshInstance3D=bone_parts[bone]
+			caster.custom_aabb=moved.grow(.001)
+			RenderingServer.instance_set_custom_aabb(caster.get_instance(),caster.custom_aabb)
+		index+=1
 	for material in materials:material.set_shader_parameter("source_bones",transforms)
 	# Resubmitting bounds invalidates cached shadows when actual solids move.
 	# A lamp-only bone change leaves both bounds and shadow materials alone.
 	custom_aabb=bounds.grow(.001)
-	invalidate_shadows()
+	if bone_parts.is_empty():invalidate_shadows()
 
 func invalidate_shadows() -> void:
 	# GeometryInstance3D skips an unchanged custom_aabb property assignment.
 	# Submit to the server explicitly for a pose with the same outer bounds.
 	RenderingServer.instance_set_custom_aabb(get_instance(),custom_aabb)
+	for caster: MeshInstance3D in bone_parts.values():
+		RenderingServer.instance_set_custom_aabb(caster.get_instance(),caster.custom_aabb)
+
+func release_meshes() -> void:
+	mesh=null
+	for caster: MeshInstance3D in bone_parts.values():caster.mesh=null
 
 func set_coverage(parameter: String, value) -> void:
 	if coverage[parameter]==value:return

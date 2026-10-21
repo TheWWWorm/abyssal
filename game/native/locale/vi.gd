@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "Chọn gói nội dung .abyss riêng của bạn.",
 	"Choosing graphics settings for this device…": "Đang chọn cài đặt đồ họa cho thiết bị này…",
 	"Classic": "Cổ điển",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Cổ điển giống ánh sáng của bản gốc. Các cấu hình khác thêm đèn, sương mù và đổ bóng, đồng thời đặt bóng, khử răng cưa, ánh sáng thể tích và chi tiết bề mặt. Đổi một trong số đó sẽ chuyển cấu hình sang Tùy chỉnh.",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Cổ điển giống ánh sáng của bản gốc. Các cấu hình khác thêm đèn, sương mù và đổ bóng, đồng thời đặt bóng, ánh sáng thể tích và chi tiết bề mặt. Đổi một trong số đó sẽ chuyển cấu hình sang Tùy chỉnh.",
 	"Clear the debris": "Dọn mảnh vỡ",
 	"Clear the debris at the mission waypoint.": "Dọn mảnh vỡ tại điểm nhiệm vụ.",
 	"Clear the minefield": "Rà phá bãi thủy lôi",

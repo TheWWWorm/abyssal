@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "Выберите личный пакет контента .abyss.",
 	"Choosing graphics settings for this device…": "Подбор настроек графики для этого устройства…",
 	"Classic": "Классическое",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Классическое повторяет освещение оригинала. Остальные добавляют свет, туман и затенение и настраивают тени, сглаживание, объёмный свет и затенение поверхностей. Если изменить любой из этих параметров, профиль станет «Свой».",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Классическое повторяет освещение оригинала. Остальные добавляют свет, туман и затенение и настраивают тени, объёмный свет и затенение поверхностей. Если изменить любой из этих параметров, профиль станет «Свой».",
 	"Clear the debris": "Убрать мусор",
 	"Clear the debris at the mission waypoint.": "Уберите мусор у путевой точки миссии.",
 	"Clear the minefield": "Расчистить минное поле",

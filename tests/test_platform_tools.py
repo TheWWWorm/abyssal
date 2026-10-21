@@ -4,15 +4,33 @@ from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/'tools'))
 import pack_content, export_game
 class PlatformToolsTests(unittest.TestCase):
+    def test_custom_templates_do_not_enable_vendor_sdks(self):
+        import package_releases
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder)
+            template=root/'patched template';template.write_bytes(b'synthetic template')
+            selected=package_releases.custom_templates(['linux='+str(template),'windows='+str(template),'web='+str(template)])
+            self.assertEqual(selected,{'linux':template,'windows':template,'web':template})
+            for platform in selected:
+                stage=root/platform;stage.mkdir()
+                export_game.stage_project(stage,platform,template=selected[platform])
+                preset=(stage/'export_presets.cfg').read_text()
+                self.assertIn('custom_template/release='+json.dumps(str(template)),preset)
+                self.assertIn('renderer/rendering_method="'+('gl_compatibility' if platform=='web' else 'forward_plus')+'"',(stage/'project.godot').read_text())
+                self.assertNotIn('graphics_sdk/amd',(stage/'project.godot').read_text())
+            for invalid in [['android='+str(template)],['linux='+str(template)]*2,['linux='+str(root/'missing')]]:
+                with self.assertRaises(ValueError):package_releases.custom_templates(invalid)
+
     def test_web_pack_url_changes_and_previous_build_remains_loadable(self):
         with tempfile.TemporaryDirectory() as folder:
             root=pathlib.Path(folder)
-            (root/'index.js').write_text('synthetic loader')
             config={'executable':'index','fileSizes':{'index.pck':3,'index.wasm':12}}
             shell=('<head>'+export_game.VIEWPORT_DEFAULT+'</head><body><script src="index.js"></script>\n'
                    'const GODOT_CONFIG = '+json.dumps(config)+';\n</body>')
             names=[]
             for payload in (b'old engine',b'updated engine'):
+                (root/'index.js').write_text('synthetic loader')
+                (root/'index.wasm').write_bytes(b'tiny runtime')
                 (root/'index.pck').write_bytes(payload)
                 (root/'index.html').write_text(shell)
                 build=export_game.stamp_web_build(root)
@@ -21,12 +39,12 @@ class PlatformToolsTests(unittest.TestCase):
                 names.append(actual['mainPack'])
                 self.assertEqual((root/actual['mainPack']).read_bytes(),payload)
                 self.assertEqual(actual['fileSizes'][actual['mainPack']],len(payload))
-                self.assertEqual(actual['fileSizes']['index.wasm'],12)
+                self.assertEqual(actual['fileSizes'][actual['executable']+'.wasm'],12)
                 self.assertNotIn('index.pck',actual['fileSizes'])
                 # The build identity is recorded invisibly, never drawn over the game.
                 self.assertIn('<meta name="engine-build" content="'+hashlib.sha256(payload).hexdigest()+'">',html)
                 self.assertNotIn('<div id="engine-build"',html)
-                self.assertIn('src="index.js?v=',html)
+                self.assertIn('src="'+actual['executable']+'.js"',html)
                 # The hosted page must stay usable on a handheld browser.
                 self.assertIn('viewport-fit=cover',html)
                 self.assertEqual(html.count('apple-mobile-web-app-capable'),1)
@@ -39,6 +57,27 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertEqual((root/'index.png').read_bytes(),(export_game.ROOT/'game/ui/abyssal-splash.png').read_bytes())
             self.assertNotEqual(*names)
             self.assertEqual((root/names[0]).read_bytes(),b'old engine')
+
+    def test_web_engine_update_changes_runtime_url_without_changing_game_pack(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);runtimes=[];packs=[]
+            for wasm in [b'old wasm',b'patched wasm']:
+                (root/'index.js').write_text('synthetic loader')
+                (root/'index.wasm').write_bytes(wasm)
+                (root/'index.audio.worklet.js').write_text('synthetic audio')
+                (root/'index.pck').write_bytes(b'unchanged game')
+                config={'executable':'index','fileSizes':{'index.pck':14,'index.wasm':len(wasm)}}
+                (root/'index.html').write_text('<head>'+export_game.VIEWPORT_DEFAULT+'</head><script src="index.js"></script>\nconst GODOT_CONFIG = '+json.dumps(config)+';\n')
+                export_game.stamp_web_build(root)
+                actual=json.loads(re.search(r'const GODOT_CONFIG = (\{[^\n]+\});',(root/'index.html').read_text()).group(1))
+                runtimes.append(actual['executable']);packs.append(actual['mainPack'])
+                self.assertEqual((root/(actual['executable']+'.wasm')).read_bytes(),wasm)
+                self.assertTrue((root/(actual['executable']+'.audio.worklet.js')).is_file())
+                self.assertFalse((root/'index.wasm').exists())
+                self.assertEqual(actual['fileSizes'][actual['executable']+'.wasm'],len(wasm))
+            self.assertNotEqual(*runtimes)
+            self.assertEqual(*packs)
+            self.assertEqual((root/(runtimes[0]+'.wasm')).read_bytes(),b'old wasm')
 
     def fixture(self, cache):
         cache.mkdir();(cache/'data').mkdir()

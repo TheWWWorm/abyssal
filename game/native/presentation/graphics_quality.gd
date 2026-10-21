@@ -7,8 +7,8 @@ extends RefCounted
 ## station work-lamp shadows are the largest single item on the phone and web
 ## renderers, then volumetric light and ambient occlusion (Vulkan only) and
 ## multisampling. The ocean effects and the headlight beams cost little, so
-## presets leave those as the player set them. Resolution is the player's
-## own choice too: presets never change it.
+## presets leave those as the player set them. Resolution and antialiasing
+## are independent choices too: presets never change them.
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Amd = preload("res://native/presentation/amd.gd")
 
@@ -80,7 +80,6 @@ static func shadow_names() -> Array:
 ## What each preset from Low up sets; Classic is the original lighting and
 ## leaves the rest alone.
 const VALUES := {
-	"msaa":[0,0,1,2],
 	"shadows":[0,1,2,3],
 	"detail":[false,true,true,true],
 	"volumetric":[false,false,true,true],
@@ -134,7 +133,6 @@ static func current(config: ConfigFile) -> int:
 	"""The preset the settings still match, or Custom once any of them moved."""
 	var quality := read(config)
 	if not quality.modern: return CLASSIC
-	if quality.taa: return CUSTOM
 	for preset in range(LOW,VERY_HIGH+1):
 		var same := true
 		for key in VALUES:
@@ -146,8 +144,6 @@ static func write(config: ConfigFile, preset: int) -> void:
 	config.set_value("graphics","preset",PRESETS[clampi(preset,0,VERY_HIGH)].to_lower().replace(" ","_"))
 	config.set_value("graphics","modern",preset!=CLASSIC)
 	if preset==CLASSIC: return
-	config.set_value("view","msaa",VALUES.msaa[preset-LOW])
-	config.set_value("view","temporal_aa",false)
 	config.set_value("graphics","shadows",VALUES.shadows[preset-LOW])
 	config.set_value("graphics","detail",VALUES.detail[preset-LOW])
 	config.set_value("graphics","volumetric",VALUES.volumetric[preset-LOW])
@@ -156,7 +152,7 @@ static func preset_quality(preset: int) -> Dictionary:
 	var config := ConfigFile.new();write(config,preset);return read(config)
 
 ## The settings a preset owns; changing one by hand leaves the preset Custom.
-const OWNED := [["graphics","modern"],["graphics","shadows"],["graphics","volumetric"],["graphics","detail"],["view","msaa"],["view","temporal_aa"]]
+const OWNED := [["graphics","modern"],["graphics","shadows"],["graphics","volumetric"],["graphics","detail"]]
 
 ## Raised when detection measures something new; an older recommendation is
 ## measured again. 2: the station close up, with room for the dive's own work.
@@ -213,7 +209,7 @@ static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vect
 	# The mode first: a temporal upscaler rejects scales above 1.
 	if viewport.scaling_3d_mode!=mode: viewport.scaling_3d_mode=mode
 	viewport.scaling_3d_scale=scale
-	viewport.use_taa=quality.modern and quality.taa and forward and not chosen in TEMPORAL_UPSCALERS
+	viewport.use_taa=quality.taa and forward and not chosen in TEMPORAL_UPSCALERS
 	# The FSR SDK upscalers reconstruct edges from single-sampled frames.
 	var msaa: int=Viewport.MSAA_DISABLED if single_sampled(chosen) else [Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X][clampi(quality.msaa,0,2)]
 	if viewport.msaa_3d!=msaa: viewport.msaa_3d=msaa

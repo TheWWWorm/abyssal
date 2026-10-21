@@ -58,6 +58,7 @@ var biological_look: Dictionary = {}
 var applied_range: Array = []
 var stream_visibility := 1.0
 var fade_materials := {}
+var opaque_materials := {}
 var hangar_open := 0.0
 var hangar_materials: Dictionary={}
 var hangar_interior: MeshInstance3D
@@ -115,6 +116,7 @@ func set_stream_visibility(value: float) -> void:
 
 func apply_stream_visibility() -> void:
 	if figure==null:return
+	restore_opaque_surfaces()
 	var shadow := figure.get_node_or_null("StationShadow")
 	if shadow!=null:shadow.set_coverage("stream_visibility",stream_visibility)
 	var mesh := figure.get_node("Mesh") as MeshInstance3D
@@ -137,6 +139,45 @@ func apply_stream_visibility() -> void:
 		original.set_shader_parameter("stream_visibility",stream_visibility)
 	if stream_visibility>=1.0:fade_materials.clear()
 	Library.set_lamp_visibility(figure,stream_visibility,library.cabin_lights)
+	apply_opaque_surfaces()
+
+func restore_opaque_surfaces() -> void:
+	if figure==null:return
+	var mesh: MeshInstance3D=figure.get_node("Mesh")
+	for index in mesh.mesh.get_surface_count():
+		var material: ShaderMaterial=mesh.get_surface_override_material(index)
+		if material!=null and material.has_meta("opaque_original"):
+			mesh.set_surface_override_material(index,material.get_meta("opaque_original"))
+
+func apply_opaque_surfaces() -> void:
+	# A discard anywhere in a shader makes even solid walls pay for cutouts
+	# on tile-based GPUs. Use the opaque variant only while the whole posed
+	# bounds precede distance fading and no instance cutout is needed.
+	if figure==null or not modern_graphics or int(record.id)<3300 or int(record.id)>=3400:return
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var mesh: MeshInstance3D=figure.get_node("Mesh")
+	var near := false
+	if camera!=null:
+		var box: AABB=mesh.global_transform*mesh.custom_aabb
+		near=camera.global_position.distance_to(box.get_center())+box.size.length()*.5<7000.0
+	for index in mesh.mesh.get_surface_count():
+		var material: ShaderMaterial=mesh.get_surface_override_material(index)
+		if material==null or not material.has_meta("opaque_shader"):continue
+		var solid: bool=near and stream_visibility>=1.0 and not portal_enabled and not (hangar_open>0.0 and material.get_shader_parameter("hangar_door"))
+		if not solid:
+			if material.has_meta("opaque_original"):mesh.set_surface_override_material(index,material.get_meta("opaque_original"))
+		elif not material.has_meta("opaque_original"):
+			var key := material.get_instance_id()
+			if not opaque_materials.has(key):
+				if opaque_materials.size()>=128:opaque_materials.clear()
+				var own := material.duplicate() as ShaderMaterial
+				own.set_meta("opaque_original",material);own.shader=material.get_meta("opaque_shader")
+				if RenderingServer.get_current_rendering_method()=="mobile":
+					var depth := own.duplicate() as ShaderMaterial
+					depth.shader=material.get_meta("station_depth_shader");depth.render_priority=-128;depth.next_pass=own
+					opaque_materials[key]=depth
+				else:opaque_materials[key]=own
+			mesh.set_surface_override_material(index,opaque_materials[key])
 
 
 func configure(cache: String, entry: Dictionary, preview_frame_ms: int = 32) -> void:
@@ -218,6 +259,7 @@ func set_hangar_open(value: float) -> void:
 	hangar_open=clampf(value,0,1);apply_hangar_open()
 func apply_hangar_open() -> void:
 	if figure==null or not is_hangar():return
+	restore_opaque_surfaces()
 	var shadow := figure.get_node_or_null("StationShadow")
 	if shadow!=null:shadow.set_coverage("hangar_open",hangar_open)
 	var mesh:=figure.get_node("Mesh") as MeshInstance3D
@@ -230,6 +272,7 @@ func apply_hangar_open() -> void:
 				var own:=material.duplicate() as ShaderMaterial;own.set_meta("hangar_instance",true);hangar_materials[key]=own
 			material=hangar_materials[key];mesh.set_surface_override_material(i,material)
 		material.set_shader_parameter("hangar_open",hangar_open)
+	apply_opaque_surfaces()
 	if hangar_interior==null:
 		var aperture:=hangar_aperture()
 		hangar_interior=MeshInstance3D.new();hangar_interior.name="HangarInterior";add_child(hangar_interior)
@@ -277,7 +320,7 @@ func refresh_station_filtering() -> void:
 	if int(record.id)<3300 or int(record.id)>=3400:return
 	# Keep mesh nodes and their attached collision bodies/shadow settings.
 	# Hidden animation variants refresh their materials when next selected.
-	fade_materials.clear();portal_materials.clear();sampled_frame=-1
+	fade_materials.clear();portal_materials.clear();opaque_materials.clear();sampled_frame=-1
 	refresh()
 
 func refresh_ship_filtering() -> void:
@@ -297,7 +340,7 @@ func refresh() -> void:
 	posed_blue_headlights=library.blue_headlights
 	posed_ship_smoothing=library.ship_smoothing
 	posed_headlight_mode=library.headlight_mode
-	if atmosphere_changed:fade_materials.clear();portal_materials.clear();hinge_materials.clear();headlight_materials.clear()
+	if atmosphere_changed:fade_materials.clear();portal_materials.clear();hinge_materials.clear();headlight_materials.clear();opaque_materials.clear()
 	posed_boost=effect_boost
 	machinery_sample=motion
 	sampled_frame=sample
@@ -357,6 +400,7 @@ func refresh() -> void:
 	apply_portal_clip()
 	if is_hangar():apply_hangar_open()
 	apply_headlight_lenses()
+	apply_opaque_surfaces()
 
 func set_full_detail(value: bool) -> void:
 	"""A streamed station is built compact and promoted when it is near: a
@@ -370,6 +414,7 @@ func advance(milliseconds: int, render_pose: bool=true) -> void:
 	elapsed+=milliseconds
 	clock.advance(elapsed)
 	if render_pose: refresh()
+	apply_opaque_surfaces()
 	if figure!=null and is_hull_id(int(record.id)): Library.pulse_cabin_lamps(figure,stream_visibility)
 
 func bounds() -> AABB:
@@ -382,8 +427,8 @@ func release_mesh() -> void:
 	for variant in pattern_figures.values():
 		var mesh := variant.get_node("Mesh") as MeshInstance3D
 		mesh.mesh=null
-		var shadow := variant.get_node_or_null("StationShadow") as MeshInstance3D
-		if shadow!=null:shadow.mesh=null
+		var shadow: Node=variant.get_node_or_null("StationShadow")
+		if shadow!=null:shadow.release_meshes()
 func _exit_tree() -> void:
 	# Reparenting a station during region promotion also exits the tree.
 	# Detach GPU resources only when the model or its owner is being deleted.
@@ -543,6 +588,7 @@ func set_portal_clip(enabled: bool, plane: Vector4=Vector4.ZERO) -> void:
 	portal_enabled=enabled;portal_plane=plane;apply_portal_clip();apply_headlight_lenses()
 func apply_portal_clip() -> void:
 	if figure==null:return
+	restore_opaque_surfaces()
 	var mesh: MeshInstance3D=figure.get_node("Mesh")
 	for index in mesh.mesh.get_surface_count():
 		var original: ShaderMaterial=mesh.get_surface_override_material(index)
@@ -556,3 +602,4 @@ func apply_portal_clip() -> void:
 		material.set_shader_parameter("portal_clip_enabled",true);material.set_shader_parameter("portal_clip_plane",portal_plane)
 		mesh.set_surface_override_material(index,material)
 	if not portal_enabled:portal_materials.clear()
+	apply_opaque_surfaces()

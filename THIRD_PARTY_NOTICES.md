@@ -21,6 +21,8 @@ Modifications remove Android logging and collection dependencies, adapt the deco
 
 Godot, the JDK, Python and FFmpeg are external execution/development tools. Their binaries are not included in this source package. The parent development workflow also used other tools, including a private decompiler; those are not dependencies of this edition. Standalone exports embed Godot and include `GODOT_LICENSES.txt`, generated from the actual Godot binary’s license/copyright inventory. Keep this file with the exported build. Developer source conversion uses external Python, Java and FFmpeg. Prepared desktop releases instead bundle Node.js and the portable runtimes below; no Java or FFmpeg binary is distributed.
 
+`engine/godot-4.7/station-rendering.patch` modifies Godot's rendering code. The Godot source context in the patch retains Godot's MIT license and attribution; a custom runtime remains subject to the same Godot license inventory as an official export. The patch includes no game assets or converted content.
+
 ## Original game content
 
 DEEP and the supplied JAR, game code, text, models, textures, animation and audio are not licensed by this project. They remain the property of their respective rights holders. No game content is included in the source-only package.

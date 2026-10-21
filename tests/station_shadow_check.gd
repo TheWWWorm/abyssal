@@ -76,9 +76,28 @@ func check_coverage() -> void:
 
 func check_imported(content) -> void:
 	var library := Library.new();library.root=content.root
+	var camera := Camera3D.new();root.add_child(camera);camera.make_current()
 	for entry in content.registry:
 		if int(entry.id)<3300 or int(entry.id)>=3400:continue
 		var model := Model.new();model.library=library;root.add_child(model);model.configure(content.root,entry)
+		var visible_mesh: MeshInstance3D=model.figure.get_node("Mesh")
+		for i in visible_mesh.mesh.get_surface_count():
+			var material: ShaderMaterial=visible_mesh.get_active_material(i)
+			if not material.has_meta("opaque_shader"):continue
+			expect(material.has_meta("opaque_original"),"A nearby solid station surface selects its opaque material")
+			if RenderingServer.get_current_rendering_method()=="mobile":
+				expect(material.shader==material.get_meta("station_depth_shader") and material.render_priority==-128,"Solid station depth precedes the expensive lighting pass")
+				expect(material.next_pass!=null and material.next_pass.shader==material.get_meta("opaque_shader"),"The depth pass retains the complete station lighting material")
+			var copy := Library.pose_copy(material)
+			expect(not copy.has_meta("opaque_original") and copy.shader!=material.get_meta("opaque_shader"),"Pose caching strips the instance's opaque override")
+		camera.position=Vector3(0,0,10000);model.advance(0,false)
+		for i in visible_mesh.mesh.get_surface_count():
+			expect(not visible_mesh.get_active_material(i).has_meta("opaque_original"),"Far station surfaces keep distance fading even without an animation update")
+		camera.position=Vector3.ZERO;model.advance(0,false)
+		model.set_portal_clip(true,Vector4(0,0,1,0))
+		for i in visible_mesh.mesh.get_surface_count():
+			expect(not visible_mesh.get_active_material(i).has_meta("opaque_original"),"A portal-clipped station uses its cutout shader")
+		model.set_portal_clip(false)
 		var shadow: MeshInstance3D=model.figure.get_node("StationShadow")
 		expect(shadow!=null and model.figure.get_node("Mesh").cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Imported station shadows are separate from the visible animated material")
 		var groups: Array=library.mesh_for(entry.model,model.last_pattern,entry.textures[0])[1]
@@ -90,19 +109,52 @@ func check_imported(content) -> void:
 		expect(actual==expected,"Every imported solid triangle remains in the shadow mesh for %s"%entry.model)
 		var view=load("res://native/presentation/world_view.gd").new();root.add_child(view);view.set_process(false)
 		view.add_station_collision(model)
-		expect(shadow.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY and shadow.get_child_count()==0,"Collision setup excludes the shadow proxy")
+		if shadow.bone_parts.is_empty():
+			expect(shadow.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY and shadow.get_child_count()==0,"Collision setup excludes the shadow proxy")
+		else:
+			expect(shadow.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF and shadow.layers==0,"A split shadow proxy delegates casting to its bones")
+			var split_vertices := 0
+			for caster: MeshInstance3D in shadow.bone_parts.values():
+				expect(caster.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY and caster.get_child_count()==0,"Collision setup excludes every bone shadow proxy")
+				for i in caster.mesh.get_surface_count():split_vertices+=caster.mesh.surface_get_array_len(i)
+			expect(split_vertices==expected,"Splitting machinery retains every solid shadow triangle")
 		expect(model.figure.get_node("Mesh").cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Collision setup does not restore expensive visible-material shadows")
 		model.set_stream_visibility(.4);model.set_hangar_open(.6)
+		for i in visible_mesh.mesh.get_surface_count():
+			expect(not visible_mesh.get_active_material(i).has_meta("opaque_original"),"Streaming fades cannot use the solid shader")
 		expect(shadow.coverage.stream_visibility==.4,"Imported station fades propagate to the shadow caster")
 		if model.is_hangar():expect(is_equal_approx(shadow.coverage.hangar_open,.6),"Imported hangar opening propagates to its shadow caster")
+		model.set_stream_visibility(1.0)
+		for i in visible_mesh.mesh.get_surface_count():
+			var material: ShaderMaterial=visible_mesh.get_active_material(i)
+			if not material.has_meta("opaque_shader"):continue
+			expect(material.has_meta("opaque_original")!=bool(material.get_shader_parameter("hangar_door")),"Only an opening door keeps cutouts after streaming finishes")
 		library.station_smoothing=true;model.refresh_station_filtering()
 		expect(shadow.coverage.smoothed,"Station smoothing updates the shadow palette filter")
 		library.station_smoothing=false
 		model.queue_free();view.queue_free();await process_frame
+	camera.queue_free();await process_frame
 
 func run() -> void:
 	await check_coverage()
+	check_bone_parts()
 	var content=load("res://native/content.gd").new()
 	if not content.load_cache(OS.get_cmdline_user_args()[0]):push_error(content.failure);quit(1);return
 	await check_imported(content)
 	print("STATION_SHADOW_CHECK %d failures"%failures);quit(1 if failures else 0)
+
+func check_bone_parts() -> void:
+	var library := Library.new();var mesh := ArrayMesh.new()
+	panel(mesh,0,0);panel(mesh,12,1)
+	var surface := {"blend":0,"texture":-1,"alpha":false,"door":false}
+	var shadow := Shadow.new()
+	shadow.configure(library,{"resource":"test-machinery","pattern":0,"textures":[]},[mesh,[surface,surface],[]])
+	var bones := transforms();shadow.pose(bones)
+	expect(shadow.bone_parts.size()==2,"Independent solid bones have independent shadow casters")
+	var fixed: MeshInstance3D=shadow.bone_parts[0];var rotor: MeshInstance3D=shadow.bone_parts[1]
+	var fixed_bounds := fixed.custom_aabb;var rotor_bounds := rotor.custom_aabb
+	bones[1].origin=Vector3(0,4,0);shadow.pose(bones)
+	expect(fixed.custom_aabb==fixed_bounds and rotor.custom_aabb.position.is_equal_approx(rotor_bounds.position+Vector3(0,4,0)),"Moving a rotor leaves the fixed caster's bounds unchanged")
+	shadow.set_coverage("stream_visibility",.4)
+	expect(fixed.get_active_material(0).get_shader_parameter("stream_visibility")==.4 and rotor.get_active_material(0).get_shader_parameter("stream_visibility")==.4,"Streaming coverage reaches all bone casters")
+	shadow.release_meshes();shadow.free()

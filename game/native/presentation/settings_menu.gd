@@ -504,7 +504,7 @@ func graphics_page() -> void:
 	var best := Quality.recommended(load_config())
 	if best>=0: presets[best]=tr("%s (Recommended)")%presets[best]
 	chooser(tr("Preset"),presets,preset,"preset",choose_preset,null,tr("Custom"))
-	note(tr("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom."))
+	note(tr("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom."))
 	group(tr("Performance"))
 	performance_options()
 	group(tr("Enhanced lighting"))
@@ -560,7 +560,7 @@ func performance_options() -> void:
 	var taa: Button
 	if forward_plus(): taa=toggle(tr("Temporal antialiasing"),"view","temporal_aa",false,tr("On"),tr("Off"),grid)
 	else: taa=row(tr("Temporal antialiasing"),tr("Needs Vulkan"),"temporal_aa",func():pass,grid)
-	taa.disabled=not enhanced or not forward_plus() or Quality.upscaler(quality) in Quality.TEMPORAL_UPSCALERS
+	taa.disabled=not forward_plus() or Quality.upscaler(quality) in Quality.TEMPORAL_UPSCALERS
 	taa.tooltip_text=tr("Smooths edges further; slightly blurs motion.")
 	# Full width below the others: a choice for the next start is a long value.
 	if RendererChoice.available():

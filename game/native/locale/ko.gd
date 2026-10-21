@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "개인 .abyss 콘텐츠 팩을 선택하세요.",
 	"Choosing graphics settings for this device…": "이 기기에 맞는 그래픽 설정을 고르는 중…",
 	"Classic": "클래식",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "클래식은 원작의 조명과 같습니다. 다른 프리셋은 조명, 안개, 음영을 더하고 그림자, 안티에일리어싱, 볼류메트릭 조명, 표면 음영을 설정합니다. 이 중 하나를 바꾸면 프리셋이 사용자 지정이 됩니다.",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "클래식은 원작의 조명과 같습니다. 다른 프리셋은 조명, 안개, 음영을 더하고 그림자, 볼류메트릭 조명, 표면 음영을 설정합니다. 이 중 하나를 바꾸면 프리셋이 사용자 지정이 됩니다.",
 	"Clear the debris": "잔해 제거",
 	"Clear the debris at the mission waypoint.": "임무 경유지의 잔해를 치우세요.",
 	"Clear the minefield": "기뢰밭 제거",

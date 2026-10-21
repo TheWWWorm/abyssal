@@ -15,6 +15,8 @@ var texture_resources: Dictionary = {}
 var texture_sizes: Dictionary = {}
 var surface_maps: Dictionary = {}
 var shaders: Dictionary = {}
+var opaque_station_shaders: Dictionary = {}
+var station_depth_shaders: Dictionary = {}
 var native_pose_cache: Dictionary = {}
 var native_bones_cache: Dictionary = {}
 var native_animations: Dictionary = {}
@@ -436,7 +438,7 @@ func apply_figure_materials(node: Node3D, call: Dictionary) -> void:
 		var look: Dictionary = call.get("replacement",{})
 		var pixelated: bool=call.get("pixelated_station",false) or (blend==0 and call.get("pixelated_ship",false))
 		var smoothed: bool=call.get("smoothed_station",false) or (blend==0 and call.get("smoothed_ship",false))
-		var mat := affine_material(resource_name,blend,g.double,(g.lit or not look.is_empty()) and call.effect.lit,g.alpha,int(call.get("sky_pass",0)),pixelated,smoothed,g.headlight)
+		var mat := affine_material(resource_name,blend,g.double,(g.lit or not look.is_empty()) and call.effect.lit,g.alpha,int(call.get("sky_pass",0)),pixelated,smoothed,g.headlight,bool(call.get("station_coating",false)) and look.is_empty())
 		mat.set_meta("source_headlight",g.headlight)
 		if not look.is_empty() and blend==0 and sky_pass_for_call(call)==0:
 			mat.set_shader_parameter("replacement_enabled",true)
@@ -539,8 +541,9 @@ static func pose_copy(material: ShaderMaterial) -> ShaderMaterial:
 	a station part first posed while its station was fading in was cached
 	half dithered, and every part sharing the pose then flickered into a
 	see-through box whenever its animation reached that frame."""
-	while material.has_meta("stream_original") or material.has_meta("portal_original") or material.has_meta("hinge_original"):
-		if material.has_meta("stream_original"):material=material.get_meta("stream_original")
+	while material.has_meta("stream_original") or material.has_meta("portal_original") or material.has_meta("hinge_original") or material.has_meta("opaque_original"):
+		if material.has_meta("opaque_original"):material=material.get_meta("opaque_original")
+		elif material.has_meta("stream_original"):material=material.get_meta("stream_original")
 		elif material.has_meta("portal_original"):material=material.get_meta("portal_original")
 		else:material=material.get_meta("hinge_original")
 	var copy := material.duplicate() as ShaderMaterial
@@ -568,10 +571,11 @@ func pose_bounds(resource: String, transforms: Array[Transform3D]) -> AABB:
 	# Keep zero-thickness faces and float-rounding at the boundary visible.
 	return result.grow(0.001)
 
-func affine_material(resource: String, blend: int, double_sided: bool, lit: bool, alpha: bool, sky_pass: int = 0, pixelated: bool = false, smoothed: bool = false, classic: bool = false) -> ShaderMaterial:
+func affine_material(resource: String, blend: int, double_sided: bool, lit: bool, alpha: bool, sky_pass: int = 0, pixelated: bool = false, smoothed: bool = false, classic: bool = false, station_surface: bool = false) -> ShaderMaterial:
 	var use_enhanced := enhanced and not classic
 	var modern := use_enhanced and sky_pass == 0
-	var key := str([blend,double_sided,lit,alpha,use_enhanced,resource != "",sky_pass,pixelated,smoothed])
+	station_surface=station_surface and modern and lit and blend==0
+	var key := str([blend,double_sided,lit,alpha,use_enhanced,resource != "",sky_pass,pixelated,smoothed,station_surface])
 	if not shaders.has(key):
 		var modes := ["cull_disabled" if double_sided else "cull_back"]
 		if not lit or not modern:
@@ -681,14 +685,25 @@ void vertex() {
 		if modern:
 			# Enhanced lighting uses the geometric normal even for sheared poses.
 			code += "if(abs(determinant(mat3(bone)))>0.000001){n=transpose(inverse(mat3(bone)))*NORMAL;}\n"
-		code += "NORMAL=length(n)>0.00001?normalize(n):vec3(0.0,1.0,0.0); architecture_position=VERTEX; architecture_normal=NORMAL; }\nvoid fragment(){\n"
+		code += "NORMAL=length(n)>0.00001?normalize(n):vec3(0.0,1.0,0.0); architecture_position=VERTEX; architecture_normal=NORMAL; }\n"
+		# Station paint never uses vessel glazing, biological emission or
+		# replacement materials. Compile those paths out instead of making every
+		# wall pixel carry the full material's branches and temporary registers.
+		# Keep the uniform declarations for the shared pose/material interface.
+		if station_surface:
+			# The station relief clamps its normal slope to 0.16. Engines that
+			# support bounded-normal light rejection can skip lights behind it.
+			code+="uniform float normal_deviation_limit=0.161;\n"
+			var features := {"station_coating":"true","hull_coating":"true","replacement_enabled":"false","biology_enabled":"false","architecture_enabled":"false","painted_glass":"false","tail_lamp":"0","cabin_windows":"false","headlight_lens":"0","bioluminescence":"0.0"}
+			for feature in features:code+="#define %s %s\n"%[feature,features[feature]]
+		code += "void fragment(){\n"
 		# Both imported hangars map U along the door's height and V across
 		# its width. Slide sideways, keeping the painted frame outside the cut.
-		code += "bool door_panel=hangar_door && UV.x>49.5 && UV.x<59.5 && UV.y>98.5 && UV.y<108.5; if(door_panel && hangar_open>0.0 && abs(UV.y-103.5)<5.0*hangar_open){discard;} vec2 surface_uv=UV; if(door_panel){surface_uv.y-=sign(UV.y-103.5)*5.0*hangar_open;}\n"
+		code += "bool door_panel=hangar_door && UV.x>49.5 && UV.x<59.5 && UV.y>98.5 && UV.y<108.5;\n#ifdef SURFACE_CUTOUT\nif(door_panel && hangar_open>0.0 && abs(UV.y-103.5)<5.0*hangar_open){discard;}\n#endif\nvec2 surface_uv=UV; if(door_panel){surface_uv.y-=sign(UV.y-103.5)*5.0*hangar_open;}\n"
 		if sky_pass == 0:
 			# Dither keeps opaque depth ordering; imported alpha/additive faces fade too.
-			code += "if(portal_clip_enabled && dot(portal_clip_plane,INV_VIEW_MATRIX*vec4(VERTEX,1.0))<0.0){discard;}\n"
-			code += "float far_visibility=1.0-smoothstep(7000.0,9600.0,length(VERTEX));float coverage=stream_visibility*(IN_SHADOW_PASS?1.0:far_visibility);float threshold=fract(52.9829189*fract(dot(floor(FRAGCOORD.xy),vec2(0.06711056,0.00583715))));if(coverage<=threshold){discard;}\n"
+			code += "#ifdef SURFACE_CUTOUT\nif(portal_clip_enabled && dot(portal_clip_plane,INV_VIEW_MATRIX*vec4(VERTEX,1.0))<0.0){discard;}\n"
+			code += "float far_visibility=1.0-smoothstep(7000.0,9600.0,length(VERTEX));float coverage=stream_visibility*(IN_SHADOW_PASS?1.0:far_visibility);float threshold=fract(52.9829189*fract(dot(floor(FRAGCOORD.xy),vec2(0.06711056,0.00583715))));if(coverage<=threshold){discard;}\n#endif\n"
 		if blend == 4 or blend == 6:
 			code += "if(IN_SHADOW_PASS){discard;}\n"
 			if sky_pass==0:code += "if(!source_glow_visible){discard;}\n"
@@ -830,7 +845,7 @@ if(replacement_enabled){
 }
 """
 		if modern and lit and blend == 0:
-			code += "float light_net=caustic(water_position.xz*0.13+vec2(TIME*0.014,0.0)); float facing=max(normalize(water_normal).y,0.0); float sunlit=clamp(source_intensity/2.0,0.0,1.0); ALBEDO*=1.0+light_net*facing*sunlit*ocean_strength*0.65; ROUGHNESS=clamp(ROUGHNESS+(sin(water_position.x*29.0)*sin(water_position.z*31.0))*0.045*ocean_strength,0.0,1.0);\n"
+			code += "float facing=max(normalize(water_normal).y,0.0); float sunlit=clamp(source_intensity/2.0,0.0,1.0); if(facing>0.0001 && sunlit>0.0 && ocean_strength>0.0){float light_net=caustic(water_position.xz*0.13+vec2(TIME*0.014,0.0)); ALBEDO*=1.0+light_net*facing*sunlit*ocean_strength*0.65;} ROUGHNESS=clamp(ROUGHNESS+(sin(water_position.x*29.0)*sin(water_position.z*31.0))*0.045*ocean_strength,0.0,1.0);\n"
 		if modern and lit and blend == 0:
 			code += """
 if(replacement_enabled && biology_enabled){
@@ -892,7 +907,7 @@ if(replacement_enabled && architecture_enabled){
 			# Compatibility has no volumetric fog, and its sky feeds the same water
 			# through the fog input, so there the haze stays on FOG, whose colour
 			# handling matches that sky's; an unwritten FOG there would be black.
-			code += "vec4 haze=vec4(0.0);if(distance_haze>0.0){vec3 ray=normalize((INV_VIEW_MATRIX*vec4(VERTEX,0.0)).xyz);haze=ocean_fog(ray,length(VERTEX),distance_haze);if(station_coating){haze.rgb*=smoothstep(250.0,900.0,length(VERTEX));}}\n"
+			code += "vec4 haze=vec4(0.0);if(distance_haze>0.0){float fog_distance=length(VERTEX);float scatter=station_coating?smoothstep(250.0,900.0,fog_distance):1.0;haze.a=1.0-exp(-max(fog_distance,0.0)*distance_haze*ocean_haze_gain);if(scatter>0.0){vec3 ray=normalize((INV_VIEW_MATRIX*vec4(VERTEX,0.0)).xyz);haze.rgb=ocean_radiance(ray)*scatter;}}\n"
 			code += "#if CURRENT_RENDERER == RENDERER_COMPATIBILITY\nFOG=haze;\n#else\n"
 			if lit and modern:
 				code += "ALBEDO*=1.0-haze.a;SPECULAR*=1.0-haze.a;EMISSION=EMISSION*(1.0-haze.a)+haze.rgb*haze.a;\n"
@@ -903,10 +918,20 @@ if(replacement_enabled && architecture_enabled){
 			code += "FOG=vec4(0.0);\n"
 		code += "}\n"
 		var shader := Shader.new()
-		shader.code = code
+		shader.code = "#define SURFACE_CUTOUT\n"+code
 		shaders[key] = shader
+		if station_surface and not alpha:
+			var opaque := Shader.new();opaque.code=code
+			opaque_station_shaders[key]=opaque
+			# Mobile and Compatibility have no automatic opaque depth prepass.
+			# The same vertex stage gives the inexpensive pass identical depth.
+			var depth := Shader.new()
+			var vertex_code: String=code.substr(0,code.find("void fragment()"))
+			vertex_code=vertex_code.replace("render_mode %s;"%", ".join(modes),"render_mode unshaded, cull_disabled;")
+			depth.code=vertex_code+"void fragment(){ALBEDO=vec3(0.0);}";station_depth_shaders[key]=depth
 	var mat := ShaderMaterial.new()
 	mat.shader = shaders[key]
+	if opaque_station_shaders.has(key):mat.set_meta("opaque_shader",opaque_station_shaders[key]);mat.set_meta("station_depth_shader",station_depth_shaders[key])
 	mat.set_shader_parameter("hinge_bend",0.0)
 	mat.set_shader_parameter("hinge_axis",1)
 	if resource != "":

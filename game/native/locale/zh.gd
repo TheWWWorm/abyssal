@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "选择你的私有 .abyss 内容包。",
 	"Choosing graphics settings for this device…": "正在为此设备选择图形设置…",
 	"Classic": "经典",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "“经典”与原版光照一致。其他预设会添加灯光、雾和明暗效果，并设定阴影、抗锯齿、体积光和表面着色。更改其中任何一项都会使预设变为“自定义”。",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "“经典”与原版光照一致。其他预设会添加灯光、雾和明暗效果，并设定阴影、体积光和表面着色。更改其中任何一项都会使预设变为“自定义”。",
 	"Clear the debris": "清除残骸",
 	"Clear the debris at the mission waypoint.": "清除任务路径点的残骸。",
 	"Clear the minefield": "清除雷区",

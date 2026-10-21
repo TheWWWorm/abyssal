@@ -1,0 +1,1334 @@
+diff --git a/drivers/gles3/rasterizer_scene_gles3.cpp b/drivers/gles3/rasterizer_scene_gles3.cpp
+index 9a8cfa7..99a345e 100644
+--- a/drivers/gles3/rasterizer_scene_gles3.cpp
++++ b/drivers/gles3/rasterizer_scene_gles3.cpp
+@@ -2176,6 +2176,12 @@ void RasterizerSceneGLES3::_render_shadows(const RenderDataGLES3 *p_render_data,
+ 
+ 		// Render cubemap shadows.
+ 		for (const int &index : cube_shadows) {
++			auto *cached_light = light_storage->get_light_instance(p_render_data->render_shadows[index].light);
++			const auto &shadow = p_render_data->render_shadows[index];
++			if (shadow.face_signature && cached_light->face_signature[shadow.pass] == shadow.face_signature) {
++				continue;
++			}
++			cached_light->face_signature[shadow.pass] = shadow.face_signature;
+ 			_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->screen_mesh_lod_threshold, p_render_data->render_info, p_viewport_size, p_render_data->cam_transform);
+ 		}
+ 		// Render directional shadows.
+@@ -3327,7 +3333,17 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
+ 		 * Disable depth draw
+ 		 */
+ 
+-		for (int32_t pass = 0; pass < MAX(1, int32_t(inst->light_passes.size() + p_render_data->directional_shadow_count)); pass++) {
++		int32_t pass_step = 1;
++		for (int32_t pass = 0; pass < MAX(1, int32_t(inst->light_passes.size() + p_render_data->directional_shadow_count)); pass += pass_step) {
++			pass_step = 1;
++			if constexpr (p_pass_mode == PASS_MODE_COLOR) {
++				if (pass > 0 && shader->can_batch_omni && !shader->unshaded && !shader->uses_alpha && !shader->uses_discard && !shader->uses_screen_texture && !shader->uses_depth_texture && !shader->stencil_enabled && !shader->wireframe && !inst->lightmap_instance.is_valid() && !p_render_data->transparent_bg && shader->texture_uniforms.size() <= GLES3::Config::get_singleton()->max_texture_image_units - 11 && pass < int32_t(inst->light_passes.size()) && inst->light_passes[pass].is_omni && inst->light_passes[pass].shadow_id >= 0 && !GLES3::LightStorage::get_singleton()->light_is_negative(GLES3::LightStorage::get_singleton()->light_instance_get_base_light(inst->light_passes[pass].light_instance_rid)) && GLES3::LightStorage::get_singleton()->light_instance_has_shadow_atlas(inst->light_passes[pass].light_instance_rid, p_render_data->shadow_atlas)) {
++					while (pass_step < 4 && pass + pass_step < int32_t(inst->light_passes.size()) && inst->light_passes[pass + pass_step].is_omni && inst->light_passes[pass + pass_step].shadow_id >= 0 && !GLES3::LightStorage::get_singleton()->light_is_negative(GLES3::LightStorage::get_singleton()->light_instance_get_base_light(inst->light_passes[pass + pass_step].light_instance_rid)) && GLES3::LightStorage::get_singleton()->light_instance_has_shadow_atlas(inst->light_passes[pass + pass_step].light_instance_rid, p_render_data->shadow_atlas)) {
++						pass_step++;
++					}
++				}
++			}
++
+ 			if constexpr (p_pass_mode == PASS_MODE_DEPTH || p_pass_mode == PASS_MODE_SHADOW || p_pass_mode == PASS_MODE_MOTION_VECTORS) {
+ 				if (pass > 0) {
+ 					// Don't render shadow passes when doing depth, shadow, or motion vector pass.
+@@ -3380,7 +3396,7 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
+ 					// Don't render additive passes if not using additive lighting.
+ 					break;
+ 				}
+-				if (uses_additive_lighting && pass == 1 && !p_render_data->transparent_bg) {
++				if (uses_additive_lighting && pass > 0 && !p_render_data->transparent_bg) {
+ 					// Enable blending if in opaque pass and not already enabled.
+ 					scene_state.enable_gl_blend(true);
+ 				}
+@@ -3538,6 +3554,9 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
+ 			}
+ 
+ 			uint64_t spec_constants = base_spec_constants;
++			if (pass_step > 1) {
++				spec_constants |= SceneShaderGLES3::BATCH_OMNI;
++			}
+ 
+ 			// Set up spec constants for lighting.
+ 			if constexpr (p_pass_mode == PASS_MODE_COLOR || p_pass_mode == PASS_MODE_COLOR_TRANSPARENT) {
+@@ -3696,6 +3715,19 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
+ 				material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::OPAQUE_PREPASS_THRESHOLD, opaque_prepass_threshold, shader->version, instance_variant, spec_constants);
+ 			}
+ 
++			if (pass_step > 1) {
++				uint32_t light_ids[3] = {}, shadow_ids[3] = {};
++				for (int extra_index = 0; extra_index < pass_step - 1; extra_index++) {
++					auto &extra = inst->light_passes[pass + 1 + extra_index];
++					light_ids[extra_index] = extra.light_id;
++					shadow_ids[extra_index] = extra.shadow_id;
++					glActiveTexture(GL_TEXTURE0 + GLES3::Config::get_singleton()->max_texture_image_units - 4 - extra_index);
++					glBindTexture(GL_TEXTURE_CUBE_MAP, GLES3::LightStorage::get_singleton()->light_instance_get_shadow_texture(extra.light_instance_rid, p_render_data->shadow_atlas));
++				}
++				material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::OMNI_EXTRA_COUNT, uint32_t(pass_step - 1), shader->version, instance_variant, spec_constants);
++				glUniform1uiv(material_storage->shaders.scene_shader.version_get_uniform(SceneShaderGLES3::OMNI_LIGHT_INDEX_EXTRA, shader->version, instance_variant, spec_constants), 3, light_ids);
++				glUniform1uiv(material_storage->shaders.scene_shader.version_get_uniform(SceneShaderGLES3::POSITIONAL_SHADOW_INDEX_EXTRA, shader->version, instance_variant, spec_constants), 3, shadow_ids);
++			}
+ 			// Pass in lighting uniforms.
+ 			if constexpr (p_pass_mode == PASS_MODE_COLOR || p_pass_mode == PASS_MODE_COLOR_TRANSPARENT) {
+ 				GLES3::Config *config = GLES3::Config::get_singleton();
+diff --git a/drivers/gles3/shaders/scene.glsl b/drivers/gles3/shaders/scene.glsl
+index cd210e8..741b913 100644
+--- a/drivers/gles3/shaders/scene.glsl
++++ b/drivers/gles3/shaders/scene.glsl
+@@ -35,6 +35,7 @@ APPLY_TONEMAPPING = true
+ // We can only use one type of light per additive pass. This means that if USE_ADDITIVE_LIGHTING is defined, and
+ // these are false, we are doing a directional light pass.
+ ADDITIVE_OMNI = false
++BATCH_OMNI = false
+ ADDITIVE_SPOT = false
+ RENDER_MATERIAL = false
+ SECOND_REFLECTION_PROBE = false
+@@ -261,6 +262,10 @@ layout(std140) uniform PositionalShadows { // ubo:10
+ };
+ 
+ uniform lowp uint positional_shadow_index;
++#ifdef BATCH_OMNI
++uniform lowp uint positional_shadow_index_extra[3];
++uniform lowp uint omni_extra_count;
++#endif
+ 
+ #else // ADDITIVE_DIRECTIONAL
+ 
+@@ -380,6 +385,9 @@ uniform uint area_light_count;
+ #ifdef USE_ADDITIVE_LIGHTING
+ #ifdef ADDITIVE_OMNI
+ uniform lowp uint omni_light_index;
++#ifdef BATCH_OMNI
++uniform lowp uint omni_light_index_extra[3];
++#endif
+ #endif
+ #ifdef ADDITIVE_SPOT
+ uniform lowp uint spot_light_index;
+@@ -439,6 +447,11 @@ float get_omni_spot_attenuation(float distance, float inv_range, float decay) {
+ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float roughness,
+ 		inout vec3 diffuse_light, inout vec3 specular_light) {
+ 	vec3 light_rel_vec = omni_lights[idx].position - vertex;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON)
++	if (omni_lights[idx].size <= 0.0 && dot(normal, light_rel_vec) <= 0.0) {
++		return;
++	}
++#endif
+ 	float light_length = length(light_rel_vec);
+ 	float omni_attenuation = get_omni_spot_attenuation(light_length, omni_lights[idx].inv_radius, omni_lights[idx].attenuation);
+ 	vec3 color = omni_lights[idx].color * omni_attenuation; // No light shaders here, so combine.
+@@ -454,6 +467,11 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float
+ 		inout vec3 diffuse_light,
+ 		inout vec3 specular_light) {
+ 	vec3 light_rel_vec = spot_lights[idx].position - vertex;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON)
++	if (spot_lights[idx].size <= 0.0 && dot(normal, light_rel_vec) <= 0.0) {
++		return;
++	}
++#endif
+ 	float light_length = length(light_rel_vec);
+ 	float spot_attenuation = get_omni_spot_attenuation(light_length, spot_lights[idx].inv_radius, spot_lights[idx].attenuation);
+ 	vec3 spot_dir = spot_lights[idx].direction;
+@@ -540,6 +558,9 @@ out vec3 binormal_interp;
+ #ifndef RENDER_MOTION_VECTORS
+ #ifdef USE_ADDITIVE_LIGHTING
+ out highp vec4 shadow_coord;
++#ifdef BATCH_OMNI
++out highp vec4 shadow_coord_extra[3];
++#endif
+ 
+ #if defined(LIGHT_USE_PSSM2) || defined(LIGHT_USE_PSSM4)
+ out highp vec4 shadow_coord2;
+@@ -786,6 +807,15 @@ void vertex_shader(vec4 vertex_angle_attrib_input,
+ #ifdef ADDITIVE_OMNI
+ 	// Can't interpolate unit direction nicely, so forget about prefetch.
+ 	shadow_coord = vec4(vertex_interp + normal_offset, 1.0);
++#ifdef BATCH_OMNI
++	for (uint j = 0u; j < omni_extra_count; j++) {
++		vec3 extra_rel = positional_shadows[positional_shadow_index_extra[j]].light_position - vertex_interp;
++		float extra_length = length(extra_rel);
++		float extra_dot = abs(dot(normalize(normal_interp), normalize(extra_rel)));
++		shadow_coord_extra[j] = vec4(vertex_interp + (1.0 - extra_dot) * positional_shadows[positional_shadow_index_extra[j]].shadow_normal_bias * extra_length * normal_interp, 1.0);
++	}
++#endif
++
+ #endif
+ #else // ADDITIVE_DIRECTIONAL
+ 	vec3 base_normal_bias = normalize(normal_interp) * (1.0 - max(0.0, dot(directional_shadows[directional_shadow_index].direction, -normalize(normal_interp))));
+@@ -1096,6 +1126,9 @@ in highp vec3 vertex_interp;
+ 
+ #ifdef USE_ADDITIVE_LIGHTING
+ in highp vec4 shadow_coord;
++#ifdef BATCH_OMNI
++in highp vec4 shadow_coord_extra[3];
++#endif
+ 
+ #if defined(LIGHT_USE_PSSM2) || defined(LIGHT_USE_PSSM4)
+ in highp vec4 shadow_coord2;
+@@ -1342,7 +1375,15 @@ uniform uint area_light_count;
+ #ifdef USE_ADDITIVE_LIGHTING
+ #ifdef ADDITIVE_OMNI
+ uniform highp samplerCubeShadow omni_shadow_texture; // texunit:-3
++#ifdef BATCH_OMNI
++uniform highp samplerCubeShadow omni_shadow_texture_extra; // texunit:-4
++uniform highp samplerCubeShadow omni_shadow_texture_extra2; // texunit:-5
++uniform highp samplerCubeShadow omni_shadow_texture_extra3; // texunit:-6
++#endif
+ uniform lowp uint omni_light_index;
++#ifdef BATCH_OMNI
++uniform lowp uint omni_light_index_extra[3];
++#endif
+ #endif
+ #ifdef ADDITIVE_SPOT
+ uniform highp sampler2DShadow spot_shadow_texture; // texunit:-3
+@@ -1363,6 +1404,10 @@ layout(std140) uniform PositionalShadows { // ubo:10
+ };
+ 
+ uniform lowp uint positional_shadow_index;
++#ifdef BATCH_OMNI
++uniform lowp uint positional_shadow_index_extra[3];
++uniform lowp uint omni_extra_count;
++#endif
+ #else // ADDITIVE_DIRECTIONAL
+ struct DirectionalShadowData {
+ 	highp vec3 direction;
+@@ -1740,7 +1785,17 @@ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
+ 		vec3 binormal, vec3 tangent, float anisotropy,
+ #endif
+ 		inout vec3 diffuse_light, inout vec3 specular_light) {
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (shadow == 0.0) {
++		return;
++	}
++#endif
+ 	vec3 light_rel_vec = omni_lights[idx].position - vertex;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON)
++	if (omni_lights[idx].size <= 0.0 && dot(normal, light_rel_vec) <= 0.0) {
++		return;
++	}
++#endif
+ 	float light_length = length(light_rel_vec);
+ 	float omni_attenuation = get_omni_spot_attenuation(light_length, omni_lights[idx].inv_radius, omni_lights[idx].attenuation);
+ 	vec3 color = omni_lights[idx].color;
+@@ -1752,6 +1807,11 @@ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
+ 	}
+ 
+ 	omni_attenuation *= shadow;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (omni_attenuation == 0.0) {
++		return;
++	}
++#endif
+ 
+ 	light_compute(normal, normalize(light_rel_vec), eye_vec, size_A, color, false, omni_attenuation, f0, roughness, metallic, omni_lights[idx].specular_amount, albedo, alpha, screen_uv,
+ #ifdef LIGHT_BACKLIGHT_USED
+@@ -1934,7 +1994,17 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
+ 		inout vec3 diffuse_light,
+ 		inout vec3 specular_light) {
+ 
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (shadow == 0.0) {
++		return;
++	}
++#endif
+ 	vec3 light_rel_vec = spot_lights[idx].position - vertex;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON)
++	if (spot_lights[idx].size <= 0.0 && dot(normal, light_rel_vec) <= 0.0) {
++		return;
++	}
++#endif
+ 	float light_length = length(light_rel_vec);
+ 	float spot_attenuation = get_omni_spot_attenuation(light_length, spot_lights[idx].inv_radius, spot_lights[idx].attenuation);
+ 	vec3 spot_dir = spot_lights[idx].direction;
+@@ -1954,6 +2024,11 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
+ 	}
+ 
+ 	spot_attenuation *= shadow;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (spot_attenuation == 0.0) {
++		return;
++	}
++#endif
+ 
+ 	light_compute(normal, normalize(light_rel_vec), eye_vec, size_A, color, false, spot_attenuation, f0, roughness, metallic, spot_lights[idx].specular_amount, albedo, alpha, screen_uv,
+ #ifdef LIGHT_BACKLIGHT_USED
+@@ -2185,6 +2260,111 @@ vec4 textureArray_bicubic(sampler2DArray tex, vec3 uv, vec2 texture_size) {
+ 
+ void main() {
+ #ifndef RENDER_MOTION_VECTORS
++
++#if defined(BATCH_OMNI) && !defined(BASE_PASS) && !defined(SHADOWS_DISABLED) && !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(CUSTOM_DEPTH_USED) && !defined(LIGHT_VERTEX_USED) && !defined(USE_SHADOW_TO_OPACITY)
++#define BATCH_EARLY_LIGHTING
++	vec4 batch_shadow = vec4(0.0);
++	vec3 batch_normal = normalize(normal_interp);
++#ifdef DO_SIDE_CHECK
++	if (!gl_FrontFacing) {
++		batch_normal = -batch_normal;
++	}
++#endif
++	for (uint j = 0u; j <= omni_extra_count; j++) {
++		uint li = j == 0u ? omni_light_index : omni_light_index_extra[j - 1u];
++		uint si = j == 0u ? positional_shadow_index : positional_shadow_index_extra[j - 1u];
++		vec3 ray = omni_lights[li].position - vertex_interp;
++		float distance_test = length(ray) * omni_lights[li].inv_radius;
++		float normal_test = dot(batch_normal, normalize(ray));
++		bool outside = distance_test - fwidth(distance_test) >= 1.0;
++		bool behind = omni_lights[li].size <= 0.0 && m_normal_deviation_limit >= 0.0 && normal_test + fwidth(normal_test) < -m_normal_deviation_limit;
++		if (!outside && !behind) {
++			vec4 coord = j == 0u ? shadow_coord : shadow_coord_extra[j - 1u];
++			vec3 sr = (positional_shadows[si].shadow_matrix * vec4(coord.xyz, 1.0)).xyz;
++			vec4 sp = vec4(sr, 1.0 - length(sr) * omni_lights[li].inv_radius);
++			float shadow;
++			if (j == 0u) {
++				shadow = texture(omni_shadow_texture, sp);
++			} else if (j == 1u) {
++				shadow = texture(omni_shadow_texture_extra, sp);
++			} else if (j == 2u) {
++				shadow = texture(omni_shadow_texture_extra2, sp);
++			} else {
++				shadow = texture(omni_shadow_texture_extra3, sp);
++			}
++			batch_shadow[j] = mix(1.0, shadow, omni_lights[li].shadow_opacity);
++		}
++	}
++	float batch_contribution = max(max(batch_shadow.x, batch_shadow.y), max(batch_shadow.z, batch_shadow.w));
++	if (batch_contribution == 0.0 && fwidth(batch_contribution) == 0.0) {
++		frag_color = vec4(0.0);
++		return;
++	}
++#endif
++
++#if !defined(BATCH_OMNI) && !defined(BASE_PASS) && defined(USE_ADDITIVE_LIGHTING) && !defined(MODE_RENDER_DEPTH) && !defined(RENDER_MATERIAL) && !defined(LIGHT_CODE_USED) && !defined(CUSTOM_DEPTH_USED) && !defined(LIGHT_VERTEX_USED) && !defined(USE_SHADOW_TO_OPACITY)
++#if defined(ADDITIVE_OMNI)
++	vec3 range_ray = omni_lights[omni_light_index].position - vertex_interp;
++	float range_test = length(range_ray) * omni_lights[omni_light_index].inv_radius;
++#elif defined(ADDITIVE_SPOT)
++	vec3 range_ray = spot_lights[spot_light_index].position - vertex_interp;
++	float range_test = length(range_ray) * spot_lights[spot_light_index].inv_radius;
++	float cone_test = dot(-normalize(range_ray), spot_lights[spot_light_index].direction) - spot_lights[spot_light_index].cone_angle;
++	if (cone_test + fwidth(cone_test) < 0.0) {
++		frag_color = vec4(0.0);
++		return;
++	}
++#endif
++#if defined(ADDITIVE_OMNI) || defined(ADDITIVE_SPOT)
++	if (range_test - fwidth(range_test) >= 1.0) {
++		frag_color = vec4(0.0);
++		return;
++	}
++#if (defined(MATERIAL_NORMAL_UNMODIFIED) || defined(MATERIAL_NORMAL_BOUNDED)) && defined(NORMAL_USED) && !defined(NORMAL_MAP_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON) && !defined(USE_VERTEX_LIGHTING)
++	vec3 material_normal = normal_interp;
++#ifdef DO_SIDE_CHECK
++	if (!gl_FrontFacing) {
++		material_normal = -material_normal;
++	}
++#endif
++	float normal_test = dot(normalize(material_normal), normalize(range_ray));
++#ifdef MATERIAL_NORMAL_BOUNDED
++	float normal_limit = m_normal_deviation_limit;
++#else
++	float normal_limit = 0.0;
++#endif
++#ifdef ADDITIVE_OMNI
++	float source_size = omni_lights[omni_light_index].size;
++#else
++	float source_size = spot_lights[spot_light_index].size;
++#endif
++	if (source_size <= 0.0 && normal_limit >= 0.0 && normal_test + fwidth(normal_test) < -normal_limit) {
++		frag_color = vec4(0.0);
++		return;
++	}
++#endif
++
++#endif
++#endif
++
++#if !defined(BATCH_OMNI) && !defined(BASE_PASS) && defined(USE_ADDITIVE_LIGHTING) && !defined(MODE_RENDER_DEPTH) && !defined(RENDER_MATERIAL) && !defined(SHADOWS_DISABLED) && !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(CUSTOM_DEPTH_USED) && !defined(LIGHT_VERTEX_USED) && !defined(USE_SHADOW_TO_OPACITY)
++#if defined(ADDITIVE_OMNI)
++	vec3 early_ray = (positional_shadows[positional_shadow_index].shadow_matrix * vec4(shadow_coord.xyz, 1.0)).xyz;
++	float early_shadow = texture(omni_shadow_texture, vec4(early_ray, 1.0 - length(early_ray) * omni_lights[omni_light_index].inv_radius));
++	early_shadow = mix(1.0, early_shadow, omni_lights[omni_light_index].shadow_opacity);
++#elif defined(ADDITIVE_SPOT)
++	float early_shadow = sample_shadow(spot_shadow_texture, positional_shadows[positional_shadow_index].shadow_atlas_pixel_size, shadow_coord);
++	early_shadow = mix(1.0, early_shadow, spot_lights[spot_light_index].shadow_opacity);
++#endif
++#if defined(ADDITIVE_OMNI) || defined(ADDITIVE_SPOT)
++	// Only skip the interior of a zero-contribution region; keep edge quads
++	// evaluating their material derivatives.
++	if (early_shadow == 0.0 && fwidth(early_shadow) == 0.0) {
++		frag_color = vec4(0.0);
++		return;
++	}
++#endif
++#endif
+ 	//lay out everything, whatever is unused is optimized away anyway
+ 	vec3 vertex = vertex_interp;
+ #ifdef USE_MULTIVIEW
+@@ -2989,66 +3169,120 @@ void main() {
+ #endif // !defined(ADDITIVE_OMNI) && !defined(ADDITIVE_SPOT)
+ 
+ #ifdef ADDITIVE_OMNI
+-	float omni_shadow = 1.0f;
+-#ifndef SHADOWS_DISABLED
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON) && !defined(USE_VERTEX_LIGHTING)
++	if (omni_lights[omni_light_index].size > 0.0 || dot(normal, omni_lights[omni_light_index].position - vertex) > 0.0) {
++#endif
++		float omni_shadow = 1.0f;
++#if defined(BATCH_EARLY_LIGHTING)
++		omni_shadow = batch_shadow.x;
++#elif !defined(BATCH_OMNI) && !defined(BASE_PASS) && defined(USE_ADDITIVE_LIGHTING) && !defined(MODE_RENDER_DEPTH) && !defined(RENDER_MATERIAL) && !defined(SHADOWS_DISABLED) && !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(CUSTOM_DEPTH_USED) && !defined(LIGHT_VERTEX_USED) && !defined(USE_SHADOW_TO_OPACITY)
++	omni_shadow = early_shadow;
++#elif !defined(SHADOWS_DISABLED)
+ 	vec3 light_ray = ((positional_shadows[positional_shadow_index].shadow_matrix * vec4(shadow_coord.xyz, 1.0))).xyz;
+ 	omni_shadow = texture(omni_shadow_texture, vec4(light_ray, 1.0 - length(light_ray) * omni_lights[omni_light_index].inv_radius));
+ 	omni_shadow = mix(1.0, omni_shadow, omni_lights[omni_light_index].shadow_opacity);
+ #endif // SHADOWS_DISABLED
+ 
+ #ifndef USE_VERTEX_LIGHTING
+-	light_process_omni(omni_light_index, vertex, view, normal, f0, roughness, metallic, omni_shadow, albedo, alpha, screen_uv,
++		light_process_omni(omni_light_index, vertex, view, normal, f0, roughness, metallic, omni_shadow, albedo, alpha, screen_uv,
+ #ifdef LIGHT_BACKLIGHT_USED
+-			backlight,
++				backlight,
+ #endif
+ #ifdef LIGHT_RIM_USED
+-			rim,
+-			rim_tint,
++				rim,
++				rim_tint,
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-			clearcoat, clearcoat_roughness, geo_normal,
++				clearcoat, clearcoat_roughness, geo_normal,
+ #endif // LIGHT_CLEARCOAT_USED
+ #ifdef LIGHT_ANISOTROPY_USED
+-			binormal, tangent, anisotropy,
++				binormal, tangent, anisotropy,
+ #endif
+-			diffuse_light, specular_light);
++				diffuse_light, specular_light);
+ #else
+ 	// Just apply shadows to vertex lighting.
+ 	diffuse_light *= omni_shadow;
+ 	specular_light *= omni_shadow;
+ #endif // !USE_VERTEX_LIGHTING
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON) && !defined(USE_VERTEX_LIGHTING)
++	}
++#endif
+ #endif // ADDITIVE_OMNI
++#ifdef BATCH_OMNI
++	vec3 batch_extra_color = vec3(0.0);
++	for (uint j = 0u; j < omni_extra_count; j++) {
++		if (omni_lights[omni_light_index_extra[j]].size > 0.0 || dot(normal, omni_lights[omni_light_index_extra[j]].position - vertex) > 0.0) {
++#ifdef BATCH_EARLY_LIGHTING
++			float extra_shadow = batch_shadow[j + 1u];
++#else
++			vec3 extra_ray = (positional_shadows[positional_shadow_index_extra[j]].shadow_matrix * shadow_coord_extra[j]).xyz;
++			vec4 extra_sample = vec4(extra_ray, 1.0 - length(extra_ray) * omni_lights[omni_light_index_extra[j]].inv_radius);
++			float extra_shadow;
++			if (j == 0u) {
++				extra_shadow = texture(omni_shadow_texture_extra, extra_sample);
++			} else if (j == 1u) {
++				extra_shadow = texture(omni_shadow_texture_extra2, extra_sample);
++			} else {
++				extra_shadow = texture(omni_shadow_texture_extra3, extra_sample);
++			}
++			extra_shadow = mix(1.0, extra_shadow, omni_lights[omni_light_index_extra[j]].shadow_opacity);
++#endif
++			vec3 extra_diffuse = vec3(0.0);
++			vec3 extra_specular = vec3(0.0);
++			light_process_omni(omni_light_index_extra[j], vertex, view, normal, f0, roughness, metallic, extra_shadow, albedo, alpha, screen_uv, extra_diffuse, extra_specular);
++			// Compatibility blends each additive pass in sRGB. Preserve that order
++			// of operations even when several lights share one material evaluation.
++			vec3 extra_color = extra_diffuse * albedo * (1.0 - metallic) + extra_specular;
++#ifndef FOG_DISABLED
++			extra_color *= 1.0 - unpackHalf2x16(fog_ba).y;
++#endif
++			extra_color *= exposure;
++#ifdef APPLY_TONEMAPPING
++			extra_color = apply_tonemapping(extra_color);
++#endif
++			batch_extra_color += linear_to_srgb(extra_color);
++		}
++	}
++#endif
+ 
+ #ifdef ADDITIVE_SPOT
+-	float spot_shadow = 1.0f;
+-#ifndef SHADOWS_DISABLED
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON) && !defined(USE_VERTEX_LIGHTING)
++	if (spot_lights[spot_light_index].size > 0.0 || dot(normal, spot_lights[spot_light_index].position - vertex) > 0.0) {
++#endif
++		float spot_shadow = 1.0f;
++#if !defined(BATCH_OMNI) && !defined(BASE_PASS) && defined(USE_ADDITIVE_LIGHTING) && !defined(MODE_RENDER_DEPTH) && !defined(RENDER_MATERIAL) && !defined(SHADOWS_DISABLED) && !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(CUSTOM_DEPTH_USED) && !defined(LIGHT_VERTEX_USED) && !defined(USE_SHADOW_TO_OPACITY)
++		spot_shadow = early_shadow;
++#elif !defined(SHADOWS_DISABLED)
+ 	spot_shadow = sample_shadow(spot_shadow_texture, positional_shadows[positional_shadow_index].shadow_atlas_pixel_size, shadow_coord);
+ 	spot_shadow = mix(1.0, spot_shadow, spot_lights[spot_light_index].shadow_opacity);
+ #endif // SHADOWS_DISABLED
+ 
+ #ifndef USE_VERTEX_LIGHTING
+-	light_process_spot(spot_light_index, vertex, view, normal, f0, roughness, metallic, spot_shadow, albedo, alpha, screen_uv,
++		light_process_spot(spot_light_index, vertex, view, normal, f0, roughness, metallic, spot_shadow, albedo, alpha, screen_uv,
+ #ifdef LIGHT_BACKLIGHT_USED
+-			backlight,
++				backlight,
+ #endif
+ #ifdef LIGHT_RIM_USED
+-			rim,
+-			rim_tint,
++				rim,
++				rim_tint,
+ #endif
+ #ifdef LIGHT_CLEARCOAT_USED
+-			clearcoat, clearcoat_roughness, geo_normal,
++				clearcoat, clearcoat_roughness, geo_normal,
+ #endif // LIGHT_RIM_USED
+ #ifdef LIGHT_ANISOTROPY_USED
+-			tangent,
+-			binormal, anisotropy,
++				tangent,
++				binormal, anisotropy,
+ #endif
+-			diffuse_light, specular_light);
++				diffuse_light, specular_light);
+ #else
+ 	// Just apply shadows to vertex lighting.
+ 	diffuse_light *= spot_shadow;
+ 	specular_light *= spot_shadow;
+ #endif // !USE_VERTEX_LIGHTING
+ 
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON) && !defined(USE_VERTEX_LIGHTING)
++	}
++#endif
+ #endif // ADDITIVE_SPOT
+ 
+ 	diffuse_light *= albedo;
+@@ -3070,6 +3304,9 @@ void main() {
+ 	additive_light_color = linear_to_srgb(additive_light_color);
+ 
+ 	frag_color.rgb += additive_light_color;
++#ifdef BATCH_OMNI
++	frag_color.rgb += batch_extra_color;
++#endif
+ #endif // USE_ADDITIVE_LIGHTING
+ 	frag_color.rgb *= scene_data_block.data.luminance_multiplier;
+ 
+diff --git a/drivers/gles3/storage/light_storage.cpp b/drivers/gles3/storage/light_storage.cpp
+index 94c31ae..8837332 100644
+--- a/drivers/gles3/storage/light_storage.cpp
++++ b/drivers/gles3/storage/light_storage.cpp
+@@ -1549,10 +1549,16 @@ bool LightStorage::shadow_atlas_update_light(RID p_atlas, RID p_light_instance,
+ 
+ 		// Update it in map.
+ 		shadow_atlas->shadow_owners[p_light_instance] = new_key;
++		for (int i = 0; i < 6; i++) {
++			li->face_signature[i] = 0;
++		}
+ 		// Make it dirty, as it should redraw anyway.
+ 		return true;
+ 	}
+ 
++	if (old_quadrant != SHADOW_INVALID) {
++		shadow_atlas->quadrants[old_quadrant].shadows.write[old_shadow].version = p_light_version;
++	}
+ 	return should_redraw;
+ }
+ 
+diff --git a/drivers/gles3/storage/light_storage.h b/drivers/gles3/storage/light_storage.h
+index 10d31a7..54fe047 100644
+--- a/drivers/gles3/storage/light_storage.h
++++ b/drivers/gles3/storage/light_storage.h
+@@ -76,6 +76,7 @@ struct Light {
+ 
+ /* Light instance */
+ struct LightInstance {
++	uint64_t face_signature[6] = {};
+ 	struct ShadowTransform {
+ 		Projection camera;
+ 		Transform3D transform;
+diff --git a/drivers/gles3/storage/material_storage.cpp b/drivers/gles3/storage/material_storage.cpp
+index e81f66e..59a22ad 100644
+--- a/drivers/gles3/storage/material_storage.cpp
++++ b/drivers/gles3/storage/material_storage.cpp
+@@ -1326,6 +1326,7 @@ MaterialStorage::MaterialStorage() {
+ 		actions.renames["INSTANCE_CUSTOM"] = "instance_custom";
+ 		actions.renames["SCREEN_UV"] = "screen_uv";
+ 		actions.renames["DEPTH"] = "gl_FragDepth";
++		actions.usage_defines["DEPTH"] = "#define CUSTOM_DEPTH_USED\n";
+ 		actions.renames["FOG"] = "fog";
+ 		actions.renames["RADIANCE"] = "custom_radiance";
+ 		actions.renames["IRRADIANCE"] = "custom_irradiance";
+@@ -2967,6 +2968,7 @@ void SceneShaderData::set_code(const String &p_code) {
+ 
+ 	code = p_code;
+ 	valid = false;
++	can_batch_omni = false;
+ 	ubo_size = 0;
+ 	uniforms.clear();
+ 
+@@ -3119,6 +3121,18 @@ void SceneShaderData::set_code(const String &p_code) {
+ 		version = MaterialStorage::get_singleton()->shaders.scene_shader.version_create();
+ 	}
+ 
++	if (!gen_code.uses_fragment_normal) {
++		gen_code.defines.push_back("#define MATERIAL_NORMAL_UNMODIFIED\n");
++	}
++	if (uniforms.has("normal_deviation_limit") && uniforms["normal_deviation_limit"].type == ShaderLanguage::TYPE_FLOAT && uniforms["normal_deviation_limit"].scope == ShaderLanguage::ShaderNode::Uniform::SCOPE_LOCAL) {
++		gen_code.defines.push_back("#define MATERIAL_NORMAL_BOUNDED\n");
++	}
++	can_batch_omni = uniforms.has("normal_deviation_limit") && uniforms["normal_deviation_limit"].type == ShaderLanguage::TYPE_FLOAT && uniforms["normal_deviation_limit"].scope == ShaderLanguage::ShaderNode::Uniform::SCOPE_LOCAL;
++	for (const String &define : gen_code.defines) {
++		if (define.contains("LIGHT_CODE_USED") || define.contains("LIGHT_BACKLIGHT_USED") || define.contains("LIGHT_TRANSMITTANCE_USED") || define.contains("LIGHT_RIM_USED") || define.contains("LIGHT_CLEARCOAT_USED") || define.contains("LIGHT_ANISOTROPY_USED") || define.contains("NORMAL_MAP_USED") || define.contains("USE_VERTEX_LIGHTING") || define.contains("USE_SHADOW_TO_OPACITY") || define.contains("CUSTOM_DEPTH_USED") || define.contains("LIGHT_VERTEX_USED") || define.contains("DIFFUSE_LAMBERT_WRAP") || define.contains("DIFFUSE_TOON") || define.contains("SPECULAR_TOON")) {
++			can_batch_omni = false;
++		}
++	}
+ 	blend_mode = BlendMode(blend_modei);
+ 	alpha_antialiasing_mode = AlphaAntiAliasing(alpha_antialiasing_modei);
+ 	depth_draw = DepthDraw(depth_drawi);
+diff --git a/drivers/gles3/storage/material_storage.h b/drivers/gles3/storage/material_storage.h
+index 97cf61c..21835f3 100644
+--- a/drivers/gles3/storage/material_storage.h
++++ b/drivers/gles3/storage/material_storage.h
+@@ -242,6 +242,7 @@ MaterialData *_create_sky_material_func(ShaderData *p_shader);
+ /* Scene Materials */
+ 
+ struct SceneShaderData : public ShaderData {
++	bool can_batch_omni = false;
+ 	enum BlendMode { // Used internally.
+ 		BLEND_MODE_MIX,
+ 		BLEND_MODE_ADD,
+diff --git a/drivers/gles3/storage/mesh_storage.cpp b/drivers/gles3/storage/mesh_storage.cpp
+index 420702a..07454e4 100644
+--- a/drivers/gles3/storage/mesh_storage.cpp
++++ b/drivers/gles3/storage/mesh_storage.cpp
+@@ -677,6 +677,20 @@ int MeshStorage::mesh_get_surface_count(RID p_mesh) const {
+ 	return mesh->surface_count;
+ }
+ 
++bool MeshStorage::mesh_has_lods(RID p_mesh) const {
++	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
++	ERR_FAIL_NULL_V(mesh, true);
++	if (mesh->shadow_mesh.is_valid()) {
++		return true; // The separate shadow mesh may have its own LOD chain.
++	}
++	for (uint32_t i = 0; i < mesh->surface_count; i++) {
++		if (mesh->surfaces[i]->lod_count > 0) {
++			return true;
++		}
++	}
++	return false;
++}
++
+ void MeshStorage::mesh_set_custom_aabb(RID p_mesh, const AABB &p_aabb) {
+ 	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+ 	ERR_FAIL_NULL(mesh);
+diff --git a/drivers/gles3/storage/mesh_storage.h b/drivers/gles3/storage/mesh_storage.h
+index d9ab1b7..e36ff78 100644
+--- a/drivers/gles3/storage/mesh_storage.h
++++ b/drivers/gles3/storage/mesh_storage.h
+@@ -322,6 +322,7 @@ public:
+ 
+ 	virtual RenderingServerTypes::SurfaceData mesh_get_surface(RID p_mesh, int p_surface) const override;
+ 	virtual int mesh_get_surface_count(RID p_mesh) const override;
++	virtual bool mesh_has_lods(RID p_mesh) const override;
+ 
+ 	virtual void mesh_set_custom_aabb(RID p_mesh, const AABB &p_aabb) override;
+ 	virtual AABB mesh_get_custom_aabb(RID p_mesh) const override;
+diff --git a/servers/rendering/renderer_rd/effects/copy_effects.cpp b/servers/rendering/renderer_rd/effects/copy_effects.cpp
+index 1a8340c..31ee9e6 100644
+--- a/servers/rendering/renderer_rd/effects/copy_effects.cpp
++++ b/servers/rendering/renderer_rd/effects/copy_effects.cpp
+@@ -1081,7 +1081,7 @@ void CopyEffects::set_color_raster(RID p_dest_texture, const Color &p_color, con
+ 	RD::get_singleton()->draw_list_end();
+ }
+ 
+-void CopyEffects::copy_cubemap_to_dp(RID p_source_rd_texture, RID p_dst_framebuffer, const Rect2 &p_rect, const Vector2 &p_dst_size, float p_z_near, float p_z_far, bool p_dp_flip) {
++void CopyEffects::copy_cubemap_to_dp(RID p_source_rd_texture, RID p_dst_framebuffer, const Rect2 &p_rect, const Vector2 &p_dst_size, float p_z_near, float p_z_far, bool p_dp_flip, RenderingDevice::DrawListID p_draw_list) {
+ 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+ 	ERR_FAIL_NULL(uniform_set_cache);
+ 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+@@ -1110,14 +1110,22 @@ void CopyEffects::copy_cubemap_to_dp(RID p_source_rd_texture, RID p_dst_framebuf
+ 	RID shader = cube_to_dp.shader.version_get_shader(cube_to_dp.shader_version, 0);
+ 	ERR_FAIL_COND(shader.is_null());
+ 
+-	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 1.0f, 0, screen_rect);
++	RD::DrawListID draw_list = p_draw_list;
++	if (draw_list == RD::INVALID_ID) {
++		draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 1.0f, 0, screen_rect);
++	} else {
++		RD::get_singleton()->draw_list_set_viewport(draw_list, screen_rect);
++		RD::get_singleton()->draw_list_enable_scissor(draw_list, screen_rect);
++	}
+ 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, cube_to_dp.pipeline.get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer)));
+ 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_rd_texture), 0);
+ 	RD::get_singleton()->draw_list_bind_index_array(draw_list, material_storage->get_quad_index_array());
+ 
+ 	RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, sizeof(CopyToDPPushConstant));
+ 	RD::get_singleton()->draw_list_draw(draw_list, true);
+-	RD::get_singleton()->draw_list_end();
++	if (p_draw_list == RD::INVALID_ID) {
++		RD::get_singleton()->draw_list_end();
++	}
+ }
+ 
+ void CopyEffects::copy_cubemap_to_octmap(RID p_source_rd_texture, RID p_dst_framebuffer, float p_border_size) {
+diff --git a/servers/rendering/renderer_rd/effects/copy_effects.h b/servers/rendering/renderer_rd/effects/copy_effects.h
+index 6e6a843..1cc5cd9 100644
+--- a/servers/rendering/renderer_rd/effects/copy_effects.h
++++ b/servers/rendering/renderer_rd/effects/copy_effects.h
+@@ -387,7 +387,7 @@ public:
+ 	void set_color(RID p_dest_texture, const Color &p_color, const Rect2i &p_region, bool p_8bit_dst = false);
+ 	void set_color_raster(RID p_dest_texture, const Color &p_color, const Rect2i &p_region);
+ 
+-	void copy_cubemap_to_dp(RID p_source_rd_texture, RID p_dst_framebuffer, const Rect2 &p_rect, const Vector2 &p_dst_size, float p_z_near, float p_z_far, bool p_dp_flip);
++	void copy_cubemap_to_dp(RID p_source_rd_texture, RID p_dst_framebuffer, const Rect2 &p_rect, const Vector2 &p_dst_size, float p_z_near, float p_z_far, bool p_dp_flip, RenderingDevice::DrawListID p_draw_list = RenderingDevice::INVALID_ID);
+ 	void copy_cubemap_to_octmap(RID p_source_rd_texture, RID p_dst_framebuffer, float p_border_size);
+ 	void octmap_downsample(RID p_source_octmap, RID p_dest_octmap, const Size2i &p_size, float p_border_size);
+ 	void octmap_downsample_raster(RID p_source_octmap, RID p_dest_framebuffer, const Size2i &p_size, float p_border_size);
+diff --git a/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp b/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp
+index 0edef2c..ec87f76 100644
+--- a/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp
++++ b/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp
+@@ -1539,6 +1539,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
+ 		viewport_size = rb->get_internal_size();
+ 	}
+ 
++	shadow_cube_copies.clear();
+ 	p_render_data->cube_shadows.clear();
+ 	p_render_data->shadows.clear();
+ 	p_render_data->directional_shadows.clear();
+@@ -1562,9 +1563,16 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
+ 			RENDER_TIMESTAMP("Render OmniLight Shadows");
+ 			// Cube shadows are rendered in their own way.
+ 			for (const int &index : p_render_data->cube_shadows) {
+-				_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
++				_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform, p_render_data->render_shadows[index].face_signature);
+ 			}
+ 		}
++		if (!shadow_cube_copies.is_empty()) {
++			RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(shadow_cube_copies[0].target, RD::DRAW_DEFAULT_ALL);
++			for (const ShadowCubeCopy &copy : shadow_cube_copies) {
++				copy_effects->copy_cubemap_to_dp(copy.source, copy.target, copy.rect, copy.size, copy.z_near, copy.z_far, copy.flip, draw_list);
++			}
++			RD::get_singleton()->draw_list_end();
++		}
+ 
+ 		if (p_render_data->directional_shadows.size()) {
+ 			//open the pass for directional shadows
+@@ -2602,7 +2610,7 @@ void RenderForwardClustered::_render_buffers_debug_draw(const RenderDataRD *p_re
+ 	}
+ }
+ 
+-void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform) {
++void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform, uint64_t p_face_signature) {
+ 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
+ 
+ 	ERR_FAIL_COND(!light_storage->owns_light_instance(p_light));
+@@ -2623,6 +2631,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
+ 
+ 	bool use_pancake = false;
+ 	bool render_cubemap = false;
++	bool update_cube_face = true;
+ 	bool finalize_cubemap = false;
+ 
+ 	bool flip_y = false;
+@@ -2713,8 +2722,9 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
+ 			dual_paraboloid_offset = wrap ? Vector2i(1 - subdivision, 1) : Vector2i(1, 0);
+ 
+ 			if (light_storage->light_omni_get_shadow_mode(base) == RSE::LIGHT_OMNI_SHADOW_CUBE) {
+-				render_texture = light_storage->get_cubemap(shadow_size / 2);
+-				render_fb = light_storage->get_cubemap_fb(shadow_size / 2, p_pass);
++				render_texture = light_storage->get_cubemap(shadow_size / 2, p_light);
++				render_fb = light_storage->get_cubemap_fb(shadow_size / 2, p_pass, p_light);
++				update_cube_face = light_storage->cubemap_face_needs_update(shadow_size / 2, p_light, p_pass, p_face_signature);
+ 
+ 				light_projection = light_storage->light_instance_get_shadow_camera(p_light, p_pass);
+ 				light_transform = light_storage->light_instance_get_shadow_transform(p_light, p_pass);
+@@ -2771,7 +2781,9 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
+ 
+ 	if (render_cubemap) {
+ 		//rendering to cubemap
+-		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, p_lod_distance_multiplier, p_screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform);
++		if (update_cube_face) {
++			_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, p_lod_distance_multiplier, p_screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform);
++		}
+ 		if (finalize_cubemap) {
+ 			_render_shadow_process();
+ 			_render_shadow_end();
+@@ -2779,9 +2791,11 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
+ 			Rect2 atlas_rect_norm = atlas_rect;
+ 			atlas_rect_norm.position /= float(atlas_size);
+ 			atlas_rect_norm.size /= float(atlas_size);
+-			copy_effects->copy_cubemap_to_dp(render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, false);
+-			atlas_rect_norm.position += Vector2(dual_paraboloid_offset) * atlas_rect_norm.size;
+-			copy_effects->copy_cubemap_to_dp(render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, true);
++			if (light_storage->cubemap_needs_copy(p_light, atlas_fb, atlas_rect_norm)) {
++				shadow_cube_copies.push_back({ render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, false });
++				atlas_rect_norm.position += Vector2(dual_paraboloid_offset) * atlas_rect_norm.size;
++				shadow_cube_copies.push_back({ render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, true });
++			}
+ 
+ 			//restore transform so it can be properly used
+ 			light_storage->light_instance_set_shadow_transform(p_light, Projection(), light_storage->light_instance_get_base_transform(p_light), zfar, 0, 0, 0);
+diff --git a/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h b/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h
+index be97ee2..132dfe2 100644
+--- a/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h
++++ b/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h
+@@ -764,9 +764,20 @@ private:
+ 
+ 	void _update_volumetric_fog(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const Projection &p_cam_projection, const Transform3D &p_cam_transform, const Transform3D &p_prev_cam_inv_transform, RID p_shadow_atlas, int p_directional_light_count, bool p_use_directional_shadows, int p_positional_light_count, int p_voxel_gi_count, const PagedArray<RID> &p_fog_volumes);
+ 
++	struct ShadowCubeCopy {
++		RID source;
++		RID target;
++		Rect2 rect;
++		Vector2 size;
++		float z_near;
++		float z_far;
++		bool flip;
++	};
++	Vector<ShadowCubeCopy> shadow_cube_copies;
++
+ 	/* Render shadows */
+ 
+-	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
++	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D(), uint64_t p_face_signature = 0);
+ 	void _render_shadow_begin();
+ 	void _render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier = 0.0, float p_screen_mesh_lod_threshold = 0.0, const Rect2i &p_rect = Rect2i(), bool p_flip_y = false, bool p_clear_region = true, bool p_begin = true, bool p_end = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
+ 	void _render_shadow_process();
+diff --git a/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp b/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp
+index 18367d9..5492a2e 100644
+--- a/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp
++++ b/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.cpp
+@@ -769,6 +769,7 @@ void RenderForwardMobile::_pre_opaque_render(RenderDataRD *p_render_data) {
+ 
+ 	RENDER_TIMESTAMP("Setup Shadows");
+ 
++	shadow_cube_copies.clear();
+ 	p_render_data->cube_shadows.clear();
+ 	p_render_data->shadows.clear();
+ 	p_render_data->directional_shadows.clear();
+@@ -790,7 +791,15 @@ void RenderForwardMobile::_pre_opaque_render(RenderDataRD *p_render_data) {
+ 
+ 		//cube shadows are rendered in their own way
+ 		for (const int &index : p_render_data->cube_shadows) {
+-			_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, p_render_data->scene_data->cam_transform);
++			_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, p_render_data->scene_data->cam_transform, p_render_data->render_shadows[index].face_signature);
++		}
++
++		if (!shadow_cube_copies.is_empty()) {
++			RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(shadow_cube_copies[0].target, RD::DRAW_DEFAULT_ALL);
++			for (const ShadowCubeCopy &copy : shadow_cube_copies) {
++				copy_effects->copy_cubemap_to_dp(copy.source, copy.target, copy.rect, copy.size, copy.z_near, copy.z_far, copy.flip, draw_list);
++			}
++			RD::get_singleton()->draw_list_end();
+ 		}
+ 
+ 		if (p_render_data->directional_shadows.size()) {
+@@ -1398,7 +1407,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
+ 
+ /* these are being called from RendererSceneRenderRD::_pre_opaque_render */
+ 
+-void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Transform3D &p_main_cam_transform) {
++void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Transform3D &p_main_cam_transform, uint64_t p_face_signature) {
+ 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
+ 
+ 	ERR_FAIL_COND(!light_storage->owns_light_instance(p_light));
+@@ -1418,6 +1427,7 @@ void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, i
+ 
+ 	bool use_pancake = false;
+ 	bool render_cubemap = false;
++	bool update_cube_face = true;
+ 	bool finalize_cubemap = false;
+ 
+ 	bool flip_y = false;
+@@ -1508,8 +1518,9 @@ void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, i
+ 			dual_paraboloid_offset = wrap ? Vector2i(1 - subdivision, 1) : Vector2i(1, 0);
+ 
+ 			if (light_storage->light_omni_get_shadow_mode(base) == RSE::LIGHT_OMNI_SHADOW_CUBE) {
+-				render_texture = light_storage->get_cubemap(shadow_size / 2);
+-				render_fb = light_storage->get_cubemap_fb(shadow_size / 2, p_pass);
++				render_texture = light_storage->get_cubemap(shadow_size / 2, p_light);
++				render_fb = light_storage->get_cubemap_fb(shadow_size / 2, p_pass, p_light);
++				update_cube_face = light_storage->cubemap_face_needs_update(shadow_size / 2, p_light, p_pass, p_face_signature);
+ 
+ 				light_projection = light_storage->light_instance_get_shadow_camera(p_light, p_pass);
+ 				light_transform = light_storage->light_instance_get_shadow_transform(p_light, p_pass);
+@@ -1562,7 +1573,9 @@ void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, i
+ 
+ 	if (render_cubemap) {
+ 		//rendering to cubemap
+-		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, false, false, use_pancake, p_lod_distance_multiplier, p_screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_main_cam_transform);
++		if (update_cube_face) {
++			_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, false, false, use_pancake, p_lod_distance_multiplier, p_screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_main_cam_transform);
++		}
+ 		if (finalize_cubemap) {
+ 			_render_shadow_process();
+ 			_render_shadow_end();
+@@ -1571,9 +1584,11 @@ void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, i
+ 			Rect2 atlas_rect_norm = atlas_rect;
+ 			atlas_rect_norm.position /= float(atlas_size);
+ 			atlas_rect_norm.size /= float(atlas_size);
+-			copy_effects->copy_cubemap_to_dp(render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, false);
+-			atlas_rect_norm.position += Vector2(dual_paraboloid_offset) * atlas_rect_norm.size;
+-			copy_effects->copy_cubemap_to_dp(render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, true);
++			if (light_storage->cubemap_needs_copy(p_light, atlas_fb, atlas_rect_norm)) {
++				shadow_cube_copies.push_back({ render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, false });
++				atlas_rect_norm.position += Vector2(dual_paraboloid_offset) * atlas_rect_norm.size;
++				shadow_cube_copies.push_back({ render_texture, atlas_fb, atlas_rect_norm, atlas_rect.size, light_projection.get_z_near(), zfar, true });
++			}
+ 
+ 			//restore transform so it can be properly used
+ 			light_storage->light_instance_set_shadow_transform(p_light, Projection(), light_storage->light_instance_get_base_transform(p_light), zfar, 0, 0, 0);
+diff --git a/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.h b/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.h
+index 0b156b0..19a6e11 100644
+--- a/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.h
++++ b/servers/rendering/renderer_rd/forward_mobile/render_forward_mobile.h
+@@ -47,6 +47,16 @@ protected:
+ 
+ private:
+ 	static RenderForwardMobile *singleton;
++	struct ShadowCubeCopy {
++		RID source;
++		RID target;
++		Rect2 rect;
++		Vector2 size;
++		float z_near;
++		float z_far;
++		bool flip;
++	};
++	Vector<ShadowCubeCopy> shadow_cube_copies;
+ 
+ 	/* Scene Shader */
+ 
+@@ -160,7 +170,7 @@ private:
+ 
+ 	/* Render shadows */
+ 
+-	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Transform3D &p_main_cam_transform = Transform3D());
++	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Transform3D &p_main_cam_transform = Transform3D(), uint64_t p_face_signature = 0);
+ 	void _render_shadow_begin();
+ 	void _render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier = 0.0, float p_screen_mesh_lod_threshold = 0.0, const Rect2i &p_rect = Rect2i(), bool p_flip_y = false, bool p_clear_region = true, bool p_begin = true, bool p_end = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Transform3D &p_main_cam_transform = Transform3D());
+ 	void _render_shadow_process();
+diff --git a/servers/rendering/renderer_rd/shaders/scene_forward_lights_inc.glsl b/servers/rendering/renderer_rd/shaders/scene_forward_lights_inc.glsl
+index 70e6c08..5ed5bd1 100644
+--- a/servers/rendering/renderer_rd/shaders/scene_forward_lights_inc.glsl
++++ b/servers/rendering/renderer_rd/shaders/scene_forward_lights_inc.glsl
+@@ -381,6 +381,18 @@ half sample_omni_pcf_shadow(texture2D shadow, float blur_scale, vec2 coord, vec4
+ 
+ 	float avg = 0.0;
+ 	vec2 offset_scale = blur_scale * 2.0 * scene_data_block.data.shadow_atlas_pixel_size / uv_rect.zw;
++	// All taps strictly within one hemisphere need no seam remapping.
++	float interior_radius = 1.0 - length(offset_scale);
++	if (interior_radius > 0.0 && dot(coord, coord) < interior_radius * interior_radius) {
++		vec2 origin = uv_rect.xy + (coord * 0.5 + 0.5) * uv_rect.zw;
++		vec2 texel_scale = blur_scale * scene_data_block.data.shadow_atlas_pixel_size;
++		SPEC_CONSTANT_LOOP_ANNOTATION
++		for (uint i = 0; i < sc_soft_shadow_samples(); i++) {
++			vec2 offset = texel_scale * (disk_rotation * scene_data_block.data.soft_shadow_kernel[i].xy);
++			avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(origin + offset, depth, 1.0));
++		}
++		return half(avg * (1.0 / float(sc_soft_shadow_samples())));
++	}
+ 
+ 	SPEC_CONSTANT_LOOP_ANNOTATION
+ 	for (uint i = 0; i < sc_soft_shadow_samples(); i++) {
+@@ -485,8 +497,18 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
+ 
+ 	// Omni light attenuation.
+ 	vec3 light_rel_vec = omni_lights.data[idx].position - vertex;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON)
++	if (omni_lights.data[idx].size <= 0.0 && dot(vec3(normal), light_rel_vec) <= 0.0) {
++		return;
++	}
++#endif
+ 	float light_length = length(light_rel_vec);
+ 	half omni_attenuation = get_omni_attenuation(light_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation);
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (omni_attenuation == half(0.0)) {
++		return;
++	}
++#endif
+ 
+ 	// Compute size.
+ 	half size = half(0.0);
+@@ -628,6 +650,11 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
+ 	}
+ #endif
+ 
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (shadow == half(0.0)) {
++		return;
++	}
++#endif
+ 	vec3 color = omni_lights.data[idx].color;
+ 
+ #ifdef LIGHT_TRANSMITTANCE_USED
+@@ -787,9 +814,19 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
+ 
+ 	// Spot light attenuation.
+ 	vec3 light_rel_vec = spot_lights.data[idx].position - vertex;
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_BACKLIGHT_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED) && !defined(LIGHT_CLEARCOAT_USED) && !defined(DIFFUSE_LAMBERT_WRAP) && !defined(DIFFUSE_TOON) && !defined(SPECULAR_TOON)
++	if (spot_lights.data[idx].size <= 0.0 && dot(vec3(normal), light_rel_vec) <= 0.0) {
++		return;
++	}
++#endif
+ 	float light_length = length(light_rel_vec);
+ 	hvec3 light_rel_vec_norm = hvec3(light_rel_vec / light_length);
+ 	half spot_attenuation = get_omni_attenuation(light_length, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation);
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (spot_attenuation == half(0.0)) {
++		return;
++	}
++#endif
+ 	vec3 spot_dir = spot_lights.data[idx].direction;
+ 	float cone_angle = spot_lights.data[idx].cone_angle;
+ 	float scos = max(dot(-vec3(light_rel_vec_norm), spot_dir), cone_angle);
+@@ -882,6 +919,11 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
+ 	}
+ #endif // SHADOWS_DISABLED
+ 
++#if !defined(LIGHT_CODE_USED) && !defined(LIGHT_TRANSMITTANCE_USED) && !defined(LIGHT_RIM_USED)
++	if (shadow == half(0.0)) {
++		return;
++	}
++#endif
+ 	vec3 color = spot_lights.data[idx].color;
+ 
+ #ifdef LIGHT_TRANSMITTANCE_USED
+diff --git a/servers/rendering/renderer_rd/storage_rd/light_storage.cpp b/servers/rendering/renderer_rd/storage_rd/light_storage.cpp
+index 48ec434..1de02f2 100644
+--- a/servers/rendering/renderer_rd/storage_rd/light_storage.cpp
++++ b/servers/rendering/renderer_rd/storage_rd/light_storage.cpp
+@@ -81,7 +81,7 @@ LightStorage::~LightStorage() {
+ 	free_reflection_data();
+ 	free_light_data();
+ 
+-	for (const KeyValue<int, ShadowCubemap> &E : shadow_cubemaps) {
++	for (const KeyValue<uint64_t, ShadowCubemap> &E : shadow_cubemaps) {
+ 		RD::get_singleton()->free_rid(E.value.cubemap);
+ 	}
+ 
+@@ -566,6 +566,10 @@ RID LightStorage::light_instance_create(RID p_light) {
+ }
+ 
+ void LightStorage::light_instance_free(RID p_light) {
++	if (shadow_cubemaps.has(p_light.get_id())) {
++		RD::get_singleton()->free_rid(shadow_cubemaps[p_light.get_id()].cubemap);
++		shadow_cubemaps.erase(p_light.get_id());
++	}
+ 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light);
+ 
+ 	//remove from shadow atlases..
+@@ -2706,10 +2710,16 @@ bool LightStorage::shadow_atlas_update_light(RID p_atlas, RID p_light_instance,
+ 
+ 		//update it in map
+ 		shadow_atlas->shadow_owners[p_light_instance] = new_key;
++		if (auto *cube = shadow_cubemaps.getptr(p_light_instance.get_id())) {
++			cube->copy_target = RID();
++		}
+ 		//make it dirty, as it should redraw anyway
+ 		return true;
+ 	}
+ 
++	if (old_quadrant != SHADOW_INVALID) {
++		shadow_atlas->quadrants[old_quadrant].shadows.write[old_shadow].version = p_light_version;
++	}
+ 	return should_redraw;
+ }
+ 
+@@ -2836,9 +2846,36 @@ int LightStorage::get_directional_light_shadow_size(RID p_light_instance) {
+ 
+ /* SHADOW CUBEMAPS */
+ 
+-LightStorage::ShadowCubemap *LightStorage::_get_shadow_cubemap(int p_size) {
+-	if (!shadow_cubemaps.has(p_size)) {
++LightStorage::ShadowCubemap *LightStorage::_get_shadow_cubemap(int p_size, RID p_light) {
++	uint64_t key = p_light.is_valid() ? p_light.get_id() : uint64_t(p_size);
++	if (shadow_cubemaps.has(key) && shadow_cubemaps[key].size != p_size) {
++		RD::get_singleton()->free_rid(shadow_cubemaps[key].cubemap);
++		shadow_cubemaps.erase(key);
++	}
++	if (!shadow_cubemaps.has(key)) {
++		// Up to 256 MiB retained between frames. A single frame's working set
++		// may exceed this; queued atlas copies must keep their source textures.
++		const uint64_t frame = RSG::rasterizer->get_frame_number();
++		const uint64_t new_bytes = uint64_t(p_size) * p_size * 6 * 4;
++		while (true) {
++			uint64_t bytes = new_bytes;
++			uint64_t oldest_frame = frame;
++			uint64_t oldest_key = 0;
++			for (const KeyValue<uint64_t, ShadowCubemap> &entry : shadow_cubemaps) {
++				bytes += uint64_t(entry.value.size) * entry.value.size * 6 * 4;
++				if (entry.value.last_used_frame < oldest_frame) {
++					oldest_frame = entry.value.last_used_frame;
++					oldest_key = entry.key;
++				}
++			}
++			if (bytes <= 256ULL * 1024 * 1024 || oldest_key == 0) {
++				break;
++			}
++			RD::get_singleton()->free_rid(shadow_cubemaps[oldest_key].cubemap);
++			shadow_cubemaps.erase(oldest_key);
++		}
+ 		ShadowCubemap sc;
++		sc.size = p_size;
+ 		{
+ 			RD::TextureFormat tf;
+ 			tf.format = get_cubemap_depth_format();
+@@ -2857,24 +2894,47 @@ LightStorage::ShadowCubemap *LightStorage::_get_shadow_cubemap(int p_size) {
+ 			sc.side_fb[i] = RD::get_singleton()->framebuffer_create(fbtex);
+ 		}
+ 
+-		shadow_cubemaps[p_size] = sc;
++		shadow_cubemaps[key] = sc;
+ 	}
+ 
+-	return &shadow_cubemaps[p_size];
++	shadow_cubemaps[key].last_used_frame = RSG::rasterizer->get_frame_number();
++	return &shadow_cubemaps[key];
+ }
+ 
+-RID LightStorage::get_cubemap(int p_size) {
+-	ShadowCubemap *cubemap = _get_shadow_cubemap(p_size);
++RID LightStorage::get_cubemap(int p_size, RID p_light) {
++	ShadowCubemap *cubemap = _get_shadow_cubemap(p_size, p_light);
+ 
+ 	return cubemap->cubemap;
+ }
+ 
+-RID LightStorage::get_cubemap_fb(int p_size, int p_pass) {
+-	ShadowCubemap *cubemap = _get_shadow_cubemap(p_size);
++RID LightStorage::get_cubemap_fb(int p_size, int p_pass, RID p_light) {
++	ShadowCubemap *cubemap = _get_shadow_cubemap(p_size, p_light);
+ 
+ 	return cubemap->side_fb[p_pass];
+ }
+ 
++bool LightStorage::cubemap_face_needs_update(int p_size, RID p_light, int p_face, uint64_t p_signature) {
++	ShadowCubemap *cube = _get_shadow_cubemap(p_size, p_light);
++	bool changed = !p_signature || cube->face_signature[p_face] != p_signature;
++	cube->face_signature[p_face] = p_signature;
++	if (p_face == 0) {
++		cube->faces_changed = false;
++	}
++	cube->faces_changed |= changed;
++	return changed;
++}
++
++bool LightStorage::cubemap_needs_copy(RID p_light, RID p_target, const Rect2 &p_region) {
++	ShadowCubemap *cube = shadow_cubemaps.getptr(p_light.get_id());
++	if (!cube) {
++		return true;
++	}
++	bool update = cube->faces_changed || cube->copy_target != p_target || cube->copy_region != p_region;
++	cube->copy_target = p_target;
++	cube->copy_region = p_region;
++	return update;
++}
++
+ RD::DataFormat LightStorage::get_cubemap_depth_format() {
+ 	return RD::get_singleton()->texture_is_format_supported_for_usage(RD::DATA_FORMAT_D32_SFLOAT, RD::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ? RD::DATA_FORMAT_D32_SFLOAT : RD::DATA_FORMAT_X8_D24_UNORM_PACK32;
+ }
+diff --git a/servers/rendering/renderer_rd/storage_rd/light_storage.h b/servers/rendering/renderer_rd/storage_rd/light_storage.h
+index 71043e4..7914aca 100644
+--- a/servers/rendering/renderer_rd/storage_rd/light_storage.h
++++ b/servers/rendering/renderer_rd/storage_rd/light_storage.h
+@@ -453,12 +453,18 @@ private:
+ 	/* SHADOW CUBEMAPS */
+ 
+ 	struct ShadowCubemap {
++		bool faces_changed = true;
++		RID copy_target;
++		Rect2 copy_region;
++		int size = 0;
++		uint64_t last_used_frame = 0;
++		uint64_t face_signature[6] = {};
+ 		RID cubemap;
+ 		RID side_fb[6];
+ 	};
+ 
+-	HashMap<int, ShadowCubemap> shadow_cubemaps;
+-	ShadowCubemap *_get_shadow_cubemap(int p_size);
++	HashMap<uint64_t, ShadowCubemap> shadow_cubemaps;
++	ShadowCubemap *_get_shadow_cubemap(int p_size, RID p_light = RID());
+ 
+ 	/* PIPELINE HINTS */
+ 
+@@ -1190,8 +1196,10 @@ public:
+ 
+ 	/* SHADOW CUBEMAPS */
+ 
+-	RID get_cubemap(int p_size);
+-	RID get_cubemap_fb(int p_size, int p_pass);
++	RID get_cubemap(int p_size, RID p_light = RID());
++	bool cubemap_face_needs_update(int p_size, RID p_light, int p_face, uint64_t p_signature);
++	bool cubemap_needs_copy(RID p_light, RID p_target, const Rect2 &p_region);
++	RID get_cubemap_fb(int p_size, int p_pass, RID p_light = RID());
+ 	static RD::DataFormat get_cubemap_depth_format();
+ 	static uint32_t get_cubemap_depth_usage_bits();
+ 
+diff --git a/servers/rendering/renderer_rd/storage_rd/mesh_storage.cpp b/servers/rendering/renderer_rd/storage_rd/mesh_storage.cpp
+index b5c69b4..fe216c7 100644
+--- a/servers/rendering/renderer_rd/storage_rd/mesh_storage.cpp
++++ b/servers/rendering/renderer_rd/storage_rd/mesh_storage.cpp
+@@ -692,6 +692,20 @@ int MeshStorage::mesh_get_surface_count(RID p_mesh) const {
+ 	return mesh->surface_count;
+ }
+ 
++bool MeshStorage::mesh_has_lods(RID p_mesh) const {
++	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
++	ERR_FAIL_NULL_V(mesh, true);
++	if (mesh->shadow_mesh.is_valid()) {
++		return true; // The separate shadow mesh may have its own LOD chain.
++	}
++	for (uint32_t i = 0; i < mesh->surface_count; i++) {
++		if (mesh->surfaces[i]->lod_count > 0) {
++			return true;
++		}
++	}
++	return false;
++}
++
+ void MeshStorage::mesh_set_custom_aabb(RID p_mesh, const AABB &p_aabb) {
+ 	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+ 	ERR_FAIL_NULL(mesh);
+diff --git a/servers/rendering/renderer_rd/storage_rd/mesh_storage.h b/servers/rendering/renderer_rd/storage_rd/mesh_storage.h
+index b409f94..97233e5 100644
+--- a/servers/rendering/renderer_rd/storage_rd/mesh_storage.h
++++ b/servers/rendering/renderer_rd/storage_rd/mesh_storage.h
+@@ -393,6 +393,7 @@ public:
+ 	virtual RenderingServerTypes::SurfaceData mesh_get_surface(RID p_mesh, int p_surface) const override;
+ 
+ 	virtual int mesh_get_surface_count(RID p_mesh) const override;
++	virtual bool mesh_has_lods(RID p_mesh) const override;
+ 
+ 	virtual void mesh_set_custom_aabb(RID p_mesh, const AABB &p_aabb) override;
+ 	virtual AABB mesh_get_custom_aabb(RID p_mesh) const override;
+diff --git a/servers/rendering/renderer_scene_cull.cpp b/servers/rendering/renderer_scene_cull.cpp
+index f3cb489..8e5b746 100644
+--- a/servers/rendering/renderer_scene_cull.cpp
++++ b/servers/rendering/renderer_scene_cull.cpp
+@@ -195,7 +195,7 @@ void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
+ 		geom->lights.insert(B);
+ 		light->geometries.insert(A);
+ 
+-		if (geom->can_cast_shadows) {
++		if (geom->can_cast_shadows && (A->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(B->base))) {
+ 			light->make_shadow_dirty();
+ 		}
+ 
+@@ -320,7 +320,7 @@ void RendererSceneCull::_instance_unpair(Instance *p_A, Instance *p_B) {
+ 		geom->lights.erase(B);
+ 		light->geometries.erase(A);
+ 
+-		if (geom->can_cast_shadows) {
++		if (geom->can_cast_shadows && (A->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(B->base))) {
+ 			light->make_shadow_dirty();
+ 		}
+ 
+@@ -1711,7 +1711,9 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
+ 		if (geom->can_cast_shadows) {
+ 			for (const Instance *E : geom->lights) {
+ 				InstanceLightData *light = static_cast<InstanceLightData *>(E->base_data);
+-				light->make_shadow_dirty();
++				if (p_instance->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(E->base)) {
++					light->make_shadow_dirty();
++				}
+ 			}
+ 		}
+ 
+@@ -2500,6 +2502,8 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
+ 					p_scenario->indexers[Scenario::INDEXER_GEOMETRY].convex_query(planes.ptr(), planes.size(), points.ptr(), points.size(), cull_convex);
+ 
+ 					RendererSceneRender::RenderShadowData &shadow_data = render_shadow_data[max_shadows_used++];
++					bool animated_face = false;
++					uint64_t signature = (p_instance->version * 0x9e3779b97f4a7c15ULL) ^ p_visible_layers;
+ 
+ 					if (!light->is_shadow_update_full()) {
+ 						light_culler->cull_regular_light(instance_shadow_cull_result);
+@@ -2512,18 +2516,24 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
+ 						} else {
+ 							if (static_cast<InstanceGeometryData *>(instance->base_data)->material_is_animated) {
+ 								animated_material_found = true;
++								animated_face = true;
+ 							}
+ 							if (instance->mesh_instance.is_valid()) {
+ 								RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
+ 							}
+ 						}
+ 
++						if (instance->base_type != RSE::INSTANCE_MESH || instance->mesh_instance.is_valid() || (p_screen_mesh_lod_threshold > 0.0f && RSG::mesh_storage->mesh_has_lods(instance->base))) {
++							animated_face = true;
++						}
++						signature += (instance->self.get_id() * 0x94d049bb133111ebULL) ^ (instance->version * 0xbf58476d1ce4e5b9ULL);
+ 						shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
+ 					}
+ 
+ 					RSG::mesh_storage->update_mesh_instances();
+ 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, xform, radius, 0, i, 0);
+ 
++					shadow_data.face_signature = animated_face ? 0 : (signature ? signature : 1);
+ 					shadow_data.light = light->instance;
+ 					shadow_data.pass = i;
+ 				}
+diff --git a/servers/rendering/renderer_scene_render.h b/servers/rendering/renderer_scene_render.h
+index 4270249..97ade7e 100644
+--- a/servers/rendering/renderer_scene_render.h
++++ b/servers/rendering/renderer_scene_render.h
+@@ -281,6 +281,7 @@ public:
+ 	virtual void voxel_gi_set_quality(RSE::VoxelGIQuality) = 0;
+ 
+ 	struct RenderShadowData {
++		uint64_t face_signature = 0;
+ 		RID light;
+ 		int pass = 0;
+ 		PagedArray<RenderGeometryInstance *> instances;
+diff --git a/servers/rendering/shader_compiler.cpp b/servers/rendering/shader_compiler.cpp
+index 56e6040..d1c1268 100644
+--- a/servers/rendering/shader_compiler.cpp
++++ b/servers/rendering/shader_compiler.cpp
+@@ -894,6 +894,9 @@ String ShaderCompiler::_dump_node_code(const SL::Node *p_node, int p_level, Gene
+ 		} break;
+ 		case SL::Node::NODE_TYPE_VARIABLE: {
+ 			SL::VariableNode *vnode = (SL::VariableNode *)p_node;
++			if (!vnode->is_local && vnode->name == "NORMAL" && !(p_actions.entry_point_stages.has(current_func_name) && p_actions.entry_point_stages[current_func_name] == STAGE_VERTEX)) {
++				r_gen_code.uses_fragment_normal = true;
++			}
+ 			bool use_fragment_varying = false;
+ 
+ 			if (!vnode->is_local && !(p_actions.entry_point_stages.has(current_func_name) && p_actions.entry_point_stages[current_func_name] == STAGE_VERTEX)) {
+@@ -1638,6 +1641,7 @@ Error ShaderCompiler::compile(RSE::ShaderMode p_mode, const String &p_code, Iden
+ 		r_gen_code.stage_globals[i] = String();
+ 	}
+ 	r_gen_code.uses_fragment_time = false;
++	r_gen_code.uses_fragment_normal = false;
+ 	r_gen_code.uses_vertex_time = false;
+ 	r_gen_code.uses_global_textures = false;
+ 	r_gen_code.uses_screen_texture_mipmaps = false;
+diff --git a/servers/rendering/shader_compiler.h b/servers/rendering/shader_compiler.h
+index 93afcd8..818ea69 100644
+--- a/servers/rendering/shader_compiler.h
++++ b/servers/rendering/shader_compiler.h
+@@ -85,6 +85,7 @@ public:
+ 
+ 		bool uses_global_textures = false;
+ 		bool uses_fragment_time = false;
++		bool uses_fragment_normal = false;
+ 		bool uses_vertex_time = false;
+ 		bool uses_screen_texture_mipmaps = false;
+ 		bool uses_screen_texture = false;
+diff --git a/servers/rendering/storage/mesh_storage.h b/servers/rendering/storage/mesh_storage.h
+index bbbaebd..2dd9242 100644
+--- a/servers/rendering/storage/mesh_storage.h
++++ b/servers/rendering/storage/mesh_storage.h
+@@ -68,6 +68,7 @@ public:
+ 	virtual RenderingServerTypes::SurfaceData mesh_get_surface(RID p_mesh, int p_surface) const = 0;
+ 
+ 	virtual int mesh_get_surface_count(RID p_mesh) const = 0;
++	virtual bool mesh_has_lods(RID p_mesh) const { return true; }
+ 
+ 	virtual void mesh_set_custom_aabb(RID p_mesh, const AABB &p_aabb) = 0;
+ 	virtual AABB mesh_get_custom_aabb(RID p_mesh) const = 0;

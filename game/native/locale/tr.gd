@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "Özel .abyss içerik paketinizi seçin.",
 	"Choosing graphics settings for this device…": "Bu cihaz için grafik ayarları seçiliyor…",
 	"Classic": "Klasik",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Klasik, orijinalin aydınlatmasıyla eşleşir. Diğerleri ışık, sis ve gölgelendirme ekler; gölgeleri, kenar yumuşatmayı, hacimsel ışığı ve yüzey gölgelendirmesini ayarlar. Bunlardan birini değiştirmek hazır ayarı Özel yapar.",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Klasik, orijinalin aydınlatmasıyla eşleşir. Diğerleri ışık, sis ve gölgelendirme ekler; gölgeleri, hacimsel ışığı ve yüzey gölgelendirmesini ayarlar. Bunlardan birini değiştirmek hazır ayarı Özel yapar.",
 	"Clear the debris": "Enkazı temizle",
 	"Clear the debris at the mission waypoint.": "Görev noktasındaki enkazı temizleyin.",
 	"Clear the minefield": "Mayın tarlasını temizle",

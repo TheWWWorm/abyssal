@@ -14,7 +14,37 @@ INDEX_HTML = ('<!doctype html><meta charset="utf-8">'
     '<script src="bootstrap.js"></script>')
 
 
-def stage(project, godot, release):
+def replace_native_libraries(build, native_libraries, release):
+    """Use patched native libraries with the matching official Java runtime."""
+    variant = 'release' if release else 'debug'
+    directory = pathlib.Path(native_libraries)/variant
+    replacements = {}
+    for abi, machine in [('arm64-v8a', 183), ('x86_64', 62)]:
+        library = directory/abi/'libgodot_android.so'
+        if not library.is_file(): continue
+        with library.open('rb') as source:
+            header = source.read(20)
+        if len(header)<20 or header[:6]!=b'\x7fELF\x02\x01' or int.from_bytes(header[18:20], 'little')!=machine:
+            raise ValueError('Expected a 64-bit Android '+abi+' library: '+str(library))
+        replacements['jni/'+abi+'/libgodot_android.so'] = library
+    if not replacements:
+        raise FileNotFoundError('No ARM64 or x86-64 Godot native libraries under '+str(directory))
+    archive = build/'libs'/variant/('godot-lib.template_'+variant+'.aar')
+    temporary = archive.with_suffix('.aar.tmp')
+    try:
+        with zipfile.ZipFile(archive) as source:
+            missing = replacements.keys()-set(source.namelist())
+            if missing: raise ValueError('Native libraries are absent from the Godot template: '+', '.join(sorted(missing)))
+            with zipfile.ZipFile(temporary, 'w') as target:
+                for entry in source.infolist():
+                    data = replacements[entry.filename].read_bytes() if entry.filename in replacements else source.read(entry)
+                    target.writestr(entry, data)
+        temporary.replace(archive)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def stage(project, godot, release, native_libraries=None):
     required = ['ABYSSAL_ANDROID_KEYSTORE', 'ABYSSAL_ANDROID_KEY_ALIAS', 'ABYSSAL_ANDROID_KEY_PASSWORD']
     if release:
         missing = [name for name in required if not os.environ.get(name)]
@@ -37,6 +67,8 @@ def stage(project, godot, release):
     build.mkdir(parents=True)
     with zipfile.ZipFile(source) as archive:
         archive.extractall(build)
+    if native_libraries:
+        replace_native_libraries(build, native_libraries, release)
     (project/'android/.build_version').write_text(template_version)
     (build/'gradlew').chmod(0o755)
     (build/'.gdignore').touch()

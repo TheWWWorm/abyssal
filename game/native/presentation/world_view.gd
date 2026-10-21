@@ -286,7 +286,8 @@ func bake_shaders() -> void:
 	viewport nobody sees, moves all of that to the moment the scene is built.
 	The lighting mode chooses the variants, so a mode change bakes again."""
 	if oven!=null: oven.queue_free()
-	oven=SubViewport.new();oven.size=Vector2i(32,32);oven.own_world_3d=true
+	# Mobile glow needs enough mip levels even in the hidden compilation view.
+	oven=SubViewport.new();oven.size=Vector2i(128,128);oven.own_world_3d=true
 	oven.render_target_update_mode=SubViewport.UPDATE_ALWAYS;oven.positional_shadow_atlas_size=256
 	add_child(oven)
 	var eye := Camera3D.new();oven.add_child(eye);eye.current=true;eye.fov=90;eye.far=6000;eye.position=Vector3(0,0,OVEN_SPACING*3.2)
@@ -919,7 +920,7 @@ func add_station_collision(visual: Node3D) -> void:
 	var geometry: Node3D=visual.replacement if visual.replacement!=null else visual.figure
 	if geometry==null:return
 	for mesh in preload("res://native/presentation/replacement_geometry.gd").all_meshes(geometry):
-		if mesh is StationShadow:continue
+		if mesh is StationShadow or mesh.get_parent() is StationShadow:continue
 		if not mesh.get_parent().has_node("StationShadow"):
 			mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		

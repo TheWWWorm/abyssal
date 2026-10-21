@@ -69,6 +69,8 @@ sensors/enable_gravity=true
 
 [rendering]
 
+; Solid station shaders benefit from OpenGL's depth prepass on Adreno too.
+driver/depth_prepass/disable_for_vendors="PowerVR,Mali,Apple"
 renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
 renderer/rendering_method.web="gl_compatibility"

@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "Pilih paket konten .abyss pribadi Anda.",
 	"Choosing graphics settings for this device…": "Memilih pengaturan grafis untuk perangkat ini…",
 	"Classic": "Klasik",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Klasik menyamai pencahayaan aslinya. Yang lain menambahkan lampu, kabut, dan bayangan halus, serta mengatur bayangan, antialiasing, cahaya volumetrik, dan shading permukaan. Mengubah salah satunya menjadikan preset Kustom.",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Klasik menyamai pencahayaan aslinya. Yang lain menambahkan lampu, kabut, dan bayangan halus, serta mengatur bayangan, cahaya volumetrik, dan shading permukaan. Mengubah salah satunya menjadikan preset Kustom.",
 	"Clear the debris": "Bersihkan puing",
 	"Clear the debris at the mission waypoint.": "Bersihkan puing di titik misi.",
 	"Clear the minefield": "Bersihkan ladang ranjau",

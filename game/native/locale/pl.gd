@@ -252,7 +252,7 @@ const TEXT := {
 	"Choose your private .abyss content pack.": "Wybierz swoją prywatną paczkę zawartości .abyss.",
 	"Choosing graphics settings for this device…": "Dobieranie ustawień grafiki do tego urządzenia…",
 	"Classic": "Klasyczne",
-	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, antialiasing, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Klasyczne odpowiada oświetleniu oryginału. Pozostałe dodają światła, mgłę i cieniowanie oraz ustawiają cienie, wygładzanie krawędzi, światło wolumetryczne i cieniowanie powierzchni. Zmiana którejś z tych opcji ustawia profil Własne.",
+	"Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom.": "Klasyczne odpowiada oświetleniu oryginału. Pozostałe dodają światła, mgłę i cieniowanie oraz ustawiają cienie, światło wolumetryczne i cieniowanie powierzchni. Zmiana którejś z tych opcji ustawia profil Własne.",
 	"Clear the debris": "Usuń szczątki",
 	"Clear the debris at the mission waypoint.": "Usuń szczątki w punkcie misji.",
 	"Clear the minefield": "Oczyść pole minowe",

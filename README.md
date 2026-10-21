@@ -211,14 +211,14 @@ In the water the game's music stops, as it does in the original; every ten secon
 
 As in the original, the water above takes the colour of the most common alga around the current station - deep blue, magenta, gold, green or rust - fading towards black below 15000. Between stations of different algae it shades from one colour into the other across the water, and after a gate it changes over a few seconds. Classic shows the colour as the phone did; enhanced graphics gather it overhead above the water's own navy horizon, so the hue tints the scene without filling it, and the filtered sunlight and light columns take the same hue. **Water colour**, under Ocean atmosphere, sets how strongly: 0% is plain blue water everywhere, 60% (the default) a muted tint and 100% each region's own colour at full strength. The light on every model dims with depth on the original's curve, so climbing out of deep water visibly brightens the scene; both Classic and enhanced graphics follow it. Enhanced graphics use the imported sky palette for the sun opening and for soft columns of filtered light that stay in place in the water as the vessel passes through them, under slowly drifting veils of haze. With volumetric light, banks of suspended matter also lie between the camera and distant hulls, stations and creatures. Depths are darker where local lamps carry more of the light. Headlights follow each original model's lamp count, mounting points and direction. Their origins attach to the hull surface, and their light colours nearby surfaces and marine snow. Lamp lenses and the openings in framed lamp grilles use the beam's colour independently of the cabin lighting. Submarine cockpit panes combine smooth reflections with soft, uneven interior illumination and a small, shadowed spill close to the window. Regional water takes restrained hues from the original plankton palette and origin stations, with smooth transitions and small changes in haze and suspended matter. Content imported by an early build has no palette, so its water would be a neutral blue everywhere; play waits until it is brought up to date. On a computer the game imports the remembered JAR again by itself, or opens the file picker if the JAR has moved; on Android it opens the picker; in a browser the title asks you to choose the JAR. Saves are kept. A compatible build whose JAR has no palette plays with neutral water. Marine snow drifts in gentle currents and streaks along the water's movement past the camera: outward from the centre of view when cruising or boosting, sideways when the current or a sideways slide carries it, and not at all when still. Headlight beams brighten and dim as they pass through thicker and thinner banks of suspended matter that drift with the current, and the snow they light follows the same banks. Occasional patches of bioluminescence glow briefly as the hull passes, and the jellyfish's luminous tissue pulses softly. A vessel explosion leaves a rising bubble cloud and sinking fragments after its short flash. The soft rays, regional blending and depth response are enhanced presentation effects; they do not change fishing, combat, detection ranges or pressure limits.
 
-**Settings → Graphics** opens with a **Preset**: **Classic**, **Low**, **Medium**, **High** or **Very high**. Classic is the original lighting; the others are the enhanced lighting with the settings below. A preset sets shadow quality, antialiasing, volumetric light and surface shading detail; changing any of those afterwards shows **Custom**. Resolution, the ocean effects, headlight mode and colour, and texture filters are left as chosen. On the first start with game content, the title measures the device on its station seen close up, as at sea, drawing about a third more pixels than the preset will as room for the submarine, its lights and the interface, and picks the highest preset from Low up that holds 60 frames a second; the list marks it **(Recommended)**. A recommendation from an earlier version of this measurement is measured again, and a preset still set to it is replaced. A graphics setting changed by hand before then is kept, and so is Classic lighting chosen in an earlier version. Settings with several choices open a list.
+**Settings → Graphics** opens with a **Preset**: **Classic**, **Low**, **Medium**, **High** or **Very high**. Classic is the original lighting; the others are the enhanced lighting with the settings below. A preset sets shadow quality, volumetric light and surface shading detail; changing any of those afterwards shows **Custom**. Antialiasing, upscaling, frame generation, resolution, the ocean effects, headlight mode and colour, and texture filters are left as chosen. Antialiasing can be changed independently without switching the preset to Custom. On the first start with game content, the title measures the device on its station seen close up, as at sea, drawing about a third more pixels than the preset will as room for the submarine, its lights and the interface, and picks the highest preset from Low up that holds 60 frames a second; the list marks it **(Recommended)**. A recommendation from an earlier version of this measurement is measured again, and a preset still set to it is replaced. A graphics setting changed by hand before then is kept, and so is Classic lighting chosen in an earlier version. Settings with several choices open a list.
 
-| Preset | Shadow quality | Multisampling | Volumetric light | Shading detail |
-| --- | --- | --- | --- | --- |
-| Low | Off | Off | Off | Off |
-| Medium | Low | Off | Off | On |
-| High | Medium | 2× | On | On |
-| Very high | High | 4× | On | On |
+| Preset | Shadow quality | Volumetric light | Shading detail |
+| --- | --- | --- | --- |
+| Low | Off | Off | Off |
+| Medium | Low | Off | On |
+| High | Medium | On | On |
+| Very high | High | On | On |
 
 **Performance** holds those settings and **3D resolution**. **Shadow quality** decides how many station lamps cast shadows at once: the ones the camera is nearest, on screen; the rest light without a shadow. On OpenGL (browsers, phones) that is 4 work lamps and 4 small sprite lamps at **High**, 2 and 2 at **Medium** and 1 work lamp at **Low**, because OpenGL draws everything a shadowed lamp reaches once more for it; on Vulkan it is 14 and 8, 8 and 4, and 4 work lamps, with Medium and Low using two hemispheres instead of six faces, where a little light can pass close to a lamp. Station lamps take their shadows from the station only, so their shadow maps are drawn once and kept; the submarine's shadows come from its headlights and the overhead light. **Off** removes all shadows, including the headlights' and the overhead light's. Phones and browsers keep smaller shadow maps at every level. **3D resolution** draws the 3D view at 100% down to 33% of the display resolution; 67%, 58%, 50% and 33% are the Quality, Balanced, Performance and Ultra performance shares of FSR 2. **Upscaling** (since 1.17.0) picks how a 3D view below 100% is scaled up: **Bilinear**, **AMD FSR 1.0** (the default, as before) or, on Forward+, **AMD FSR 2.2**, which reuses earlier frames, replaces temporal antialiasing and also smooths edges at 100%. **MetalFX spatial** and **MetalFX temporal** (the temporal one works like FSR 2.2) are listed only when the engine runs on Apple's Metal driver, which none of the current builds use (the macOS build is on OpenGL). FSR 1.0 also works on Android's Vulkan Mobile renderer; OpenGL builds scale bilinearly and show the row as unavailable. **AMD FSR 3.1**, **AMD FSR 4** and **Frame generation** are offered by the Windows package on Direct3D 12 (see [AMD FSR on Windows](#amd-fsr-on-windows)); stock Godot has none of them. **Multisample antialiasing** is Off, 2× or 4×. **Renderer** (since 1.21.2, on Windows, Linux x86-64 and Android) picks the renderer for the next start: **Vulkan**, the default, or **OpenGL**, the compatibility renderer the browser build uses, for a graphics driver that draws Vulkan wrongly; OpenGL has fewer enhanced effects and the rows that need Forward+ say so. The Windows package also offers **Direct3D 12 · AMD FSR** (see [AMD FSR on Windows](#amd-fsr-on-windows)). The first start on another renderer is a trial: if the game closes unexpectedly within its first minute, or that renderer cannot start, the next start goes back to Vulkan and the title says so. The choice is kept in `renderer.cfg` in the game's user folder; deleting that file also goes back to Vulkan. A machine without a usable Vulkan device already starts on OpenGL, and the row then reads **OpenGL · Vulkan unavailable**.
 
@@ -285,7 +285,7 @@ Extract the whole Web ZIP to an HTTPS host, keeping `importer/` and the notices 
 2. Leave the build command empty. `npx wrangler deploy` reads `wrangler.toml` and uploads `public/` as static assets.
 3. If your Worker uses a different name, change `name` in `wrangler.toml` to match.
 
-Cloudflare rejects any asset over 25 MiB, and the Godot engine binary is about 38 MiB. `tools/prepare_web_host.py` splits oversized files into numbered parts, and `worker.js` streams them back together under the original path. The parts stay uncompressed on purpose: Cloudflare negotiates its own `Content-Encoding` for the response and strips one set by the Worker, so pre-compressed bytes would reach the browser undecoded. The release archives keep whole files, so they stay portable to hosts with no size limit.
+Cloudflare rejects any asset over 25 MiB, and Godot engine binaries exceed that limit. `tools/prepare_web_host.py` splits oversized files into numbered parts, and `worker.js` streams them back together under the original path. The parts stay uncompressed on purpose: Cloudflare negotiates its own `Content-Encoding` for the response and strips one set by the Worker, so pre-compressed bytes would reach the browser undecoded. The release archives keep whole files, so they stay portable to hosts with no size limit. Game packs and engine runtimes have separate content-based URLs; rebuilding only the engine also refreshes its JavaScript and WebAssembly together.
 
 To refresh the hosted build after a new export:
 
@@ -301,7 +301,7 @@ The first import loads roughly 12 MiB of extra runtime files; later launches rea
 
 ## Project status
 
-This is **release 1.21.5**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
+This is **release 1.21.6**. The project's provenance is not a clean-room one, as this section explains, and that question is unresolved.
 
 The importer recognizes compatible JAR structure, computes a SHA-256 identity for isolated caches, then decodes its resource entries and reads class-file data tables with a **restricted bytecode evaluator**. That evaluator reads literal assignments, arrays, arithmetic and bounded control flow, resolving calls only through explicit inert data summaries; unsupported opcodes fail. It never loads or invokes original classes in a JVM, and no original bytecode or method body is written to its output.
 
@@ -316,6 +316,41 @@ The name is a working title, not a trademark claim. Menus and instrument frames 
 ## For developers
 
 Requires Godot **4.7 Standard** with matching export templates, and Python 3.10+. Run everything from the repository root and keep builds and game content outside it.
+
+The optional [station rendering patch](engine/godot-4.7/station-rendering.patch) targets Godot 4.7-stable, commit `5b4e0cb0fd279832bbdd69fed5354d4e5ad26f88`. It reuses unchanged cube shadow faces, groups shadow-atlas copies in both Forward+ and Mobile, and avoids lighting work with zero contribution. OpenGL can also evaluate several shadowed station lamps in one material pass while keeping its per-light colour conversion. Animated materials, skinned meshes and meshes using view-dependent LODs retain ordinary shadow rendering. Retained Vulkan shadow cubes use a 256 MiB cache budget; textures needed by the current frame remain alive until their atlas copies finish.
+
+These engine changes require a matching custom export template. The game source also works with stock Godot, which receives the shared station shader improvements but has no engine shadow cache. Build and select a Linux template as follows:
+
+```sh
+git clone --depth 1 --branch 4.7-stable https://github.com/godotengine/godot.git /build/godot
+git -C /build/godot apply "$PWD/engine/godot-4.7/station-rendering.patch"
+# In /build/godot, with Godot's Linux build dependencies installed:
+scons platform=linuxbsd arch=x86_64 target=template_release production=yes
+# Back in this repository:
+python3 tools/export_game.py --platform linux --release --output /outside/repo/builds/linux \
+  --template /build/godot/bin/godot.linuxbsd.template_release.x86_64
+```
+
+`--template` selects a custom Linux, ARM64 Linux, Windows, macOS or web template without enabling a vendor SDK. Use the template for the chosen architecture and release/debug build type. Release packaging accepts repeated `--template PLATFORM=PATH` arguments, for example `--template linux=/build/godot/bin/godot.linuxbsd.template_release.x86_64`. Windows builds with AMD FSR use `--windows-template` and `--fsr-sdk` instead, with both patches applied as shown below. A new template must be rebuilt for each target platform; selecting an Android native library does not change a desktop or browser build.
+
+For portable Linux releases, use the matching [Godot Buildroot SDK](https://github.com/godotengine/buildroot/releases/tag/godot-2023.08.x-4) to preserve compatibility with older glibc versions. Release 1.21.6 uses SDK `godot-2023.08.x-4`, which targets glibc 2.28. Extract it to a path without spaces, run its `relocate-sdk.sh`, add its `bin` directory to `PATH`, and pass its prefixed `CC`, `CXX`, `AR` and `RANLIB` tools to SCons. The x86-64 prefix is `x86_64-godot-linux-gnu`; ARM64 uses `aarch64-godot-linux-gnu` with `arch=arm64` and `--platform linux-arm64` when exporting. Check the resulting binary's required glibc versions before distributing it.
+
+The browser uses the same optimized OpenGL renderer through WebGL 2. With Emscripten 4.0.11 activated, build a single-threaded web template from the patched Godot checkout, then select its ZIP when exporting:
+
+```sh
+# In /build/godot:
+scons platform=web target=template_release threads=no production=yes
+# Back in this repository:
+python3 tools/export_game.py --platform web --release --output /outside/repo/builds/web \
+  --template /build/godot/bin/godot.web.template_release.wasm32.nothreads.zip
+```
+
+The rendered regression check needs a window and no game content. Run it with an editor built from the patched engine, or a template built with `disable_path_overrides=no` to enable `--path` and `--script`:
+
+```sh
+/path/to/patched/godot --path game --rendering-method forward_plus --script ../tests/shadow_cache_render_check.gd
+/path/to/patched/godot --path game --rendering-method gl_compatibility --script ../tests/shadow_cache_render_check.gd
+```
 
 ```sh
 # All player packages, including the offline desktop and Android importers:
@@ -364,6 +399,7 @@ The runtime also needs the [Microsoft Visual C++ x64 runtime](https://learn.micr
 ```sh
 git clone --depth 1 --branch 4.7-stable https://github.com/godotengine/godot.git /build/godot
 git -C /build/godot apply "$PWD/engine/godot-4.7/amd-fsr.patch"
+git -C /build/godot apply "$PWD/engine/godot-4.7/station-rendering.patch"
 python3 tools/prepare_fsr_sdk.py --output /build/fidelityfx --engine /build/godot
 # In /build/godot, with a Windows (MSVC or MinGW) toolchain and Godot's usual Direct3D 12 dependencies:
 scons platform=windows arch=x86_64 target=template_release production=yes use_fsr_sdk=yes
@@ -382,6 +418,8 @@ python3 tools/export_game.py --platform android --output /path/outside/source/an
 ```
 
 This creates a debug APK. To publish a release APK, set `ABYSSAL_ANDROID_KEYSTORE`, `ABYSSAL_ANDROID_KEY_ALIAS`, and `ABYSSAL_ANDROID_KEY_PASSWORD`, then add `--release --version 1.0.0 --version-code 21`. Keep the signing key outside the source tree, back it up securely, and reuse it for updates. Increase `--version-code` for each release. `GODOT_TEMPLATES_PATH` can override the export-template directory. Release packaging accepts `--platform android` and includes Android by default; `--validation` supplies a platform support document.
+
+To include the station engine optimizations, apply `engine/godot-4.7/station-rendering.patch` to the same Godot source revision, install its optional frame-pacing dependency with `python3 misc/scripts/install_swappy_android.py`, and build `scons platform=android target=template_release arch=arm64`. Build `arch=x86_64` as well for a package covering both ABIs. Pass `--android-native-libs /build/godot/platform/android/java/lib/libs` to either export or release packaging. The exporter replaces the matching native libraries in the official Android template while preserving its Java code and importer. Use `target=template_debug` for a debug APK; an ABI omitted from that directory keeps its official runtime.
 
 The Android build stages a small Java plugin into Godot’s official Gradle template. A private Android import process shows conversion progress and returns to the game when finished. Android System WebView runs the same Python data reader and procedural audio converter used by the browser and desktop packages. All converter files are bundled in APK assets, all network requests are blocked, and gameplay remains native Godot. License inventories are bundled under `assets/abyssal-importer/` inside the APK.
 
