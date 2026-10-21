@@ -249,6 +249,9 @@ var flight_messages := true
 var dock_prompts := true
 var autopilot_status := false
 var friend_labels := true
+## The mission waypoint keeps its arrow at the screen's edge without a radar;
+## the original only drew it off screen with one fitted (cb.a).
+var waypoint_edge := true
 var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
 var freeze_view
@@ -883,8 +886,8 @@ func _process(delta: float) -> void:
 		var r=world.region
 		dock_caption.visible=session.docked and page!="dialogue" and not overlay.visible
 		dock_caption.text=(tr("%s Station\nBerth secured  /  exterior view")%session.stations[session.station_id].name).to_upper()
-		dock_prompt.visible=page.is_empty() and not session.docked and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000)
-		dock_prompt.text=(tr("[ %s ]  Dock at %s")%[control_name("dock"),session.stations[session.station_id].name]) if r.station.can_dock(r.player.pose.origin) else tr("[ %s ]  Dock · approach docking area")%control_name("dock")
+		dock_prompt.visible=page.is_empty() and not session.docked and (world.in_docking_area() or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000)
+		dock_prompt.text=(tr("[ %s ]  Dock at %s")%[control_name("dock"),session.stations[session.station_id].name]) if world.in_docking_area() else tr("[ %s ]  Dock · approach docking area")%control_name("dock")
 		if r.success!=null or r.failure!=null:
 			dock_prompt.text=tr("Docking locked · encounter active  [ %s ] Mission waypoint")%control_name("autopilot")
 		elif world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation):
@@ -917,7 +920,7 @@ func _process(delta: float) -> void:
 		condition.info=Coin.coins(tr("%d/%dt     Cr %d     %s")%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name])
 		if touch.enabled():
 			# The dock button is there while docking, or a manual gate entry, is.
-			var dockable: bool=r.station.can_dock(r.player.pose.origin) or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
+			var dockable: bool=world.in_docking_area() or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
 			var banks: Array=r.loadout.groups.filter(func(group):return not group.is_empty())
 			touch.set_banks(r.loadout.selected>=0 and not guns_selected(),banks.size()>1)
 			touch.show_state(r.player.throttle_target/100.0,flight_visible and page.is_empty() and dockable,instruments.boost_state(r.player),world.autopilot,world.speed,
@@ -933,6 +936,11 @@ func _process(delta: float) -> void:
 		var objective=current_objective()
 		var objective_text: String=objective_hud(objective)
 		if r.cinematic(): objective_text=session.title(objective)+"\n"+tr("Final sequence · Esc pauses")
+		# bd.a draws a timed job's remaining time (mm:ss) at the HUD's top left;
+		# the job fails when it runs out (region.time_limit).
+		elif r.time_limit>0 and not r.encounter_resolved and not r.failed:
+			var left: int=maxi(0,r.time_limit-r.elapsed_ms)
+			objective_text+="\n[color=#%s]%s[/color]"%["ff7a6a" if left<30000 else "e4ce92",tr("Time left · %s")%clock_text(left)]
 		if auto_fire: objective_text+="\n"+tr("AUTO FIRE · %s to stop")%OS.get_keycode_string(key_bindings.auto_fire)
 		show_objective(objective_text,objective if not r.cinematic() else null)
 		# The way out of a gate is a camera shot, not the chase view: its centre
@@ -1250,6 +1258,7 @@ func perform(action: String) -> void:
 		"dock":
 			if world.at_gate(0):
 				show_stream_menu()
+			elif world.in_docking_area() and world.dock_denial().is_empty():ask_dock()
 			elif world.dock(): finish_docking()
 		"map": show_map()
 		"autopilot":
@@ -1284,6 +1293,14 @@ func pad_name(button: int) -> String:
 		JOY_BUTTON_DPAD_LEFT:return tr("D-pad left")
 		JOY_BUTTON_DPAD_RIGHT:return tr("D-pad right")
 	return tr("Pad %d")%button
+func ask_dock() -> void:
+	"""br.a: the dock key asks "Dock to #?" (272) over the paused sea;
+	autopilot arriving docks without asking, as in the original."""
+	var station_name: String=session.stations[session.station_id].name
+	confirm(session.text(24),session.text(272,station_name),session.text(45),func():
+		close_page()
+		if world.dock(): finish_docking()
+		else: notice(world.message),close_page)
 func finish_docking() -> void:
 	clear_notices()
 	show_station()
@@ -1360,7 +1377,7 @@ func autonavigate_from_journal(destination: int) -> void:
 	var denial: String=world.route_denial(destination)
 	if not denial.is_empty():notice(denial);return
 	if session.docked and destination==session.station_id:notice(tr("Already docked at the destination."));return
-	if ask_outside_safety(destination,func():autonavigate_from_journal(destination),show_journal):return
+	if ask_travel(destination,func():autonavigate_from_journal(destination),show_journal):return
 	if session.docked:
 		depart()
 		if session.docked:return
@@ -1769,6 +1786,7 @@ func read_settings() -> void:
 	dock_prompts=bool(config.get_value("interface","dock_prompts",true))
 	autopilot_status=bool(config.get_value("interface","autopilot_status",false))
 	friend_labels=bool(config.get_value("interface","friend_labels",true))
+	waypoint_edge=bool(config.get_value("interface","waypoint_edge",true))
 	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
 	hit_shake=bool(config.get_value("interface","hit_shake",true))
 	damage_feedback.pulse_enabled=bool(config.get_value("interface","low_hull_pulse",true))
@@ -1827,6 +1845,7 @@ func save_settings() -> void:
 	config.set_value("interface","hints",gameplay_hints)
 	config.set_value("interface","flight_messages",flight_messages);config.set_value("interface","dock_prompts",dock_prompts)
 	config.set_value("interface","autopilot_status",autopilot_status);config.set_value("interface","friend_labels",friend_labels)
+	config.set_value("interface","waypoint_edge",waypoint_edge)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	config.set_value("audio","title_music",dive_audio.title_choice)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
@@ -2397,7 +2416,7 @@ func map_pad(delta: float) -> void:
 	if absf(zooming)>.2:
 		map_widget.zoom_about(exp(zooming*delta*1.5),map_widget.point(zone.x,zone.y))
 func map_autopilot() -> void:
-	if ask_outside_safety(map_destination,map_autopilot,func():show_map(atlas_autopilot_only)):return
+	if ask_travel(map_destination,map_autopilot,func():show_map(atlas_autopilot_only)):return
 	if session.docked:
 		depart()
 		if session.docked: return
@@ -2408,7 +2427,7 @@ func map_autopilot() -> void:
 func map_stream() -> void:
 	var denial: String = world.stream_denial(map_destination)
 	if not denial.is_empty(): notice(denial); return
-	if ask_outside_safety(map_destination,map_stream,func():show_map(atlas_autopilot_only)):return
+	if ask_travel(map_destination,map_stream,func():show_map(atlas_autopilot_only)):return
 	if session.docked:
 		depart()
 		if session.docked: return
@@ -2705,7 +2724,7 @@ func update_markers() -> void:
 			targets.append({"key":"stream:"+str(id),"p":[0,0,0],"position":visual.global_position,"name":tr(str(visual.get_meta("gate_title","S.T.R.E.A.M.")))+" · "+session.stations[id].name,"color":Color("ac9ac9"),"edge":true,"hull":-1.0})
 	if world.autopilot and world.local_target!=null and world.stream_destination<0:
 		targets.append({"key":"waypoint","p":world.local_target,"name":session.stations[world.destination].name if world.destination>=0 else tr("Autopilot"),"color":Color("e5ce86"),"edge":true,"hull":-1.0})
-	elif world.encounter_navigation_point()!=null: targets.append({"key":"waypoint","p":world.encounter_navigation_point(),"name":tr("Encounter waypoint"),"color":Color("e5ce86"),"edge":radar>0,"hull":-1.0})
+	elif world.encounter_navigation_point()!=null: targets.append({"key":"waypoint","p":world.encounter_navigation_point(),"name":tr("Encounter waypoint"),"color":Color("e5ce86"),"edge":radar>0 or waypoint_edge,"hull":-1.0})
 	for role in ["friend","enemy","creature"]:
 		var actors: Array = region.friends if role=="friend" else (region.enemies if role=="enemy" else region.creatures)
 		for actor in actors:
@@ -2863,6 +2882,11 @@ func show_objective(text: String, mission) -> void:
 		if icon!=null and not target.is_empty() and lines[index]==target:
 			objective_label.add_image(icon,26,20,Color.WHITE,INLINE_ALIGNMENT_CENTER);objective_label.append_text(" ")
 		objective_label.append_text(lines[index])
+static func clock_text(milliseconds: int) -> String:
+	"""bx.a: minutes and seconds, with hours in front once there are any."""
+	var seconds: int=milliseconds/1000
+	if seconds>=3600:return "%02d:%02d:%02d"%[seconds/3600,seconds/60%60,seconds%60]
+	return "%02d:%02d"%[seconds/60,seconds%60]
 func objective_hud(mission) -> String:
 	var summary: PackedStringArray=objective_summary(mission).split("\n")
 	var result: Array[String]=["[font_size=10][color=#87a8b3]"+tr("Current objective").to_upper().replace("[","[lb]")+"[/color][/font_size]", "[font_size=16][color=#e4ce92]"+summary[0].replace("[","[lb]")+"[/color][/font_size]"]
@@ -2913,7 +2937,7 @@ func check_flight_hints() -> void:
 	var chapter: int=session.campaign.chapter
 	if world.at_gate(world.departure_gate) and chapter>2 and not (chapter==6 and r.mission.kind==0):
 		if say_hint("gate",keyed_text(342)):return
-	if flight_ms>20000 and world.dock_denial().is_empty() and (r.station.can_dock(r.player.pose.origin) or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000):
+	if flight_ms>20000 and world.dock_denial().is_empty() and (world.in_docking_area() or Vector3(r.player.pose.origin[0],r.player.pose.origin[1],r.player.pose.origin[2]).length()<25000):
 		if say_hint("dock",keyed_text(343)):return
 	if r.player.depth<session.ship.minimum_depth and say_hint("radiation",session.text(344)):return
 	if r.player.depth>session.ship.maximum_depth and say_hint("pressure",session.text(345)):return
@@ -2977,7 +3001,7 @@ func check_stream_proximity() -> void:
 		stream_prompted=true
 		stream_selection=world.stream_destination
 		stream_resume_throttle=maxi(world.region.player.throttle_target,25)
-		begin_stream_transit(true)
+		begin_stream_transit(false)
 	else: show_stream_menu()
 
 ## Set while the canvas is being changed: that change emits size_changed again,
@@ -3090,25 +3114,28 @@ func show_habitat(id: int, parent: Node) -> void:
 		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		if known:
 			var caught := label(tr("caught"),12,line);caught.modulate=Color("c9ae79");caught.autowrap_mode=TextServer.AUTOWRAP_OFF;caught.size_flags_horizontal=Control.SIZE_SHRINK_END
-var safety_confirmed := -1
-func ask_outside_safety(id: int, go: Callable, back: Callable) -> bool:
-	"""The original's chart asks before a trip outside the hull's depth
-	limits instead of refusing it: the destination (334), the warning (255)
-	and "Travel to this station?" (247). True while the question is open;
-	answering yes runs go again with the answer recorded."""
-	if safety_confirmed==id: safety_confirmed=-1;return false
-	if not world.outside_safety(id): return false
-	confirm(session.text(334)+": "+session.stations[id].name,session.text(255)+"\n"+session.text(247),tr("Travel"),
-		func():safety_confirmed=id;go.call(),back)
+var travel_confirmed := -1
+func ask_travel(id: int, go: Callable, back: Callable, warn := true) -> bool:
+	"""The original asks before every trip, on the chart (bp) and again at the
+	gate (br.a), with the game paused: the destination (334), the depth
+	warning (255) when the hull's limits are exceeded (the gate's own question
+	leaves it out), and "Travel to this station?" (247). True while the question is open; answering yes runs go
+	again with the answer recorded. Docking where you are asks nothing."""
+	if travel_confirmed==id: travel_confirmed=-1;return false
+	if id<0 or id>=session.stations.size() or id==session.station_id: return false
+	confirm(session.text(334)+": "+session.stations[id].name,(session.text(255)+"\n" if warn and world.outside_safety(id) else "")+session.text(247),tr("Travel"),
+		func():travel_confirmed=id;go.call(),back)
 	return true
-func begin_stream_transit(destination_confirmed: bool=false) -> void:
+func begin_stream_transit(chosen_here := true) -> void:
 	"""Confirming a destination is the crossing. The original does not fly the
 	submarine into the aperture and wait: the chart closes, the far side is
 	already there, and what the player watches is the way out of it. So there is
 	no run-up to steer, nothing to arm and no notice to read."""
 	var denial: String=world.stream_denial(stream_selection)
 	if not denial.is_empty() or not world.at_gate(world.departure_gate):notice(denial);return
-	if not destination_confirmed and ask_outside_safety(stream_selection,begin_stream_transit,show_stream_menu):return
+	# A destination planned earlier is asked about again at the gate, as br.a
+	# does, without repeating the chart's depth warning.
+	if ask_travel(stream_selection,begin_stream_transit,show_stream_menu,chosen_here):return
 	world.cancel_autopilot();world.gate_navigation=false;world.approach_planned=false;world.approach_path.clear()
 	# The chart can be opened (E) before the aperture has finished opening,
 	# and nothing advances while it is up, so the gate would stay part open

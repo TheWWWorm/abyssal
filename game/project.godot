@@ -135,7 +135,23 @@ ocean_model_light={
 "type": "vec2",
 "value": Vector2(1, 1)
 }
-ocean_eye={
+ocean_veil_phase={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+ocean_veil_fine_phase={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+ocean_bank_phase={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+ocean_column_phase={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+ocean_column_fine_phase={
 "type": "vec3",
 "value": Vector3(0, 0, 0)
 }

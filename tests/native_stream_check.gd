@@ -119,6 +119,9 @@ func checks() -> void:
 	root.size=Vector2i(1280,720)
 	for _i in 3: await process_frame
 	app.stream_button.pressed.emit()
+	# bp: choosing a station asks "Travel to this station?" (247) first.
+	expect(app.page=="confirm","Choosing a STREAM destination on the atlas asks before travelling")
+	expect(accept_travel(app),"The travel question offers Travel")
 	expect(app.page.is_empty() and app.world.stream_destination==target,"Atlas button starts the actual gate approach")
 	app.view._process(0.04)
 	var portals: int=2 if Region.split_gates else 1
@@ -169,17 +172,28 @@ func checks() -> void:
 	app.show_stream_menu();app.stream_selection=old_station
 	expect(app.page=="stream" and app.world.gate_time[0]<app.world.GATE_OPEN_MS,"The chart opens at a gate that is still opening")
 	app.begin_stream_transit()
+	expect(app.page=="confirm" and app.session.station_id!=old_station,"Initiating transit asks before crossing")
+	accept_travel(app)
 	expect(app.session.station_id==old_station,"Confirming at a part-open gate crosses")
 	await check_planned_transfer(app,target)
 	app.queue_free(); await process_frame
 	print("NATIVE_STREAM ",failures," failures · reachable stations ",reachable)
 	quit(1 if failures else 0)
 
+func accept_travel(app) -> bool:
+	"""Answer the travel question's Travel button, as a player would."""
+	var travel: Array=app.column.find_children("*","Button",true,false).filter(func(button):return button.text==app.tr("Travel"))
+	if travel.size()!=1:return false
+	travel[0].pressed.emit();return true
+
+func question_text(app) -> String:
+	return "\n".join(app.column.find_children("*","Label",true,false).map(func(label):return label.text))
+
 func check_planned_transfer(app, target: int) -> void:
 	var source: int=app.session.station_id
 	var depth: int=app.session.stations[target].depth
 	# A plan made in flight and one made at the station both carry their
-	# destination through the gate without asking for it again.
+	# destination to the gate, which asks once more before crossing.
 	for docked in [false,true]:
 		app.close_page();app.view.end_transit();app.stream_exit_active=false
 		app.world.enter_region(source);app.view.rebuild();app.session.docked=docked
@@ -189,10 +203,8 @@ func check_planned_transfer(app, target: int) -> void:
 		app.map_destination=target;app.stream_selection=-1;app.stream_prompted=true
 		app.map_stream()
 		expect(app.page=="confirm" and not app.world.autopilot,"Planning an unsafe STREAM destination asks before departure")
-		var travel=app.column.find_children("*","Button",true,false).filter(func(button):return button.text=="Travel")
-		expect(travel.size()==1,"The planned transfer offers the depth warning's Travel action")
-		if travel.size()!=1:break
-		travel[0].pressed.emit()
+		expect(app.session.text(255) in question_text(app),"An unsafe destination's question carries the depth warning")
+		if not accept_travel(app):expect(false,"The planned transfer offers the depth warning's Travel action");break
 		if docked:
 			expect(app.page=="departure" and app.departure_route=="stream","A docked STREAM plan survives the departure sequence")
 			app.finish_departure()
@@ -205,7 +217,10 @@ func check_planned_transfer(app, target: int) -> void:
 		app.world.gate_time[0]=app.world.GATE_OPEN_MS
 		app.world.region.player.set_throttle(75)
 		app.check_stream_proximity()
-		expect(app.session.station_id==target and app.page.is_empty(),"A planned crossing uses its destination without reopening the map or depth warning")
+		# br.a asks once more at the gate (334, 247), without the depth warning.
+		expect(app.page=="confirm" and not app.session.text(255) in question_text(app),"A planned crossing asks again at the gate, without the depth warning")
+		accept_travel(app)
+		expect(app.session.station_id==target and app.page.is_empty(),"A planned crossing uses its destination without reopening the map")
 		expect(app.view.transit_progress>=0 and app.transit_exit_throttle==75,"Planned transit keeps the exit shot and approach throttle")
 		app.check_stream_proximity()
 		expect(app.page.is_empty(),"The planned crossing does not reopen a map at the arrival gate")

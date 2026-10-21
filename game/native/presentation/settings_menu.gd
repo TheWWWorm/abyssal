@@ -773,6 +773,8 @@ func gameplay_page() -> void:
 	chooser(tr("Depth limit markers"),[tr("Off"),tr("Near limits"),tr("Always")],markers,"depth_limits",func(next):
 		put("graphics","depth_limits_always",next==2,false);put("graphics","depth_limits",next>0))
 	note(tr("Shows the ship's depth limits as it nears them, or all the time."))
+	toggle(tr("Mission waypoint at screen edge"),"interface","waypoint_edge",true)
+	note(tr("Points the way to the mission waypoint when it is off screen. The original game showed this only with a radar."))
 	group(tr("Damage feedback"))
 	toggle(tr("Red flash on damage"),"interface","hit_flash",true)
 	toggle(tr("Screen shake on damage"),"interface","hit_shake",true)

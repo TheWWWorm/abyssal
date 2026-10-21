@@ -50,8 +50,12 @@ static var suspension: NoiseTexture3D
 ## The camera's own velocity in the open world, smoothed over a few frames;
 ## the enhanced snow is stretched along the water's movement past it.
 var camera_velocity := Vector3.ZERO
-var previous_eye := Vector3.ZERO
+var previous_eye := [0.0,0.0,0.0]
 var eye_known := false
+## The noise lattices of ocean_radiance.gdshaderinc, metres to cells along
+## each axis, and the cells after which their hash repeats (OCEAN_CELLS there).
+const OCEAN_LATTICES := {"ocean_veil_phase":[.0019,.0009,.0019],"ocean_veil_fine_phase":[.0019*2.63,.0009*2.63,.0019*2.63],"ocean_bank_phase":[.0007,.0021,.0007],"ocean_column_phase":[.0034,.00032,.0034],"ocean_column_fine_phase":[.0034*1.9,.00032*.5,.0034*1.9]}
+const OCEAN_CELLS := 256.0
 ## region_base per station of region_data, which a blend asks for often.
 var region_cache := {}
 ## How gradually, in chart units, the water turns from one station's colour
@@ -312,20 +316,25 @@ func _process(delta: float) -> void:
 	particle_material.set_shader_parameter("boost_amount",boost_amount)
 	var anchor: Vector3=world.geography.anchor if world!=null and world.region!=null else Vector3.ZERO
 	particles.global_position=camera.global_position
-	var absolute_eye: Vector3=camera.global_position+anchor
+	# The open-world eye in double precision: at the original chart's spacing
+	# the anchor is thousands of kilometres out, where a float steps by metres.
+	var eye: Array=absolute_eye()
 	# A gate or a new dive moves the camera at once; that is not movement
 	# through the water.
 	if eye_known and seconds>0.0:
-		var moved: Vector3=(absolute_eye-previous_eye)/seconds
+		var moved := Vector3(eye[0]-previous_eye[0],eye[1]-previous_eye[1],eye[2]-previous_eye[2])/seconds
 		if moved.length()<400.0:camera_velocity=camera_velocity.lerp(moved,1.0-exp(-seconds*10.0))
-	previous_eye=absolute_eye;eye_known=true
+	previous_eye=eye;eye_known=true
 	# Reduce the world phase on the CPU; WebGL never subtracts large world
 	# coordinates to recover centimetre-size billboards during open-world travel.
-	particle_material.set_shader_parameter("eye_phase",Vector3(fposmod(absolute_eye.x,90),fposmod(absolute_eye.y,90),fposmod(absolute_eye.z,90)))
-	# The water's light columns are anchored in the open world. At the chart's
-	# widest a float still resolves well under a metre, against columns about
-	# a hundred metres across.
-	RenderingServer.global_shader_parameter_set("ocean_eye",absolute_eye)
+	particle_material.set_shader_parameter("eye_phase",Vector3(fposmod(eye[0],90),fposmod(eye[1],90),fposmod(eye[2],90)))
+	# The water's veil and light columns are anchored in the open world. Each
+	# noise lattice gets the eye's cell already reduced to its repeat: a
+	# shader given the eye itself lost the hash's precision kilometres out and
+	# drew seams and broken banks across the water.
+	for uniform in OCEAN_LATTICES:
+		var scale: Array=OCEAN_LATTICES[uniform]
+		RenderingServer.global_shader_parameter_set(uniform,Vector3(fposmod(eye[0]*scale[0],OCEAN_CELLS),fposmod(eye[1]*scale[1],OCEAN_CELLS),fposmod(eye[2]*scale[2],OCEAN_CELLS)))
 	update_water_column(anchor)
 	particle_material.set_shader_parameter("cloud_origin",particles.global_position)
 	particle_material.set_shader_parameter("eye",camera.global_position)
@@ -333,6 +342,14 @@ func _process(delta: float) -> void:
 	particle_material.set_shader_parameter("lamp_forward",-lamps[0].global_basis.z)
 	particle_material.set_shader_parameter("lamps_on",1.0 if headlights_enabled and world!=null and not world.session.docked else 0.0)
 	update_water_particles(seconds,anchor)
+
+func absolute_eye() -> Array:
+	"""The camera in the open world, in metres, summed as doubles: the region
+	anchor is rounded once per region, but the camera's place in it is not
+	lost to the anchor's thousands of kilometres."""
+	var anchor: Vector3=world.geography.anchor if world!=null and world.region!=null else Vector3.ZERO
+	var at: Vector3=camera.global_position
+	return [float(anchor.x)+float(at.x),float(anchor.y)+float(at.y),float(anchor.z)+float(at.z)]
 
 func update_water_column(anchor: Vector3) -> void:
 	var env: Environment=environment.environment

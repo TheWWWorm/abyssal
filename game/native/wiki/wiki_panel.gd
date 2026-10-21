@@ -136,7 +136,8 @@ func _ready() -> void:
 	resized.connect(arrange)
 	fill_list(); open("home")
 	arrange()
-	search.grab_focus.call_deferred()
+	# On a touchscreen a focused search raises the keyboard over the page.
+	if not (DisplayServer.is_touchscreen_available() and DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD)): search.grab_focus.call_deferred()
 
 func searched(_text: String) -> void:
 	fill_list()
@@ -156,8 +157,10 @@ func style(node: Control) -> void:
 
 func can_save() -> bool: return not OS.has_feature("web") and not OS.has_feature("android")
 func narrow() -> bool: return size.x < 820
-## Room for the picture beside the article rather than above it.
-func wide() -> bool: return size.x >= 1240
+## Room for the picture beside the article rather than above it. A short
+## landscape screen (a phone on its side) puts it there too: stacked, the
+## picture left the article a few lines.
+func wide() -> bool: return size.x >= 1240 or (size.x >= 1000 and size.y < 760)
 
 func arrange() -> void:
 	browse.visible = narrow()
@@ -169,7 +172,7 @@ func arrange() -> void:
 	page_box.vertical = not wide()
 	if page_box.vertical: page_box.move_child(media, 0)
 	else: page_box.move_child(media, 1)
-	media.custom_minimum_size = Vector2(0, clampf(size.y * 0.3, 150, 260)) if page_box.vertical else Vector2(minf(380, size.x * 0.28), 0)
+	media.custom_minimum_size = Vector2(0, clampf(size.y * 0.3, 150, 260)) if page_box.vertical else Vector2(minf(380, size.x * (0.28 if size.x >= 1240 else 0.24)), 0)
 	media.size_flags_vertical = Control.SIZE_FILL if page_box.vertical else Control.SIZE_EXPAND_FILL
 
 func name_sections() -> void:

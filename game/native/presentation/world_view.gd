@@ -494,6 +494,7 @@ func _process(delta: float) -> void:
 	# Region entry rebases local coordinates. Measure streaming distances only
 	# after the camera has moved into the new frame, including transit shots.
 	if neighbor_clock>0.1: neighbor_clock=0; stream_neighbors()
+	update_berth()
 	shadow_clock+=delta
 	if shadow_clock>=SHADOW_INTERVAL: shadow_clock=0; choose_shadowed_lamps()
 	var frustum: Array[Plane] = camera.get_frustum()
@@ -1012,33 +1013,51 @@ func begin_transit(frame: Transform3D, side: float) -> void:
 	transit_frame=frame;transit_side=side;transit_progress=0.0;transit_emerging=false
 func end_transit() -> void:
 	transit_progress=-1.0;transit_emerging=false
-func begin_departure() -> void:
-	departure_hangar=null
+func departure_line() -> Dictionary:
+	"""The hangar, the door's frame and the line the departure shot runs
+	along, from inside the berth to clear water; empty without a hangar."""
+	var hangar=null
 	for station in station_nodes:
-		if station.is_hangar():departure_hangar=station;break
-	if departure_hangar==null:return
-	var aperture:AABB=departure_hangar.hangar_aperture()
+		if station.is_hangar():hangar=station;break
+	if hangar==null or player_model==null:return {}
+	var aperture:AABB=hangar.hangar_aperture()
 	# The door's centre is read through the module's roll; the shot's frame
 	# keeps the station's own upright basis, so the camera sits above the berth.
-	departure_frame=Transform3D((departure_hangar.global_transform*Model.STATION_ROLL).basis,departure_hangar.global_transform*aperture.get_center())
-	var direction:=departure_frame.basis.z.normalized()
+	var frame:=Transform3D((hangar.global_transform*Model.STATION_ROLL).basis,hangar.global_transform*aperture.get_center())
+	var direction:=frame.basis.z.normalized()
 	var hull:AABB=player_model.solid_bounds()
-	# The whole hull starts inside the berth, its nose a little behind the
-	# door, so the lamps on the nose come on as it crosses the sill, not
-	# while the door is still opening.
-	departure_start=departure_frame.origin-direction*hull.size.z*1.1
 	# A few of the original's layouts hang a module across the berth's line
 	# of exit. Run the shot up to the last clear water before it instead of
 	# through it; the hull then starts its dive from there.
 	var reach: float=105+hull.size.z
 	var probe: float=hull.size.z
 	while probe<reach:
-		var point: Vector3=departure_frame.origin+direction*(probe+hull.size.z*.5)
+		var point: Vector3=frame.origin+direction*(probe+hull.size.z*.5)
 		# The hangar's own box reaches past its door; only another module counts.
 		if world.region.station.contains([roundi(point.x*100),roundi(-point.y*100),roundi(-point.z*100)]) and world.region.station.contact!=0:
 			reach=maxf(hull.size.z,probe-4.0);break
 		probe+=2.0
-	departure_end=departure_frame.origin+direction*reach
+	# The whole hull starts inside the berth, its nose a little behind the
+	# door, so the lamps on the nose come on as it crosses the sill, not
+	# while the door is still opening.
+	return {"hangar":hangar,"frame":frame,"direction":direction,"start":frame.origin-direction*hull.size.z*1.1,"end":frame.origin+direction*reach}
+## How far out along the door's line autopilot lines up before docking, m.
+const BERTH_LEAD := 60.0
+func update_berth() -> void:
+	"""Tell the simulation where the berth's water is, once per station drawn."""
+	if world.berth!=null or world.region==null or station_nodes.is_empty() or rendered_station!=world.session.station_id:return
+	var line:=departure_line()
+	if line.is_empty():return
+	var end: Vector3=line.end
+	var lead: Vector3=end+line.direction*BERTH_LEAD
+	world.berth=[roundi(end.x*100),roundi(-end.y*100),roundi(-end.z*100)]
+	world.berth_lead=[roundi(lead.x*100),roundi(-lead.y*100),roundi(-lead.z*100)]
+func begin_departure() -> void:
+	departure_hangar=null
+	var line:=departure_line()
+	if line.is_empty():return
+	departure_hangar=line.hangar;departure_frame=line.frame;departure_start=line.start;departure_end=line.end
+	var direction: Vector3=line.direction
 	world.region.player.pose.face([roundi(direction.x*4096),roundi(-direction.y*4096),roundi(-direction.z*4096)])
 	place_departure(0)
 func place_departure(progress: float) -> void:

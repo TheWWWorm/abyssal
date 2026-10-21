@@ -108,15 +108,25 @@ func _reshape() -> void:
 	if not is_visible_in_tree() or size.x <= 0: return
 	var band := custom_minimum_size.y > 0
 	var flags := Control.SIZE_EXPAND_FILL if band else Control.SIZE_FILL
-	var height := 0.0 if band else roundf(clampf(size.x * 0.82, 180.0, 460.0))
+	# A phone on its side is a short column: the picture and the chart under
+	# it must fit with the page's Back, so both shrink with the screen's height.
+	var screen := get_viewport_rect().size
+	var short := screen.y < 700.0
+	var height := 0.0 if band else roundf(clampf(size.x * 0.82, 120.0, minf(460.0, screen.y * 0.22) if short else 460.0))
 	if frame.size_flags_vertical != flags: frame.size_flags_vertical = flags
 	if not is_equal_approx(frame.custom_minimum_size.y, height): frame.custom_minimum_size.y = height
 	if map == null or not is_instance_valid(map): return
+	if not band and row == null:
+		var chart := 110.0 if short else 190.0
+		if not is_equal_approx(map.custom_minimum_size.y, chart): map.custom_minimum_size.y = chart
+		for preview in frame.get_children(): if preview is Control and not is_equal_approx(preview.custom_minimum_size.y, chart): preview.custom_minimum_size.y = chart
+		# The chart keeps itself square; a short column cannot hold 200.
+		var square := Vector2.ONE * (chart if short else 200.0)
+		for drawn in map.get_children(): if drawn is Control and drawn.custom_minimum_size != square: drawn.custom_minimum_size = square
 	# On a landscape screen a station above the article shares its band with
 	# the chart, side by side: stacked, the two outgrow a phone's height and
 	# push the page's Back off it. Upright screens have the height, not the
 	# width; beside the article the chart stays below, smaller.
-	var screen := get_viewport_rect().size
 	var beside := band and screen.x > screen.y
 	if beside == (row != null): return
 	if beside:
@@ -132,8 +142,8 @@ func _reshape() -> void:
 		move_child(frame, 0); move_child(map, 1)
 		row.queue_free(); row = null
 		frame.size_flags_horizontal = Control.SIZE_FILL
-		map.custom_minimum_size.y = 190
-		for preview in frame.get_children(): if preview is Control: preview.custom_minimum_size.y = 180
+		map.custom_minimum_size.y = 120 if short else 190
+		for preview in frame.get_children(): if preview is Control: preview.custom_minimum_size.y = 120 if short else 180
 
 static func has_model(content, id: int) -> bool:
 	for entry in content.registry:

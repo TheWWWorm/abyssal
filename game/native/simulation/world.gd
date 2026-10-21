@@ -37,6 +37,13 @@ var arrival_exit := -1
 const GATE_FRAME_MS := 32
 const GATE_OPEN_MS := GATE_FRAME_MS*20
 var local_target = null
+## The water just outside the hangar door, where the departure shot leaves
+## the hull (world_view.gd places it once the station is drawn); null until
+## then. Autopilot docks there rather than at the docking box's edge.
+var berth = null
+## Water farther out along the door's line: the run-in starts there, so the
+## hull arrives facing the door from whichever side it came.
+var berth_lead = null
 var autopilot := false
 var encounter_autopilot := false
 var gate_navigation := false
@@ -64,6 +71,8 @@ var smooth_steering := false
 var manual_roll := false
 ## Apply at a new dive, never by moving stations around an active submarine.
 var spacing_meters := Spacing.DEFAULT_METERS
+## How near the berth autopilot docks, in world units.
+const BERTH_REACH := 2500
 func configure(owner_session) -> void:
 	session=owner_session
 	session.world_layout.spacing_meters=spacing_meters
@@ -113,6 +122,7 @@ func route_to(id: int) -> bool:
 	encounter_autopilot=false;gate_navigation=false;avoidance_path=[]
 	destination=id; autopilot=true; approach_path=[]; approach_planned=false; course_start=global_position()
 	local_target=Math.subtracted(station_origin(id),station_origin(session.station_id))
+	if id==session.station_id and berth!=null:local_target=berth.duplicate()
 	region.player.autopilot_target=local_target; message=tr("Autopilot · %s")%session.stations[id].name
 	update_approach()
 	return true
@@ -220,6 +230,9 @@ func update_autopilot() -> void:
 		if point!=local_target:
 			local_target=point; approach_path=[]; approach_planned=false
 	if local_target==null: return
+	# The berth is known once the station is drawn, which can follow the order.
+	if destination==session.station_id and berth!=null and local_target!=berth:
+		local_target=berth.duplicate();approach_path=[];approach_planned=false;region.player.autopilot_target=local_target
 	if destination>=0 and destination!=session.station_id and remaining_distance()*100.0<REGION_APPROACH_DISTANCE:
 		var arriving := destination
 		cancel_autopilot()
@@ -229,7 +242,7 @@ func update_autopilot() -> void:
 	var difference := Math.subtracted(local_target,region.player.pose.origin)
 	var distance: float = Vector3(difference[0],difference[1],difference[2]).length()
 	if distance<25000: speed=1
-	var dockable: bool = destination==session.station_id and region.station.can_dock(region.player.pose.origin)
+	var dockable: bool = destination==session.station_id and (at_berth() if berth!=null else region.station.can_dock(region.player.pose.origin))
 	if dockable:
 		if dock(): message=tr("Docked · %s")%session.stations[session.station_id].name
 		else: cancel_autopilot(message)
@@ -238,6 +251,8 @@ func update_autopilot() -> void:
 	# control back within weapon range of the live encounter target instead of
 	# trying to drive through its now-solid hull.
 	var arrival_distance := 20000.0 if encounter_autopilot and region.route.current()==null else 1800.0 if destination<0 else 12000.0
+	# Docking at the berth carries on until it is reached.
+	if destination==session.station_id and berth!=null:arrival_distance=0.0
 	if distance>arrival_distance and not dockable:
 		update_approach(); avoid_cruise_stations(); return
 	var arriving := destination
@@ -265,9 +280,11 @@ func update_approach() -> void:
 		return
 	var position: Array = region.player.pose.origin
 	if not approach_planned and absi(position[1])<14000 and Vector3(position[0],0,position[2]).length()<region.station.extent+60000:
-		approach_path=preload("res://native/simulation/station_navigation.gd").new().approach(region.station,position,region.gates[departure_gate] if stream_destination>=0 else [])
+		var berthing: bool=stream_destination<0 and berth_lead!=null
+		approach_path=preload("res://native/simulation/station_navigation.gd").new().approach(region.station,position,region.gates[departure_gate] if stream_destination>=0 else berth_lead if berthing else [])
 		approach_planned=not approach_path.is_empty() if stream_destination>=0 else true
-	follow_approach()
+		if berthing:approach_path.append(berth.duplicate())
+	follow_approach(stream_destination<0 and berth_lead!=null)
 func follow_approach(consume_end: bool=false) -> void:
 	if approach_path.is_empty(): return
 	var delta := Math.subtracted(approach_path[0],region.player.pose.origin)
@@ -300,6 +317,7 @@ func explore() -> void:
 			if Vector3(difference[0],difference[1],difference[2]).length()+15000<Vector3(current_delta[0],current_delta[1],current_delta[2]).length():
 				enter_region(station.id); return
 func enter_region(id: int) -> void:
+	berth=null;berth_lead=null
 	var position := global_position(); var pose=region.player.pose.copy_pose()
 	var flight: Dictionary = {}
 	for key in ["throttle","throttle_target","stopped","bank","visual_bank","yaw_step","pitch_total","speed_factor","boost_active","boost_timer","shield_timer","repair_timer"]: flight[key]=region.player.get(key)
@@ -323,7 +341,7 @@ func enter_region(id: int) -> void:
 		region.mission.briefing=false
 func dock() -> bool:
 	if session.docked: return true
-	if region==null or not region.station.can_dock(region.player.pose.origin): message=tr("Approach the station's docking area."); return false
+	if region==null or not in_docking_area(): message=tr("Approach the station's docking area."); return false
 	message=dock_denial()
 	if not message.is_empty(): return false
 	var hull_percent := int(Math.f32(Math.f32(float(region.player.health.hull)/float(region.player.health.max_hull))*100.0)) if region.player.health.max_hull>0 else 0
@@ -331,6 +349,15 @@ func dock() -> bool:
 	# The station panel says where you are; no notice repeats it over it.
 	cancel_autopilot(); reset_gates(); session.arrive()
 	return true
+func in_docking_area() -> bool:
+	"""Inside the original's docking box, or at the berth."""
+	return region!=null and (region.station.can_dock(region.player.pose.origin) or at_berth())
+func at_berth() -> bool:
+	"""Within reach of the water outside the hangar door, which can lie a
+	little beyond the docking box of a large station."""
+	if berth==null or region==null:return false
+	var d := Math.subtracted(berth,region.player.pose.origin)
+	return Vector3(d[0],d[1],d[2]).length()<BERTH_REACH
 func dock_denial() -> String:
 	"""Why the station turns the ship away, or nothing. Besides a live
 	encounter, br.a refuses with "Can't dock while in a mission." (269) while

@@ -202,6 +202,13 @@ func run():
  game.close_page();game._process(0)
  expect(not game.objective_label.get_parsed_text().contains("Time "),"Time acceleration is not mixed into mission instructions")
  expect(game.objective_label.bbcode_enabled and game.objective_label.get_parsed_text().contains("CURRENT OBJECTIVE"),"Quest panel distinguishes title, body, progress and navigation hint")
+ var timed=game.world.region;var limit: int=timed.time_limit;var spent: int=timed.elapsed_ms
+ timed.time_limit=spent+151000;game._process(0)
+ expect(game.objective_label.get_parsed_text().contains("Time left · 02:31"),"A timed job counts down its remaining time on the HUD")
+ timed.time_limit=spent+3725000;game._process(0)
+ expect(game.objective_label.get_parsed_text().contains("01:02:05"),"The countdown shows hours once there are any")
+ timed.time_limit=limit;game._process(0)
+ expect(not game.objective_label.get_parsed_text().contains("Time left"),"Untimed jobs show no countdown")
  check_music_transitions(game)
  await check_dock_navigation(game)
  await check_departure(game)
@@ -491,6 +498,8 @@ func check_oblique_portals(game) -> void:
   game.show_stream_menu()
   expect(game.world.region.player.throttle_target==0,"The chart stops the submarine while it is open")
   game.begin_stream_transit()
+  expect(game.page=="confirm" and game.session.station_id==before,"Initiating transit asks first, from side %d"%side)
+  if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
   # Confirming a destination is the crossing. Nothing is flown into the
   # aperture, so the far side has to be there before another frame is drawn.
   expect(game.session.station_id!=before,"Confirming a destination crosses at once, from side %d"%side)
@@ -547,10 +556,25 @@ func check_dock_notices(game) -> void:
  var contacts: Array=game.station_contacts()
  var station: Dictionary=contacts.filter(func(entry):return entry.key=="station")[0]
  expect(station.distance_position==Vector3.ZERO and station.position!=station.distance_position,"Station range uses the station origin while its label stays above the roof")
+ # Autopilot docks at the berth the departure shot leaves from, arriving
+ # along the door's line, not at whichever edge of the docking box it meets.
+ game.view.update_berth()
+ expect(game.world.berth!=null and game.world.berth_lead!=null,"The berth outside the hangar door is known once the station is drawn")
+ if game.world.berth!=null:
+  game.world.route_to(game.session.station_id)
+  expect(game.world.local_target==game.world.berth,"Autopilot to dock heads for the berth")
+  var held: Array=game.world.region.player.pose.origin.duplicate()
+  game.world.region.player.pose.origin=game.world.berth.duplicate()
+  expect(game.world.at_berth() and game.world.in_docking_area(),"The berth counts as the docking area")
+  game.world.region.player.pose.origin=held;game.world.cancel_autopilot()
  game.notice("Approach the station's docking area.")
  game.notice("Route blocked by a station within safe depth")
  expect(game.notice_history.size()==1 and game.message.text=="Route blocked by a station within safe depth","Messages at sea show the latest answer with the previous one below it")
  game.perform("dock")
+ await process_frame
+ # br.a: the dock key asks "Dock to #?" (272) and waits on the answer.
+ expect(game.page=="confirm" and not game.session.docked and game.column.find_children("*","Label",true,false).any(func(node):return node.text==game.session.text(272,game.session.stations[game.session.station_id].name)),"Pressing dock asks Dock to the station first")
+ if named_button(game,game.session.text(45))!=null:named_button(game,game.session.text(45)).pressed.emit()
  await process_frame
  expect(game.session.docked,"Pressing dock at the berth docks")
  expect(game.notice_history.is_empty(),"Docking drops the previous flight messages")

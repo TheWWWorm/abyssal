@@ -20,9 +20,18 @@ global uniform float ocean_shaft_gain;
 global uniform float ocean_visual_time;
 #include "res://native/presentation/ocean_direction.gdshaderinc"
 // The camera's position in the open world (the region anchor added), in
-// metres: the water's light columns and banks stay where they are in the sea
-// as the ship moves through them.
-global uniform vec3 ocean_eye;
+// each noise lattice's cells and already reduced to OCEAN_CELLS on the CPU
+// (abyss.gd OCEAN_LATTICES): the water's light columns and banks stay where
+// they are in the sea as the ship moves through them, and no lattice is
+// handed the millions of metres a float cannot hash.
+global uniform vec3 ocean_veil_phase;
+global uniform vec3 ocean_veil_fine_phase;
+global uniform vec3 ocean_bank_phase;
+global uniform vec3 ocean_column_phase;
+global uniform vec3 ocean_column_fine_phase;
+// The noise repeats after this many cells along each axis, tens of
+// kilometres of open water.
+const float OCEAN_CELLS=256.;
 // Gradient noise with a quintic fade, about 0..1: value noise showed its
 // grid as sudden steps where light columns crossed, and gradient noise has
 // no such corners.
@@ -30,13 +39,16 @@ vec3 ocean_hash33(vec3 p){
  p=fract(p*vec3(.1031,.1030,.0973));p+=dot(p,p.yxz+33.33);
  return fract((p.xxy+p.yxx)*p.zyx)*2.-1.;
 }
+float ocean_corner(vec3 i,vec3 f,vec3 o){
+ return dot(ocean_hash33(mod(i+o,OCEAN_CELLS)),f-o);
+}
 float ocean_noise3(vec3 p){
  vec3 i=floor(p),f=fract(p);
  vec3 u=f*f*f*(f*(f*6.-15.)+10.);
- float a=dot(ocean_hash33(i),f),b=dot(ocean_hash33(i+vec3(1,0,0)),f-vec3(1,0,0));
- float c=dot(ocean_hash33(i+vec3(0,1,0)),f-vec3(0,1,0)),e=dot(ocean_hash33(i+vec3(1,1,0)),f-vec3(1,1,0));
- float g=dot(ocean_hash33(i+vec3(0,0,1)),f-vec3(0,0,1)),h=dot(ocean_hash33(i+vec3(1,0,1)),f-vec3(1,0,1));
- float k=dot(ocean_hash33(i+vec3(0,1,1)),f-vec3(0,1,1)),l=dot(ocean_hash33(i+vec3(1,1,1)),f-vec3(1,1,1));
+ float a=ocean_corner(i,f,vec3(0,0,0)),b=ocean_corner(i,f,vec3(1,0,0));
+ float c=ocean_corner(i,f,vec3(0,1,0)),e=ocean_corner(i,f,vec3(1,1,0));
+ float g=ocean_corner(i,f,vec3(0,0,1)),h=ocean_corner(i,f,vec3(1,0,1));
+ float k=ocean_corner(i,f,vec3(0,1,1)),l=ocean_corner(i,f,vec3(1,1,1));
  float n=mix(mix(mix(a,b,u.x),mix(c,e,u.x),u.y),mix(mix(g,h,u.x),mix(k,l,u.x),u.y),u.z);
  return clamp(n*.9+.5,0.,1.);
 }
@@ -94,9 +106,9 @@ vec3 ocean_radiance_exact(vec3 direction){
   // at independent scales, so the open water has depth instead of one
   // even gradient.
   vec3 drift=vec3(ocean_visual_time*.19,-ocean_visual_time*.025,ocean_visual_time*.09);
-  vec3 p=(ocean_eye+drift+d*650.)*vec3(.0019,.0009,.0019);
-  float veil=smoothstep(.27,.78,ocean_noise3(p+vec3(3.2,8.5,1.))*.7+ocean_noise3(p*2.63+vec3(7.8,1.4,6.2))*.3);
-  float bank=ocean_noise3((ocean_eye+drift*.4+d*1500.)*vec3(.0007,.0021,.0007));
+  vec3 p=(drift+d*650.)*vec3(.0019,.0009,.0019);
+  float veil=smoothstep(.27,.78,ocean_noise3(ocean_veil_phase+p+vec3(3.2,8.5,1.))*.7+ocean_noise3(ocean_veil_fine_phase+p*2.63+vec3(7.8,1.4,6.2))*.3);
+  float bank=ocean_noise3(ocean_bank_phase+(drift*.4+d*1500.)*vec3(.0007,.0021,.0007));
   water*=mix(1.,.48+veil*.67+bank*.23,OCEAN_VEIL*(1.-.6*smoothstep(.6,.95,d.y)));
  }
  water*=ocean_water_tint;
@@ -113,10 +125,10 @@ vec3 ocean_radiance_exact(vec3 direction){
  // uneven columns of filtered light stand in the water and pass by as the
  // ship travels, drifting slowly with the current.
  vec3 current=vec3(ocean_visual_time*.19,-ocean_visual_time*.025,ocean_visual_time*.09);
- vec3 column=(ocean_eye+current+d*1050.)*vec3(.0034,.00032,.0034);
+ vec3 column=(current+d*1050.)*vec3(.0034,.00032,.0034);
  // Broad falloff and no fine octave: the columns' sides fade over many
  // metres instead of ending on a visible line.
- float filaments=smoothstep(.3,.95,ocean_noise3(column)*.8+ocean_noise3(column*vec3(1.9,.5,1.9)+vec3(4.1,2.3,7.7))*.2);
+ float filaments=smoothstep(.3,.95,ocean_noise3(ocean_column_phase+column)*.8+ocean_noise3(ocean_column_fine_phase+column*vec3(1.9,.5,1.9)+vec3(4.1,2.3,7.7))*.2);
  filaments*=filaments;
  // Seen from below a column is only its cross-section, a blotch; straight
  // up the opening's glow carries the light instead.
