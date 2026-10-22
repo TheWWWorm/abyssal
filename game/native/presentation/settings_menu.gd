@@ -27,6 +27,27 @@ const TABS := [["audio","Audio","audio"],["graphics","Graphics","graphics"],["di
 const CONTROL_PAGES := {"steering":"Steering","gamepad":"Gamepad","touch":"Touch controls","bindings":"Key bindings","reference":"Control reference"}
 const DEFAULT_KEYS := {"left":KEY_A,"right":KEY_D,"up":KEY_UP,"throttle_up":KEY_W,"throttle_down":KEY_S,"down":KEY_DOWN,"fire":KEY_SPACE,"harpoon":KEY_F,"auto_fire":KEY_Q,"camera":KEY_C,"boost":KEY_SHIFT,"bank":KEY_TAB,"dock":KEY_E,"map":KEY_M,"autopilot":KEY_R,"time":KEY_T,"lights":KEY_L,"roll_left":KEY_Z,"roll_right":KEY_X,"free_look":KEY_ALT,"save":KEY_F5,"fullscreen":KEY_F11}
 
+## Menu navigation, bound apart from steering and free to share its keys, so
+## a player who steers with WASD can move through menus with them too. The
+## arrow keys and the D-pad always work as well.
+const MENU_KEYS := {"menu_up":KEY_UP,"menu_down":KEY_DOWN,"menu_left":KEY_LEFT,"menu_right":KEY_RIGHT}
+const MENU_ACTIONS := {"menu_up":"ui_up","menu_down":"ui_down","menu_left":"ui_left","menu_right":"ui_right"}
+## The key events the menu bindings added to the interface's actions.
+static var menu_events: Array=[]
+
+## The saved menu keys into the interface's own navigation actions.
+static func apply_menu_keys(config: ConfigFile) -> void:
+	for added in menu_events:
+		if InputMap.has_action(added[0]) and InputMap.action_has_event(added[0],added[1]):InputMap.action_erase_event(added[0],added[1])
+	menu_events.clear()
+	for action in MENU_KEYS:
+		var value: Variant=config.get_value("keys",action,MENU_KEYS[action])
+		var code: int=int(value) if value is int or value is float else MENU_KEYS[action]
+		# The arrows are already there.
+		if code<=0 or code==MENU_KEYS[action] or OS.get_keycode_string(code).is_empty():continue
+		var event := InputEventKey.new();event.physical_keycode=code
+		InputMap.action_add_event(MENU_ACTIONS[action],event);menu_events.append([MENU_ACTIONS[action],event])
+
 ## Reopening settings returns to the tab last used, in the title or a dive.
 static var last_section := "audio"
 
@@ -57,6 +78,7 @@ func configure(path: String, capabilities: Dictionary, gold := false, touch_size
 
 func _ready() -> void:
 	name="Settings"
+	set_meta("focus_scope",true)
 	focus_mode=Control.FOCUS_NONE
 	# It sits over a paused dive and must still follow the window.
 	process_mode=Node.PROCESS_MODE_ALWAYS
@@ -146,6 +168,7 @@ func put(section_name: String, key: String, value: Variant, rebuild_after := tru
 	var config := load_config();config.set_value(section_name,key,value)
 	Quality.mark_chosen(config,section_name,key)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir());config.save(settings_path)
+	if MENU_KEYS.has(key):apply_menu_keys(config)
 	changed.emit(section_name,key)
 	if rebuild_after: rebuild(true)
 
@@ -176,6 +199,7 @@ func forward_plus() -> bool:
 ## A key added by an update takes its default only while no other binding
 ## holds it, so a saved layout never gains a key that does two things.
 static func default_key(config: ConfigFile, action: String) -> int:
+	if MENU_KEYS.has(action):return MENU_KEYS[action]
 	var key: int=DEFAULT_KEYS[action]
 	if config.has_section_key("keys",action):return key
 	var taken: Array=[]
@@ -280,7 +304,8 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		if event.physical_keycode==KEY_ESCAPE or event.keycode==KEY_ESCAPE:
 			binding="";rebuild();return
-		for action in DEFAULT_KEYS:
+		# Menu keys may repeat the steering keys, never each other.
+		for action in (MENU_KEYS if MENU_KEYS.has(binding) else DEFAULT_KEYS):
 			if action!=binding and keycode(action)==event.physical_keycode:
 				binding_notice=tr("%s is already assigned to %s.")%[OS.get_keycode_string(event.physical_keycode),action_name(action)];rebuild();return
 		var action := binding;binding="";binding_notice="";focus_key="key_"+action
@@ -660,6 +685,8 @@ func display_page() -> void:
 	shown.tooltip_text=tr("The resolution the game is drawn at. The interface stays at the screen's own resolution.")
 	note(tr("3D resolution and antialiasing are in Graphics."))
 	toggle(tr("Show FPS"),"view","show_fps",false).tooltip_text=tr("Frames per second at the top of the screen.")
+	toggle(tr("Retro HUD"),"interface","retro_hud",false)
+	note(tr("Adds the original game's gauges to the HUD: the cargo hold along the top, and the shield and hull bars with the auto fire, autopilot and hull lamps along the bottom."))
 
 func controls_page() -> void:
 	sub_row(tr("Steering"),"steering")
@@ -743,7 +770,8 @@ func touch_page() -> void:
 
 func action_name(action: String) -> String:
 	return {"autopilot":tr("Autopilot (tap / hold)"),"time":tr("Time acceleration"),"throttle_up":tr("Throttle up"),"throttle_down":tr("Stop") if flag("input","mouse_wheel_throttle",false) else tr("Throttle down"),"auto_fire":tr("Auto fire"),"up":tr("Pitch up"),"down":tr("Pitch down"),"left":tr("Left"),"right":tr("Right"),
-		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"harpoon":tr("Harpoon"),"bank":tr("Switch weapons"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights"),"roll_left":tr("Roll left"),"roll_right":tr("Roll right"),"free_look":tr("Look around (hold)"),"save":tr("Save game"),"fullscreen":tr("Fullscreen")}.get(action,action.capitalize())
+		"fire":tr("Fire"),"camera":tr("Camera"),"boost":tr("Boost"),"harpoon":tr("Harpoon"),"bank":tr("Switch weapons"),"dock":tr("Dock"),"map":tr("Map"),"lights":tr("Lights"),"roll_left":tr("Roll left"),"roll_right":tr("Roll right"),"free_look":tr("Look around (hold)"),"save":tr("Save game"),"fullscreen":tr("Fullscreen"),
+		"menu_up":tr("Menu up"),"menu_down":tr("Menu down"),"menu_left":tr("Menu left"),"menu_right":tr("Menu right")}.get(action,action.capitalize())
 
 func bindings_page() -> void:
 	if binding!="": note(tr("Press a key for %s. Esc cancels.")%action_name(binding)).add_theme_color_override("font_color",colours().value)
@@ -758,6 +786,13 @@ func bindings_page() -> void:
 		var waiting: bool=binding==action
 		row(action_name(action),"…" if waiting else OS.get_keycode_string(keycode(action)),"key_"+action,func():
 			binding=action;binding_notice="";focus_key="key_"+action;rebuild(),grid)
+	group(tr("Menu navigation"))
+	note(tr("Moves between buttons in menus, alongside the arrow keys. These may be the same keys as steering."))
+	var menu_grid := GridContainer.new();menu_grid.columns=grid.columns;menu_grid.add_theme_constant_override("h_separation",10);menu_grid.add_theme_constant_override("v_separation",8);column.add_child(menu_grid)
+	for action in MENU_KEYS:
+		var waiting: bool=binding==action
+		row(action_name(action),"…" if waiting else OS.get_keycode_string(keycode(action)),"key_"+action,func():
+			binding=action;binding_notice="";focus_key="key_"+action;rebuild(),menu_grid)
 
 func pad_reference(layout: int) -> Array:
 	"""The gamepad's controls in a layout, for the reference and Gamepad pages."""

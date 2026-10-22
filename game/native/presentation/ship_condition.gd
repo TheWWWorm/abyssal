@@ -8,6 +8,9 @@ var colors := [Color("91ddbc"),Color("91cbe4"),Color("d2be91")]
 ## The touch layout's two-row gauge: armour and then hull on the first row,
 ## shield on the second, and the cargo, credits and station line under them.
 var compact := false
+## The Retro HUD's bottom bars stand in for the two rows; only the line under
+## them stays, in their place.
+var bars_hidden := false
 var info := ""
 var compact_fill := [0.0,0.0]
 var compact_colors := [Color.WHITE,Color.WHITE]
@@ -66,6 +69,11 @@ func _draw() -> void:
 			var color: Color=fills[index].bg_color if float(segment)/width<bars[index].value/100.0 else Color("244653")
 			draw_rect(Rect2(index*(width+12)+segment,21,4,10),color)
 func draw_compact() -> void:
+	var font := get_theme_default_font()
+	if bars_hidden:
+		draw_string_outline(font,Vector2(2,18),info,HORIZONTAL_ALIGNMENT_LEFT,-1,17,4,Color(0,.04,.07,.7))
+		draw_string(font,Vector2(2,18),info,HORIZONTAL_ALIGNMENT_LEFT,-1,17,Color("c9e7ea"))
+		return
 	var width := minf(size.x,190.0)
 	for row in 2:
 		var y := row*30.0
@@ -77,7 +85,6 @@ func draw_compact() -> void:
 		for segment in count:
 			var lit: bool=(segment+.5)/count<=compact_fill[row]
 			draw_rect(Rect2(start+segment*7,y+3,4,15),compact_colors[row] if lit else Color("1d3c48cc"))
-	var font := get_theme_default_font()
 	if hull_percent<100:
 		var reading := "%d%%"%maxi(0,hull_percent)
 		var x := width+8.0

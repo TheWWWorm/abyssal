@@ -82,7 +82,13 @@ func advance_capsule(delta_ms: int) -> void:
 		3:
 			if not has_explosion or explosion_ms>explosion_duration:state=4
 			else:explosion_ms+=delta_ms
-		4:reset_capsule()
+		4:
+			# A supply capsule that is lost is replaced by the station's next.
+			# A marked capsule (the raid's targets) stays destroyed: the
+			# original relaunched it the next frame too, so its "all marked
+			# capsules down" test could only pass in that one frame and the
+			# raid's count never rose. One that escapes still comes round again.
+			if not hostile:reset_capsule()
 
 func advance_freighter(delta_ms: int) -> void:
 	if moving and state not in [3,4]:

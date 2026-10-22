@@ -15,6 +15,10 @@ var palette := StationTheme.palette(false)
 ## Set by the owner's layout: the strip grows with the window height.
 var scale_factor := 1.0:
 	set(value): scale_factor=value; queue_redraw()
+## Pixels the strip stands above its usual place, clear of the Retro HUD's
+## bottom row.
+var lift := 0.0:
+	set(value): lift=value; queue_redraw()
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	font=StationTheme.spaced(get_theme_default_font(),2)
@@ -47,7 +51,7 @@ func rail(rect: Rect2, amount: float, lit: Color) -> void:
 func words(at: Vector2, value: String, colour: Color, pixels: int=11, align:=HORIZONTAL_ALIGNMENT_LEFT, width:=-1.0) -> void:
 	draw_string(font,at,value,align,width,pixels,colour)
 func _draw() -> void:
-	draw_set_transform(Vector2(size.x*.5,size.y),0,Vector2.ONE*scale_factor)
+	draw_set_transform(Vector2(size.x*.5,size.y-lift),0,Vector2.ONE*scale_factor)
 	var box := panel_rect()
 	draw_style_box(frame,box)
 	var fitted: bool=boost.get("mode","absent")!="absent"

@@ -168,9 +168,10 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 		accumulator=0; speed=1; return
 	# Looking around / mouse jitter never disengages a plotted course.
 	# Steering keys, throttle, weapons or the explicit Disengage button do.
+	# The booster does not: bb.b only speeds the plotted run up.
 	if not autopilot: mouse_pending+=Vector2(input.get("mouse_x",0.0),input.get("mouse_y",0.0))
 	else: mouse_pending=Vector2.ZERO
-	if autopilot and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("boost",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot(tr("Manual control"))
+	if autopilot and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot(tr("Manual control"))
 	for action in ["fire","guns","hook"]:
 		if input.get(action,false):weapon_pending[action]=true
 	# Danger only changes accelerated time. At the ordinary 1x/2x rates there
@@ -504,6 +505,8 @@ func stream_transfer() -> bool:
 	# dj.d increments journeys; it does not call the departure/count-jump path.
 	session.hull=region.player.health.hull; session.shield=region.player.health.shield; session.armor=region.player.health.armor
 	cancel_autopilot(); enter_region(target)
+	# br builds a new bb after the jump: the booster arrives charged and idle.
+	region.player.boost_active=false;region.player.boost_timer=0;region.player.speed_factor=2
 	var arrival_gate: int=region.gate_index(1)
 	departure_gate=0
 	region.player.pose.origin=region.gates[arrival_gate].duplicate()

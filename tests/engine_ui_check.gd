@@ -133,6 +133,22 @@ func run():
   expect(Rect2(Vector2.ZERO,game.ui.size).encloses(gauge),"Depth column fits the viewport")
   expect(not game.condition.get_global_rect().intersects(gauge),"Depth and ship status do not overlap")
   expect(game.classic_frame.imported_art.image("i_weight")!=null,"Cargo instrument uses owner-imported original icon")
+ # Retro HUD: the cargo bar and the bottom row, clear of the standard HUD,
+ # with the hold taken off the gauges' line.
+ game.retro=true
+ for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(3440,1440)]:
+  root.size=dimensions;await process_frame;game.layout();game._process(0);await process_frame
+  var bands: Array[Rect2]=game.retro_hud.bands()
+  expect(game.retro_hud.visible and bands.size()==2,"Retro HUD shows its cargo bar and bottom row in flight")
+  var helm: Rect2=game.classic_frame.panel_rect()
+  helm=Rect2(Vector2(game.ui.size.x*.5,game.ui.size.y-game.classic_frame.lift)+helm.position*game.classic_frame.scale_factor,helm.size*game.classic_frame.scale_factor)
+  for band in bands:
+   expect(Rect2(Vector2.ZERO,game.ui.size).encloses(band),"Retro bands fit the viewport")
+   expect(not band.intersects(game.condition.get_global_rect()) and not band.intersects(game.instruments.gauge_rect()) and not band.intersects(helm),"Retro bands clear the gauges, depth column and helm strip")
+  expect(not game.condition.info.contains("/%dt"%game.session.ship.capacity()),"The retro cargo bar takes the hold off the gauges' line")
+  expect(game.condition.bars_hidden and game.objective_label.position.y<22+102*game.hud_scale(),"The retro bottom bars replace the top gauge rows")
+ game.retro=false;game.layout();game._process(0);await process_frame
+ expect(not game.retro_hud.visible and not game.condition.bars_hidden and game.classic_frame.lift==0.0 and game.condition.info.contains("/%dt"%game.session.ship.capacity()),"Retro HUD off restores the standard HUD")
  root.size=Vector2i(1280,720);await process_frame
  expect(game.camera.far==10000,"Open ocean retains 10 km visibility")
  expect(not game.graphics.station_smoothing,"Station smoothing defaults off")
@@ -776,7 +792,7 @@ func check_free_look(game) -> void:
  var behind:Vector3=hull.affine_inverse()*game.view.camera.global_position
  expect(behind.z>0 and absf(behind.x)<1,"The chase camera starts behind the hull")
  # j.a: the reticle marks the hull's line of fire 204.8 m ahead, and shots
- # converge on whatever lies under it, or on that point.
+ # converge on whatever lies under it.
  var pose:Transform3D=game.world.render_pose(game.world.region.player)
  var mark:Vector3=game.view.reticle_point()
  expect(absf((mark-pose.origin).dot(-pose.basis.z.normalized())-204.8)<.01 and (mark-pose.origin).cross(-pose.basis.z).length()<.01,"The reticle sits on the hull's line of fire")
@@ -786,7 +802,8 @@ func check_free_look(game) -> void:
  expect(game.crosshair.get_global_rect().get_center().distance_to(centre)<1,"The reticle is centred in the viewport")
  var aim=game.view.aim_point()
  var eye:Vector3=game.view.camera.global_position
- expect(aim is Array and (Vector3(aim[0],-aim[1],-aim[2])*.01-eye).normalized().dot((mark-eye).normalized())>.9999,"Shots converge under the reticle")
+ # With nothing under it each launcher fires along the hull, as the original did.
+ expect(aim==null or (aim is Array and (Vector3(aim[0],-aim[1],-aim[2])*.01-eye).normalized().dot((mark-eye).normalized())>.9999),"Shots converge on what is under the reticle, else fly along the hull")
  game.view.look_held=true;game.view.turn_look(Vector2(PI/2,0));game.view._process(.04)
  var beside:Vector3=hull.affine_inverse()*game.view.camera.global_position
  expect(beside.x>10 and absf(beside.z)<10,"Mouse right swings the camera round to the hull's starboard side")
@@ -1393,17 +1410,22 @@ func check_trade_quantity(game) -> void:
  expect(game.buy_limit(item)==0,"No credits means no buy limit")
  game.session.credits=1000000
  game.market_category="";game.show_market("trade");await process_frame;await process_frame
- expect(named_button(game,"Buy ")!=null and named_button(game,"Sell ")!=null,"Trade offers an amount to buy and to sell")
- var most:=named_button(game,"Max")
- expect(most!=null,"Trade reaches its maximum in one press")
- most.pressed.emit();await process_frame;await process_frame
- var ceiling: int=game.market_quantity
- expect(ceiling>1,"Max raises the amount past a single tonne")
- named_button(game,"+").pressed.emit();await process_frame;await process_frame
- expect(game.market_quantity==ceiling,"The amount stops at what that row can actually move")
- named_button(game,"−").pressed.emit();await process_frame;await process_frame
- expect(game.market_quantity==maxi(1,ceiling-1),"The step lowers the amount again")
- game.market_quantity=1;game.close_page();game.session.docked=false
+ expect(named_button(game,"Buy all")!=null and named_button(game,"Sell all")!=null,"Trade offers the whole lot either way")
+ var exchange=game.column.find_child("Exchange",true,false)
+ var sell_one=exchange.find_child("SellOne",true,false) if exchange!=null else null
+ var buy_one=exchange.find_child("BuyOne",true,false) if exchange!=null else null
+ expect(sell_one!=null and buy_one!=null and sell_one.global_position.x<buy_one.global_position.x,"Station stock and its arrow on the left, the hold and its arrow on the right")
+ var before_buy: int=game.session.ship.cargo_used
+ buy_one.pressed.emit();await process_frame;await process_frame
+ expect(game.session.ship.cargo_used==before_buy+1,"The right arrow moves one tonne into the hold")
+ expect(game.get_viewport().gui_get_focus_owner()!=null and game.get_viewport().gui_get_focus_owner().name=="BuyOne","The arrow keeps focus for the next tonne")
+ game.column.find_child("SellOne",true,false).pressed.emit();await process_frame;await process_frame
+ expect(game.session.ship.cargo_used==before_buy,"The left arrow moves one tonne back to the station")
+ named_button(game,"Buy all").pressed.emit();await process_frame;await process_frame
+ expect(game.session.ship.cargo_used>before_buy+1,"Buy all fills what the purse, hold and shelf allow")
+ named_button(game,"Sell all").pressed.emit();await process_frame;await process_frame
+ expect(game.session.ship.cargo_used<=before_buy,"Sell all empties that good from the hold")
+ game.close_page();game.session.docked=false
 
 func check_travel_fade(game) -> void:
  # A stream crossing swaps every piece of scenery on a single frame.

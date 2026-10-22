@@ -74,6 +74,7 @@ func configure(owner_content, limit_ := -1, golden := false, own_chrome := true,
 
 func _ready() -> void:
 	name = "Reference"
+	set_meta("focus_scope", true)
 	var shell := VBoxContainer.new(); shell.add_theme_constant_override("separation", 10); add_child(shell)
 	var header := HBoxContainer.new(); header.add_theme_constant_override("separation", 8); shell.add_child(header)
 	var title := Label.new(); title.text = tr("Reference").to_upper(); title.add_theme_font_size_override("font_size", 22)

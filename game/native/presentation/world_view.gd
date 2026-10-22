@@ -972,6 +972,11 @@ func turn_look(relative: Vector2) -> void:
 ## axes (5 × 4096 units, 204.8 m), a point on the line the shots fly along.
 ## The chase camera looks at this point so it also sits at screen centre.
 const RETICLE_RANGE := 204.8
+## The chase camera sits above and behind the hull, so a point it sees close
+## ahead lies well above the launchers' line. Converging on one nearer than
+## this sent shots and the harpoon steeply up over whatever was in front of
+## the nose; anything that close is on the line of fire anyway.
+const MIN_CONVERGENCE := 25.0
 
 ## How far the view is thrown at a full-strength hit, and how fast it settles.
 const JOLT_METRES := 0.55
@@ -985,7 +990,7 @@ func reticle_point() -> Vector3:
 	var pose: Transform3D=world.render_pose(world.region.player)
 	return pose.origin-pose.basis.z.normalized()*RETICLE_RANGE
 
-func aim_point():
+func aim_point(hook: bool=false):
 	# Only the chase camera shows the reticle. The front and side views look
 	# back at, or across, the submarine; with no aim the weapons fire straight
 	# ahead, which is what the original always did.
@@ -994,14 +999,14 @@ func aim_point():
 	if camera.is_position_behind(reticle): return null
 	var origin := camera.global_position
 	var direction := (reticle-origin).normalized()
-	# Ignore intersections before the launchers, including the near face of a
-	# nearby actor's collision bounds.
+	# Ignore intersections before the launchers and close beyond them,
+	# including the near face of a nearby actor's collision bounds.
 	var minimum_distance := camera.near
 	var reach := 0.0
 	for weapon in world.region.loadout.all_weapons():
 		var pose=world.region.player.pose
 		var muzzle: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(pose.origin,pose.rotate_direction(weapon.mount)))
-		minimum_distance=maxf(minimum_distance,(muzzle-origin).dot(direction)+1.0)
+		minimum_distance=maxf(minimum_distance,(muzzle-origin).dot(direction)+MIN_CONVERGENCE)
 		reach=maxf(reach,weapon.speed*weapon.lifetime*.01)
 	# With nothing under the reticle the shots converge on it, on the hull's
 	# own line of fire. Anything the reticle covers, nearer or out to the
@@ -1015,13 +1020,20 @@ func aim_point():
 	# Actors use the exact same capture / damage bounds as the simulation.
 	for actor in world.region.creatures+world.region.enemies+world.region.friends:
 		if not actor.health.enabled: continue
+		# The harpoon takes aim only at what it can reel in: wildlife,
+		# cargo and wrecks, never a ship still under way across its line.
+		if hook and not (actor.capturable and (actor.is_creature or actor is SpecialActor or actor.state in [3,4])): continue
 		var point: Vector3 = world.render_pose(actor).origin
 		var radius: float=maxf(.5,float(actor.radius)*.01)
 		var hit_point = AABB(point-Vector3.ONE*radius,Vector3.ONE*radius*2).intersects_ray(origin,direction)
 		if hit_point is Vector3:
 			var t: float = (hit_point-origin).dot(direction)
 			if t>=minimum_distance and t<nearest: nearest=t
-	if nearest<search: distance=nearest
+	# With nothing under the reticle each launcher fires along the hull, as
+	# the original's always did; converging on the empty reticle crossed the
+	# shots of guns mounted side by side into an X beyond it.
+	if nearest>=search: return null
+	distance=nearest
 	var point := origin+direction*distance
 	return [roundi(point.x*100),roundi(-point.y*100),roundi(-point.z*100)]
 

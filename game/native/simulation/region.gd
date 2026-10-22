@@ -91,7 +91,7 @@ func configure(owner_session) -> void:
 	# guard something (the school, the capsules, the convoy) they go for the
 	# charges first, and the player is listed again ahead of the friends,
 	# which the original's random choice of target can be seen to favour.
-	var charges: Array=creatures if mission.kind==6 else ([] if mission.kind in [11,4] else [player])
+	var charges: Array=creatures.filter(func(actor):return actor.constrained) if mission.kind==6 else ([] if mission.kind in [11,4] else [player])
 	var hostile_targets: Array=charges.duplicate()
 	if mission.kind==6:hostile_targets.append(player)
 	if not friends.is_empty() or mission.kind==12 and not mission.story:
@@ -177,24 +177,34 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	player.set_strafe(float(input.get("strafe",0)))
 	player.mouse_steer(float(input.get("mouse_x",0)),float(input.get("mouse_y",0)))
 	if input.get("boost",false) and player.boost(): audio_event("boost")
-	if input.get("fire",false): loadout.fire(player.pose,delta_ms,input.get("aim_point"))
+	if input.get("fire",false): loadout.fire(player.pose,delta_ms,input.get("aim_point"),input.get("hook_aim"))
 	if input.get("guns",false): loadout.fire_kind(player.pose,delta_ms,false,input.get("aim_point"))
 	var hook_down: bool=input.get("hook",false)
 	if hook_down and not hook_was_down and fishing.any(func(line):return line.hooked):
 		for line in fishing:
 			if line.hooked:line.release()
-	elif hook_down:loadout.fire_kind(player.pose,delta_ms,true,input.get("aim_point"))
+	elif hook_down:loadout.fire_kind(player.pose,delta_ms,true,input.get("hook_aim"))
 	hook_was_down=hook_down
 	player.events.clear()
 	player.advance(delta_ms)
 	if player.depth>int(session.counters.t): session.counters.t=player.depth
 	elif player.depth<int(session.counters.u): session.counters.u=player.depth
+	# A guarded school swims as one, on a single heading from its middle to
+	# the next mark: each fish keeps its place in the group, as in the
+	# original, where the school simply swam on side by side. Every fish
+	# turning for the mark itself drew them into single file.
+	var school_heading=null
+	if school_route!=null and school_route.current()!=null:
+		var middle: Array=[0,0,0];var count := 0
+		for actor in creatures:
+			if actor.constrained and actor.health.enabled:middle=Math.added(middle,actor.pose.origin);count+=1
+		if count>0:
+			for axis in 3:middle[axis]=roundi(float(middle[axis])/count)
+			school_heading=Math.normalize_vector(Math.subtracted(school_route.current(),middle))
 	for actor in creatures:
 		actor.advance(delta_ms,session.rng,player.pose.origin,player.pose.forward)
-		if actor.constrained and school_route!=null and actor.health.enabled:
-			var path=school_route.current()
-			if path!=null:
-				actor.pose.face(Math.normalize_vector(Math.subtracted(path,actor.pose.origin)))
+		if actor.constrained and school_heading!=null and actor.health.enabled:
+			actor.pose.face(school_heading)
 	for actor in enemies+friends:
 		var mine_idle: bool = actor is Special and actor.kind=="mine" and actor.state!=1
 		actor.advance(delta_ms)

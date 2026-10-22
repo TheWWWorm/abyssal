@@ -116,6 +116,10 @@ func _draw() -> void:
 			_line([Vector2(-.28,-.66),Vector2(.34,0),Vector2(-.28,.66)])
 		"down":
 			_line([Vector2(-.66,-.28),Vector2(0,.34),Vector2(.66,-.28)])
+		"arrow_left","arrow_right":
+			var side := -1.0 if icon=="arrow_left" else 1.0
+			var head: Array=[Vector2(-.5*side,-.72),Vector2(.66*side,0),Vector2(-.5*side,.72)]
+			_fill(head,.45);_line(head,true)
 		"cart":
 			_line([Vector2(-.95,-.66),Vector2(-.66,-.66),Vector2(-.42,.3),Vector2(.62,.3),Vector2(.84,-.4),Vector2(-.56,-.4)])
 			_fill([Vector2(-.56,-.4),Vector2(.84,-.4),Vector2(.62,.3),Vector2(-.42,.3)],.2)

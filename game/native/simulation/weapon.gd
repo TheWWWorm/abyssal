@@ -28,6 +28,8 @@ var slow_percent := 0
 var beam := false
 var homing := false
 var velocity_step_ms := 40
+## cos 20°: the widest a launch may swing from the hull's line of fire.
+const MAX_AIM_COSINE := 0.94
 static func vector(values: Array) -> Vector3:return Vector3(values[0],values[1],values[2])
 static func coordinates(value: Vector3) -> Array:return [roundi(value.x),roundi(value.y),roundi(value.z)]
 func configure(power: int,pool_size: int,life_ms: int,interval: int,units_per_ms: float,offset: Array) -> void:
@@ -40,10 +42,13 @@ func launch(pose,delta_ms: int,aim=null) -> bool:
  for index in remaining.size():
   if remaining[index]>0:continue
   var start:=vector(pose.origin)+vector(pose.rotate_direction(mount))
-  var direction:=vector(pose.forward) if aim==null else vector(aim if aim is Array else aim.pose.origin)-start
+  # A torpedo leaves along the hull as in the original (o.a without a
+  # target); it finds its own way after the straight run.
+  var direction:=vector(pose.forward) if aim==null or (homing and aim is Array) else vector(aim if aim is Array else aim.pose.origin)-start
   # A chase-camera hit can be behind the muzzle when close to salvage, or
-  # stale after a sharp turn. A forward-mounted hook cannot swivel sideways.
-  if fishing and direction.normalized().dot(vector(pose.forward).normalized())<0.5:
+  # stale after a sharp turn. Launchers are fixed to the hull: an aim more
+  # than a few degrees off its line is parallax, not a target, and goes ahead.
+  if direction.normalized().dot(vector(pose.forward).normalized())<MAX_AIM_COSINE:
    direction=vector(pose.forward)
   velocity_step_ms=maxi(1,delta_ms);positions[index]=coordinates(start);velocities[index]=launch_velocity(coordinates(direction),velocity_step_ms);remaining[index]=lifetime
   elapsed=0;fired=true;active=true;launch_serial+=1;return true
@@ -61,15 +66,22 @@ func advance(delta_ms: int) -> void:
   var start:=vector(positions[index]);var direction:=vector(velocities[index]).normalized()
   # A torpedo runs straight for its first second and a half, then turns
   # after the nearest live target within a hundred and fifty metres (dm.b).
+  # Creatures are never chosen (cm.a: af sets the flag), though one in the
+  # way is still hit.
   if homing and remaining[index]<lifetime-1500:
    var nearest=null;var squared:=15000.0*15000.0*3
    for actor in targets:
-    if not actor.health.enabled or actor.health.hull<=0:continue
+    if actor.is_creature or not actor.health.enabled or actor.health.hull<=0:continue
     var offset:=vector(actor.pose.origin)-start
     if absf(offset.x)>=15000 or absf(offset.y)>=15000 or absf(offset.z)>=15000:continue
     var distance:=offset.length_squared()
     if distance<squared:squared=distance;nearest=actor
-   if nearest!=null:direction=direction.lerp((vector(nearest.pose.origin)-start).normalized(),1.0-exp(-delta_ms*.0025)).normalized()
+   # dm's pursuit: the step's velocity pulled toward the whole offset, so it
+   # turns harder the further off the target is and not at all dead ahead.
+   if nearest!=null:
+    var step:=vector(velocities[index])
+    var steered:=step+((vector(nearest.pose.origin)-start)-step)*(float(delta_ms)/4096.0)
+    if steered.length_squared()>0.0:direction=steered.normalized()
   var travel:=direction*speed*mini(delta_ms,remaining[index])
   var finish:=start+travel
   var hit=null;var hit_fraction:=1.0

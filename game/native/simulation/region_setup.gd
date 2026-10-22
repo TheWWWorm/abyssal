@@ -73,6 +73,9 @@ func special(kind: String,id: int,hostile: bool,center: Array=[0,0,0],team: int=
 		"capsule":actor.health.configure(32 if r.mission.kind==12 else 65,0,0)
 		"freighter":
 			actor.faction=team
+			# cy.a builds every ship type's hull alike, freighters included:
+			# ah.d[11] (100) plus rank and chapter. Escort resets it lower.
+			actor.health.configure(int(data.constants.ah["d:[S"][id])+s.counters.k*15+s.campaign.chapter*4,0,0)
 			var shape:=Shape.new();shape.origin=location.duplicate();shape.half_size=FREIGHTER_HULL_HALF.duplicate();actor.shapes=[shape]
 			# Six bursts along the hull, one to two seconds apart (ao(6,0)).
 			actor.explosion_delays=[0]
@@ -139,12 +142,15 @@ func station_rounds() -> void:
 	if s.campaign.chapter>11 and roll(100)<25+s.campaign.chapter:enemies(roll(4),[0,0,15000])
 
 func guarded_school(center: Array,route) -> void:
-	r.creatures=[]
+	# The school takes the wildlife's place, as in the original (cy.p skips
+	# stocking the water for it, and the school fills that list).
+	var school: Array=[]
 	for _i in r.mission.total:
 		var creature=fish(r.mission.target_kind,center);creature.constrained=true
 		creature.pose.face([0,0,4096]);creature.advance(-1024+roll(2048),s.rng,r.player.pose.origin)
 		creature.health.set_hull(10);creature.previous_hull=10;creature.health.set_hull(20)
-		r.creatures.append(creature)
+		school.append(creature)
+	r.creatures=school
 	r.school_route=route
 
 func populate() -> void:

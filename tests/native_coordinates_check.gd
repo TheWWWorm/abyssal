@@ -188,7 +188,7 @@ func check_formations() -> void:
    var targets: Array=region.enemies.filter(func(actor):return actor is Special and actor.kind=="freighter")
    expect(not targets.is_empty() and targets.all(func(actor):return actor.pose.godot_transform().origin.distance_to(mark)<350),"Intercept targets scatter about a native route point only once")
   else:
-   expect(region.school_route.points[0][0]<0 and region.creatures.all(func(actor):return actor.pose.origin[0]<0),"Protected fish and their route share the converted side")
+   expect(region.school_route.points[0][0]<0 and region.creatures.filter(func(actor):return actor.constrained).all(func(actor):return actor.pose.origin[0]<0),"Protected fish and their route share the converted side")
   region.dispose()
 
 func check_gates() -> void:

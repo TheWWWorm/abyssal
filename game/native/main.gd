@@ -218,6 +218,9 @@ func _ready() -> void:
 	title_menu.about_requested.connect(show_about)
 	fullscreen_button=FullscreenButton.new(func(): FullscreenButton.toggle(func(text): status.text=text))
 	var start_config := ConfigFile.new();start_config.load(settings_path)
+	SettingsMenu.apply_menu_keys(start_config)
+	# Arrow keys, the menu keys and the D-pad move to the button drawn that way.
+	preload("res://native/presentation/focus_map.gd").attach(get_viewport())
 	title_menu.update_help(bool(start_config.get_value("input","mouse_wheel_throttle",false)))
 	Display.apply_orientation(clampi(int(start_config.get_value("view","orientation",0)),0,2))
 	add_child(images)
@@ -577,6 +580,7 @@ func save_capture() -> void:
 
 func _input(event: InputEvent) -> void:
 	preload("res://native/input/touch_controls.gd").record_input(event)
+	preload("res://native/presentation/focus_map.gd").before_move(get_viewport(),event)
 	if modal.visible and event is InputEventJoypadButton and event.pressed and event.button_index==JOY_BUTTON_B:
 		close_modal()
 		get_viewport().set_input_as_handled()

@@ -27,7 +27,7 @@ func evaluate(region,elapsed_ms: int) -> bool:
 			for index in mini(value,region.enemies.size()):
 				if dead(region.enemies[index]):count+=1
 			return count==value
-		"school_losses":return region.creatures.filter(dead).size()>value
+		"school_losses":return region.creatures.filter(func(actor):return actor.constrained and dead(actor)).size()>value
 		"enemy_rescued":return value<region.enemies.size() and region.enemies[value].rescued()
 		"enemy_escaped":return value<region.enemies.size() and region.enemies[value].escaped
 		"harvest":

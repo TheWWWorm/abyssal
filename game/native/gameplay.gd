@@ -45,6 +45,7 @@ var ui := Control.new()
 var overlay := preload("res://native/presentation/instrument_panel.gd").new()
 var column: VBoxContainer
 var classic_frame := preload("res://native/presentation/classic_frame.gd").new()
+var retro_hud := preload("res://native/presentation/retro_hud.gd").new()
 var dashboard := preload("res://native/presentation/flight_dashboard.gd").new()
 var hazard_warning := preload("res://native/presentation/hazard_warning.gd").new()
 var damage_feedback := preload("res://native/presentation/damage_feedback.gd").new()
@@ -67,9 +68,9 @@ var market_selection := 0
 ## just made is the one the Cargo tab opens on.
 var market_selected_id := -1
 var equipment_tab := 0
-## How many tonnes one press of Buy or Sell moves. Kept between rows so a run of
-## identical trades is set up once rather than once per commodity.
-var market_quantity := 1
+## The trade page's height so far on its tab (layout).
+var market_floor := 0.0
+var market_floor_kind := ""
 var stream_exit_active := false
 ## The original map has two modes, Navigate and Species. This is the second.
 var stream_species := false
@@ -163,6 +164,7 @@ var line_index := 0
 var dialogue_cue := "message"
 var dialogue_done: Callable
 const SettingsMenu = preload("res://native/presentation/settings_menu.gd")
+const FocusMap = preload("res://native/presentation/focus_map.gd")
 var key_bindings: Dictionary = SettingsMenu.DEFAULT_KEYS.duplicate()
 var suppress_fire_until_release := false
 var auto_fire := false
@@ -256,6 +258,8 @@ var friend_labels := true
 ## The mission waypoint keeps its arrow at the screen's edge without a radar;
 ## the original only drew it off screen with one fitted (cb.a).
 var waypoint_edge := true
+## Settings > Display: the original's cargo, shield and hull bars as well.
+var retro := false
 var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
 var freeze_view
@@ -275,6 +279,7 @@ var settings_path := "user://native/settings.cfg"
 var world_spacing := preload("res://native/simulation/world_spacing.gd").new()
 const Coin=preload("res://native/presentation/coin_glyph.gd")
 func _ready() -> void:
+	FocusMap.attach(get_viewport())
 	original_ui_size=get_window().content_scale_size
 	# The first layout below already applies the ratio, so it is read first.
 	aspect_ratio=Display.valid(str(settings_config().get_value("view","aspect_ratio","auto")))
@@ -294,6 +299,7 @@ func _ready() -> void:
 	ui.add_child(pressure_overlay); pressure_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); pressure_overlay.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(instruments); instruments.position=Vector2(26,52)
 	ui.add_child(condition)
+	retro_hud.imported_art=imported_art;ui.add_child(retro_hud);retro_hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);retro_hud.hide()
 	ui.add_child(bank_label); bank_label.add_theme_font_size_override("font_size",13); bank_label.add_theme_color_override("font_color",Color("a6ced7")); bank_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT; bank_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(hud); hud.position=Vector2(26,24); hud.clip_text=true; hud.add_theme_font_size_override("font_size",18); hud.add_theme_color_override("font_color",Color("c9e7ea"))
 	ui.add_child(objective_label); objective_label.position=Vector2(26,82); objective_label.bbcode_enabled=true; objective_label.scroll_active=false; objective_label.mouse_filter=Control.MOUSE_FILTER_IGNORE; objective_label.add_theme_color_override("default_color",Color("b7cbd0"))
@@ -405,7 +411,13 @@ func layout() -> void:
 		overlay.size=Vector2(minf(1600,ui.size.x-48),ui.size.y-48);overlay.position=(ui.size-overlay.size)*.5
 	elif page=="transit":
 		overlay.size=Vector2(minf(760,ui.size.x-80),minf(520,ui.size.y-100));overlay.position=(ui.size-overlay.size)*.5
-	elif page=="market" and market_category in ["equipment","ships","trade","manufacture"]:
+	elif page=="market" and market_category in ["trade","manufacture"]:
+		# Sized to its rows, but never shorter than the tallest good already
+		# shown on this tab, so the frame does not jump between selections.
+		# fit_market measures it once the page is built; until then the
+		# frame keeps the height it has.
+		overlay.size=Vector2(minf(ui.size.x-48,1240),minf(ui.size.y-48,market_floor if market_floor>0 else maxf(overlay.size.y,fitted_height())));overlay.position=(ui.size-overlay.size)*.5
+	elif page=="market" and market_category in ["equipment","ships"]:
 		# One frame height for every selection: sized to its rows, the panel
 		# jumped as a longer description or a shorter list was picked.
 		overlay.size=Vector2(minf(ui.size.x-48,1400 if market_category=="ships" else 1240),minf(ui.size.y-48,920.0));overlay.position=(ui.size-overlay.size)*.5
@@ -427,6 +439,7 @@ func layout() -> void:
 		hints.position.y=ui.size.y-30;hints.size.y=22;hints.add_theme_font_size_override("font_size",12)
 		if touch.free_right>touch.free_left+120:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
+	place_retro()
 	update_render_resolution()
 	crosshair.position=(get_viewport().get_visible_rect().get_center()-ui.position-crosshair.size*.5).round()
 	# Under the notice band, clear of the hull below the crosshair.
@@ -495,6 +508,49 @@ func hud_scale() -> float:
 	"""The desktop canvas grows with the window up to 1920 wide, so its gauges
 	grow with the height to keep the size the touch layout gives them."""
 	return 1.0 if touch.enabled() else clampf(ui.size.y/720.0,1.0,1.6)*.67
+func place_retro() -> void:
+	"""The Retro HUD's two bands. The cargo bar runs along the top between the
+	gauges and the top right's buttons; the bottom row lies between the thumb
+	controls on touch, above the control hints, and on desktop just over the
+	hints, with the helm strip raised above it. A band with no room for it
+	is left out, and the cargo stays on the gauges' line."""
+	retro_hud.cargo_rect=Rect2();retro_hud.row_rect=Rect2();classic_frame.lift=0.0
+	condition.bars_hidden=false;condition.size.y=96
+	if not retro:return
+	var k := hud_scale()
+	retro_hud.unit=k
+	var middle := ui.size.x*.5
+	# Past the gauges, with the hull reading beside them.
+	var left := condition.position.x+(condition.size.x+16.0)*k
+	var right := ui.size.x-left
+	if touch.enabled():
+		for id in ["map","menu"]:
+			var button: Rect2=touch.control_rect(id)
+			if button.has_area() and button.position.y<120.0:right=minf(right,button.position.x-20.0)
+	var half := minf(minf(middle-left,right-middle),380.0*k)
+	if half>=100.0*k:retro_hud.cargo_rect=Rect2(Vector2(middle-half,24.0*k),Vector2(half*2,24.0*k))
+	var height := 34.0*k
+	if touch.enabled():
+		var band := Vector2(touch.free_left,touch.free_right)
+		var width := minf(band.y-band.x,860.0*k)
+		if width>=300.0*k:
+			retro_hud.row_rect=Rect2(Vector2((band.x+band.y-width)*.5,ui.size.y-16.0-height),Vector2(width,height))
+			hints.position.y=retro_hud.row_rect.position.y-hints.size.y-6
+	else:
+		# Clear of the weapon bank's label in the bottom right.
+		var reach := middle-(26.0+bank_label.size.x*k+16.0)
+		var width := minf(reach*2,860.0*k)
+		if width>=300.0*k:
+			retro_hud.row_rect=Rect2(Vector2(middle-width*.5,ui.size.y-24.0-height),Vector2(width,height))
+			classic_frame.lift=maxf(0.0,24.0+height+24.0*k-40.0*k)
+			catch_status.position.y=minf(catch_status.position.y,ui.size.y-(96.0*k+64.0)-classic_frame.lift)
+			struggle.position.y=catch_status.position.y+42
+	# The bottom bars stand in for the gauge rows; the line under them and the
+	# objective move up into their place.
+	if retro_hud.row_rect.has_area():
+		condition.bars_hidden=true;condition.size.y=26
+		objective_label.position.y=22+32*k
+	condition.queue_redraw();retro_hud.queue_redraw()
 func flight_notice_top() -> float:
 	# Touch keeps its gauges in the top left, taller than the desktop line.
 	var top := 132.0 if touch.enabled() else 88.0*hud_scale()
@@ -537,7 +593,7 @@ func primary(node: Button) -> Button:
 	"""The page's main action: the green of the reference's Depart and Buy."""
 	for state in ["normal","hover","pressed","focus"]: node.add_theme_stylebox_override(state,StationTheme.button_state(golden(),state,true))
 	node.add_theme_color_override("font_color",colours().go_text);node.add_theme_color_override("font_focus_color",colours().go_text);node.add_theme_color_override("font_hover_color",colours().go_text)
-	node.alignment=HORIZONTAL_ALIGNMENT_CENTER
+	node.alignment=HORIZONTAL_ALIGNMENT_CENTER;node.set_meta("primary",true)
 	return node
 func iconic(node: Button, icon: String, extent: float=26.0) -> Button:
 	"""An icon at the left of a button's caption."""
@@ -632,7 +688,7 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		meaning.custom_minimum_size.x=meaning.get_minimum_size().x+14
 	overlay.show(); layout();layout.call_deferred();focus_page.call_deferred();settle_scroll.call_deferred(scroll)
 	if id!="dialogue":
-		for control in [classic_frame,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
+		for control in [classic_frame,retro_hud,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
 	for marker in markers:marker.hide()
 func settle_scroll(scroll: ScrollContainer) -> void:
 	"""A page opens at its top, or as far down as its focused row needs.
@@ -923,6 +979,8 @@ func _process(delta: float) -> void:
 		# unless one fire control works whichever bank is selected.
 		bank_label.visible=flight_visible and original_weapons and not touch.enabled() and world.region.loadout.groups.size()>1
 		condition.info=Coin.coins(tr("%d/%dt     Cr %d     %s")%[session.ship.cargo_used,session.ship.capacity(),session.credits,session.stations[session.station_id].name])
+		# The retro cargo bar carries the hold instead.
+		if retro and retro_hud.cargo_rect.has_area():condition.info=Coin.coins(tr("Cr %d     %s")%[session.credits,session.stations[session.station_id].name])
 		if touch.enabled():
 			# The dock button is there while docking, or a manual gate entry, is.
 			var dockable: bool=world.in_docking_area() or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
@@ -954,6 +1012,8 @@ func _process(delta: float) -> void:
 		var touch_auto: bool=touch.automatic_weapons.has("guns")
 		var auto_live: bool=auto_firing() or (touch_auto and (guns_selected() if original_weapons else true))
 		crosshair.set_auto(0 if not (auto_fire or touch_auto) else (2 if auto_live else 1))
+		retro_hud.visible=retro and flight_visible
+		if retro_hud.visible:retro_hud.update(session.ship.cargo_used,session.ship.capacity(),r.player.health,session.ship,0 if not (auto_fire or touch_auto) else (2 if auto_live else 1),world.autopilot)
 		update_catch_feedback(r,flight_visible and page.is_empty())
 		travel_status.text=tr("AUTOPILOT  ·  %d× TIME  ·  [%s] CHANGE SPEED")%[world.speed,OS.get_keycode_string(key_bindings.time)]
 		travel_status.visible=flight_visible and world.autopilot and autopilot_status
@@ -1100,7 +1160,7 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	if stopping:perform("stop");throttle=0;boost=false
 	var roll := 0.0
 	if world.manual_roll:roll=clampf(float(Input.is_physical_key_pressed(key_bindings.roll_right))-int(Input.is_physical_key_pressed(key_bindings.roll_left))+pad.roll,-1,1)
-	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"roll":roll,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point()}
+	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"roll":roll,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point(),"hook_aim":view.aim_point(true)}
 func _unhandled_input(event: InputEvent) -> void:
 	if page=="transit": return
 	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN] and mouse_wheel_throttle and page.is_empty() and not session.docked and world.region!=null and not world.region.cinematic() and not touch.enabled():
@@ -1181,6 +1241,7 @@ func _notification(what: int) -> void:
 		if session!=null and page.is_empty():show_pause()
 	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null:touch_action("menu")
 func _input(event: InputEvent) -> void:
+	FocusMap.before_move(get_viewport(),event)
 	var was_touch := touch.enabled()
 	touch.update_input(event,controller.deadzone)
 	view.stabilize_touch_horizon=touch.enabled()
@@ -1414,6 +1475,9 @@ func show_ship_status(back: Callable=Callable()) -> void:
 	var naming := VBoxContainer.new();naming.size_flags_horizontal=Control.SIZE_EXPAND_FILL;naming.alignment=BoxContainer.ALIGNMENT_CENTER;identity.add_child(naming)
 	var called := label(content.ship_name(ship.id),30,naming);called.add_theme_color_override("font_color",palette.text)
 	caption(tr("Your vessel"),11,naming,4)
+	var about: String=item_description(ship.id,"ships")
+	if not about.is_empty():
+		var described := label(about,14,vessel);described.add_theme_color_override("font_color",palette.text)
 	if ui.size.y>=700 and ui.size.x>=900:
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
 		identity.add_child(preview);preview.configure(content,ship.id,modern_graphics,view.library)
@@ -1422,7 +1486,7 @@ func show_ship_status(back: Callable=Callable()) -> void:
 	for entry in [["hull",tr("Hull"),ship.hull],["shield",tr("Shield"),ship.shield],["armor",tr("Armor"),ship.armor]]:
 		figure_tile(entry[0],entry[1],str(entry[2]),protections)
 	var used: int=ship.equipment.filter(func(item):return item!=null).size()
-	var rows: Array=[["shield",tr("Protection limits"),"%d – %d"%[ship.minimum_depth,ship.maximum_depth]],["cargo",tr("Cargo capacity"),tr("%d / %d t")%[ship.cargo_used,ship.capacity()]],["grid",tr("Equipment slots"),"%d / %d"%[used,ship.slots]]]
+	var rows: Array=[["shield",tr("Protection limits"),"%d – %d"%[ship.minimum_depth,ship.maximum_depth]],["cargo",tr("Cargo capacity"),tr("%d / %d t")%[ship.cargo_used,ship.capacity()]],["grid",tr("Equipment slots"),"%d / %d"%[used,ship.slots]],["controls",tr("Handling"),str(handling(ship,true))]]
 	if not session.docked and world.region!=null:
 		var health=world.region.player.health
 		rows.append(["hull",tr("Current condition"),tr("Hull %d · Shield %d · Armor %d")%[health.hull,health.shield,health.armor]])
@@ -1439,6 +1503,10 @@ func show_ship_status(back: Callable=Callable()) -> void:
 	for item in ship.equipment:
 		if item!=null:compact_manifest(imported_art.item(item.id,"equipment"),item_name(item.id,"equipment"),EquipmentInfo.stats(item),item_description(item.id,"equipment"),systems)
 	back_row(ship_status_back if ship_status_back.is_valid() else show_station_status if session.docked else show_pause)
+func handling(ship, fitted: bool) -> int:
+	"""How readily a hull turns: the ship table's steering figure, with a
+	fitted steering system's bonus when asked for."""
+	return roundi((ship.steering() if fitted else ship.base_steering)*100.0)
 func split_row(parent: Node, gap: int) -> BoxContainer:
 	"""Side by side on a wide screen, one above the other on a narrow one."""
 	var row: BoxContainer=HBoxContainer.new() if ui.size.x>=900 else VBoxContainer.new()
@@ -1731,6 +1799,7 @@ func apply_setting(section: String, key: String) -> void:
 	match section:
 		"interface":
 			if key=="language": apply_language()
+			elif key=="retro_hud": layout()
 		"audio":
 			dive_audio.apply_levels()
 		"graphics":
@@ -1760,8 +1829,10 @@ func read_settings() -> void:
 		modern_graphics=bool(config.get_value("graphics","modern",graphics.materials))
 		# Migrate the former materials-only switch without carrying its Off state into New mode.
 		if not config.has_section_key("graphics","modern") and not graphics.materials:graphics.materials=true
-		if key_bindings.up==KEY_W: key_bindings.up=KEY_UP
-		if key_bindings.down==KEY_S: key_bindings.down=KEY_DOWN
+		# Only an old layout that gave W and S to pitch and throttle at once;
+		# pitch moved to the arrows. A player's own WASD steering stays.
+		if key_bindings.up==KEY_W and key_bindings.throttle_up==KEY_W: key_bindings.up=KEY_UP
+		if key_bindings.down==KEY_S and key_bindings.throttle_down==KEY_S: key_bindings.down=KEY_DOWN
 		mouse_sensitivity=setting_number(config,"keys","mouse_sensitivity",0.8,0.2,2.0); invert_mouse=bool(config.get_value("keys","invert_mouse",false))
 		touch_look_sensitivity=setting_number(config,"input","touch_look",0.7,0.2,2.0)
 		dive_audio.music_gain=setting_number(config,"audio","music",0.65,0.0,1.0); dive_audio.effects_gain=setting_number(config,"audio","effects",0.75,0.0,1.0)
@@ -1800,6 +1871,7 @@ func read_settings() -> void:
 	autopilot_status=bool(config.get_value("interface","autopilot_status",false))
 	friend_labels=bool(config.get_value("interface","friend_labels",true))
 	waypoint_edge=bool(config.get_value("interface","waypoint_edge",true))
+	retro=bool(config.get_value("interface","retro_hud",false))
 	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
 	hit_shake=bool(config.get_value("interface","hit_shake",true))
 	damage_feedback.pulse_enabled=bool(config.get_value("interface","low_hull_pulse",true))
@@ -1860,6 +1932,7 @@ func save_settings() -> void:
 	config.set_value("interface","flight_messages",flight_messages);config.set_value("interface","dock_prompts",dock_prompts)
 	config.set_value("interface","autopilot_status",autopilot_status);config.set_value("interface","friend_labels",friend_labels)
 	config.set_value("interface","waypoint_edge",waypoint_edge)
+	config.set_value("interface","retro_hud",retro)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	config.set_value("audio","title_music",dive_audio.title_choice)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
@@ -2266,7 +2339,7 @@ func trade_amount(station: Dictionary, item, buying: bool, count: int) -> void:
 	if moved<1: notice(tr("Insufficient credits, cargo space or stock.")); return
 	notice(Coin.coins((tr("Bought %d t of %s for %d cr") if buying else tr("Sold %d t of %s for %d cr"))%[moved,item_name(item.id),absi(session.credits-before)]))
 func show_market(kind: String, reset: bool=false) -> void:
-	if reset: equipment_tab=0
+	if reset: equipment_tab=0;market_floor_kind=""
 	# The Workshop opens on what the hold can make; Cargo keeps the good
 	# picked, which after a Make is the product, ready to sell.
 	if reset or (kind=="manufacture" and market_category!=kind): market_selected_id=-1
@@ -2762,6 +2835,9 @@ func update_markers() -> void:
 	for index in range(markers.size()-1,-1,-1):
 		if not assigned.has(index): available.append(index)
 	var occupied: Array[Rect2] = [instruments.gauge_rect().grow(24),condition.get_global_rect()]
+	occupied.append_array(retro_hud.bands())
+	# The objective runs taller than the labels' top margin on touch.
+	if objective_label.visible:occupied.append(Rect2(objective_label.global_position,Vector2(objective_label.size.x,minf(objective_label.size.y,objective_label.get_content_height()))*objective_label.scale))
 	for feedback in [hazard_warning,catch_status,struggle,travel_status,message]:
 		if feedback.visible and (not feedback is Label or not feedback.text.is_empty()):occupied.append(feedback.get_global_rect())
 	# An enemy's hull bar gives way to these panels only, not to other labels.
@@ -2822,15 +2898,23 @@ func update_markers() -> void:
 		var overlap: bool=dashboard.visible and area.intersects(Rect2(ui.size.x-310,ui.size.y-305,310,305))
 		for previous in (occupied.slice(0,panels) if enemy else occupied):
 			if previous.grow(6).intersects(area):overlap=true;break
-		if overlap and target.get("station_contact",false):
+		var navigation: bool=target.get("station_contact",false) or str(target.key)=="waypoint" or str(target.key).begins_with("stream")
+		if overlap and navigation:
 			# Navigation labels are essential. Try nearby clear slots instead of
-			# silently dropping the station when a notice crosses its anchor.
-			for offset in [Vector2(0,-48),Vector2(0,48),Vector2(-180,-48),Vector2(180,-48),Vector2(0,-96)]:
+			# silently dropping the station, the waypoint or the gate when a
+			# notice, such as the depth warning, crosses its anchor: first just
+			# clear of each panel in the way, beside it or below it.
+			var offsets: Array=[]
+			for previous in occupied:
+				var block: Rect2=previous.grow(8)
+				if not block.intersects(area):continue
+				offsets+=[Vector2(block.position.x-area.end.x,0),Vector2(block.end.x-area.position.x,0),Vector2(0,block.end.y-area.position.y)]
+			for offset in offsets+[Vector2(0,-48),Vector2(0,48),Vector2(-180,-48),Vector2(180,-48),Vector2(0,-96)]:
 				var candidate: Vector2 = (screen+offset).clamp(Vector2(12,160),Vector2(maxf(12,ui.size.x-markers[i].size.x-12),maxf(160,ui.size.y-markers[i].size.y-155)))
 				var candidate_area := Rect2(candidate,markers[i].size)
 				if not occupied.any(func(previous):return previous.grow(6).intersects(candidate_area)):
 					screen=candidate;area=candidate_area;overlap=false;break
-			if str(target.key)=="station" or target.get("quest",false):overlap=false
+			if str(target.key) in ["station","waypoint"] or target.get("quest",false):overlap=false
 		if overlap and not enemy:markers[i].hide();continue
 		occupied.append(area)
 		markers[i].position=screen; shown[i]=true
@@ -3235,7 +3319,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		if hull!=null: hull.custom_minimum_size.x=64;hull.size_flags_vertical=Control.SIZE_SHRINK_CENTER
 		caption(content.ship_name(session.ship.id),18,strip,4).add_theme_color_override("font_color",palette.text)
 		var used: int=session.ship.equipment.filter(func(item):return item!=null).size()
-		caption(tr("%d / %d equipment slots  ·  cargo %d / %d t")%[used,session.ship.slots,session.ship.cargo_used,session.ship.capacity()],12,strip,2).size_flags_vertical=Control.SIZE_SHRINK_CENTER
+		caption(tr("%d / %d equipment slots")%[used,session.ship.slots],12,strip,2).size_flags_vertical=Control.SIZE_SHRINK_CENTER
 		line_icon("next",18,strip)
 	if entries.is_empty(): label(tr("No ships available at this station.") if ships else tr("No equipment for sale at this station.") if equipment_tab==0 else tr("No equipment installed. Choose Shop to fit a system.")).add_theme_color_override("font_color",palette.dim);return
 	market_selection=clampi(market_selection,0,entries.size()-1)
@@ -3256,7 +3340,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var icon := TextureRect.new();icon.texture=imported_art.item(item.id,kind);icon.custom_minimum_size=Vector2(72 if ships else 56,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
 		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",1);words.alignment=BoxContainer.ALIGNMENT_CENTER;cells.add_child(words);words.mouse_filter=Control.MOUSE_FILTER_IGNORE
 		var named := label(title,17,words);named.add_theme_color_override("font_color",palette.text);named.autowrap_mode=TextServer.AUTOWRAP_OFF;named.clip_text=true;named.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
-		var stats := tr("Hull %d · Cargo %d · Slots %d")%[item.hull,item.capacity(),item.slots] if ships else EquipmentInfo.stats(item)
+		var stats := tr("Hull %d · Cargo %d · Slots %d · Handling %d")%[item.hull,item.capacity(),item.slots,handling(item,false)] if ships else EquipmentInfo.stats(item)
 		var spec := label(stats,13,words);spec.add_theme_color_override("font_color",palette.dim);spec.max_lines_visible=1;spec.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS;spec.autowrap_mode=TextServer.AUTOWRAP_OFF;spec.clip_text=true
 		var value := label(Coin.coins(tr("%d cr")%price) if entry.buy else tr("Installed").to_upper(),15,cells);value.custom_minimum_size.x=96;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value if entry.buy else palette.good);value.autowrap_mode=TextServer.AUTOWRAP_OFF
@@ -3282,7 +3366,8 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var better := func(now: int, next: int) -> Color: return palette.good if next>now else palette.bad if next<now else palette.text
 		figure_rows([["hull",tr("Hull"),"%d  →  %d"%[session.ship.hull,item.hull],better.call(session.ship.hull,item.hull)],
 			["cargo",tr("Cargo"),"%d  →  %d"%[session.ship.capacity(),item.capacity()],better.call(session.ship.capacity(),item.capacity())],
-			["grid",tr("Slots"),"%d  →  %d"%[session.ship.slots,item.slots],better.call(session.ship.slots,item.slots)]],detail)
+			["grid",tr("Slots"),"%d  →  %d"%[session.ship.slots,item.slots],better.call(session.ship.slots,item.slots)],
+			["controls",tr("Handling"),"%d  →  %d"%[handling(session.ship,false),handling(item,false)],better.call(handling(session.ship,false),handling(item,false))]],detail)
 		rule(detail)
 		label(item_description(item.id,"ships"),15,detail).add_theme_color_override("font_color",palette.text)
 		rule(detail)
@@ -3315,6 +3400,30 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		else:
 			var sale := iconic(button(Coin.coins(tr("Sell · %d cr")%item.price),func():transaction_result(economy.sell_equipment(station,item),item_name(item.id,"equipment")+" "+session.text(90));show_market(kind),detail),"credits",22);sale.alignment=HORIZONTAL_ALIGNMENT_CENTER
 			market_action(sale,economy.sell_equipment_denial(station,item))
+	link_stock_detail(stock,detail)
+func link_stock_detail(stock: Node, detail: Control) -> void:
+	"""Right from the stock list goes to the chosen entry's actions and Left
+	from them back to its row. The Buy button sits below most rows, where
+	moving by position never reached it without the mouse."""
+	var targets: Array[Control]=[]
+	FocusMap.collect(detail,null,targets)
+	if targets.is_empty():return
+	var buy: Control=targets[0]
+	for target in targets:
+		if target.has_meta("primary"):buy=target;break
+	for row in stock.get_children():
+		if row is Control:row.focus_neighbor_right=row.get_path_to(buy)
+	var selected := stock.get_node_or_null("Stock_"+str(market_selection)) as Control
+	if selected==null:return
+	# Placed only once laid out: the actions with nothing of the detail to
+	# their left lead back to the list.
+	for _frame in 2:await get_tree().process_frame
+	if not is_instance_valid(selected):return
+	for target in targets:
+		if not is_instance_valid(target):continue
+		var rect: Rect2=target.get_global_rect()
+		if targets.all(func(other):return other==target or not is_instance_valid(other) or FocusMap.distance(rect,other.get_global_rect(),SIDE_LEFT)==INF):
+			target.focus_neighbor_left=target.get_path_to(selected)
 func header_chip(icon: String, value: String, note: String) -> void:
 	"""A figure beside the page title, as the reference shows the purse."""
 	if ui.size.x<700: return
@@ -3355,6 +3464,29 @@ func goods_tabs(kind: String) -> void:
 		if kind==target:
 			var lit := StationTheme.button_state(golden(),"focus");lit.content_margin_left=50;lit.border_width_bottom=3
 			tab.add_theme_stylebox_override("normal",lit);tab.add_theme_stylebox_override("pressed",lit)
+func fit_market() -> void:
+	"""The trade page's height: its rows, but never shorter than the tallest
+	good already shown on this tab, so the frame does not jump between them.
+	Measured after the build, when the list has taken its scrolling height."""
+	if page!="market" or market_category not in ["trade","manufacture"]:return
+	if market_floor_kind!=market_category:market_floor_kind=market_category;market_floor=0.0
+	market_floor=maxf(market_floor,fitted_height())
+	layout()
+func trade_side(title: String, amount: String, parent: Node, hold: bool) -> HBoxContainer:
+	"""One side of the exchange, its heading over its count; the arrow goes
+	on its outer edge."""
+	var side := VBoxContainer.new();side.size_flags_horizontal=Control.SIZE_EXPAND_FILL;side.add_theme_constant_override("separation",4);parent.add_child(side)
+	caption(title,11,side,2).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT if hold else HORIZONTAL_ALIGNMENT_LEFT
+	var line := HBoxContainer.new();line.add_theme_constant_override("separation",12);line.alignment=BoxContainer.ALIGNMENT_END if hold else BoxContainer.ALIGNMENT_BEGIN;side.add_child(line)
+	var count := label(amount,22,line);count.add_theme_color_override("font_color",colours().text);count.autowrap_mode=TextServer.AUTOWRAP_OFF
+	count.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN;count.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+	return line
+func trade_arrow(key: String, icon: String, name: String, disabled: bool, action: Callable, parent: Node) -> Button:
+	"""A one-tonne move that keeps focus, so it can be pressed again and again."""
+	var arrow := option("",key,action,parent);arrow.name=key;arrow.accessibility_name=name;arrow.tooltip_text=name
+	arrow.custom_minimum_size=Vector2(64,48);arrow.size_flags_horizontal=Control.SIZE_SHRINK_CENTER;arrow.disabled=disabled
+	var mark := StationIcon.new(icon,colours().faint if disabled else colours().accent,26);arrow.add_child(mark);mark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	return arrow
 func switch_goods_tab(target: String) -> void:
 	if market_category!=target:show_market(target)
 func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
@@ -3399,20 +3531,23 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		var icon:=TextureRect.new();icon.texture=imported_art.item(item.id);icon.custom_minimum_size=Vector2(48,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
 		var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",0);words.alignment=BoxContainer.ALIGNMENT_CENTER;words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
 		label(title,17,words).add_theme_color_override("font_color",palette.text)
-		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Missing %d of %d materials")%[maxi(1,item.missing_ingredients),item.ingredients.size()]) if manufacturing else tr("In hold %d · Station stock %d")%[item.owned,item.stock]
+		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Missing %d of %d materials")%[maxi(1,item.missing_ingredients),item.ingredients.size()]) if manufacturing else tr("Station %d · In hold %d")%[item.stock,item.owned]
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
 		var value:=label(str(maxi(0,item.owned)) if manufacturing else Coin.coins(tr("%d cr")%item.price),16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
 	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)
 	var item=entries[market_selection]
-	label(item_name(item.id),26,detail).add_theme_color_override("font_color",palette.text)
-	if not compact: caption(tr("Product") if manufacturing else tr("Cargo"),12,detail,4)
+	# The picture beside the name and description, so the figures and actions
+	# follow straight on below.
 	var about := HBoxContainer.new();about.add_theme_constant_override("separation",14);detail.add_child(about)
-	var holder := glass(about,false,8);holder.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
-	var art := art_image(imported_art.item(item.id),holder,80) if not compact else null
-	var described := label(item_description(item.id),14,about);described.add_theme_color_override("font_color",palette.text);described.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+	var holder := glass(about,false,8);holder.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN;holder.size_flags_vertical=Control.SIZE_SHRINK_BEGIN
+	var art := art_image(imported_art.item(item.id),holder,56 if compact else 80)
 	if art==null: holder.hide()
+	var heading := VBoxContainer.new();heading.add_theme_constant_override("separation",2);heading.size_flags_horizontal=Control.SIZE_EXPAND_FILL;about.add_child(heading)
+	label(item_name(item.id),26,heading).add_theme_color_override("font_color",palette.text)
+	if not compact: caption(tr("Product") if manufacturing else tr("Cargo"),12,heading,4)
+	var described := label(item_description(item.id),14,heading);described.add_theme_color_override("font_color",palette.text)
 	if manufacturing:
 		var price_range := figure_rows([["credits",tr("Unit price"),"%s – %s"%[Coin.coins(tr("%d cr")%item.minimum_price),Coin.coins(tr("%d cr")%item.maximum_price)],palette.value]],detail)
 		price_range.name="PriceRange"
@@ -3441,31 +3576,27 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 			else:notice(tr("Made %d %s")%[item.owned,item_name(item.id)]);market_selected_id=item.id
 			show_market(kind),actions),"trade",22).disabled=item.owned<2
 	else:
-		figure_rows([["credits",tr("Unit price"),Coin.coins(tr("%d cr")%item.price),palette.value],["cargo",tr("In hold"),tr("%d t")%item.owned],["trade",tr("Station stock"),tr("%d t")%item.stock]],detail)
+		figure_rows([["credits",tr("Unit price"),Coin.coins(tr("%d cr")%item.price),palette.value]],detail)
+		# The original's two sides (ds): the station's shelf on the left, the
+		# hold on the right, an arrow on each moving a tonne across, and the
+		# whole lot either way below.
 		var affordable := buy_limit(item)
-		var sellable: int = maxi(0,item.owned)
-		var reachable: int = maxi(1,maxi(affordable,sellable))
-		market_quantity=clampi(market_quantity,1,reachable)
-		# The amount is chosen once and both trades read it, because a hold is
-		# usually filled at one station and emptied at the next.
-		var amount:=HBoxContainer.new();amount.add_theme_constant_override("separation",6);detail.add_child(amount)
-		var quantity:=caption(tr("Amount  %d t")%market_quantity,12,amount,2);quantity.custom_minimum_size.x=110;quantity.vertical_alignment=VERTICAL_ALIGNMENT_CENTER;quantity.add_theme_color_override("font_color",palette.text)
-		for entry in [["−",-1],["+",1]]:
-			var stride: int=entry[1]
-			var step:=option(entry[0],"amount"+entry[0],func():market_quantity=clampi(market_quantity+stride,1,reachable);show_market(kind),amount)
-			step.custom_minimum_size.x=52;step.alignment=HORIZONTAL_ALIGNMENT_CENTER;step.size_flags_horizontal=Control.SIZE_SHRINK_CENTER
-		var most:=option(tr("Max"),"amount_max",func():market_quantity=reachable;show_market(kind),amount)
-		most.custom_minimum_size.x=64;most.alignment=HORIZONTAL_ALIGNMENT_CENTER;most.size_flags_horizontal=Control.SIZE_SHRINK_CENTER
-		# Each button offers what it can actually move, so the number on it is never
-		# a promise the hold or the purse is about to refuse.
-		var buying: int=mini(market_quantity,affordable)
-		var selling: int=mini(market_quantity,sellable)
+		var sellable: int=maxi(0,item.owned)
+		var exchange := glass(detail,false,10);exchange.name="Exchange"
+		var sides := HBoxContainer.new();sides.add_theme_constant_override("separation",12);exchange.add_child(sides)
+		var shelf := trade_side(tr("Station stock"),tr("%d t")%item.stock,sides,false)
+		var aboard := trade_side(tr("In hold"),tr("%d t")%item.owned,sides,true)
+		var sell_one := trade_arrow("SellOne","arrow_left",tr("Sell 1 t"),sellable<1,func():trade_amount(station,item,false,1);show_market(kind),shelf)
+		shelf.move_child(sell_one,0)
+		trade_arrow("BuyOne","arrow_right",tr("Buy 1 t"),affordable<1,func():trade_amount(station,item,true,1);show_market(kind),aboard)
 		var actions := action_row(detail)
-		var purchase := iconic(button(Coin.coins(tr("Buy %d · %d cr")%[maxi(1,buying),item.price*maxi(1,buying)]),func():
-			trade_amount(station,item,true,buying)
+		iconic(button(Coin.coins(tr("Sell all · %d cr")%(item.price*sellable)),func():
+			trade_amount(station,item,false,sellable)
+			show_market(kind),actions),"credits",22).disabled=sellable<1
+		var purchase := iconic(button(Coin.coins(tr("Buy all · %d cr")%(item.price*affordable)),func():
+			trade_amount(station,item,true,affordable)
 			show_market(kind),actions),"cart",22)
-		purchase.disabled=buying<1
+		purchase.disabled=affordable<1
 		if not purchase.disabled: primary(purchase)
-		iconic(button(Coin.coins(tr("Sell %d · %d cr")%[maxi(1,selling),item.price*maxi(1,selling)]),func():
-			trade_amount(station,item,false,selling)
-			show_market(kind),actions),"credits",22).disabled=selling<1
+	link_stock_detail(stock,detail)
+	fit_market.call_deferred()

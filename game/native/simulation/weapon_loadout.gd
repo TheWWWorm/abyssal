@@ -46,9 +46,9 @@ func all_weapons() -> Array:
 func cycle() -> void:
 	if not groups.is_empty(): selected=(selected+1)%groups.size()
 
-func fire(pose, delta_ms: int, aim = null) -> void:
+func fire(pose, delta_ms: int, aim = null, hook_aim = null) -> void:
 	if selected < 0: return
-	for weapon in groups[selected]: weapon.request_fire(pose,delta_ms,aim)
+	for weapon in groups[selected]: weapon.request_fire(pose,delta_ms,hook_aim if weapon.fishing else aim)
 
 func fire_kind(pose, delta_ms: int, fishing: bool, aim = null) -> void:
 	for group in groups:

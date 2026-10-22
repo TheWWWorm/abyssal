@@ -1,16 +1,22 @@
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
 // Only arithmetic every WebGL translation agrees on: no two-argument atan and
 // no pow() of a signed base. Browsers on Windows run WebGL through Direct3D,
-// where those paths filled the whole quad with the burst's colour.
+// where those paths filled the whole quad with the burst's colour. Coverage
+// stays within 0..1 and is exactly zero outside the disc, as for the lamp
+// glow; an alpha above one, and fog added over the quad, both drew the
+// burst there as a white square.
 varying float age;
 varying float bubble;
 varying float wake;
+// The water between the burst and the eye, which fog dimmed before.
+varying float haze;
 void vertex(){
 	age=clamp(INSTANCE_CUSTOM.y,0.0,1.0);
 	bubble=step(0.5,INSTANCE_CUSTOM.z);
 	wake=step(1.5,INSTANCE_CUSTOM.z);
 	vec3 center=(VIEW_MATRIX*MODEL_MATRIX[3]).xyz;
+	haze=exp(-length(center)*0.0015);
 	float expand=mix(0.12+sqrt(age)*0.88,1.0,bubble);
 	// Keep thin bubble rims sampled, including render targets with flipped Y.
 	float minimum_diameter=10.0*abs(center.z)/(max(abs(PROJECTION_MATRIX[1][1]),0.001)*VIEWPORT_SIZE.y);
@@ -44,9 +50,12 @@ void fragment(){
 	vec2 g=p-vec2(-0.28,-0.38);
 	float glint=exp(-dot(g,g)*90.0);
 	float exhaust=(ring*mix(.09,.3,wake)+glint*.25+core*.2*wake)*fade;
-	float alpha=mix(explosion,exhaust,bubble)*COLOR.a;
-	ALBEDO=COLOR.rgb;
-	EMISSION=COLOR.rgb*mix(2.0,0.0,bubble);
-	// Bounded, and a value that is not a number is dropped, not drawn.
-	ALPHA=alpha>0.0?min(alpha,2.5):0.0;
+	float edge=1.0-smoothstep(0.92,1.0,r);
+	float strength=clamp(mix(explosion,exhaust,bubble)*COLOR.a*edge*haze,0.0,2.5);
+	// Additive blending scales the colour by alpha, so the light is carried
+	// in the colour and alpha only marks where it falls.
+	vec3 light=COLOR.rgb*strength;
+	float cover=clamp(max(light.r,max(light.g,light.b)),0.001,1.0);
+	ALBEDO=light/cover;
+	ALPHA=cover*step(0.0001,strength);
 }

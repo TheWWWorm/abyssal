@@ -65,7 +65,9 @@ func checks() -> void:
 	var arrival: Transform3D=world.region.player.pose.godot_transform()
 	expect((-arrival.basis.z).dot(-arrival.origin.normalized())>.999,"The arriving ship points through the gate toward its station")
 	expect(world.region.player.health.hull==31 and world.region.player.health.shield==7 and world.region.player.health.armor==11,"Transfer preserves all damage layers")
-	expect(world.region.player.boost_timer==-4321 and world.region.loadout.all_weapons()[0].elapsed==234,"Transfer preserves live flight cooldowns")
+	expect(world.region.loadout.all_weapons()[0].elapsed==234,"Transfer preserves live weapon cooldowns")
+	# br builds a new bb after the jump: the booster arrives charged and idle.
+	expect(world.region.player.boost_timer==0 and not world.region.player.boost_active and world.region.player.speed_factor==2,"Transfer arrives with the booster ready")
 	expect(owner.medals.pirates==3 and owner.medals.catches==4 and owner.credits==credits,"Transfer neither settles nor resets the expedition")
 	expect(owner.counters.q==journey_count+1 and owner.campaign.secondary.jumps==jumps and owner.elapsed_ms==time,"Transfer counts one journey without an extra departure or elapsed time")
 	expect(world.stream_destination<0 and not world.autopilot and world.speed==1 and not world.stream_transfer(),"Arrival clears the plan and cannot repeat the jump")
