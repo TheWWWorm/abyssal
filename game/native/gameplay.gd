@@ -293,7 +293,7 @@ func _ready() -> void:
 	ui.add_child(dashboard); dashboard.imported_art=imported_art; dashboard.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(hazard_warning);hazard_warning.z_index=20
 	ui.add_child(opening);opening.z_index=30;opening.finished.connect(end_opening)
-	ui.add_child(damage_feedback);damage_feedback.z_index=19
+	ui.add_child(damage_feedback);damage_feedback.z_index=19;damage_feedback.imported_art=imported_art
 	ui.add_child(hints); hints.add_theme_font_size_override("font_size",12); hints.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER; hints.modulate=Color("9bc2cf")
 	pressure_material.shader=preload("res://native/presentation/pressure_overlay.gdshader"); pressure_overlay.material=pressure_material
 	ui.add_child(pressure_overlay); pressure_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); pressure_overlay.mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -959,9 +959,14 @@ func _process(delta: float) -> void:
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
 		hazard_warning.update(r,flight_visible and page.is_empty(),not modern_graphics)
 		damage_feedback.visible=flight_visible
+		# With no notice or dock prompt under the top read-out the warning
+		# takes their place, leaving room above it for the hull read-out
+		# clear of the top edge and of the retro cargo bar's band.
+		if message.visible or not notice_history.is_empty() or dock_prompt.visible:hazard_warning.position.y=flight_notice_end()+60
+		else:hazard_warning.position.y=maxf(flight_notice_top(),64.0*hud_scale()+damage_feedback.readout_clearance())
 		# bd draws the hull readout in the depth warning's place; over a
 		# warning that is showing, it moves up into the gap above it.
-		damage_feedback.readout_top=hazard_warning.position.y-damage_feedback.position.y-(40.0 if hazard_warning.visible else 0.0)
+		damage_feedback.readout_top=hazard_warning.position.y-damage_feedback.position.y-(damage_feedback.readout_clearance() if hazard_warning.visible else 0.0)
 		# Over a warning doing damage the warning's own bar reads the hull.
 		damage_feedback.readout_covered=hazard_warning.visible and hazard_warning.status.get("damaging",false)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
@@ -2836,6 +2841,11 @@ func update_markers() -> void:
 		if not assigned.has(index): available.append(index)
 	var occupied: Array[Rect2] = [instruments.gauge_rect().grow(24),condition.get_global_rect()]
 	occupied.append_array(retro_hud.bands())
+	# Edge marks run down the screen's sides, where the touch buttons are.
+	if touch.enabled() and touch.visible:
+		for id in ["menu","map","time","autopilot","dock","boost","hook","guns","stick","throttle"]:
+			var button: Rect2=touch.control_rect(id)
+			if button.has_area() and touch.shown(id):occupied.append(Rect2(touch.get_global_transform()*button.position,button.size*touch.get_global_transform().get_scale()))
 	# The objective runs taller than the labels' top margin on touch.
 	if objective_label.visible:occupied.append(Rect2(objective_label.global_position,Vector2(objective_label.size.x,minf(objective_label.size.y,objective_label.get_content_height()))*objective_label.scale))
 	for feedback in [hazard_warning,catch_status,struggle,travel_status,message]:

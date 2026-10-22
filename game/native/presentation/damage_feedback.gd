@@ -26,6 +26,9 @@ var readout_covered := false
 var low := false
 var pulse := 0.0
 var font := SystemFont.new()
+## The JAR's red pixel lettering for the readout (hull.png, numbers.png);
+## without it the readout is plain text.
+var imported_art
 
 func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -97,9 +100,36 @@ func edge(strength: float) -> void:
 		var next := (side+1)%4
 		draw_polygon(PackedVector2Array([o[side],o[next],i[next],i[side]]),PackedColorArray([outer,outer,inner,inner]))
 
+func lettering_scale() -> float:
+	return maxf(2.0,roundf(size.y/320.0))
+func readout_height() -> float:
+	"""How tall the readout is drawn: the JAR lettering's two rows, or a line
+	of text without it."""
+	var digits: Texture2D=imported_art.image("numbers") if imported_art!=null else null
+	return 26.0*lettering_scale() if digits!=null and imported_art.image("hull")!=null else 32.0
+func readout_clearance() -> float:
+	"""The room the readout takes above a warning, with a gap between them."""
+	return readout_height()+6.0*lettering_scale()
+func draw_lettering() -> bool:
+	"""bd: HULL centred, and under it two digits and a percent sign from the
+	14 x 12 cells of numbers.png, at a whole multiple of their pixels."""
+	var word: Texture2D=imported_art.image("hull") if imported_art!=null else null
+	var digits: Texture2D=imported_art.image("numbers") if imported_art!=null else null
+	if word==null or digits==null or digits.get_width()<154:return false
+	texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
+	var scale := lettering_scale()
+	var top := readout_top
+	draw_texture_rect(word,Rect2(Vector2(roundf((size.x-word.get_width()*scale)*.5),top),word.get_size()*scale),false)
+	var cell := Vector2(14,12)
+	var start := roundf(size.x*.5-21*scale)
+	for index in 3:
+		var frame: int=[clampi(hull_percent,0,99)/10,clampi(hull_percent,0,99)%10,10][index]
+		draw_texture_rect_region(digits,Rect2(Vector2(start+index*14*scale,top+14*scale),cell*scale),Rect2(Vector2(frame*14,0),cell))
+	return true
+
 func _draw() -> void:
 	edge((flash*.42 if flash_enabled else 0.0)+(0.10+0.14*(0.5-0.5*cos(pulse/1.2*TAU)) if low else 0.0))
-	if readout_enabled and not readout_covered and readout_time>0.0 and readout_clock>=BLINK_PERIOD*.5:
+	if readout_enabled and not readout_covered and readout_time>0.0 and readout_clock>=BLINK_PERIOD*.5 and not draw_lettering():
 		var label := "%s %d%%"%[EngineLanguage.translate("Hull").to_upper(),hull_percent]
 		var pixels := 26
 		var width := font.get_string_size(label,HORIZONTAL_ALIGNMENT_LEFT,-1,pixels).x
