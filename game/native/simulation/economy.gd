@@ -23,11 +23,17 @@ func ship_price(vessel) -> int:
 	return COLLECTORS_PRICE if vessel.id==COLLECTORS_SHIP and session.medals.complete_set() else vessel.price
 
 static func distance_xy(a: Dictionary,b: Dictionary) -> int:
-	return roundi(Vector2(a.x-b.x,a.y-b.y).length())
+	# cl.b: the chart distance by the original's integer square root, which
+	# truncates. Rounding instead moves stocking chances and shelf prices.
+	var dx: int=int(b.x)-int(a.x);var dy: int=int(b.y)-int(a.y)
+	return Math.source_sqrt(Math.i32((dx*dx+dy*dy) << 12)) >> 12
 
 static func distance(a: Dictionary,b: Dictionary) -> float:
+	# cl.a(an,an): whole chart units from the same truncating square root,
+	# then scaled; a float length pays different contract fees.
 	if a.id==b.id:return 0.0
-	return Math.f32(Vector3(a.x-b.x,a.y-b.y,int(a.percent)/10-int(b.percent)/10).length()*18.85)
+	var dx: int=int(a.x)-int(b.x);var dy: int=int(a.y)-int(b.y);var dz: int=int(a.percent)/10-int(b.percent)/10
+	return Math.f32(float(Math.source_sqrt(Math.i32((dx*dx+dy*dy+dz*dz) << 12)) >> 12)*Math.f32(18.85))
 
 func roll(bound: int) -> int:return session.rng.next_int(maxi(1,bound))
 
@@ -48,11 +54,13 @@ func generate_goods(station: Dictionary) -> Array:
 	var first_product: int=session.data.constants.ah["b:[S"].size()+1
 	for _line in roll(5):
 		var tries := 0
+		# cp.a keeps the last proximity chance through the line's tries: a
+		# product without a recipe is offered on the chance of the previous one.
+		var chance := 0
 		while true:
 			var id: int=first_product+roll(goods.size()-first_product)
 			while id in STORY_GOODS:id=first_product+roll(goods.size()-first_product)
 			var item=session.make_goods(id,0)
-			var chance := 0
 			if not item.ingredient_counts.is_empty():chance=100-distance_xy(station,session.stations[item.origin_station])
 			var accepted: bool=roll(100)<chance and item.tech_level<=station.tech
 			if accepted:accepted=roll(100)<=item.availability if not result.any(func(other):return other.id==id) else false
@@ -64,11 +72,13 @@ func generate_goods(station: Dictionary) -> Array:
 func generate_equipment(station: Dictionary) -> Array:
 	# Two to five pieces, each drawn until one comes up whose rarity, plus
 	# the chapter, beats the roll; the outfitting station of the map's
-	# special holdings shows the whole catalogue.
+	# special holdings shows the catalogue's first 42.
 	var result: Array=[]
 	var catalogue: Array=session.data.tables.equipment
 	var everything: bool=station.percent<0
-	for index in (catalogue.size() if everything else 2+roll(4)):
+	# cp.a lists a fixed 42 there: the zero-priced weapon (42) and the
+	# repair unit (43) after it are never on that shelf.
+	for index in (mini(42,catalogue.size()) if everything else 2+roll(4)):
 		var id := index
 		if not everything:
 			while true:
@@ -106,7 +116,8 @@ func restock(station: Dictionary) -> void:
 	for id in IMPORTS:
 		if Goods.contains(station.cargo,id):continue
 		var count: int=roll(maxi(5,session.campaign.chapter/2))
-		if count>0:station.cargo.append(session.make_goods(id,count))
+		# an.a(aa) adds nothing when an empty stack of it is still listed.
+		if count>0 and not station.cargo.any(func(item):return item.id==id):station.cargo.append(session.make_goods(id,count))
 	for item in station.cargo:
 		var sold: int=roll(3)
 		if sold<item.owned:item.owned-=sold
@@ -121,7 +132,9 @@ func price_goods(station: Dictionary) -> void:
 			var away: Dictionary=session.stations[clampi(item.destination_station,0,session.stations.size()-1)]
 			var spread:=distance_xy(home,away)
 			var travelled:=distance_xy(away if item.id in IMPORTS else home,station)
-			var proportion:=1.0 if spread==0 else minf(1.0,Math.f32(Math.f32(Math.f32(100.0/float(spread))*float(travelled))/100.0))
+			# dj.m divides by the spread in float: a zero spread is infinite (the
+			# ceiling), unless nothing was travelled either (NaN, the floor).
+			var proportion:=(1.0 if travelled>0 else 0.0) if spread==0 else minf(1.0,Math.f32(Math.f32(Math.f32(100.0/float(spread))*float(travelled))/100.0))
 			item.price=item.minimum_price+int(Math.f32(proportion*float(item.maximum_price-item.minimum_price)))
 
 func market(station: Dictionary) -> Array:

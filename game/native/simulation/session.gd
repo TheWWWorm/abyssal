@@ -108,7 +108,7 @@ func update_rank() -> void:
  # Rank rises each time the score, of catches, kills twice, goods made and
  # contracts three times, has grown by a third since the last rise.
  var score: int=counters.h+2*counters.f+counters.n+3*counters.j
- if Math.f32(float(counters.l)*1.3)<float(score):counters.l=score;counters.k+=1
+ if Math.f32(float(counters.l)*Math.f32(1.3))<float(score):counters.l=score;counters.k+=1
 
 func text(id: int, replacement: String = "") -> String:
  if id < 0 or id>=data.strings.size(): return ""
@@ -177,7 +177,7 @@ func settle_colonist_cargo() -> void:
 func station_story_stock() -> void:
  # What the story puts on a shelf (ch): the Railgun alone at Gosu in the
  # second chapter; the Biotek generator and the incubator at the holdings
- # of chapters 33-34 and 36-37; and the Eclipse at Choral (14) once the
+ # of chapters 33-34 and 36-37; and the Eclipse at station 14 once the
  # incubator is aboard, or in the forty-second chapter.
  var station: Dictionary=stations[station_id]
  if campaign.chapter==2:station.equipment=[make_equipment(0)]

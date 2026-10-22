@@ -92,6 +92,26 @@ static func boost_state(player) -> Dictionary:
 	if player.boost_timer<0:
 		return {"mode":"charging","fraction":clampf(1.0+float(player.boost_timer)/player.stats.boost_cooldown,0,1),"seconds":-player.boost_timer/1000.0}
 	return {"mode":"ready","fraction":1.0,"seconds":0.0}
+static func harpoon_state(region) -> Dictionary:
+	"""The harpoon's reload, drawn like the booster's charge."""
+	var harpoon = null
+	for weapon in region.loadout.all_weapons():
+		if weapon.fishing: harpoon=weapon
+	if harpoon==null: return {"mode":"absent","fraction":0.0,"seconds":0.0}
+	if harpoon.hook_busy: return {"mode":"line","fraction":0.0,"seconds":0.0}
+	if harpoon.elapsed<harpoon.cooldown:
+		return {"mode":"reloading","fraction":clampf(float(harpoon.elapsed)/harpoon.cooldown,0,1),"seconds":(harpoon.cooldown-harpoon.elapsed)/1000.0}
+	return {"mode":"ready","fraction":1.0,"seconds":0.0}
+static func guns_state(region) -> Dictionary:
+	"""The guns' reload: the slowest one, since they fire together and it is
+	the last to be ready again."""
+	var slowest = null
+	for weapon in region.loadout.all_weapons():
+		if not weapon.fishing and (slowest==null or weapon.cooldown>slowest.cooldown): slowest=weapon
+	if slowest==null: return {"mode":"absent","fraction":0.0,"seconds":0.0}
+	if slowest.elapsed<slowest.cooldown:
+		return {"mode":"reloading","fraction":clampf(float(slowest.elapsed)/slowest.cooldown,0,1),"seconds":(slowest.cooldown-slowest.elapsed)/1000.0}
+	return {"mode":"ready","fraction":1.0,"seconds":0.0}
 func update(region, boost_key: String) -> void:
 	var player=region.player; var stats=player.stats
 	warning=player.depth<stats.minimum_depth or player.depth>stats.maximum_depth

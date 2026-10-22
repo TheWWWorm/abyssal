@@ -904,8 +904,10 @@ func _process(delta: float) -> void:
 	fullscreen_button.place(page=="pause")
 	dive_audio.set_context(page,session.docked)
 	advance_transit_view(delta)
-	if world.region!=null and (page=="departure" or view.transit_progress>=0 or view.departure_progress>=0):
-		world.region.radio_hold_ms=RADIO_SETTLE_MS
+	var departure_shot: bool=page=="departure" or view.transit_progress>=0 or view.departure_progress>=0
+	if world.region!=null:
+		world.region.pressure_hold=departure_shot
+		if departure_shot:world.region.radio_hold_ms=RADIO_SETTLE_MS
 	if page=="departure":
 		departure_elapsed+=minf(delta,.1)
 		view.place_departure(clampf(departure_elapsed/3.2,0,1))
@@ -957,7 +959,7 @@ func _process(delta: float) -> void:
 			dock_prompt.text=world.dock_denial()
 		instruments.update(r,OS.get_keycode_string(key_bindings.boost))
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
-		hazard_warning.update(r,flight_visible and page.is_empty(),not modern_graphics)
+		hazard_warning.update(r,flight_visible and page.is_empty() and not r.pressure_hold,not modern_graphics)
 		damage_feedback.visible=flight_visible
 		# With no notice or dock prompt under the top read-out the warning
 		# takes their place, leaving room above it for the hull read-out
@@ -970,7 +972,7 @@ func _process(delta: float) -> void:
 		# Over a warning doing damage the warning's own bar reads the hull.
 		damage_feedback.readout_covered=hazard_warning.visible and hazard_warning.status.get("damaging",false)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
-		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost))
+		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost),instruments.harpoon_state(r))
 		instruments.visible=flight_visible
 		instruments.modulate.a=1;condition.modulate.a=1;bank_label.modulate.a=1
 		dashboard.visible=false
@@ -992,13 +994,13 @@ func _process(delta: float) -> void:
 			var banks: Array=r.loadout.groups.filter(func(group):return not group.is_empty())
 			touch.set_banks(r.loadout.selected>=0 and not guns_selected(),banks.size()>1)
 			touch.show_state(r.player.throttle_target/100.0,flight_visible and page.is_empty() and dockable,instruments.boost_state(r.player),world.autopilot,world.speed,
-				banks.any(func(group):return group[0].fishing),banks.any(func(group):return not group[0].fishing))
+				banks.any(func(group):return group[0].fishing),banks.any(func(group):return not group[0].fishing),instruments.harpoon_state(r),instruments.guns_state(r))
 		if r.loadout.selected>=0:
 			var bank: Array = r.loadout.groups[r.loadout.selected]
 			bank_label.text=(tr("FISHING BANK · Harpoon") if bank[0].fishing else (tr("COMBAT BANK · %d weapon") if bank.size()==1 else tr("COMBAT BANK · %d weapons"))%bank.size())
 			if r.loadout.groups.size()>1: bank_label.text+="\n"+(tr("%s · Switch to combat") if bank[0].fishing else tr("%s · Switch to fishing"))%OS.get_keycode_string(key_bindings.bank)
 		else: bank_label.text=tr("NO WEAPONS INSTALLED")
-		pressure_material.set_shader_parameter("strength",instruments.pressure_strength if flight_visible else 0.0)
+		pressure_material.set_shader_parameter("strength",instruments.pressure_strength if flight_visible and not r.pressure_hold else 0.0)
 		hud.text=Coin.coins(tr("%d cr · %s")%[session.credits,session.stations[session.station_id].name])
 		if hud.text!=previous_hud_text: previous_hud_text=hud.text; fit_hud()
 		var objective=current_objective()
@@ -2404,9 +2406,11 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 	var rating: int=mission.normalized_difficulty(int(session.counters.k))
 	var grade: String=session.text(273 if rating<4 else 274 if rating<8 else 275)
 	var outside: bool=world.outside_safety(mission.destination)
+	# Beyond the engine's S.T.R.E.A.M. reach, as the chart's station card shows it.
+	var far: bool=mission.destination!=station.id and world.stream_distance(mission.destination)>=world.stream_range()
 	var rows: Array=[["map",session.text(334),mission.destination_name],
 		["shield",session.text(245),tr("%d m")%session.stations[mission.destination].depth,palette.bad if outside else palette.text],
-		["depart",session.text(333),session.text(310) if journey==0 else tr("%d km")%journey]]
+		["depart",session.text(333),session.text(310) if journey==0 else tr("%d km")%journey,palette.bad if far else palette.text]]
 	if mission.kind==8: rows.append(["grid",session.text(331),str(mission.jump_limit+1) if mission.jump_limit>=0 else session.text(335)])
 	else: rows.append(["status",session.text(39),grade])
 	figure_rows(rows,body)
@@ -3018,6 +3022,12 @@ func show_destinations() -> void:
 	open_page(tr("Autopilot"),"destinations")
 	var mission=current_objective()
 	label(objective_summary(mission),15).modulate=Color("ddca92")
+	var resume: int=world.resume_destination
+	if resume>=0 and resume<session.stations.size() and resume!=session.station_id and not world.autopilot:
+		# A route set on the chart (here or before leaving the station) stays
+		# on offer after manual control takes over.
+		var resume_name: String=session.stations[resume].name
+		button(tr("Resume S.T.R.E.A.M. route · %s")%resume_name if world.resume_stream else tr("Resume autopilot · %s")%resume_name,resume_route)
 	var objective_action:=button(tr("Navigate to quest objective"),autonavigate_objective)
 	objective_action.disabled=not objective_has_location(mission)
 	var actions:=GridContainer.new();actions.columns=2;actions.add_theme_constant_override("h_separation",10);column.add_child(actions)
@@ -3032,6 +3042,12 @@ func show_destinations() -> void:
 	button(tr("Choose station on chart"),func():show_map(true),actions)
 	if world.autopilot:button(tr("Disengage autopilot"),func():world.cancel_autopilot(tr("Manual control"));close_page(),actions)
 	label(tr("%s: 1× / 2× while steering · up to 16× on autopilot")%OS.get_keycode_string(key_bindings.time),12)
+func resume_route() -> void:
+	var id: int=world.resume_destination
+	var resumed: bool=world.plan_stream(id) if world.resume_stream else world.route_to(id)
+	if not resumed: notice(world.message); return
+	if world.resume_stream: stream_prompted=false
+	close_page()
 func say_hint(key: String,text: String) -> bool:
 	if not gameplay_hints or session.hints_said.has(key) or text.is_empty():return false
 	session.hints_said[key]=true

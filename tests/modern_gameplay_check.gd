@@ -29,8 +29,12 @@ func run():
    expect(not region.success.evaluate(region,region.elapsed_ms),"Objective starts incomplete %d"%chapter)
    match region.success.metric:
     "harvest":
+     # A catch still on the line does not count; one in the hold does.
      for actor in region.creatures:
       if actor.species==region.success.species:actor.subdued=true
+     expect(not region.success.evaluate(region,region.elapsed_ms),"Fish being reeled in do not count yet %d"%chapter)
+     for actor in region.creatures:
+      if actor.species==region.success.species:actor.health.enabled=false
     "enemy_rescued":region.enemies[region.success.value].protect(true);region.enemies[region.success.value].capturable=false
     "all_rescued":
      for actor in region.enemies:actor.protect(true);actor.capturable=false
@@ -38,6 +42,14 @@ func run():
      for actor in region.enemies:actor.health.hull=0;actor.state=4;actor.health.enabled=false
      region.recount()
    expect(region.success.evaluate(region,region.elapsed_ms),"Goal has an attainable completion %d"%chapter)
+   # The mission completes after the objective has stayed met for a while.
+   if chapter==7:
+    region.step(40)
+    expect(region.pending_mission==null,"Mission complete waits after the last catch")
+    for tick in region.COMPLETION_DELAY_MS/40:
+     if region.pending_mission!=null:break
+     region.step(40)
+    expect(region.pending_mission==region.mission,"Mission completes once the wait has run")
   # Radio references remain bounded even for a changed formation.
   for entry in region.timeline:entry.evaluate(region)
   world.dispose()
@@ -77,7 +89,16 @@ func run():
  a.hook.advance(40)
  expect(not a.hook.hooked and not a.fish.towing and a.world.session.counters.i==1,"Losing sight of the catch loses it, and the log counts it")
  expect(not a.hook.weapon.request_fire(a.world.region.player.pose,40),"A harpoon line that comes free reloads before the next shot")
+ a.world.region.loadout.groups.append([a.hook.weapon]) # As region.configure shares it.
+ var gun:=Weapon.new();gun.configure(5,10,1000,800,10,[0,0,0]);var cannon:=Weapon.new();cannon.configure(5,10,1000,2000,10,[0,0,0])
+ a.world.region.loadout.groups.push_front([gun,cannon]);gun.elapsed=0;cannon.elapsed=1000
+ var guns: Dictionary=preload("res://native/presentation/flight_instruments.gd").guns_state(a.world.region)
+ expect(guns.mode=="reloading" and is_equal_approx(guns.fraction,.5),"The fire button follows the gun with the longest firing interval")
+ a.world.region.loadout.groups.pop_front()
+ var reload: Dictionary=preload("res://native/presentation/flight_instruments.gd").harpoon_state(a.world.region)
+ expect(reload.mode=="reloading" and reload.fraction<1.0,"The HUD shows the harpoon reloading like the booster")
  a.hook.weapon.advance(300)
+ expect(preload("res://native/presentation/flight_instruments.gd").harpoon_state(a.world.region).mode=="ready","The HUD shows the harpoon ready once it has reloaded")
  expect(a.hook.weapon.request_fire(a.world.region.player.pose,40),"The harpoon fires again once it has reloaded")
  b.fish.subdued=true;b.fish.pose.origin=[0,0,-25000]
  var before: int=b.world.session.counters.h

@@ -62,6 +62,35 @@ func _initialize() -> void:
 		docking.update_autopilot()
 		expect(docking.session.docked and not docking.autopilot,"Autopilot docks automatically when the berth is in range")
 	docking.dispose()
+	# Touching the station's hull on docking autopilot docks, as in the
+	# original, wherever the hangar door is.
+	var bump=traveler()
+	expect(bump.route_to(bump.session.station_id),"Docking autopilot engages for the bump test")
+	bump.berth=[0,0,900000];bump.berth_lead=[0,0,906000]
+	var touching: Array=[]
+	for x in range(-60000,60001,1500):
+		for z in range(-60000,60001,1500):
+			bump.region.player.pose.origin=[x,0,z]
+			if bump.touching_station() and not bump.region.station.can_dock([x,0,z]):touching=[x,0,z];break
+		if not touching.is_empty():break
+	expect(not touching.is_empty(),"The station's hull can be touched outside its docking box")
+	if not touching.is_empty():
+		bump.region.player.pose.origin=touching;bump.update_autopilot()
+		expect(bump.session.docked,"Docking autopilot docks on touching the station's hull")
+	bump.dispose()
+	# A route outlives manual control so it can be resumed.
+	var resume=traveler()
+	var away: int=1 if resume.session.station_id!=1 else 2
+	expect(resume.route_to(away) and resume.resume_destination==away,"A route records its destination for resuming")
+	resume.advance(.04,{"yaw":1})
+	expect(not resume.autopilot and resume.resume_destination==away,"Manual control keeps the route on offer")
+	expect(resume.route_to(resume.resume_destination) and resume.autopilot and resume.destination==away,"The route resumes")
+	resume.region.pressure_hold=true;resume.region.player.depth=resume.session.ship.maximum_depth+2000
+	resume.region.pressure(1000)
+	expect(resume.region.pressure_ms==0,"Depth exposure waits while a departure shot plays")
+	resume.region.pressure_hold=false;resume.region.pressure(1000)
+	expect(resume.region.pressure_ms==1000,"Depth exposure counts once control returns")
+	resume.dispose()
 	var collision=traveler()
 	var actor=preload("res://native/simulation/npc.gd").new()
 	actor.health.configure(100,0,0);actor.model_id=0;actor.radius=2000;actor.pose.origin=[0,0,70000]
@@ -168,7 +197,7 @@ func _initialize() -> void:
 	var completed=traveler(); completed.region.player.pose.origin=[0,0,60000]; completed.fly_to([0,0,400000]); completed.speed=16
 	completed.session.campaign.primary.kind=22; completed.region.elapsed_ms=9960; completed.session.elapsed_ms=9960
 	completed.advance(0.24)
-	expect(completed.region.pending_mission==completed.session.campaign.primary and completed.session.elapsed_ms==10040,"Persistent objective completion stops the current accelerated frame")
+	expect(completed.region.pending_mission==completed.session.campaign.primary and completed.session.elapsed_ms==10000+preload("res://native/simulation/region.gd").COMPLETION_DELAY_MS,"Persistent objective completion stops the current accelerated frame, once the completion wait has run")
 	completed.dispose()
 	var danger=traveler(); danger.region.player.pose.origin=[0,0,60000]; danger.region.player.pose.set_euler(0,0,0); danger.fly_to([0,0,400000]); danger.speed=16
 	var hostile=preload("res://native/simulation/npc.gd").new()

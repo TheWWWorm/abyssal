@@ -36,7 +36,9 @@ func qualifies(id: int,threshold: int,session,hull_percent: int) -> bool:
  var metrics: Dictionary={1:hull_percent,9:kills,10:catches,11:session.elapsed_ms/3600000,16:weapon_count,19:maximum_credits}
  if metrics.has(id):return metrics[id]<=threshold if id==1 else metrics[id]>=threshold
  if id in [2,3]:
-  var indices:=range(session.fish_found.size()).filter(func(species):return (species>=13)==(id==2))
+  # f.a: medal 2 is the five deep species 13-17 exactly; medal 3 is every
+  # other species, including the last one (18).
+  var indices:=range(session.fish_found.size()).filter(func(species):return (species>=13 and species<=17)==(id==2))
   return not indices.is_empty() and indices.all(func(species):return session.fish_found[species])
  if id==7:
   var products: Array=session.data.tables.goods.filter(func(row):return row.size()>7 and not row[7].is_empty())

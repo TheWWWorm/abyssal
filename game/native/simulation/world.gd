@@ -18,6 +18,10 @@ var accumulator := 0.0
 var speed := 1
 var destination := -1
 var stream_destination := -1
+## The last station a route was set for, kept through manual control so the
+## pilot can resume it; cleared on arriving there.
+var resume_destination := -1
+var resume_stream := false
 var departure_gate := 0
 var gate_time := [0,0]
 var gate_closing := [0,0]
@@ -120,6 +124,7 @@ func route_to(id: int) -> bool:
 	stream_destination=-1
 	region.player.set_throttle(100)
 	encounter_autopilot=false;gate_navigation=false;avoidance_path=[]
+	if id!=session.station_id:resume_destination=id;resume_stream=false
 	destination=id; autopilot=true; approach_path=[]; approach_planned=false; course_start=global_position()
 	local_target=Math.subtracted(station_origin(id),station_origin(session.station_id))
 	if id==session.station_id and berth!=null:local_target=berth.duplicate()
@@ -251,7 +256,9 @@ func update_autopilot() -> void:
 	var difference := Math.subtracted(local_target,region.player.pose.origin)
 	var distance: float = Vector3(difference[0],difference[1],difference[2]).length()
 	if distance<25000: speed=1
-	var dockable: bool = destination==session.station_id and (at_berth() if berth!=null else region.station.can_dock(region.player.pose.origin))
+	# As in the original, touching the station's hull on the way in docks
+	# too, so a large station need not be rounded to reach the hangar door.
+	var dockable: bool = destination==session.station_id and ((at_berth() if berth!=null else region.station.can_dock(region.player.pose.origin)) or touching_station())
 	if dockable:
 		if dock(): message=tr("Docked · %s")%session.stations[session.station_id].name
 		else: cancel_autopilot(message)
@@ -327,6 +334,7 @@ func explore() -> void:
 				enter_region(station.id); return
 func enter_region(id: int) -> void:
 	berth=null;berth_lead=null
+	if id==resume_destination:resume_destination=-1
 	var position := global_position(); var pose=region.player.pose.copy_pose()
 	var flight: Dictionary = {}
 	for key in ["throttle","throttle_target","stopped","bank","visual_bank","yaw_step","pitch_total","speed_factor","boost_active","boost_timer","shield_timer","repair_timer"]: flight[key]=region.player.get(key)
@@ -353,17 +361,27 @@ func enter_region(id: int) -> void:
 		region.mission.briefing=false
 func dock() -> bool:
 	if session.docked: return true
-	if region==null or not in_docking_area(): message=tr("Approach the station's docking area."); return false
+	var bumped: bool=autopilot and destination==session.station_id and touching_station()
+	if region==null or not (in_docking_area() or bumped): message=tr("Approach the station's docking area."); return false
 	message=dock_denial()
 	if not message.is_empty(): return false
 	var hull_percent := int(Math.f32(Math.f32(float(region.player.health.hull)/float(region.player.health.max_hull))*100.0)) if region.player.health.max_hull>0 else 0
 	session.medals.evaluate(session,hull_percent)
+	# A milestone still in the completion wait is the station's to settle.
+	if region.completion_candidate!=null:region.completion_candidate.completed=false;region.completion_candidate=null
 	# The station panel says where you are; no notice repeats it over it.
 	cancel_autopilot(); reset_gates(); session.arrive()
 	return true
 func in_docking_area() -> bool:
 	"""Inside the original's docking box, or at the berth."""
 	return region!=null and (region.station.can_dock(region.player.pose.origin) or at_berth())
+func touching_station() -> bool:
+	"""Against this region's station: inside the margin its walls turn the
+	hull away at."""
+	if region==null:return false
+	for zone in repellers_of(region.station):
+		if zone.contains(region.player.pose.origin):return true
+	return false
 func at_berth() -> bool:
 	"""Within reach of the water outside the hangar door, which can lie a
 	little beyond the docking box of a large station."""
@@ -455,6 +473,7 @@ func plan_stream(id: int) -> bool:
 	departure_gate=nearest_safe_gate()
 	if departure_gate<0: message=tr("No S.T.R.E.A.M. gate in this area.");return false
 	fly_to_gate(departure_gate); stream_destination=id; update_approach()
+	resume_destination=id;resume_stream=true
 	message=tr("Approach the S.T.R.E.A.M. gate for %s")%session.stations[id].name
 	return true
 func fly_to_gate(index: int) -> void:

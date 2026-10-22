@@ -33,18 +33,25 @@ func poll(region) -> void:
    # Malformed/self-referencing source radio records become post-objective
    # flavour lines; they cannot deadlock the campaign.
    elif region.encounter_resolved:ready=true
-  8,16:ready=(hostile if kind==8 else region.enemies).any(func(actor):return actor.health.enabled and not actor.excluded_from_objectives)
+  8:
+   # dk.a reads the exclusion of the i-th enemy but the enabled flag of the
+   # listed one, so a list like [3,4,5] pairs enemy 0 with enemy 3.
+   for i in values.size():
+    var index: int=values[i]
+    if i<region.enemies.size() and index>=0 and index<region.enemies.size() and not region.enemies[i].excluded_from_objectives and region.enemies[index].health.enabled:ready=true;break
+  16:ready=region.enemies.any(func(actor):return actor.health.enabled and not actor.excluded_from_objectives)
   9:ready=not hostile.is_empty() and hostile.all(func(actor):return actor.health.hull<=0)
   10:ready=friendly.any(func(actor):return actor.health.enabled)
   12:ready=hostile.any(func(actor):return actor.health.hull*2<actor.health.max_hull)
   13:ready=int(region.session.counters.get("h",0))>0
-  14:ready=hostile.any(func(actor):return actor.rescued())
+  # 14 and 18 watch only the first listed enemy.
+  14:ready=first>=0 and first<region.enemies.size() and region.enemies[first].rescued()
   15:ready=region.enemies.any(func(actor):return actor.health.hull<=0 and not actor.excluded_from_objectives)
   17:
    ready=true
    for index in region.enemies.size():
     if index!=first and region.enemies[index].health.hull>0 and not region.enemies[index].excluded_from_objectives:ready=false;break
-  18:ready=hostile.any(func(actor):return not actor.capturable or actor.towing)
+  18:ready=first>=0 and first<region.enemies.size() and (not region.enemies[first].capturable or region.enemies[first].towing)
   19:ready=hostile.any(func(actor):return actor.health.hull*4<actor.health.max_hull*3)
  if ready:eligible=true
 func evaluate(region) -> bool:

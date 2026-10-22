@@ -1,11 +1,12 @@
 extends RefCounted
 ## Who is in the water when a region is entered, as the phone game's cy
-## fills it: twenty creatures of the local habitat (forty-nine in the algae
-## chapter), the station's own ships on their rounds, a chance of pirates in
-## the later chapters, and the encounter of the chapter or the contract in
-## hand, each with its own layout, numbers and objective. Actor factories
-## take native positions about the station; authored marks and routes are
-## converted at their call sites. Draws keep the source random-stream order.
+## fills it: twenty creatures of the local habitat (forty-nine algae at the
+## first holding after the story), the station's own ships on their rounds,
+## a chance of pirates in the later chapters, and the encounter of the
+## chapter or the contract in hand, each with its own layout, numbers and
+## objective. Actor factories take native positions about the station;
+## authored marks and routes are converted at their call sites. Draws keep
+## the source random-stream order.
 const Math=preload("res://native/simulation/fixed_math.gd")
 const NPC=preload("res://native/simulation/npc.gd")
 const Special=preload("res://native/simulation/special_actor.gd")
@@ -30,6 +31,8 @@ func configure(region) -> void:
 
 func roll(bound: int) -> int:return s.rng.next_int(maxi(1,bound))
 func ship_ids() -> Array:return data.constants.ah["e:[S"]
+## Java evaluates cy.a's arguments in order, so the hull (ah.a) is drawn before
+## any mark chosen in the same call.
 func random_ship() -> int:return int(ship_ids()[roll(ship_ids().size()-1)])
 func path(points: Array,repeating: bool=false):
 	var result:=Route.new();result.configure(points,repeating);return result
@@ -65,7 +68,10 @@ func ship(id: int,hostile: bool,center: Array=[0,0,0],team: int=2):
 	return actor
 
 func special(kind: String,id: int,hostile: bool,center: Array=[0,0,0],team: int=2):
-	var location: Array=[0,0,0] if kind=="capsule" else scatter(center,40000)
+	# cy.a draws the scatter for capsules too, then builds df at the origin
+	# and drops it; df only gives each its height.
+	var location: Array=scatter(center,40000)
+	if kind=="capsule":location=[0,0,0]
 	var actor:=Special.new();actor.configure_special(kind,id,hostile,location,data,s.rng)
 	actor.player=r.player;actor.radius=2000
 	actor.health.configure(20,0,0)
@@ -112,12 +118,12 @@ func wildlife() -> void:
 	# The habitat table (cl.a) pairs species with a percentage, the most
 	# common first; the original draws down it, taking each species when its
 	# roll comes in and starting over at the top when one misses, until the
-	# water is stocked. The algae chapter stocks the five algae, ten of each,
-	# instead.
+	# water is stocked. Once the story is over, the first holding's water
+	# holds the five algae, ten of each (forty-nine in all), instead (dj.c).
 	if r.mission.kind==6:return
 	var habitat: Array=Habitat.prevalence(data,s.station_id)
 	if habitat.is_empty():return
-	var algae_only: bool=r.mission.story and s.campaign.chapter==7 and r.mission.target_kind>=13
+	var algae_only: bool=s.campaign.finished() and s.station_id==0
 	if algae_only:
 		for index in ALGAE_WILDLIFE:r.creatures.append(fish(13+index/10))
 		return
@@ -181,7 +187,8 @@ func contract() -> void:
 		4:
 			# Escort: five freighters under way, raiders along their track.
 			var track=source_path([10000,0,100000,10000,0,150000,10000,0,200000])
-			for _i in 2+int(4*difficulty):enemies(1,track.points[roll(3)],random_ship(),1 if m.sponsor_faction==0 else 0,true)
+			for _i in 2+int(4*difficulty):
+				var id:=random_ship();enemies(1,track.points[roll(3)],id,1 if m.sponsor_faction==0 else 0,true)
 			for mark in [[5500,-300,20000],[14500,3000,17000],[4000,-2000,12000],[17000,-6000,10000],[11000,7000,8000]]:
 				var freighter=special("freighter",11,false,[0,0,0],m.sponsor_faction);freighter.set_position(Math.from_source(mark));freighter.moving=true
 				freighter.health.configure(100+s.counters.k*2+s.campaign.chapter*2,0,0);r.friends.append(freighter)
@@ -193,12 +200,14 @@ func contract() -> void:
 			for _i in count:
 				var freighter=special("freighter",11,true,r.route.points[1],1 if m.sponsor_faction==0 else 0);freighter.dormant();r.enemies.append(freighter)
 				freighter.set_position(scatter(r.route.points[1],20000))
-			for _i in 2+int(2*difficulty):enemies(1,r.route.points[roll(2)],random_ship(),1 if m.sponsor_faction==0 else 0,true)
+			for _i in 2+int(2*difficulty):
+				var id:=random_ship();enemies(1,r.route.points[roll(2)],id,1 if m.sponsor_faction==0 else 0,true)
 			r.success=goal("first_enemies_dead",count)
 		6:
 			# Defend fishes: the school swims its course; hunters lie along it.
 			var track=source_path([20000,0,-40000,20000,0,40000,20000,0,90000]);guarded_school(track.points[0],track)
-			for _i in 2+int(4*difficulty):enemies(1,track.points[1+roll(2)],random_ship(),0,true)
+			for _i in 2+int(4*difficulty):
+				var id:=random_ship();enemies(1,track.points[1+roll(2)],id,0,true)
 			r.success=goal("no_enemies");r.failure=goal("school_losses",m.total-m.minimum)
 		7:
 			# Attack fishes: the quarry among the wildlife, with hunters of the other side.

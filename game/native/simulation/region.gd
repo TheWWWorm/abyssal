@@ -1,5 +1,9 @@
 extends RefCounted
 const PRESSURE_GRACE_MS := 5000
+## How long an objective stays met before the mission completes. The original
+## checks its goal every three seconds of flight (br), so completion never
+## follows the last kill or catch in the same instant.
+const COMPLETION_DELAY_MS := 3000
 ## Native fixed-step flight, combat, fishing and mission event orchestration.
 const Math = preload("res://native/simulation/fixed_math.gd")
 const Player = preload("res://native/simulation/player.gd")
@@ -53,6 +57,13 @@ var active_transmission = null
 ## Game time a radio call still waits for: the presentation holds the radio
 ## while a departure or a gate's way out is on screen, and a little after.
 var radio_hold_ms := 0
+## Set by the presentation while a departure or S.T.R.E.A.M. exit shot plays:
+## the depth exposure count starts once control returns.
+var pressure_hold := false
+var completion_ms := 0
+## A milestone completion() has already reported: it marks counted ones done
+## on the first call, so it is kept here through the completion wait.
+var completion_candidate = null
 var encounter_resolved := false
 var hook_was_down := false
 var story_departed := false
@@ -142,7 +153,7 @@ func configure_npc_weapons(actors: Array,hostile: bool) -> void:
 	# cycle. The aquar fire laser_aqua from their own deeper, slower pool.
 	if actors.is_empty():return
 	var power: int=int(float(session.counters.k)/1.5)+int(float(session.campaign.chapter)/5.0)
-	var guns:=Weapon.new();guns.configure(3+power if hostile else 3+int(power*0.8),4 if hostile else 10,3000,500,16,[0,0,0])
+	var guns:=Weapon.new();guns.configure(3+power if hostile else 3+int(Math.f32(float(power)*Math.f32(0.8))),4 if hostile else 10,3000,500,16,[0,0,0])
 	guns.model_id=int(session.data.constants.ah["a:[S"][8 if hostile else 2]);guns.special_kill=not hostile
 	guns.targets=actors[0].targets;guns.terrain_collision=station.contains;weapons.append(guns)
 	var bolts:=Weapon.new();bolts.configure(3+power if hostile else 5+power,6 if hostile else 10,3000,600,15,[0,0,0]);bolts.model_id=6767
@@ -263,11 +274,19 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	if radio_hold_ms>0:return
 	# Persistent milestones can complete while a side encounter stays active.
 	var persistent=session.campaign.completion(false,elapsed_ms,session.station_id,session.ship,session.counters)
+	if persistent!=null:completion_candidate=persistent
+	else:persistent=completion_candidate
+	var met: bool=(persistent!=null and persistent!=mission) or ((encounter_resolved or persistent==mission) and active_transmission==null)
+	# A goal that stops being met (a catch let go) starts the wait again.
+	completion_ms=completion_ms+delta_ms if met else 0
+	if completion_ms<COMPLETION_DELAY_MS:return
 	if persistent!=null and persistent!=mission:pending_mission=persistent
 	elif (encounter_resolved or persistent==mission) and active_transmission==null:
 		# Deliver any now-satisfied dialogue chain before resolving the encounter.
 		if not update_radio():pending_mission=mission
-	if pending_mission!=null:pending_mission.completed=true;events.append({"kind":"mission_complete","mission":pending_mission})
+	if pending_mission!=null:
+		if pending_mission==completion_candidate:completion_candidate=null
+		pending_mission.completed=true;events.append({"kind":"mission_complete","mission":pending_mission})
 
 func update_radio() -> bool:
 	for entry in timeline:entry.poll(self)
@@ -290,7 +309,7 @@ func visual_event(event: Dictionary) -> void:
 	visual_events.append(event)
 func pressure(delta_ms: int) -> void:
 	var depth: int = player.depth
-	if depth>=session.ship.minimum_depth and depth<=session.ship.maximum_depth:
+	if pressure_hold or (depth>=session.ship.minimum_depth and depth<=session.ship.maximum_depth):
 		pressure_ms=0; pressure_damage_ms=0; return
 	if pressure_ms==0: audio_event("pressure")
 	pressure_ms+=delta_ms; pressure_damage_ms+=delta_ms

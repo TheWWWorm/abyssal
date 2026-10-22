@@ -86,7 +86,9 @@ def read_profile(jar,root,digest=None):
     for owner,cls in classes.items():
         for (name,desc),(flags,attrs) in cls.fields.items():
             if flags&8:statics[owner,name,desc]=cls.constant(Reader(attrs['ConstantValue']).u2()) if 'ConstantValue' in attrs else default(desc)
-    statics['al','a','Lal;']={'_type':'al',('a','I'):-1,('b','Z'):False,('e','Z'):False}
+    # al's private constructor leaves every other field at its Java default,
+    # so the endgame's empty mission has jump fields of 0, not -1.
+    statics['al','a','Lal;']={'_type':'al',('a','I'):-1,('g','I'):0,('h','I'):0,('b','Z'):False,('e','Z'):False}
     statics['ap','b','I']=1 # Inert locale preference input, not application state.
     textures={};models=[];active={};changes=[]
     def summary(owner,name,desc,obj,args):
@@ -160,7 +162,10 @@ def read_profile(jar,root,digest=None):
     for name in ['main','ships','cargo','items','medals',*map(str,range(chapters-1))]:
         r=Reader((language/f'{name}.lang').read_bytes())
         while r.offset<len(r.data):strings.append(modified_utf8(r.take(r.u2())))
-    names=[[s for s in re.sub(r'[\r\n\t]','',(root/'data/txt'/f'names_human_{gender}.txt').read_text()).split(';') if s] for gender in ('f','m')]
+    # bw.a(int,boolean): each ';' ends a name, an empty one included, and text
+    # after the last is ignored. The pool's size is a draw bound (ah.a), so a
+    # dropped blank would shift every later sponsor name and random draw.
+    names=[re.sub(r'[\r\n\t]','',(root/'data/txt'/f'names_human_{gender}.txt').read_text()).split(';')[:-1] for gender in ('f','m')]
     # Habitat selection is engine policy; no original ecology routine is read.
     habitats=[]
     for index,station in enumerate(tables['stations']):

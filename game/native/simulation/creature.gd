@@ -81,7 +81,7 @@ func configure(id: int,row: Array,rng,sine: Array,center: Array=[0,0,0]) -> void
 	secondary_pose=pose.copy_pose();release()
 
 func cruise_speed() -> float:
-	return Math.f32(1.0+Math.f32(float(resistance)/2.2))
+	return Math.f32(1.0+Math.f32(float(resistance)/Math.f32(2.2)))
 
 func release() -> void:
 	struggle_remaining=0 if stationary else struggle_total
@@ -123,7 +123,7 @@ func advance(delta_ms: int,rng,camera_origin: Array,ahead: Array=[]) -> void:
 		# A fleeing creature gathers speed, and for the first two seconds of
 		# each bout of struggle turns the way it last chose; then it spends
 		# a second of its strength and picks a new turn.
-		speed=minf(Math.f32(speed+0.01),Math.f32(cruise_speed()*1.6))
+		speed=minf(Math.f32(speed+Math.f32(0.01)),Math.f32(cruise_speed()*1.6))
 		struggle_time+=delta_ms
 		movement=int(Math.f32(float(delta_ms)*speed))
 		if struggle_time<2000:pose.compose_rotation(turn)

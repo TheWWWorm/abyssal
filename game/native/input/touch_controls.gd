@@ -73,6 +73,8 @@ var show_fullscreen := true
 signal throttle_changed(percent: int)
 var throttle_level := 1.0
 var dock_ready := false
+var harpoon_reload := 1.0
+var guns_reload := 1.0
 var boost_fraction := 0.0
 var boost_mode := "absent"
 var autopilot_on := false
@@ -396,14 +398,17 @@ func move_stick(point: Vector2) -> void:
 	steer=((point-stick_center)/stick_radius).limit_length()
 	if steer.length()<.10:steer=Vector2.ZERO
 	queue_redraw()
-func show_state(throttle: float, dock: bool, boost: Dictionary, autopilot: bool, speed: int, hook: bool=true, guns: bool=true) -> void:
+func show_state(throttle: float, dock: bool, boost: Dictionary, autopilot: bool, speed: int, hook: bool=true, guns: bool=true, harpoon: Dictionary={}, gun_reload: Dictionary={}) -> void:
 	"""Takes the flight state the controls draw, redrawing only on a change."""
 	var sliding: bool="throttle" in fingers.values()
-	var changed: bool=hook!=has_hook or guns!=has_guns or dock!=dock_ready or autopilot!=autopilot_on or speed!=time_speed or boost.mode!=boost_mode or absf(boost.fraction-boost_fraction)>.01 or (not sliding and absf(throttle-throttle_level)>.001)
+	var reload: float=float(harpoon.fraction) if harpoon.get("mode","")=="reloading" else 1.0
+	var rearming: float=float(gun_reload.fraction) if gun_reload.get("mode","")=="reloading" else 1.0
+	var changed: bool=absf(reload-harpoon_reload)>.01 or absf(rearming-guns_reload)>.01 or hook!=has_hook or guns!=has_guns or dock!=dock_ready or autopilot!=autopilot_on or speed!=time_speed or boost.mode!=boost_mode or absf(boost.fraction-boost_fraction)>.01 or (not sliding and absf(throttle-throttle_level)>.001)
 	if not sliding:throttle_level=throttle
 	var rearm: bool=hook!=has_hook or guns!=has_guns
 	has_hook=hook;has_guns=guns
 	if rearm: place_throttle()
+	harpoon_reload=reload;guns_reload=rearming
 	dock_ready=dock;autopilot_on=autopilot;time_speed=speed;boost_mode=boost.mode;boost_fraction=boost.fraction
 	# A control that goes away lets go of the finger on it.
 	for index in fingers.keys():
@@ -490,6 +495,13 @@ func draw_button(key: String, area: Rect2, lit: bool) -> void:
 		# The button fills from the bottom as the booster recharges, and
 		# drains while it burns.
 		fill_level(center,r-2*unit,boost_fraction,Color("f0c870",.45) if boost_mode=="active" else Color(IDLE,.3))
+	# The weapon buttons fill as they reload, like the booster's. The fire
+	# button follows the harpoon while it stands in for the guns.
+	var harpoon_on_fire: bool=original_weapons and not layout_preview and (fishing_selected or not has_guns)
+	var reloading := 1.0
+	if key=="guns":reloading=harpoon_reload if harpoon_on_fire else guns_reload
+	elif key=="hook" and not (original_weapons and not layout_preview):reloading=harpoon_reload
+	if reloading<1.0:fill_level(center,r-2*unit,reloading,Color(IDLE,.3))
 	glow_ring(center,r,Color(tint,.45) if waiting else tint,(3.0 if key=="guns" else 2.5)*unit)
 	var large: bool=key=="guns" or (key=="hook" and harpoon_in_guns_place())
 	if large:draw_arc(center,r*.8,0,TAU,64,Color(tint,.6),2*unit,true)

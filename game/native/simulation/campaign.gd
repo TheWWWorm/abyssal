@@ -50,7 +50,9 @@ func select_at_station(station_id: int, show_briefing: bool = true) -> void:
 	active=Mission.new()
 	for mission in [primary,secondary]:
 		if mission.failed or mission.completed or mission.kind < 0 or mission.destination != station_id or mission.kind in [13,14,21,18,16,15]: continue
-		if (mission.jumps > mission.jump_limit and mission.jump_limit >= 0) or (not mission.story and mission.kind == 8): continue
+		# dj.a(an) stops at the first mission here that has used its last
+		# departure (h >= g), or a passenger contract; it does not look on.
+		if (mission.jumps >= mission.jump_limit and mission.jump_limit >= 0) or (not mission.story and mission.kind == 8): return
 		if show_briefing and mission.story and mission.kind in [0,1,2,3,4,5,6,7,9,10,11,12]: mission.briefing=true
 		active=mission
 		return

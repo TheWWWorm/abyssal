@@ -47,7 +47,7 @@ static func requirements(mission) -> String:
 	return ""
 
 static func deadline(mission) -> String:
-	if mission.jump_limit<0: return ""
+	if mission.kind<0 or mission.jump_limit<0: return ""
 	if mission.jumps>mission.jump_limit: return EngineLanguage.translate("Departure limit exceeded")
 	# The accepted contract starts at -1 and its first launch advances to zero.
 	return EngineLanguage.translate("Departures used: %d / %d · %d remaining")%[maxi(0,mission.jumps+1),mission.jump_limit+1,maxi(0,mission.jump_limit-mission.jumps)]

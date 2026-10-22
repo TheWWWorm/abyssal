@@ -39,17 +39,23 @@ func portrait(variant: bool,faction: int) -> Array:
 		else:result.append(-1)
 	return result
 
-func offer_kind(station: Dictionary,colonist: bool) -> int:
+## Returns [kind, local]: local is set once any delivery (13) or fishing (14)
+## draw lands, even one then refused, because cp.a moves the destination home
+## as soon as it draws one.
+func offer_kind(station: Dictionary,colonist: bool) -> Array:
 	# Colonists post no deliveries, fish defences or capsule raids; rebels
 	# post no escorts, intercepts, fish hunts, capsule raids or capsule
 	# defences, and no fish defence once the war is won.
+	var local := false
 	while true:
 		var kind: int=roll(15)
-		if kind in [13,14] and station.id<=20:continue
+		if kind in [13,14]:
+			if station.id<=20:continue
+			local=true
 		if colonist and kind in [13,14,6,12]:continue
 		if not colonist and ((session.campaign.finished() and kind==6) or kind in [12,5,4,7,11]):continue
-		return kind
-	return 3
+		return [kind,local]
+	return [3,local]
 
 func generate(station: Dictionary) -> Array:
 	var result: Array=[]
@@ -59,8 +65,9 @@ func generate(station: Dictionary) -> Array:
 	for _offer in 1+roll(8):
 		var target := 0
 		while target<=20:target=station.id if roll(100)<40 else destination(station)
-		var kind: int=offer_kind(station,colonist)
-		if kind in [13,14]:target=station.id
+		var drawn: Array=offer_kind(station,colonist)
+		var kind: int=drawn[0]
+		if drawn[1]:target=station.id
 		var mission:=Mission.new()
 		mission.kind=kind;mission.sponsor_faction=0 if colonist else 1
 		var variant: bool=roll(100)<60
@@ -97,13 +104,16 @@ func generate(station: Dictionary) -> Array:
 		var reward: float=float(3500+int(Math.f32(Math.f32(float(mission.difficulty)/200.0)*9500.0)))
 		reward=Math.f32(reward*Math.f32(1.0+Math.f32(journey/1500.0)))
 		match kind:
-			9:reward=Math.f32(reward*0.7)
-			6,4,11:reward=Math.f32(reward*1.3)
-			12,7:reward=Math.f32(reward*1.2)
+			9:reward=Math.f32(reward*Math.f32(0.7))
+			6,4,11:reward=Math.f32(reward*Math.f32(1.3))
+			12,7:reward=Math.f32(reward*Math.f32(1.2))
 			13:reward=Math.f32(Math.f32(reward/2.0)+float(mission.item_count*int(goods[mission.item_id][6])*3))
 			8:
 				if mission.jump_limit>=0:reward=Math.f32(reward+float(int(Math.f32(Math.f32(float(6-mission.jump_limit)*reward)/20.0))))
-		mission.reward=to_fifty(reward)
+		# cp.a rounds the float fee in place, so the deposit draw below sees
+		# the rounded fee, not the raw one.
+		reward=round_fifty(reward)
+		mission.reward=int(reward)
 		var deposit: int=int(Math.f32(Math.f32(reward/10.0)+float(roll(int(reward)/10))))
 		if kind in [13,14]:deposit=int(Math.f32(float(deposit)*0.5))
 		mission.deposit=to_fifty(float(deposit))
@@ -114,7 +124,7 @@ func generate(station: Dictionary) -> Array:
 				var kind_of_fish := 0
 				while kind_of_fish in [0,2,9,11,12]:kind_of_fish=roll(13)
 				var total: int=15+roll(10)
-				mission.parameters(kind_of_fish,total,total-int(Math.f32(Math.f32(1.0-ratio)*Math.f32(float(total)*0.35))))
+				mission.parameters(kind_of_fish,total,total-int(Math.f32(Math.f32(1.0-ratio)*Math.f32(float(total)*Math.f32(0.35)))))
 			11:
 				var total: int=5+roll(10)
 				mission.parameters(0,total,total-int(Math.f32(Math.f32(1.0-ratio)*float(total))))
@@ -122,6 +132,10 @@ func generate(station: Dictionary) -> Array:
 				var total: int=3+roll(3);mission.parameters(0,total,total)
 		result.append(mission)
 	return result
+
+static func round_fifty(amount: float) -> float:
+	var remainder: int=int(amount)%50
+	return Math.f32(amount+remainder) if fmod(Math.f32(amount+remainder),50.0)==0 else Math.f32(amount-remainder)
 
 static func to_fifty(amount: float) -> int:
 	# Rounded to the fifty the phone game's way: the remainder is added when

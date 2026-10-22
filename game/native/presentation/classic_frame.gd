@@ -9,6 +9,7 @@ var throttle := 0
 var speed := 1
 var boost := {"mode":"absent","fraction":0.0,"seconds":0.0}
 var boost_key := ""
+var harpoon := {"mode":"absent","fraction":0.0,"seconds":0.0}
 var frame := StationTheme.frame(Color(.016,.07,.1,.78),Color("2b7894"),8,1,Color(.25,.8,1.0,.14),6)
 var font: FontVariation
 var palette := StationTheme.palette(false)
@@ -23,16 +24,18 @@ func _ready() -> void:
 	mouse_filter=Control.MOUSE_FILTER_IGNORE
 	font=StationTheme.spaced(get_theme_default_font(),2)
 	resized.connect(queue_redraw)
-func update(player, _ship, simulation_speed: int, boost_state: Dictionary={}, key: String="") -> void:
+func update(player, _ship, simulation_speed: int, boost_state: Dictionary={}, key: String="", harpoon_state: Dictionary={}) -> void:
 	throttle=int(player.throttle);throttle_fraction=float(player.throttle)/100.0
 	speed=simulation_speed;boost_key=key
 	if not boost_state.is_empty(): boost=boost_state
+	if not harpoon_state.is_empty(): harpoon=harpoon_state
 	queue_redraw()
 func panel_rect() -> Rect2:
 	"""In unscaled units about the strip's bottom centre. Without a booster
 	the strip carries thrust and time alone and narrows to fit them."""
 	var width := 36.0+thrust_width()
 	if boost.get("mode","absent")!="absent":width+=22.0+boost_width()
+	if harpoon.get("mode","absent")!="absent":width+=22.0+harpoon_width()
 	# Clear of the key hints along the screen's bottom edge.
 	return Rect2(Vector2(-width*.5,-80),Vector2(width,40))
 func text_width(value: String) -> float:
@@ -44,6 +47,10 @@ func boost_caption() -> String:
 func boost_width() -> float:
 	var key_width := 14.0+text_width(boost_key) if boost.mode=="ready" and not boost_key.is_empty() else 0.0
 	return maxf(160.0,ceilf(text_width(boost_caption())+key_width))
+func harpoon_caption() -> String:
+	return {"line":tr("HARPOON  LINE OUT"),"reloading":tr("HARPOON  %.1f s")%harpoon.seconds,"ready":tr("HARPOON READY")}.get(str(harpoon.mode),tr("HARPOON"))
+func harpoon_width() -> float:
+	return maxf(120.0,ceilf(text_width(harpoon_caption())))
 func rail(rect: Rect2, amount: float, lit: Color) -> void:
 	var count := int(rect.size.x/5)
 	for index in count:
@@ -60,9 +67,16 @@ func _draw() -> void:
 	words(left,tr("THRUST  %d%%")%throttle,palette.text,10)
 	words(left,tr("TIME  %d×")%speed,palette.dim,10,HORIZONTAL_ALIGNMENT_RIGHT,section)
 	rail(Rect2(left+Vector2(0,7),Vector2(section,6)),throttle_fraction,palette.accent)
+	var right := left+Vector2(section+22,0)
+	if harpoon.get("mode","absent")!="absent":
+		# The harpoon's reload, as the original shows it beside the booster.
+		var reach := harpoon_width()
+		var lit: bool=harpoon.mode=="ready"
+		words(right,harpoon_caption(),palette.value if lit else palette.dim,10)
+		rail(Rect2(right+Vector2(0,7),Vector2(reach,6)),float(harpoon.get("fraction",0.0)),palette.value if lit else palette.accent.darkened(.3))
+		right+=Vector2(reach+22,0)
 	if not fitted: return
 	var mode: String=boost.mode
-	var right := left+Vector2(section+22,0)
 	section=boost_width()
 	var caption := boost_caption()
 	words(right,caption,palette.value if mode=="active" else palette.dim,10)

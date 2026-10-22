@@ -33,7 +33,10 @@ func evaluate(region,elapsed_ms: int) -> bool:
 		"harvest":
 			var caught := 0
 			for actor in region.creatures:
-				if actor.species==species and (dead(actor) or actor.subdued):caught+=1
+				# A catch counts once it is in the hold: reeling in is not enough,
+				# since a full hold lets it go again. (The original counts it
+				# from the moment it is subdued.)
+				if actor.species==species and (dead(actor) or (actor.subdued and not actor.health.enabled)):caught+=1
 			remaining=maxi(0,minimum-caught);return caught>=minimum
 		"capsules_destroyed":return region.special_destroyed>=value
 		"all_rescued":return region.enemies.all(func(actor):return actor.rescued())

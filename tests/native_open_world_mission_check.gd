@@ -1,4 +1,5 @@
 extends SceneTree
+const Region = preload("res://native/simulation/region.gd")
 const Session=preload("res://native/simulation/session.gd")
 const World=preload("res://native/simulation/world.gd")
 const Mission=preload("res://native/simulation/mission.gd")
@@ -204,10 +205,10 @@ func audit_milestone_handoff() -> void:
  var world=World.new();world.configure(session);world.depart()
  world.region.player.health.configure(100000,100000,100000);world.region.player.set_throttle(0)
  for actor in world.region.enemies:actor.activate();actor.health.damage(100000)
- world.region.step(40)
+ settle(world)
  expect(world.region.pending_mission==contract,"Third contract is resolved before the global milestone")
  world.region.events.clear();world.region.acknowledge_completion()
- world.advance(.04)
+ settle(world,true)
  expect(world.region.pending_mission==session.campaign.primary,"Third contract triggers story milestone in open water")
  world.region.events.clear();world.region.acknowledge_completion()
  expect(session.campaign.chapter==10,"Milestone advances to the next encounter")
@@ -217,6 +218,15 @@ func audit_milestone_handoff() -> void:
  expect(world.global_position()==location and session.counters.q==journeys,"Local story handoff preserves position and journey count")
  expect(world.region.events.filter(func(event):return event.kind=="briefing").size()==1,"Open-world encounter produces one arrival briefing")
  world.dispose()
+
+func settle(world, hand_over := false) -> void:
+ # A met objective completes after the region's completion delay. With
+ # hand_over one world tick first takes up any next encounter; the region
+ # then runs on directly, past queued briefings that hold the world's loop.
+ if hand_over:world.advance(.04)
+ for tick in Region.COMPLETION_DELAY_MS/40+2:
+  if world.region.pending_mission!=null:return
+  world.region.step(40)
 
 func check_travel_arrival_radio() -> void:
  # Chapter 12 sends the Ino to Talon; arriving there plays Talon's hail (br.c).
@@ -276,7 +286,7 @@ func audit_persistent_chapters() -> void:
      var enemy=preload("res://native/simulation/npc.gd").new()
      enemy.configure(0,2,true,[0,0,90000],data,chapter,session.rng);enemy.health.configure(10,0,0)
      world.region.enemies.append(enemy);enemy.health.damage(10)
-    world.region.step(40)
+    settle(world)
    18:
     var count:=0
     for station in session.stations:
@@ -296,7 +306,7 @@ func audit_persistent_chapters() -> void:
       session.ship.set_cargo(ingredients.map(func(item):return item.copy_stack(item.owned)))
       expect(economy.manufacture(session.stations[session.station_id],recipe.id,1),"Manufacture action increments the story counter")
    22:
-    for tick in 260:
+    for tick in 260+Region.COMPLETION_DELAY_MS/40:
      world.region.step(40)
      if world.region.pending_mission!=null:break
   # Colonist delivery may settle during docking; otherwise use the same
