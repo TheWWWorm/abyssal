@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "Radio selama misi",
 	"Raise if the ship drifts with the sticks at rest.": "Naikkan jika kapal bergeser saat stik diam.",
 	"Range %.0f m": "Jangkauan %.0f m",
+	"Range on chart": "Wilayah di peta",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "Peringkat %d  ·  Stasiun ditemukan %d / 200  ·  Tangkapan %d  ·  Musuh dikalahkan %d",
 	"Rank %d · %d / 24 medals · statistics": "Peringkat %d · %d / 24 medali · statistik",
 	"Reaching it": "Cara mencapai",

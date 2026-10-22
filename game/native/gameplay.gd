@@ -196,6 +196,11 @@ var map_slice
 var map_showcase: VBoxContainer
 var map_picker: OptionButton
 var map_destination := 0
+## Where the chart's Back goes when another page opened it (a board offer's
+## Check location), instead of the station or flight.
+var map_return := Callable()
+## The species whose range the chart draws, kept between charts.
+var habitat_range := -1
 ## The atlas zone was moved off the chosen station and nothing is chosen.
 var map_unchosen := false
 var stream_button: Button
@@ -648,6 +653,8 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
 	elif not (id=="dialogue" and page=="dialogue"):interrupted_auto={}
 	clear_notice_history();wheel_throttle_remainder=0.0
+	# A checked offer is marked only on the chart that was opened for it.
+	if id!="map":Map.preview_mission=null
 	if id!="settings" and is_instance_valid(settings_panel): settings_panel.hide()
 	dive_audio.set_context(id,session!=null and session.docked)
 	touch.set_active(false);controller.blocked=true
@@ -732,7 +739,7 @@ func close_page() -> void:
 	# Anything that closes the page under the opening ends the opening with it.
 	if opening.active:opening.finish(false)
 	dive_audio.set_context("",session!=null and session.docked)
-	view.gate_preview=false
+	view.gate_preview=false;Map.preview_mission=null
 	touch_scroll.scroll=null;touch_scroll.gesture_control=null;touch_scroll.release()
 	page=""; overlay.hide();get_viewport().gui_release_focus();
 	if is_instance_valid(settings_panel): settings_panel.hide()
@@ -2423,6 +2430,12 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 	figure_tile("shield",tr("Deposit"),Coin.coins(tr("%d cr")%mission.deposit),terms)
 	# Cards side by side share a row's height; the button keeps to the foot.
 	var foot := Control.new();foot.size_flags_vertical=Control.SIZE_EXPAND_FILL;foot.mouse_filter=Control.MOUSE_FILTER_IGNORE;body.add_child(foot)
+	# The original's offer dialogue (bz) has Check location (251): the chart
+	# on the destination, with only this offer marked, and Back to the board.
+	iconic(button(session.text(251),func():
+		map_destination=mission.destination;Map.preview_mission=mission
+		map_return=func():Map.preview_mission=null;show_market("missions")
+		show_map(),body),"map",22)
 	primary(iconic(button(tr("Accept contract"),func():
 		if session.accept_contract(mission): show_station()
 		else: notice(tr("Insufficient credits for the deposit.")),body),"contracts",22))
@@ -2479,7 +2492,9 @@ func show_map(autopilot_only: bool=false) -> void:
 	if focus_option.is_empty():focus_option="map_route"
 	stream_button=bar_button(tr("S.T.R.E.A.M. transfer") if tight else tr("Plan S.T.R.E.A.M. transfer"),map_stream,actions)
 	stream_button.visible=not atlas_autopilot_only
-	back_row(show_station if session.docked else close_page)
+	if map_return.is_valid():back_row(map_return);map_return=Callable()
+	else:
+		Map.preview_mission=null;back_row(show_station if session.docked else close_page)
 	map_unchosen=false
 	var start: Dictionary=session.stations[map_destination]
 	map_widget.place_lens(Vector2(start.x,start.y))
@@ -2557,7 +2572,7 @@ func station_chart(selection: int) -> HFlowContainer:
 	var compact: bool=ui.size.y<700
 	var body := VBoxContainer.new(); body.size_flags_vertical=Control.SIZE_EXPAND_FILL; body.add_theme_constant_override("separation",10); column.add_child(body)
 	var top := HBoxContainer.new(); top.size_flags_vertical=Control.SIZE_EXPAND_FILL; top.add_theme_constant_override("separation",14); body.add_child(top)
-	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=selection; top.add_child(map_widget)
+	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=selection; map_widget.habitat_species=habitat_range; top.add_child(map_widget)
 	map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.size_flags_vertical=Control.SIZE_EXPAND_FILL; map_widget.size_flags_stretch_ratio=1.1
 	map_widget.custom_minimum_size=Vector2(300,200) # after its _ready, which sets its own
 	map_widget.lens_radius=ZONE_RADIUS;map_widget.focus_mode=Control.FOCUS_CLICK
@@ -2881,12 +2896,22 @@ func update_markers() -> void:
 		# cb: only what is in the middle of the view is scanned. The fishing
 		# radars (3, 4) name a creature's catch and its weight, the combat
 		# ones (2, 4) the cargo a ship carries; no radar names a ship's type.
+		# They show the original's picture of it (cb): a fish's or the meat's
+		# with its weight, a ship's cargo, and on a ship that carries none but
+		# is to be taken, the person of a hostage job or the crate of the
+		# others. The names stand in when the picture was not imported.
+		var picture: Texture2D = null
 		if on_screen and target.get("identify",false) and Scanner.in_scan_window(screen,ui.size):
 			var actor=target.actor
 			if actor.is_creature:
-				target.name=tr("Meat") if actor.meat else item_name(actor.species)
+				picture=imported_art.item(18 if actor.meat else actor.species)
+				target.name="" if picture!=null else tr("Meat") if actor.meat else item_name(actor.species)
 				detail="\n"+tr("%d t")%actor.mass
-			elif actor.loot!=null: detail="\n"+tr("%s · %d t")%[item_name(actor.loot.id),actor.loot.owned]
+			elif actor.loot!=null:
+				picture=imported_art.item(actor.loot.id)
+				detail="" if picture!=null else "\n"+tr("%s · %d t")%[item_name(actor.loot.id),actor.loot.owned]
+			elif actor.get("protected_target") and target.hull>=0:
+				picture=imported_art.image("cargo_salvage" if region.mission.kind==2 else "cargo_recovery")
 		elif target.get("role","")=="creature" and region.mission.kind!=6: continue
 		var anchor:=screen
 		var direction: Vector2 = Vector2.ZERO if on_screen else Scanner.edge_direction(screen,ui.size,reverse_edge).normalized()
@@ -2900,7 +2925,7 @@ func update_markers() -> void:
 		var ranged: bool=not target.has("actor")
 		var caption: String=target.name
 		if not ranged and caption.is_empty(): caption=detail.trim_prefix("\n");detail=""
-		markers[i].display(caption+(" · " if ranged else ""),RangeText.format_distance(distance) if ranged else "",detail,target.color,float(target.hull) if on_screen else -1.0)
+		markers[i].display(caption+(" · " if ranged else ""),RangeText.format_distance(distance) if ranged else "",detail,target.color,float(target.hull) if on_screen else -1.0,picture)
 		if enemy and not on_screen:markers[i].track_enemy(screen,18,true)
 		screen+=Vector2(24,12) if on_screen and enemy else Vector2(14,10) if on_screen else Vector2.ZERO
 		screen.x=clampf(screen.x,12,maxf(12,ui.size.x-markers[i].size.x-12))
@@ -3218,11 +3243,16 @@ func show_habitat(id: int, parent: Node) -> void:
 	for index in range(0,habitat.size(),2):
 		if int(habitat[index+1])>0:living.append_array([habitat[index],habitat[index+1]])
 	habitat=living
+	habitat_picker(parent)
 	label(tr("Species found here").to_upper(),13,parent).modulate=Color("93b5aa")
 	# Two columns where they fit beside the card's figures; one on a narrow
 	# card, where two broke the names in the middle of a word.
 	var grid := GridContainer.new();grid.columns=2 if parent.size.x>=460 else 1;
-	parent.resized.connect(func():if is_instance_valid(grid):grid.columns=2 if parent.size.x>=460 else 1);grid.add_theme_constant_override("h_separation",14);grid.add_theme_constant_override("v_separation",2);parent.add_child(grid)
+	# The card outlives this list; the handler goes with the list, or a later
+	# resize would reach a freed grid.
+	var relayout:=func():grid.columns=2 if parent.size.x>=460 else 1
+	parent.resized.connect(relayout);grid.tree_exiting.connect(func():if parent.resized.is_connected(relayout):parent.resized.disconnect(relayout))
+	grid.add_theme_constant_override("h_separation",14);grid.add_theme_constant_override("v_separation",2);parent.add_child(grid)
 	var seen := {}
 	for index in range(0,habitat.size(),2):
 		var species := int(habitat[index])
@@ -3239,6 +3269,26 @@ func show_habitat(id: int, parent: Node) -> void:
 		name_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		if known:
 			var caught := label(tr("caught"),12,line);caught.modulate=Color("c9ae79");caught.autowrap_mode=TextServer.AUTOWRAP_OFF;caught.size_flags_horizontal=Control.SIZE_SHRINK_END
+func habitat_picker(parent: Node) -> void:
+	"""bp's species list (dq): which caught species' range the chart shows,
+	the algae together, or none."""
+	var choices: Array=[[-1,session.text(324)]]
+	if range(13,18).any(func(id):return id<session.fish_found.size() and session.fish_found[id]):choices.append([-3,session.text(261)])
+	for id in mini(13,session.fish_found.size()):
+		if session.fish_found[id]:choices.append([id,item_name(id)])
+	if habitat_range!=-1 and not choices.any(func(choice):return choice[0]==habitat_range):habitat_range=-1
+	var line := HBoxContainer.new();line.add_theme_constant_override("separation",8);parent.add_child(line)
+	label(tr("Range on chart"),13,line).modulate=Color("93b5aa")
+	var picker := OptionButton.new();StationTheme.style_option(picker,golden(),touch.enabled());line.add_child(picker)
+	for choice in choices:
+		picker.add_item(choice[1],choice[0] if choice[0]>=0 else 1000-choice[0])
+		# bp's list pictures: the cross for none, the last alga for the algae.
+		var picture: Texture2D=imported_art.item(choice[0]) if choice[0]>=0 else imported_art.item(17) if choice[0]==-3 else imported_art.image("x_1")
+		if picture!=null:picker.set_item_icon(picker.item_count-1,picture)
+		if choice[0]==habitat_range:picker.select(picker.item_count-1)
+	picker.item_selected.connect(func(index):
+		var id: int=picker.get_item_id(index);habitat_range=id if id<1000 else 1000-id
+		if is_instance_valid(map_widget):map_widget.habitat_species=habitat_range;map_widget.queue_redraw())
 var travel_confirmed := -1
 func ask_travel(id: int, go: Callable, back: Callable, warn := true) -> bool:
 	"""The original asks before every trip, on the chart (bp) and again at the

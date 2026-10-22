@@ -78,6 +78,13 @@ func _initialize() -> void:
 		bump.region.player.pose.origin=touching;bump.update_autopilot()
 		expect(bump.session.docked,"Docking autopilot docks on touching the station's hull")
 	bump.dispose()
+	# The fifth chapter flees Gosu and the sixth returns to it (br.a: 292, 291).
+	var story=traveler()
+	story.session.campaign.chapter=5
+	expect(story.dock_denial()==(story.session.text(292) if story.session.station_id==0 else ""),"Chapter five refuses docking only at Gosu")
+	story.session.campaign.chapter=6
+	expect(story.dock_denial()==("" if story.session.station_id==0 else story.session.text(291)),"Chapter six refuses docking away from Gosu")
+	story.dispose()
 	# A route outlives manual control so it can be resumed.
 	var resume=traveler()
 	var away: int=1 if resume.session.station_id!=1 else 2

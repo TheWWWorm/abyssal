@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "Görev sırasında telsiz",
 	"Raise if the ship drifts with the sticks at rest.": "Çubuklar serbestken gemi kayıyorsa artırın.",
 	"Range %.0f m": "Menzil %.0f m",
+	"Range on chart": "Haritada yayılım",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "Rütbe %d  ·  Keşfedilen istasyon %d / 200  ·  Av %d  ·  Yenilen düşman %d",
 	"Rank %d · %d / 24 medals · statistics": "Rütbe %d · %d / 24 madalya · istatistikler",
 	"Reaching it": "Ulaşım",

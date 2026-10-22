@@ -393,8 +393,13 @@ func dock_denial() -> String:
 	encounter, br.a refuses with "Can't dock while in a mission." (269) while
 	the area's assigned mission is anything but a journey (8): the first
 	chapter's catch has to be aboard before Gosu takes the ship in. An
-	equipment job (17) is only ever done docked, so it never bars the berth."""
+	equipment job (17) is only ever done docked, so it never bars the berth.
+	The story also turns the ship away in two chapters (br.a): the fifth from
+	Gosu, which it must flee through the S.T.R.E.A.M. (292), and the sixth
+	from anywhere but Gosu (291)."""
 	if region==null: return ""
+	if session.campaign.chapter==5 and session.station_id==0: return session.text(292)
+	if session.campaign.chapter==6 and session.station_id!=0: return session.text(291)
 	if region.success!=null or region.failure!=null: return tr("Docking locked · finish the encounter. Open autopilot and choose the quest objective.")
 	var mission=region.mission
 	if mission!=null and mission.kind>=0 and not mission.kind in [8,17] and not mission.completed and not mission.failed: return session.text(269)

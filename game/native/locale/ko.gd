@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "임무 중 무전",
 	"Raise if the ship drifts with the sticks at rest.": "스틱을 놓았는데도 함선이 움직이면 높이세요.",
 	"Range %.0f m": "사거리 %.0f m",
+	"Range on chart": "지도 범위",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "계급 %d  ·  발견한 정거장 %d / 200  ·  포획 %d  ·  격파한 적 %d",
 	"Rank %d · %d / 24 medals · statistics": "계급 %d · 훈장 %d / 24 · 통계",
 	"Reaching it": "가는 방법",

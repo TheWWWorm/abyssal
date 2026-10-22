@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "Bộ đàm trong nhiệm vụ",
 	"Raise if the ship drifts with the sticks at rest.": "Tăng lên nếu tàu tự trôi khi không chạm cần.",
 	"Range %.0f m": "Tầm %.0f m",
+	"Range on chart": "Vùng trên bản đồ",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "Cấp %d  ·  Trạm đã khám phá %d / 200  ·  Đã bắt %d  ·  Kẻ địch bị hạ %d",
 	"Rank %d · %d / 24 medals · statistics": "Cấp %d · %d / 24 huân chương · thống kê",
 	"Reaching it": "Cách đến",

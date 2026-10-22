@@ -16,8 +16,12 @@ var enemy_ring := false
 var edge_square := false
 var ring_center := Vector2.ZERO
 var ring_radius := 18.0
+## A radar's picture of a catch or cargo (cb), at twice its imported size.
+var picture: Texture2D = null
+var picture_at := Vector2.ZERO
+const PICTURE_SIZE := Vector2(36,30)
 func _ready() -> void:
-	mouse_filter=Control.MOUSE_FILTER_IGNORE
+	mouse_filter=Control.MOUSE_FILTER_IGNORE;texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
 	for line in [label,description]:
 		line.add_theme_font_size_override("font_size",13); line.mouse_filter=Control.MOUSE_FILTER_IGNORE; add_child(line)
 	add_child(range_text)
@@ -26,7 +30,7 @@ func _ready() -> void:
 	var background := StyleBoxFlat.new(); background.bg_color=Color("041219cc"); hull.add_theme_stylebox_override("background",background)
 	hull.add_theme_stylebox_override("fill",fill)
 	hull.size=Vector2(62,4)
-func display(prefix: String, distance: String, detail: String, color: Color, percentage: float) -> void:
+func display(prefix: String, distance: String, detail: String, color: Color, percentage: float, image: Texture2D=null) -> void:
 	enemy_ring=false;edge_square=false;label.show();range_text.show()
 	text=prefix+distance+detail
 	if label.text!=prefix:
@@ -40,6 +44,11 @@ func display(prefix: String, distance: String, detail: String, color: Color, per
 	description.position=Vector2(ICON_WIDTH,label.size.y+label.get_theme_constant("line_spacing"))
 	var text_height: float = description.position.y+description.size.y if description.visible else label.size.y
 	var text_width := ICON_WIDTH+maxf(label.size.x+range_text.size.x,description.size.x if description.visible else 0)
+	picture=image
+	if picture!=null:
+		# Under the caption, with the hull bar below it.
+		picture_at=Vector2(ICON_WIDTH,(text_height+2) if not prefix.is_empty() or description.visible else 0.0)
+		text_height=picture_at.y+PICTURE_SIZE.y;text_width=maxf(text_width,ICON_WIDTH+PICTURE_SIZE.x)
 	if current_color!=color:
 		current_color=color
 		for line in [label,description]: line.add_theme_color_override("font_color",color)
@@ -54,7 +63,7 @@ func display(prefix: String, distance: String, detail: String, color: Color, per
 func track_enemy(anchor: Vector2, radius: float, offscreen: bool, captions: bool=true) -> void:
 	enemy_ring=not offscreen;edge_square=offscreen;ring_center=anchor-position;ring_radius=radius
 	if offscreen or not captions:
-		label.hide();description.hide();range_text.hide();hull.hide()
+		label.hide();description.hide();range_text.hide();hull.hide();picture=null
 	if offscreen:size=Vector2(14,14)
 	queue_redraw()
 
@@ -62,6 +71,7 @@ func set_symbol(direction: Vector2) -> void:
 	if symbol_direction==direction:return
 	symbol_direction=direction;queue_redraw()
 func _draw() -> void:
+	if picture!=null and not edge_square and label.visible:draw_texture_rect(picture,Rect2(picture_at,PICTURE_SIZE),false)
 	if edge_square:
 		draw_rect(Rect2(3,3,8,8),Color("091318dd"));draw_rect(Rect2(3,3,8,8),current_color,false,2);return
 	if enemy_ring:

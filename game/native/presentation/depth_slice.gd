@@ -7,6 +7,7 @@ extends Control
 ## order and wrap round, as its soft keys do.
 signal selected(id: int)
 const Map = preload("res://native/presentation/overworld_map.gd")
+const Abyss = preload("res://native/presentation/abyss.gd")
 const TOP_DEPTH := 15000
 const BOTTOM_DEPTH := 30000
 ## Room kept at each end for the stepping arrows, and on the right for the
@@ -17,6 +18,14 @@ const SCALE_ROOM := 66.0
 ## steps its water the same way (15000, 20000, 25000 and 30000 on the
 ## boundaries), from pale above the marks to near black below them.
 const BANDS := [Color("5872dc"),Color("4360cc"),Color("2f43b4"),Color("1f2d86"),Color("121a52")]
+## Down to 20000 the water takes the colour of the selected station's region,
+## as the sky over it does (cy.b, cy.c): the most common alga's colour, at full
+## strength so each region reads plainly on the chart, darkening with depth as
+## the phone's sky does and blending back into the chart's blue.
+const REGION_DEPTH := 20000
+const REGION_TINT := .85
+## The colour's brightest channel at the top of the side view.
+const REGION_LIGHT := .72
 var world
 var art
 var center := Vector2(50,50)
@@ -69,6 +78,7 @@ func _draw() -> void:
 	edges.append(size.y)
 	for band in BANDS.size():
 		draw_rect(Rect2(0,edges[band],size.x,edges[band+1]-edges[band]),BANDS[band])
+	if world!=null and selected_id>=0:region_water(edges)
 	draw_rect(Rect2(area.end.x,0,SCALE_ROOM,size.y),Color("08102e"))
 	if world==null:return
 	var ship=world.session.ship
@@ -76,9 +86,11 @@ func _draw() -> void:
 	var deep := clampf(depth_y(ship.maximum_depth),0,size.y)
 	# The water outside the hull's limits goes dark, the radiation side with
 	# a red cast to it, and each limit gets the original's hatched edge.
-	draw_rect(Rect2(0,0,area.size.x,shallow),Color(0.03,0.04,0.12,0.62))
+	# Lighter over the region's colour, so the alga still shows through.
+	var tinted: bool=selected_id>=0
+	draw_rect(Rect2(0,0,area.size.x,shallow),Color(0.03,0.04,0.12,0.38 if tinted else 0.62))
 	for step in 6:
-		draw_rect(Rect2(0,shallow*step/6.0,area.size.x,shallow/6.0),Color(0.85,0.2,0.2,0.16*(1.0-step/6.0)))
+		draw_rect(Rect2(0,shallow*step/6.0,area.size.x,shallow/6.0),Color(0.85,0.2,0.2,(0.08 if tinted else 0.16)*(1.0-step/6.0)))
 	draw_rect(Rect2(0,deep,area.size.x,size.y-deep),Color(0.01,0.02,0.07,0.66))
 	for edge in [shallow,deep]:
 		draw_dashed_line(Vector2(0,edge),Vector2(area.size.x,edge),Color("ff8f8f") if edge==shallow else Color("9fb4ff"),1.5,8)
@@ -121,6 +133,22 @@ func _draw() -> void:
 		draw_string(font,tag.position+Vector2(7,17),chosen.name,HORIZONTAL_ALIGNMENT_LEFT,-1,15,Color("eef6ff"))
 	if has_focus():draw_rect(Rect2(Vector2.ONE,size-Vector2(2,2)),Color("e5ae63"),false,2)
 
+func region_water(edges: Array) -> void:
+	"""The upper water in strips, each the region's sky colour at its depth
+	over the band it lies in."""
+	var base: Vector3=Abyss.region_base(world.session.data,selected_id)
+	var hue: Vector3=base/maxf(.0001,maxf(base.x,maxf(base.y,base.z)))
+	var bottom: float=depth_y(REGION_DEPTH)
+	var y := 0.0
+	while y<bottom:
+		var strip: float=minf(4.0,bottom-y)
+		var depth: float=TOP_DEPTH+(y+strip*.5-size.y*.125)/(size.y*.75)*(BOTTOM_DEPTH-TOP_DEPTH)
+		var sky: Vector3=hue*REGION_LIGHT*clampf(Abyss.depth_factor(depth),.45,1.0)
+		var band: int=0 if y<edges[1] else 1
+		# Fade back to the chart's blue towards the 20000 mark.
+		var weight: float=REGION_TINT*clampf((bottom-y)/maxf(1.0,bottom-edges[1]),0.0,1.0) if band==1 else REGION_TINT
+		draw_rect(Rect2(0,y,size.x,strip),BANDS[band].lerp(Color(sky.x,sky.y,sky.z),weight))
+		y+=strip
 func legend_mark(at: Vector2, image: String, text: String, bottom: bool) -> void:
 	var icon: Texture2D=art.symbol(image) if art!=null else null
 	var x := at.x

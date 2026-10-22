@@ -53,6 +53,25 @@ func run():
   # Radio references remain bounded even for a changed formation.
   for entry in region.timeline:entry.evaluate(region)
   world.dispose()
+ # A board board_offer's Check location marks its destination on the chart (bp.a(al)).
+ var chart_world=fixture(12);var board_offer=preload("res://native/simulation/mission.gd").new()
+ board_offer.kind=3;board_offer.destination=(chart_world.session.station_id+1)%chart_world.session.stations.size()
+ var Chart=preload("res://native/presentation/overworld_map.gd")
+ expect(Chart.objectives(chart_world,board_offer.destination).is_empty(),"An offer not taken on is unmarked")
+ Chart.preview_mission=board_offer
+ expect(not Chart.objectives(chart_world,board_offer.destination).is_empty(),"Check location marks the offer's destination")
+ Chart.preview_mission=null
+ # A species' range is drawn about its home station.
+ var chart:=Chart.new();chart.world=chart_world
+ expect(not chart.species_home(0).is_empty(),"A fish has a home station for its range")
+ chart.free();chart_world.dispose()
+ # The radar's picture sits under the caption and grows the marker to fit.
+ var mark:=preload("res://native/presentation/contact_marker.gd").new();root.add_child(mark)
+ mark.display("","","",Color.WHITE,50.0,ImageTexture.create_from_image(Image.create(18,15,false,Image.FORMAT_RGBA8)))
+ expect(mark.picture!=null and mark.size.y>=mark.PICTURE_SIZE.y and mark.size.x>=mark.ICON_WIDTH+mark.PICTURE_SIZE.x,"A scanned contact shows its picture")
+ mark.display("x","","",Color.WHITE,50.0)
+ expect(mark.picture==null,"A reused marker drops the picture")
+ mark.queue_free()
  # Completion cannot suppress a side contract because a previous mission is done.
  var side=fixture(12);var session=side.session;session.campaign.primary.completed=true
  session.campaign.secondary.kind=8;session.campaign.secondary.destination=session.station_id

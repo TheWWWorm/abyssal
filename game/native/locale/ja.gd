@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "ミッション中の無線",
 	"Raise if the ship drifts with the sticks at rest.": "スティックに触れていないのに艦船が動く場合は値を上げてください。",
 	"Range %.0f m": "射程 %.0f m",
+	"Range on chart": "地図上の範囲",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "ランク %d  ·  発見ステーション %d / 200  ·  捕獲 %d  ·  撃破 %d",
 	"Rank %d · %d / 24 medals · statistics": "ランク %d · メダル %d / 24 · 統計",
 	"Reaching it": "行き方",

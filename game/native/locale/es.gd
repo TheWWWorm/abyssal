@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "Radio durante la misión",
 	"Raise if the ship drifts with the sticks at rest.": "Auméntala si la nave se desvía con los sticks en reposo.",
 	"Range %.0f m": "Alcance %.0f m",
+	"Range on chart": "Zona en el mapa",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "Rango %d  ·  Estaciones descubiertas %d / 200  ·  Capturas %d  ·  Enemigos derrotados %d",
 	"Rank %d · %d / 24 medals · statistics": "Rango %d · %d / 24 medallas · estadísticas",
 	"Reaching it": "Cómo llegar",

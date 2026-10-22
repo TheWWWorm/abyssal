@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "任务中的无线电",
 	"Raise if the ship drifts with the sticks at rest.": "如果摇杆静止时船只仍漂移，请调高。",
 	"Range %.0f m": "射程 %.0f 米",
+	"Range on chart": "地图范围",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "等级 %d  ·  已发现站点 %d / 200  ·  捕获 %d  ·  击败敌人 %d",
 	"Rank %d · %d / 24 medals · statistics": "等级 %d · %d / 24 枚勋章 · 统计",
 	"Reaching it": "如何到达",

@@ -19,6 +19,20 @@ var lens_radius := 0.0
 var lens_limit := -1.0
 ## The trail's legs, newest first: the original's six blues.
 const TRAIL := [Color("99ceff"),Color("78beff"),Color("52a8f2"),Color("2389ec"),Color("006ed9"),Color("0060c5")]
+## The species whose range is drawn (bp's species list): a fish 0..12, the
+## caught algae at -3, none at -1.
+var habitat_species := -1
+## bp's rings about a species' home station, outermost first: eight for a
+## fish, seven for each alga, at the phone's fixed pixel radii.
+const FISH_RINGS := [Color("0053a3"),Color("0060bd"),Color("006ed9"),Color("2489eb"),Color("66b4ff"),Color("82c1ff"),Color("afd7ff"),Color("c7e3ff")]
+const ALGAE_RINGS := [
+	[Color("19619b"),Color("3e7591"),Color("698c84"),Color("96a577"),Color("c1bc6a"),Color("e6d060"),Color("ffde58")],
+	[Color("005bac"),Color("0167b9"),Color("0177c9"),Color("0186d9"),Color("0194e9"),Color("01a0f6"),Color("02a9ff")],
+	[Color("0c5596"),Color("1e5885"),Color("325c6f"),Color("486059"),Color("5d6443"),Color("6e6731"),Color("7a6925")],
+	[Color("1857a5"),Color("3e569d"),Color("694f86"),Color("96476e"),Color("c14158"),Color("e63b44"),Color("ff3737")],
+	[Color("065f98"),Color("0f7089"),Color("1a8377"),Color("259964"),Color("2fad52"),Color("39be43"),Color("3fca38")]]
+## The phone's chart was 235 pixels across a hundred units.
+const PHONE_UNITS := 100.0/235.0
 var touches := {}
 var tap_start := Vector2.ZERO
 var tap_allowed := false
@@ -166,9 +180,12 @@ func _draw() -> void:
 	if world==null: return
 	var session=world.session
 	var home: Dictionary = session.stations[session.station_id]
-	var reach: float = world.stream_range()*minf(size.x,size.y)*0.0085*zoom
-	draw_circle(point(home.x,home.y),reach,Color("6e86ff4d"),true)
-	draw_arc(point(home.x,home.y),reach,0,TAU,96,Color("9fb4ff"),1.5,true)
+	var unit: float=minf(size.x,size.y)*0.0085*zoom
+	var reach: float = world.stream_range()*unit
+	draw_habitat(unit)
+	if habitat_species==-1:draw_circle(point(home.x,home.y),reach,Color("6e86ff4d"),true)
+	# Over a species' range the reach is a black ring, as on the phone.
+	draw_arc(point(home.x,home.y),reach,0,TAU,96,Color("9fb4ff") if habitat_species==-1 else Color.BLACK,1.5,true)
 	if world.stream_destination>=0:
 		var arrival: Dictionary = session.stations[world.stream_destination]
 		draw_dashed_line(point(home.x,home.y),point(arrival.x,arrival.y),Color("bdabf2"),2,6)
@@ -285,12 +302,36 @@ static func marker(world, station: Dictionary) -> Dictionary:
 	if station.id==session.station_id: body=Color("ff8000"); core=Color("ffff00")
 	if objective: body=Color("ff0000"); core=Color("c00000")
 	return {"body":body,"core":core,"discovered":discovered,"objective":objective}
+## A board offer whose location is being checked (bp.a(al)): marked as a
+## mission is, though not taken on.
+static var preview_mission = null
+func species_home(species: int) -> Dictionary:
+	var goods: Array=world.session.data.get("tables",{}).get("goods",[])
+	if species>=goods.size() or goods[species].size()<3:return {}
+	var id := int(goods[species][2])
+	return world.session.stations[id] if id>=0 and id<world.session.stations.size() else {}
+func draw_habitat(unit: float) -> void:
+	if habitat_species>=0:
+		var home:=species_home(habitat_species)
+		if home.is_empty():return
+		for ring in FISH_RINGS.size():
+			draw_circle(point(home.x,home.y),(80-10*ring)*PHONE_UNITS*unit,FISH_RINGS[ring],true)
+	elif habitat_species==-3:
+		# Ring by ring across the algae, so where two overlap they interleave.
+		for ring in 7:
+			for alga in 5:
+				var species: int=13+alga
+				if species>=world.session.fish_found.size() or not world.session.fish_found[species]:continue
+				var home:=species_home(species)
+				if not home.is_empty():draw_circle(point(home.x,home.y),(35-5*ring)*PHONE_UNITS*unit,ALGAE_RINGS[alga][ring],true)
 static func objectives(world, id: int) -> Array:
 	"""The titles of the missions that send the ship to a station. The original
 	marks every one it has taken on, the story's and a contract alike, and
 	writes its title above the mark."""
 	var result: Array=[]
-	for mission in [world.session.campaign.primary,world.session.campaign.secondary]:
+	var missions: Array=[world.session.campaign.primary,world.session.campaign.secondary]
+	if preview_mission!=null:missions.append(preview_mission)
+	for mission in missions:
 		if mission.has_destination() and not mission.failed and mission.destination==id:result.append(world.session.title(mission))
 	return result
 static func pixel_square(item: CanvasItem, at: Vector2, outer_units: float, inner_units: float, body: Color, core: Color) -> void:

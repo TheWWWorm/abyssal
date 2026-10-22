@@ -820,6 +820,7 @@ const TEXT := {
 	"Radio during the mission": "Радіо під час місії",
 	"Raise if the ship drifts with the sticks at rest.": "Збільште, якщо корабель зносить, коли стіки не рухаються.",
 	"Range %.0f m": "Дальність %.0f м",
+	"Range on chart": "Ареал на мапі",
 	"Rank %d  ·  Stations discovered %d / 200  ·  Catches %d  ·  Enemies defeated %d": "Ранг %d  ·  Відкрито станцій %d / 200  ·  Уловів %d  ·  Переможено ворогів %d",
 	"Rank %d · %d / 24 medals · statistics": "Ранг %d · %d / 24 медалей · статистика",
 	"Reaching it": "Як дістатися",
