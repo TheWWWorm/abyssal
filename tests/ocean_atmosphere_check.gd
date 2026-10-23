@@ -92,6 +92,8 @@ func check_region_light() -> void:
 		for other in hues:expect(hue.distance_to(other)>.12,"Each alga gives the enhanced water its own hue (%s / %s)"%[hue,other])
 		hues.append(hue)
 	expect(hues[3].x>hues[3].z and hues[1].z>hues[1].x*2 and hues[4].y>hues[4].z,"Red, blue and green algae give red, blue and green water")
+	# Mixing in the blue-green water once bent the muted gold to green.
+	expect(hues[0].x>=hues[0].y*.97 and hues[0].z<hues[0].y*.9,"Golden algae give golden water, not green (%s)"%hues[0])
 	var upper: Array[float]=[]
 	for depth in [5000,15000,22500,30000,35000]:upper.append(abyss.modern_upper(depth,red).dot(Vector3(.2126,.7152,.0722)))
 	expect(is_equal_approx(upper[0],upper[1]) and upper[2]<upper[1] and upper[3]<upper[2] and is_equal_approx(upper[3],upper[4]) and upper[4]>0.0,"The enhanced water dims on the depth factor and keeps a faint remainder below 30000")

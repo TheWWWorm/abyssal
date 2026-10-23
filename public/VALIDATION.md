@@ -1,20 +1,18 @@
-# Abyssal 1.21.14 — platform support
+# Abyssal 1.21.15 — platform support
 
-Supply a compatible DEEP JAR separately. Original game assets, texture packs and the base-texture upscaling experiment are not included in the downloads.
+Supply a compatible DEEP JAR separately. Original game assets and texture packs are not included in the downloads.
 
 ## Executed checks
 
-All 47 Python regression tests and all 14 translation catalogs pass. The source regression run completes 31 checks: 29 headless checks pass and two GPU-only checks defer to rendered execution.
+All 47 Python regression tests and all 14 translation catalogs pass. The source regression suite passes all 31 checks headless, including the trade screen and the colonist payment shown as a radio message. Golden water keeps a gold hue in the ocean atmosphere check. The golden alga was compared in enhanced renders before and after the change: its measured hue moved from lime (about 83°) to yellow (about 70°), with no shader errors on Vulkan.
 
-The packaged Linux x86-64 executable starts successfully under both Vulkan and OpenGL. On each renderer, the exported game pack passes version and UI checks, enlarged-texture sampling checks, live preview antialiasing checks and normal-map upload UI checks. The texture checks cover minification during camera movement, preservation of individual replacement texels, constant-UV paint samples and restoration after removing a replacement. The normal-map checks cover independent colour/normal slots, immediate reload, preview, removal, failed imports, temporary-file cleanup, three window sizes and seven translated layouts.
+The packaged Linux x86-64 executable starts successfully under both Vulkan and OpenGL. On each renderer, the exported game pack passes version and UI checks, enlarged-texture sampling checks, live preview antialiasing checks and normal-map upload UI checks.
 
-Controlled ship and station motion captures use identical cameras, 4× multisampling and no normal maps. Corrected replacement sampling reduces the measured temporal error against a supersampled reference by about 55% inside both models and by 14–25% near their outlines. These are specific comparison scenes, not a guarantee that every kind of aliasing is eliminated. With texture smoothing enabled, finer replacement artwork can still expose more aliasing than the original artwork.
+The compiled Web build starts, imports a supplied compatible JAR and reaches a new-game scene in Linux WebKit. All 586 observed shader compilations and 293 links succeed; no script errors, page errors or failed requests occur.
 
-The compiled Web build starts, imports a supplied compatible JAR and reaches a new-game scene in Linux WebKit. All 572 observed shader compilations and 286 links succeed, including the normal-map material path; no script errors, page errors or failed requests occur. A replacement texture pack is not installed in this browser check. WebKit still reports framebuffer validation messages also observed in earlier releases.
+Both Linux content packs pass packaged version, UI and normal-loader checks. Their unchanged portable runtimes require no glibc symbols newer than 2.28. All six platforms are exported from the same source inventory. Package inspection checks the nested game packs and source archive for private assets.
 
-Both Linux content packs pass packaged version, UI and normal-loader checks. Their unchanged portable runtimes require no glibc symbols newer than 2.28. All six platforms are exported from the same source inventory. Package inspection checks the nested game packs and source archive for private assets and the excluded enhancement tool.
-
-The Android APK passes signature and 16 KiB alignment verification, retains the existing release certificate, identifies itself as `org.abyssal.engine` version 1.21.14 with version code 86, and requests no network or broad storage permission. Release archive sizes and SHA-256 checksums are verified before publication.
+The Android APK passes signature and 16 KiB alignment verification, retains the existing release certificate, identifies itself as `org.abyssal.engine` version 1.21.15 with version code 87, and requests no network or broad storage permission. Release archive sizes and SHA-256 checksums are verified before publication.
 
 ## Platform limits
 

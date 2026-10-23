@@ -550,6 +550,7 @@ func pose(node: Node3D, call: Dictionary) -> void:
 		var lens: int=mat.get_shader_parameter("headlight_lens")
 		if lens>0:mat.set_shader_parameter("headlight_lens_color",call.headlight_tints[lens-1])
 		mat.set_shader_parameter("bioluminescence",float(call.get("bioluminescence",0.0)))
+		mat.set_shader_parameter("alga_pigment",float(call.get("alga_pigment",0.0)))
 		mat.set_shader_parameter("surface_roughness",surface_roughness)
 		mat.set_shader_parameter("surface_specular",surface_specular)
 		mat.set_shader_parameter("effect_glow",(maxf(effect_glow,1.1) if bool(call.get("station_coating",false)) else effect_glow)+float(call.get("effect_boost",0.0)))
@@ -673,6 +674,7 @@ uniform int headlight_lens = 0;
 uniform bool headlight_lens_enabled = true;
 uniform vec3 headlight_lens_color : source_color = vec3(.72,.9,1.0);
 uniform float bioluminescence = 0.0;
+uniform float alga_pigment = 0.0;
 uniform sampler2D surface_map : filter_linear_mipmap_anisotropic, repeat_disable;
 uniform sampler2D normal_map : filter_linear_mipmap_anisotropic, repeat_disable;
 uniform float normal_strength = 0.65;
@@ -967,9 +969,17 @@ if(replacement_enabled && architecture_enabled){
 		if modern and blend == 4:
 			# Only a source additive surface receives bloom; no guessed light masks.
 			code += "ALBEDO=color.rgb*effect_glow;\n" if not lit else "ALBEDO=vec3(0.0); EMISSION=color.rgb*effect_glow;\n"
+		if modern and lit and blend == 2:
+			# Algae are half transparent. Lit by the blue water light and the
+			# headlights, a golden one read lime; most of an alga's colour is its
+			# own pigment instead, at the classic light's brightness, which
+			# scales and never tints, so each keeps its hue in any water.
+			code += "if(alga_pigment>0.0){float pigment_light=clamp(clamp(source_ambient,0.0,1.0)*ocean_model_light.x+clamp(source_intensity,0.0,4.0)*ocean_model_light.y*max(dot(normalize(original_normal),-source_light),0.0),0.0,1.0);EMISSION+=ALBEDO*alga_pigment*pigment_light;ALBEDO*=1.0-alga_pigment;}\n"
 		if sky_pass == 0:
 			if blend == 2:
-				code += "ALPHA=0.5;\n"
+				# A half-blended alga over the cyan headlight glow or blue water
+				# turns green, so an alga's pigment also covers more of it.
+				code += "ALPHA=0.5+0.5*alga_pigment;\n" if modern and lit else "ALPHA=0.5;\n"
 			elif blend == 4 or blend == 6:
 				code += "ALPHA=1.0;\n"
 		if sky_pass==0 and blend in [4,6]:

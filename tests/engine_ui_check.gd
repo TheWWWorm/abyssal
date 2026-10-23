@@ -987,10 +987,13 @@ func check_departure(game) -> void:
  var before:int=game.session.credits;var payment:int=3*game.session.make_goods(0,3).minimum_price
  game.session.arrive();game.show_station()
  expect(game.session.ship.cargo_used==0 and game.session.credits==before+payment,"Colonist docking takes the fish at the floor price at once")
- var receipt=game.column.find_child("CargoReceipt",true,false)
- expect(receipt!=null and receipt.text.contains("Fish") and receipt.text.contains(str(payment)),"Sale receipt is part of the dock UI, not a flight toast")
+ # ch: the sale comes up as a message over the station (as the pirate
+ # bounty does), not as a line that pushes Depart down the page.
+ expect(game.page=="dialogue" and game.lines.size()==1 and str(game.lines[0].text).contains("Fish") and str(game.lines[0].text).contains(str(payment)),"The colonists' purchase is a message over the station")
+ game.lines=[];game.dialogue_done.call()
+ expect(game.page=="station" and game.column.find_child("CargoReceipt",true,false)==null,"The station page has no sale line pushing Depart down")
  game.show_hangar();game.show_station()
- expect(game.column.find_child("CargoReceipt",true,false)!=null,"Sale receipt remains after returning from another dock service")
+ expect(game.page=="station","The sale message is shown once")
  # Preserve a visible approach bank in the interpolation state. Departure
  # replaces the flight actor, and must replace this old rendered angle too.
  game.world.region.player.visual_bank=384;game.world.previous_render_bank=384

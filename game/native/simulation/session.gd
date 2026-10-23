@@ -41,7 +41,6 @@ var entered_gate := false
 var last_arrival_ms := 0
 var pending_cargo_payment := 0
 var notices: Array = []
-var cargo_receipt := ""
 ## One-time M.A.I. guidance already shown during this expedition. This belongs
 ## to the checkpoint rather than the view, so restarting the game cannot make
 ## old tutorial messages begin again.
@@ -132,7 +131,6 @@ func prepare_station(id: int) -> void:
  campaign.select_at_station(id)
 
 func arrive() -> void:
- cargo_receipt=""
  prepare_station(station_id)
  var station: Dictionary = stations[station_id]
  var economy := Economy.new(); economy.configure(self)
@@ -171,8 +169,8 @@ func settle_colonist_cargo() -> void:
   if stack.id<fish_found.size():fish+=stack.owned
  ship.set_cargo([])
  credits+=payment;medals.observe_credits(credits)
- cargo_receipt=text(257)+" %d $"%payment+"\n"+(tr("Fish · %d t") if fish==count else tr("Cargo · %d t"))%count
- notices.append({"kind":"cargo_settlement","text":cargo_receipt})
+ var receipt: String=text(257)+" %d $"%payment+"\n"+(tr("Fish · %d t") if fish==count else tr("Cargo · %d t"))%count
+ notices.append({"kind":"cargo_settlement","text":receipt})
 
 func station_story_stock() -> void:
  # What the story puts on a shelf (ch): the Railgun alone at Gosu in the

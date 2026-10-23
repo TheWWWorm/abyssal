@@ -376,6 +376,7 @@ func refresh() -> void:
 	call.classic_headlights=modern_graphics and library.headlight_mode==Headlights.Mode.CLASSIC
 	call.headlights_powered=headlights_powered
 	call.bioluminescence=.38 if modern_graphics and library.bioluminescence and int(record.id)==4426 else 0.0
+	call.alga_pigment=.85 if modern_graphics and int(record.id)>=4443 and int(record.id)<=4447 else 0.0
 	call.distance_haze=0.0015 if int(record.id)>=3300 and int(record.id)<3400 else 0.00032
 	# Ship glow geometry was a lighting approximation. Modern flight supplies
 	# actual headlights and wakes; these large meshes clip through front views.

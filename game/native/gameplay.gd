@@ -596,7 +596,12 @@ func line_icon(icon: String, extent: float, parent: Node, tint=null) -> Control:
 	var node := StationIcon.new(icon,colours().accent if tint==null else tint,extent);parent.add_child(node);return node
 func primary(node: Button) -> Button:
 	"""The page's main action: the green of the reference's Depart and Buy."""
-	for state in ["normal","hover","pressed","focus"]: node.add_theme_stylebox_override(state,StationTheme.button_state(golden(),state,true))
+	for state in ["normal","hover","pressed","focus"]:
+		# Keep the room iconic() made for an icon, or the caption runs under it.
+		var previous := node.get_theme_stylebox(state)
+		var style := StationTheme.button_state(golden(),state,true)
+		if previous!=null and style is StyleBoxFlat: style.content_margin_left=maxf(style.content_margin_left,previous.content_margin_left)
+		node.add_theme_stylebox_override(state,style)
 	node.add_theme_color_override("font_color",colours().go_text);node.add_theme_color_override("font_focus_color",colours().go_text);node.add_theme_color_override("font_hover_color",colours().go_text)
 	node.alignment=HORIZONTAL_ALIGNMENT_CENTER;node.set_meta("primary",true)
 	return node
@@ -2093,8 +2098,6 @@ func show_station() -> void:
 	open_page(session.stations[session.station_id].name,"station")
 	column.add_theme_constant_override("separation",12)
 	station_identity(glass(column,false,14))
-	if not session.cargo_receipt.is_empty():
-		var receipt:=label(session.cargo_receipt,15);receipt.name="CargoReceipt";receipt.add_theme_color_override("font_color",colours().good)
 	var services := [
 		[tr("Hangar").to_upper(),tr("Equipment shop and ship dealer"),"hangar",show_hangar],
 		[tr("Missions").to_upper(),tr("Current objectives and available contracts"),"missions",show_station_missions],
@@ -2116,11 +2119,13 @@ func show_station() -> void:
 			var entry: Dictionary=notices[index]
 			session.acknowledge_notice(entry)
 			if entry.kind=="medal":medals.append(entry);continue
-			if entry.kind=="pirate_bounty":
-				# Whatever came after the bounty is shown when the station is back.
+			# The bounty and the colonists' purchase of the hold each come up as a
+			# message over the station, as the original's boxes did (ch); whatever
+			# came after is shown when the station is back.
+			if entry.kind in ["pirate_bounty","cargo_settlement"]:
 				session.notices=medals+notices.slice(index+1)
-				show_dialogue([{"speaker":session.text(166),"text":entry.text}],show_station);return
-			if entry.kind!="cargo_settlement":notice(entry.text)
+				show_dialogue([{"speaker":session.text(166) if entry.kind=="pirate_bounty" else tr("Colonists"),"text":entry.text}],show_station);return
+			notice(entry.text)
 		if not medals.is_empty():show_new_medal(medals,0);return
 	check_dock_hints()
 func first_art(entries: Array, kind: String) -> Texture2D:
@@ -3659,10 +3664,8 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var row:=split_row(column,18)
 	var list:=VBoxContainer.new();list.name="StockList";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.size_flags_stretch_ratio=1.25;list.add_theme_constant_override("separation",6);row.add_child(list)
 	var headings:=HBoxContainer.new();list.add_child(headings)
-	caption(tr("Recipe & materials") if manufacturing else tr("Cargo & availability"),12,headings,3)
-	# The station's own price is beside the selected cargo; the list gives the
-	# range it moves within everywhere, to tell a good price from a bad one.
-	caption(tr("Can make") if manufacturing else tr("Price range"),12,headings,3).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	caption(tr("Recipe & materials") if manufacturing else tr("Cargo"),12,headings,3)
+	if manufacturing:caption(tr("Can make"),12,headings,3).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	var row_height:=64 if touch.enabled() else 56
 	var stock := scrolled_rows(list,"StockRows_"+kind)
 	stock.get_parent().get_parent().custom_minimum_size.y=list_height(entries.size(),row_height,row)
@@ -3673,10 +3676,16 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		var icon:=TextureRect.new();icon.texture=imported_art.item(item.id);icon.custom_minimum_size=Vector2(48,40);icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;icon.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;icon.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(icon)
 		var words:=VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",0);words.alignment=BoxContainer.ALIGNMENT_CENTER;words.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(words)
 		label(title,17,words).add_theme_color_override("font_color",palette.text)
-		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Missing %d of %d materials")%[maxi(1,item.missing_ingredients),item.ingredients.size()]) if manufacturing else tr("Station %d · In hold %d")%[item.stock,item.owned]
+		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Missing %d of %d materials")%[maxi(1,item.missing_ingredients),item.ingredients.size()]) if manufacturing else "%s %d"%[tr("Station stock"),item.stock]
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
-		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d – %s"%[item.minimum_price,Coin.coins(tr("%d cr")%item.maximum_price)],16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		# The station's own price is beside the selected cargo; the list gives the
+		# range it moves within everywhere, with what is aboard under it.
+		var figures:=VBoxContainer.new();figures.add_theme_constant_override("separation",0);figures.alignment=BoxContainer.ALIGNMENT_CENTER;figures.size_flags_horizontal=Control.SIZE_SHRINK_END;figures.mouse_filter=Control.MOUSE_FILTER_IGNORE;cells.add_child(figures)
+		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d – %s"%[item.minimum_price,Coin.coins(tr("%d cr")%item.maximum_price)],16,figures);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
+		if not manufacturing:
+			var aboard:=label("%s %d"%[tr("In hold"),item.owned],13,figures);aboard.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;aboard.autowrap_mode=TextServer.AUTOWRAP_OFF
+			aboard.add_theme_color_override("font_color",palette.text if item.owned>0 else palette.dim)
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
 	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)
 	var item=entries[market_selection]
@@ -3732,13 +3741,18 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		shelf.move_child(sell_one,0)
 		trade_arrow("BuyOne","arrow_right",tr("Buy 1 t"),affordable<1,func():trade_amount(station,item,true,1);show_market(kind),aboard)
 		var actions := action_row(detail)
-		iconic(button(Coin.coins(tr("Sell all · %d cr")%(item.price*sellable)),func():
+		# No icons: a large sum needs the whole width, and wraps if even that
+		# is too little.
+		var sale := button(Coin.coins(tr("Sell all · %d cr")%(item.price*sellable)),func():
 			trade_amount(station,item,false,sellable)
-			show_market(kind),actions),"credits",22).disabled=sellable<1
-		var purchase := iconic(button(Coin.coins(tr("Buy all · %d cr")%(item.price*affordable)),func():
+			show_market(kind),actions)
+		sale.name="SellAll";sale.disabled=sellable<1
+		var purchase := button(Coin.coins(tr("Buy all · %d cr")%(item.price*affordable)),func():
 			trade_amount(station,item,true,affordable)
-			show_market(kind),actions),"cart",22)
-		purchase.disabled=affordable<1
+			show_market(kind),actions)
+		purchase.name="BuyAll";purchase.disabled=affordable<1
+		for total in [sale,purchase]:
+			total.alignment=HORIZONTAL_ALIGNMENT_CENTER;total.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 		if not purchase.disabled: primary(purchase)
 	link_stock_detail(stock,detail)
 	fit_market.call_deferred()

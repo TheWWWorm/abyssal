@@ -586,8 +586,31 @@ static func modern_hue(base: Vector3) -> Vector3:
 	var luminance := linear.dot(Vector3(.2126,.7152,.0722))
 	if luminance<=.0001:return WATER_HUE
 	var tinted := Vector3.ONE.lerp(linear/luminance,REGION_CHROMA*region_strength)
-	var hue := WATER_HUE.lerp(tinted,minf(1.0,REGION_HUE_WEIGHT*region_strength)).clamp(Vector3.ZERO,Vector3.ONE*2.3)
+	var weight := minf(1.0,REGION_HUE_WEIGHT*region_strength)
+	var hue := WATER_HUE.lerp(tinted,weight).clamp(Vector3.ZERO,Vector3.ONE*2.3)
+	# The blue-green water bends a muted hue on the way: gold went green and
+	# red pink. The mix keeps its lightness and chroma but turns to the alga's
+	# own hue by the same weight, as the strong setting and the phone's water
+	# show it; at 0% the water keeps its own.
+	var mixed := oklab(hue);var own := oklab(linear)
+	var chroma := Vector2(mixed.y,mixed.z).length()
+	var angle := lerp_angle(atan2(mixed.z,mixed.y),atan2(own.z,own.y),weight)
+	hue=from_oklab(Vector3(mixed.x,chroma*cos(angle),chroma*sin(angle))).clamp(Vector3.ZERO,Vector3.ONE*2.3)
 	return hue/maxf(.0001,hue.dot(Vector3(.2126,.7152,.0722)))
+
+static func oklab(c: Vector3) -> Vector3:
+	"""Linear sRGB to Oklab (Björn Ottosson's matrices)."""
+	var l := 0.4122214708*c.x+0.5363325363*c.y+0.0514459929*c.z
+	var m := 0.2119034982*c.x+0.6806995451*c.y+0.1073969566*c.z
+	var s := 0.0883024619*c.x+0.2817188376*c.y+0.6299787005*c.z
+	l=signf(l)*pow(absf(l),1.0/3.0);m=signf(m)*pow(absf(m),1.0/3.0);s=signf(s)*pow(absf(s),1.0/3.0)
+	return Vector3(0.2104542553*l+0.7936177850*m-0.0040720468*s,1.9779984951*l-2.4285922050*m+0.4505937099*s,0.0259040371*l+0.7827717662*m-0.8086757660*s)
+
+static func from_oklab(c: Vector3) -> Vector3:
+	var l := pow(c.x+0.3963377774*c.y+0.2158037573*c.z,3.0)
+	var m := pow(c.x-0.1055613458*c.y-0.0638541728*c.z,3.0)
+	var s := pow(c.x-0.0894841775*c.y-1.2914855480*c.z,3.0)
+	return Vector3(4.0767416621*l-3.3077115913*m+0.2309699292*s,-1.2684380046*l+2.6097574011*m-0.3413193965*s,-0.0041960863*l-0.7034186147*m+1.7076147010*s)
 
 static func modern_upper(depth: float, base: Vector3) -> Vector3:
 	"""The enhanced water overhead: the region hue dimmed by the phone's
