@@ -63,8 +63,7 @@ func _ready() -> void:
 	if not OS.has_feature("web"):entry(tr("Exit"),func():quit_requested.emit(),true,"exit")
 	status=caption(tr("Choose your DEEP JAR to begin."),15,palette.dim);status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;status.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT
 	footer=entry(tr("Choose game JAR…"),func():tools_requested.emit(),false,"cargo")
-	var version := str(ProjectSettings.get_setting("application/config/version",""))
-	edition=caption("ABYSSAL" if version.is_empty() else "ABYSSAL  /  "+version,12,palette.faint)
+	edition=caption(edition_text(),12,palette.faint)
 	edition.add_theme_font_override("font",StationTheme.spaced(edition.get_theme_font("font"),3))
 	rule=ColorRect.new();rule.color=Color(palette.edge,.6);rule.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(rule)
 	add_child(help);help.hide();update_help()
@@ -74,7 +73,14 @@ func _ready() -> void:
 func update_help(wheel_throttle: bool=false) -> void:
 	help.text=tr("Mouse · Steer    W · Throttle up    S · Stop\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: steering stick + action buttons. Gamepad: sticks steer, triggers fire.\nD-pad speed / menus · A select / fire · Start pause.") if wheel_throttle else tr("Mouse · Steer    W / S · Throttle\nM · World map    R · Autopilot (hold: quest)    T · Time 1×/2×; autopilot to 16×\nE · Dock    Esc · Menu    F11 · Fullscreen\n\nTouch: steering stick + action buttons. Gamepad: sticks steer, triggers fire.\nD-pad speed / menus · A select / fire · Start pause.")
 
-func load_content(directory: String) -> void:
+func edition_text(jar: String="") -> String:
+	"""The remake's version, then the DEEP build it is playing."""
+	var version := str(ProjectSettings.get_setting("application/config/version",""))
+	var text := "ABYSSAL" if version.is_empty() else "ABYSSAL  /  "+version
+	return text if jar.is_empty() else text+"  ·  "+jar
+
+func load_content(directory: String, jar: String="") -> void:
+	edition.text=edition_text(jar)
 	var file := directory.path_join("data/interface/logo.png")
 	if not FileAccess.file_exists(file):return
 	var pixels := Image.load_from_file(file)

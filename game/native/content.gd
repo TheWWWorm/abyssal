@@ -15,7 +15,7 @@ var profile := ""
 const RULE_KEYS := ["constants","tables","campaign","timelines","habitats","station_geometry"]
 ## 1.16.1 to 1.17.0 fingerprinted every key except these. Saves from those
 ## versions carry that value and are still matched against it.
-const LEGACY_TEXT_KEYS := ["jar_sha256","language","strings","name_pools","rules_id","legacy_rules_id","previous_rules_id","cache_directory"]
+const LEGACY_TEXT_KEYS := ["jar_sha256","jar_version","language","strings","name_pools","rules_id","legacy_rules_id","previous_rules_id","cache_directory"]
 static var imported_rules := {}
 
 static func without_station_names(rules: Dictionary) -> Dictionary:
@@ -114,6 +114,17 @@ func load_cache(directory: String) -> bool:
 	parsed.rules_id=rules_id(parsed); parsed.previous_rules_id=previous_rules_id(parsed); parsed.legacy_rules_id=legacy_rules_id(parsed); parsed.cache_directory=directory
 	root=directory;data=parsed;registry=entries;profile=str(parsed.jar_sha256)
 	return true
+
+func jar_edition(hash_fallback: bool=true) -> String:
+	"""Which DEEP build the cache came from, e.g. "DEEP 1.0.8 EN": the JAR
+	manifest's MIDlet-Version and the language. An import from before the
+	version was recorded names the start of the JAR's hash instead."""
+	var version := str(data.get("jar_version",""))
+	var parts: Array[String]=["DEEP" if version.is_empty() else "DEEP "+version]
+	var language := str(data.get("language","")).to_upper()
+	if not language.is_empty(): parts.append(language)
+	if hash_fallback and version.is_empty() and profile.length()>=8: parts.append(profile.left(8))
+	return " ".join(parts)
 
 func text(id: int) -> String:
 	return str(data.strings[id]) if id>=0 and id<data.strings.size() else ""

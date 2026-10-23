@@ -24,6 +24,10 @@ var total := 0
 var minimum := 0
 var percentage := 0
 var threshold := 0
+## A story trip whose station the chapter keeps secret: the original leaves
+## it off the chart (al.e false, bp.a) and the pilot has to find it. Set from
+## the chapter record by campaign.gd, not saved.
+var unmarked := false
 
 func from_record(record: Dictionary) -> void:
 	kind=int(record.get("a:int",-1)); sponsor=str(record.get("a:java.lang.String",""))
@@ -52,7 +56,7 @@ func normalized_difficulty(rank: int) -> int:
 func has_destination() -> bool:
 	# Only station encounters, travel and deliveries use this field as a goal.
 	# Counter and tutorial records also carry a station, but it is a placeholder.
-	return kind>=0 and kind<=14 and destination>=0
+	return kind>=0 and kind<=14 and destination>=0 and not unmarked
 
 func values() -> Array:
 	return [kind,reward,destination,difficulty,jump_limit,jumps,terminal,story,failed,completed,briefing,item_id,item_count,target_kind,total,minimum,percentage,threshold]

@@ -3,7 +3,7 @@ import hashlib, io, json, pathlib, shutil, struct, subprocess, sys, tempfile, un
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
 from import_jar import bitmap, decode, pack, read_entry, model_format_problem
-from extract_data import has_converted_resource
+from extract_data import has_converted_resource, midlet_version
 
 class BrowserImportTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node.js is needed for browser picker checks')
@@ -24,6 +24,17 @@ class BrowserImportTests(unittest.TestCase):
             texture.with_suffix('').write_bytes(b'original bitmap')
             texture.unlink()
             self.assertTrue(has_converted_resource(root,'data/textures/fx.bmp'))
+
+    def test_midlet_version_names_the_build(self):
+        def jar(manifest):
+            data=io.BytesIO()
+            with zipfile.ZipFile(data,'w') as archive:
+                if manifest is not None:archive.writestr('META-INF/MANIFEST.MF',manifest)
+            return zipfile.ZipFile(data)
+        self.assertEqual(midlet_version(jar('MIDlet-Name: Deep\r\nMIDlet-Version: 1.0.2\r\n')),'1.0.2')
+        self.assertEqual(midlet_version(jar('MIDlet-Name: Deep\n')),'')
+        self.assertEqual(midlet_version(jar('MIDlet-Version: <b>1</b>\n')),'')
+        self.assertEqual(midlet_version(jar(None)),'')
 
     def test_bits_cross_bytes_and_signed(self):
         r=Reader(bytes([0xF5,0x37]));self.assertEqual(r.bits(4),5);self.assertEqual(r.bits(8,True),127);self.assertEqual(r.bits(4),3)

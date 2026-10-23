@@ -495,7 +495,7 @@ func prepare_title() -> void:
 	await get_tree().process_frame
 	catalog.clear()
 	for record: Dictionary in content.registry: catalog.add_item(content.record_name(record))
-	title_menu.load_content(content.root)
+	title_menu.load_content(content.root,content.jar_edition())
 	preload("res://native/presentation/coin_glyph.gd").install(content.root)
 	var initial := 0
 	for i in content.registry.size():
@@ -1014,6 +1014,8 @@ func show_about(page: String="") -> void:
 		paragraph.call(content.text(26),20,Color("aedbec"))
 		paragraph.call(content.text(25),12,Color("a2c3d3"))
 		# The phone scrolled its credits with screens of blank lines between.
+		# Which build was imported: the player can tell it from another.
+		var jar: Label=paragraph.call(content.jar_edition(false)+"  ·  JAR "+content.profile.left(12),12,Color("a2c3d3"));jar.name="JarEdition"
 		var credits := RegEx.create_from_string("\\n{3,}").sub(content.text(28),"\n\n",true)
 		paragraph.call(credits,15)
 	else:

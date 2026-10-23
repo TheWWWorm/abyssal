@@ -3660,7 +3660,9 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 	var list:=VBoxContainer.new();list.name="StockList";list.size_flags_horizontal=Control.SIZE_EXPAND_FILL;list.size_flags_stretch_ratio=1.25;list.add_theme_constant_override("separation",6);row.add_child(list)
 	var headings:=HBoxContainer.new();list.add_child(headings)
 	caption(tr("Recipe & materials") if manufacturing else tr("Cargo & availability"),12,headings,3)
-	caption(tr("Can make") if manufacturing else tr("Unit price"),12,headings,3).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	# The station's own price is beside the selected cargo; the list gives the
+	# range it moves within everywhere, to tell a good price from a bad one.
+	caption(tr("Can make") if manufacturing else tr("Price range"),12,headings,3).horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	var row_height:=64 if touch.enabled() else 56
 	var stock := scrolled_rows(list,"StockRows_"+kind)
 	stock.get_parent().get_parent().custom_minimum_size.y=list_height(entries.size(),row_height,row)
@@ -3673,7 +3675,7 @@ func goods_browser(station: Dictionary, manufacturing: bool=false) -> void:
 		label(title,17,words).add_theme_color_override("font_color",palette.text)
 		var subtitle: String=(tr("Materials ready") if item.owned>0 else tr("Missing %d of %d materials")%[maxi(1,item.missing_ingredients),item.ingredients.size()]) if manufacturing else tr("Station %d · In hold %d")%[item.stock,item.owned]
 		label(subtitle,13,words).add_theme_color_override("font_color",palette.good if manufacturing and item.owned>0 else palette.dim)
-		var value:=label(str(maxi(0,item.owned)) if manufacturing else Coin.coins(tr("%d cr")%item.price),16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		var value:=label(str(maxi(0,item.owned)) if manufacturing else "%d – %s"%[item.minimum_price,Coin.coins(tr("%d cr")%item.maximum_price)],16,cells);value.custom_minimum_size.x=84;value.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;value.size_flags_horizontal=Control.SIZE_SHRINK_END;value.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
 		value.add_theme_color_override("font_color",palette.value);value.autowrap_mode=TextServer.AUTOWRAP_OFF
 	var frame := glass(row,true,16);frame.custom_minimum_size.x=380 if ui.size.x>=900 else 0
 	var detail:=VBoxContainer.new();detail.name="SelectedItem";detail.add_theme_constant_override("separation",9);frame.add_child(detail)

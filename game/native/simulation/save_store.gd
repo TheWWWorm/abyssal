@@ -121,6 +121,7 @@ func restore(data: Dictionary, value: Dictionary):
 	session.pending_bounty=int(value.get("pending_bounty",0))
 	session.campaign.chapter=int(value.chapter); session.campaign.rebel_stations=value.rebel_stations
 	session.campaign.primary=load_mission(value.primary); session.campaign.secondary=load_mission(value.secondary)
+	session.campaign.mark_story()
 	session.campaign.active=Mission.new() if int(value.active)<0 else (session.campaign.primary if int(value.active)==0 else session.campaign.secondary)
 	for saved in value.stations:
 		var station: Dictionary = session.stations[int(saved.id)]

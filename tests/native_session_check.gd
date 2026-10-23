@@ -27,6 +27,18 @@ func _initialize() -> void:
 	var legacy: Dictionary=encoded.duplicate(true);legacy.erase("hints_said");legacy.elapsed_ms=30000
 	var migrated=saves.restore(data,legacy)
 	assert(migrated!=null and migrated.hints_said.has("dock"),"An established old checkpoint does not restart the docking tutorial")
+	# The needle in a haystack: the original leaves the leader's station off
+	# the chart (al.e false), so no marker, journal line or route reveals it.
+	var haystack := preload("res://native/simulation/session.gd").new()
+	haystack.new_game(data,"Player",12345)
+	while haystack.campaign.chapter<17: haystack.campaign.next_chapter(haystack.counters)
+	assert(haystack.campaign.primary.kind==8 and haystack.campaign.primary.has_destination(),"Chapter 17 names its station")
+	haystack.campaign.next_chapter(haystack.counters)
+	var secret=haystack.campaign.primary
+	assert(secret.kind==8 and secret.story and secret.unmarked and not secret.has_destination(),"The needle in a haystack keeps its station secret")
+	haystack.prepare_station(0)
+	var reloaded=saves.restore(data,JSON.parse_string(JSON.stringify(saves.capture(haystack))))
+	assert(reloaded!=null and reloaded.campaign.primary.unmarked and not reloaded.campaign.primary.has_destination(),"A loaded haystack chapter stays secret")
 	var credits_before: int=restored.credits
 	restored.arrive()
 	assert(restored.ship.cargo_used==0,"Colonist docking takes all cargo")

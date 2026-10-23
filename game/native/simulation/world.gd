@@ -77,6 +77,9 @@ var manual_roll := false
 var spacing_meters := Spacing.DEFAULT_METERS
 ## How near the berth autopilot docks, in world units.
 const BERTH_REACH := 2500
+## How much longer than the straight run into the docking box the line-up on
+## the hangar door may be before autopilot just docks at the box instead.
+const BERTH_DETOUR := 9000
 func configure(owner_session) -> void:
 	session=owner_session
 	session.world_layout.spacing_meters=spacing_meters
@@ -263,9 +266,10 @@ func update_autopilot() -> void:
 	var difference := Math.subtracted(local_target,region.player.pose.origin)
 	var distance: float = Vector3(difference[0],difference[1],difference[2]).length()
 	if distance<25000: speed=1
-	# As in the original, touching the station's hull on the way in docks
-	# too, so a large station need not be rounded to reach the hangar door.
-	var dockable: bool = destination==session.station_id and ((at_berth() if berth!=null else region.station.can_dock(region.player.pose.origin)) or touching_station())
+	# br.a docks a station autopilot as soon as the hull enters the docking
+	# box (cy.b), where the dock key works too; touching the station's hull on
+	# the way in docks as well, so a large station is never rounded.
+	var dockable: bool = destination==session.station_id and (in_docking_area() or touching_station())
 	if dockable:
 		if dock(): message=tr("Docked · %s")%session.stations[session.station_id].name
 		else: cancel_autopilot(message)
@@ -303,11 +307,22 @@ func update_approach() -> void:
 		return
 	var position: Array = region.player.pose.origin
 	if not approach_planned and absi(position[1])<14000 and Vector3(position[0],0,position[2]).length()<region.station.extent+60000:
+		var navigation=preload("res://native/simulation/station_navigation.gd").new()
 		var berthing: bool=stream_destination<0 and berth_lead!=null
-		approach_path=preload("res://native/simulation/station_navigation.gd").new().approach(region.station,position,region.gates[departure_gate] if stream_destination>=0 else berth_lead if berthing else [])
+		approach_path=navigation.approach(region.station,position,region.gates[departure_gate] if stream_destination>=0 else berth_lead if berthing else [])
 		approach_planned=not approach_path.is_empty() if stream_destination>=0 else true
-		if berthing:approach_path.append(berth.duplicate())
+		if berthing:
+			approach_path.append(berth.duplicate())
+			# Line up on the hangar door only when it is on the way; from behind
+			# or beside the station, run straight into the docking box.
+			var boxed: Array=navigation.approach(region.station,position,[])
+			if not boxed.is_empty() and path_length(position,approach_path)>path_length(position,boxed)+BERTH_DETOUR:approach_path=boxed
 	follow_approach(stream_destination<0 and berth_lead!=null)
+func path_length(start: Array,path: Array) -> float:
+	var length := 0.0; var previous := start
+	for point in path:
+		length+=Vector3(point[0]-previous[0],point[1]-previous[1],point[2]-previous[2]).length(); previous=point
+	return length
 func follow_approach(consume_end: bool=false) -> void:
 	if approach_path.is_empty(): return
 	var delta := Math.subtracted(approach_path[0],region.player.pose.origin)

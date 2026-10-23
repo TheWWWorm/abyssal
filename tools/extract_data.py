@@ -68,6 +68,14 @@ def extract(jar,root,digest=None):
     except (OSError,ValueError,KeyError,IndexError,TypeError,AttributeError) as error:
         raise DataError(UNMATCHED+f'{type(error).__name__}: {error}') from error
 
+def midlet_version(archive):
+    """MIDlet-Version from the manifest (1.0.2, 1.0.3, 1.0.8...), or ''."""
+    try:manifest=archive.read('META-INF/MANIFEST.MF').decode('utf-8','replace').replace('\r\n','\n').replace('\n ','')
+    except KeyError:return ''
+    fields=dict(line.split(': ',1) for line in manifest.splitlines() if ': ' in line)
+    version=fields.get('MIDlet-Version','').strip()
+    return version if re.fullmatch(r'[0-9A-Za-z.\-]{1,16}',version) else ''
+
 def has_converted_resource(root,name):
     """BMP atlases are stored as PNGs by the portable importer. The native
     converter also keeps the original BMP, so accept either output layout."""
@@ -82,6 +90,7 @@ def read_profile(jar,root,digest=None):
         if missing:raise DataError(UNMATCHED+'missing '+', '.join(name+'.class' for name in missing))
         classes={name:ClassData(archive.read(name+'.class')) for name in PROFILE_CLASSES}
         music=music_table(archive)
+        version=midlet_version(archive)
     statics={}
     for owner,cls in classes.items():
         for (name,desc),(flags,attrs) in cls.fields.items():
@@ -174,6 +183,8 @@ def read_profile(jar,root,digest=None):
         habitats.append(habitat)
     out={'schema':1,'jar_sha256':digest or hashlib.sha256(pathlib.Path(jar).read_bytes()).hexdigest(),'importer':'native-6','language':language.name,'constants':constants,'tables':tables,'campaign':campaign,'timelines':timelines,'strings':strings,'name_pools':names,'habitats':habitats,'data_reader':'restricted-class-data-1','station_geometry':geometry}
     if music:out['music']=music
+    # Shown to the player so they can tell which build a cache came from.
+    if version:out['jar_version']=version
     # Optional presentation metadata. Read only a complete literal palette;
     # never evaluate the original scene setup or ecology code. A compatible
     # build without this table gets an empty one and neutral regional

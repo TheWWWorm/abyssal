@@ -78,6 +78,28 @@ func _initialize() -> void:
 		bump.region.player.pose.origin=touching;bump.update_autopilot()
 		expect(bump.session.docked,"Docking autopilot docks on touching the station's hull")
 	bump.dispose()
+	# br.a docks a station autopilot on entering the docking box (cy.b), so a
+	# ship arriving from behind the hangar is not taken round to its door.
+	var behind=traveler()
+	var reach: int=behind.region.station.extent
+	behind.berth=[0,0,reach];behind.berth_lead=[0,0,reach+6000]
+	behind.region.player.pose.origin=[0,0,-reach-30000]
+	expect(behind.route_to(behind.session.station_id),"Docking autopilot engages behind the station")
+	behind.update_autopilot()
+	expect(not behind.approach_path.is_empty() and behind.approach_path[-1]!=behind.berth,"From behind, autopilot runs straight into the docking box")
+	var farthest: int=behind.region.player.pose.origin[2]
+	for tick in 3000:
+		if behind.session.docked or not behind.autopilot:break
+		behind.advance(.04);farthest=maxi(farthest,behind.region.player.pose.origin[2])
+	expect(behind.session.docked and farthest<0,"Autopilot docks from behind without rounding the station (furthest z %d)"%farthest)
+	behind.dispose()
+	var ahead=traveler()
+	reach=ahead.region.station.extent
+	ahead.berth=[0,0,reach];ahead.berth_lead=[0,0,reach+6000]
+	ahead.region.player.pose.origin=[0,0,reach+40000]
+	ahead.route_to(ahead.session.station_id);ahead.update_autopilot()
+	expect(not ahead.approach_path.is_empty() and ahead.approach_path[-1]==ahead.berth,"In front of the hangar, autopilot still lines up on its door")
+	ahead.dispose()
 	# The fifth chapter flees Gosu and the sixth returns to it (br.a: 292, 291).
 	var story=traveler()
 	story.session.campaign.chapter=5

@@ -24,6 +24,15 @@ func next_chapter(counters: Dictionary) -> void:
 		primary.threshold+=int(counters.get(relative_counters[primary.kind],0))
 		if primary.kind==18:primary.threshold=mini(primary.threshold,data.tables.stations.size())
 	for id in definition.rebel_stations: rebel_stations[int(id)]=true
+	mark_story()
+
+func mark_story() -> void:
+	"""The needle in a haystack (chapter 18) sends the pilot to an unnamed
+	station among the newly won ones; its record leaves the map flag off. The
+	chapter-5 pirate hunt's record does too, but there the original marks it
+	on arrival (dj.a) and the remake keeps its guidance."""
+	if chapter<1 or chapter>data.campaign.size(): return
+	primary.unmarked=primary.story and primary.kind==8 and not data.campaign[chapter-1].mission.get("e:boolean",true)
 
 func completion(docked: bool, elapsed_ms: int, station_id: int, ship, counters: Dictionary):
 	# Resolve story first when two objectives finish on the same tick.
