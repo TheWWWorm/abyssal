@@ -78,11 +78,16 @@ var limit_arrow: Node3D
 ## which is all of the limit that matters, rather than a sheet across the view.
 const LIMIT_EXTENT := 16.0
 ## Metres of water, in the view's units, over which the panel fades in.
-const LIMIT_FADE := 30.0
+## A hundred and twenty metres gives four times the former warning distance,
+## leaving time to turn away before radiation or pressure begins to bite.
+const LIMIT_FADE := 120.0
 ## Always on: the panels keep this much of their strength at any distance,
-## and the water takes them back over four times the reach.
+## even beyond the near-limit warning range.
 const LIMIT_ALWAYS := .55
-const LIMIT_HAZE := [.016,.004]
+const LIMIT_ALWAYS_FADE := 30.0
+## Keep near-limit absorption on the same fourfold reach as its fade. Merely
+## extending the fade leaves the earlier warning hidden by the old haze.
+const LIMIT_HAZE := .004
 ## Radiation waits above the shallow limit, pressure below the deep one.
 const LIMIT_TINTS := [Color(1.0,0.82,0.25),Color(0.3,0.62,1.0)]
 var banking := preload("res://native/simulation/ship_transform.gd").new()
@@ -623,7 +628,8 @@ func place_depth_limits(under: Vector3) -> void:
 	for i in 2:
 		var node: MeshInstance3D=limit_nodes[i]
 		var height: float=float(player.station_depth-limits[i])*8.0*Library.UNIT
-		var strength: float=clampf(1.0-absf(height-under.y)/LIMIT_FADE,0.0,1.0)
+		var fade: float=LIMIT_ALWAYS_FADE if depth_limits_always else LIMIT_FADE
+		var strength: float=clampf(1.0-absf(height-under.y)/fade,0.0,1.0)
 		if depth_limits_always: strength=maxf(strength,LIMIT_ALWAYS)
 		node.visible=depth_limits and not world.session.docked and strength>0.0
 		if not node.visible: continue
@@ -632,7 +638,7 @@ func place_depth_limits(under: Vector3) -> void:
 		# about the size on screen it has close by.
 		node.scale=Vector3.ONE*(maxf(1.0,absf(height-under.y)/LIMIT_EXTENT) if depth_limits_always else 1.0)
 		node.material_override.set_shader_parameter("strength",strength)
-		node.material_override.set_shader_parameter("haze_rate",LIMIT_HAZE[int(depth_limits_always)])
+		node.material_override.set_shader_parameter("haze_rate",LIMIT_HAZE)
 
 func build_limit_arrow() -> Node3D:
 	var arrow:=Node3D.new();arrow.name="LimitArrow";arrow.visible=false;add_child(arrow)

@@ -97,6 +97,11 @@ var music_target := ""
 var mods_target := ""
 var mods_notice := ""
 var load_path := ""
+var transfer := preload("res://native/simulation/save_transfer.gd").new()
+var save_files := preload("res://native/platform/save_file.gd").new()
+var load_exporting := false
+var load_note: Label
+var has_saved_game := false
 ## The shared settings screen (settings_menu.gd), made on first use.
 var settings_panel
 ## Browser build only: the corner fullscreen switch over the main menu.
@@ -231,6 +236,10 @@ func _ready() -> void:
 	music_files.kind="audio";add_child(music_files)
 	music_files.chosen.connect(install_music)
 	music_files.failed.connect(func(message):mods_notice=message;show_mod_music())
+	add_child(save_files)
+	save_files.chosen.connect(import_transfer)
+	save_files.delivered.connect(func(message):show_load(false,message))
+	save_files.failed.connect(show_save_transfer_notice)
 	ui.add_child(panel)
 	panel.add_theme_stylebox_override("panel",style(Color("091720f5"),Color("254451")))
 	var scroll := ScrollContainer.new()
@@ -649,6 +658,8 @@ func refresh_systems() -> void:
 
 func close_modal() -> void:
 	if waiting_for_language or content_starting:return
+	if load_exporting:
+		show_load();focus_load_action("ExportSave");return
 	stop_music_preview()
 	modal.hide()
 	scrim.hide()
@@ -865,24 +876,67 @@ func loading_hint(chapter: int) -> String:
 	var line: String=content.text(int(tips[first+randi()%(tips.size()-first)]))
 	return "" if line.is_empty() else content.text(305)+"\n"+line
 
-func show_load() -> void:
+func show_load(exporting: bool=false, message: String="", focus_path: String="") -> void:
 	"""The four saves of the phone game's Load screen: three of the player's
-	own and the autosave, each with who and where it is."""
+	own and the autosave, with portable imports available before the first save."""
 	if not ready_for_preview or outdated_import():return
+	modal_origin=title_menu.continue_button;load_exporting=exporting
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
-	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
-	box.add_child(label(content.text(1).to_upper(),26,Color("8bd6ee")))
+	var shell := VBoxContainer.new();shell.name="LoadMenu";shell.add_theme_constant_override("separation",10);modal.add_child(shell)
+	shell.add_child(label((tr("Export save…") if exporting else content.text(1)).to_upper(),26,Color("8bd6ee")))
+	var scroll := ScrollContainer.new();scroll.follow_focus=true;scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;shell.add_child(scroll)
+	var box := VBoxContainer.new();box.size_flags_horizontal=Control.SIZE_EXPAND_FILL;box.add_theme_constant_override("separation",10);scroll.add_child(box)
 	var store := preload("res://native/simulation/save_store.gd")
 	var first: Button=null
 	for index in 4:
 		var path: String=save_path if index==3 else store.slot_path(index)
-		var entry: Dictionary=store.summary(path,content.data) if FileAccess.file_exists(path) else {}
-		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():launch_game(true,"Pilot",path),box)
+		var reader=store.new();var readable: bool=reader.read(path,content.data)!=null
+		var source_path: String=path+".bak" if reader.recovered else path
+		var entry: Dictionary=store.summary(source_path,content.data) if readable else {}
+		var choice := button("%d.  %s  ·  %s"%[index+1,store.slot_title(index),store.describe(entry)],func():
+			if exporting:export_transfer(source_path)
+			else:launch_game(true,"Pilot",path),box)
+		choice.name="SaveSlot%d"%index;choice.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS;choice.tooltip_text=choice.text
 		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT;choice.disabled=entry.is_empty()
-		if first==null and not entry.is_empty():first=choice
-	var back := button(tr("Back"),close_modal,box)
+		if not entry.is_empty() and (first==null or path==focus_path):first=choice
+	load_note=label(message,15,Color("d7c399"));load_note.name="SaveNotice";load_note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	load_note.visible=not message.is_empty();box.add_child(load_note)
+	if not exporting:
+		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",10);box.add_child(actions)
+		var import_button := button(tr("Import save…"),func():save_files.choose_import(),actions);import_button.name="ImportSave"
+		var export_button := button(tr("Export save…"),func():show_load(true),actions);export_button.name="ExportSave"
+		for action in [import_button,export_button]:action.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		import_button.disabled=not save_files.available();export_button.disabled=first==null or not save_files.available()
+		export_button.tooltip_text=tr("There is no save to export yet.") if first==null else tr("Save to a file.")
+		var hint := label(store.slot_title(3)+": "+tr("Importing replaces the save on this device. The old save is kept as a backup.") if save_files.available() else tr("No file picker on this device."),15,Color("9dc9bd"))
+		hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;box.add_child(hint)
+		if first==null and not import_button.disabled:first=import_button
+	var back := button(tr("Back"),close_modal,shell)
 	scrim.show();modal.show();layout_ui()
 	(first if first!=null else back).grab_focus.call_deferred()
+
+func focus_load_action(node_name: String) -> void:
+	var action := modal.find_child(node_name,true,false) as Button
+	if action!=null and not action.disabled:action.grab_focus.call_deferred()
+
+func show_save_transfer_notice(message: String) -> void:
+	if modal.visible and modal.get_node_or_null("LoadMenu")!=null and is_instance_valid(load_note):
+		load_note.text=message;load_note.show()
+	else:status.text=message
+
+func export_transfer(path: String) -> void:
+	var record: Dictionary=transfer.collect(content.data,path)
+	if record.is_empty():show_save_transfer_notice(transfer.failure);return
+	save_files.export_text(transfer.default_name(record.save),JSON.stringify(record))
+
+func import_transfer(path: String) -> void:
+	if not ready_for_preview or outdated_import():return
+	var record: Dictionary=transfer.read_export(content.data,path)
+	if record.is_empty():show_save_transfer_notice(transfer.failure);return
+	if not transfer.install(content.data,save_path,record):show_save_transfer_notice(transfer.failure);return
+	refresh_title()
+	show_load(false,tr("Saved to %s")%preload("res://native/simulation/save_store.gd").slot_title(3),save_path)
 
 func show_help(topic: int=-1) -> void:
 	"""The phone game's Help from the title: Instructions by topic, the
@@ -1167,13 +1221,15 @@ func apply_textures() -> void:
 
 func focus_title() -> void:
 	if not is_inside_tree() or modal.visible or loading.visible:return
-	if not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus()
+	if not title_menu.is_visible_in_tree() or title_menu.focus_behavior_recursive==Control.FOCUS_BEHAVIOR_DISABLED:return
+	if has_saved_game and not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus()
 	elif not title_menu.new_button.disabled: title_menu.new_button.grab_focus()
 	else: title_menu.footer.grab_focus()
 
 func refresh_title() -> void:
 	title_menu.new_button.disabled=not ready_for_preview or import_busy or portable.busy or content_starting or waiting_for_language or outdated_import()
-	title_menu.continue_button.disabled=true
+	title_menu.continue_button.disabled=title_menu.new_button.disabled
+	has_saved_game=false
 	status.text=""
 	if outdated_import() and not import_busy and not portable.busy:
 		status.text=tr("This content was imported by an older version. Import your JAR again to play. Saves are kept.")
@@ -1183,7 +1239,7 @@ func refresh_title() -> void:
 			var path: String=save_path if index==3 else store.slot_path(index)
 			if not FileAccess.file_exists(path):continue
 			if store.read(path,content.data)!=null:
-				title_menu.continue_button.disabled=false
+				has_saved_game=true
 				if store.recovered and index==3:status.text=tr("Latest autosave is damaged; the previous save was loaded.")
 			elif index==3:status.text=store.failure
 	focus_title.call_deferred()

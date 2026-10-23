@@ -235,6 +235,7 @@ func _draw() -> void:
 		# underneath says who holds the place you are sitting in.
 		var right:=Vector2(-direction.y,direction.x)
 		draw_colored_polygon(PackedVector2Array([p+direction*7,p-direction*4-right*3.5,p-direction*4+right*3.5]),Color("f4fafb"))
+	if has_focus():draw_rect(Rect2(Vector2.ONE,size-Vector2(2,2)),Color("e5ae63"),false,2)
 func scale_bar_rect() -> Rect2:
 	var pixels_per_unit: float=minf(size.x,size.y)*0.0085*zoom
 	var meters_per_pixel: float=world.session.world_layout.spacing_meters/maxf(pixels_per_unit,0.001)
@@ -457,5 +458,6 @@ func nudge(direction: Vector2) -> void:
 	if lens_radius<=0:return
 	zone_moved.emit(place_lens(lens_center+direction*lens_radius*.5),-1)
 func _notification(what: int) -> void:
+	if what in [NOTIFICATION_FOCUS_ENTER,NOTIFICATION_FOCUS_EXIT]:queue_redraw()
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_VISIBILITY_CHANGED]:
 		touches.clear();dragging=false;tap_allowed=false;mouse_pressed=false;zone_grabbed=false

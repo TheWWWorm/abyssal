@@ -6,8 +6,8 @@ render_mode unshaded, blend_add, cull_disabled, depth_draw_never, fog_disabled;
 uniform vec3 tint: source_color = vec3(1.0, 0.68, 0.28);
 uniform float strength = 0.0;
 uniform float half_extent = 16.0;
-// Shown all the time, the panel fades over a longer reach (world_view.gd).
-uniform float haze_rate = 0.016;
+// Matches the warning range, including its early, more distant approach.
+uniform float haze_rate = 0.004;
 varying vec2 local;
 varying vec2 world;
 // The panel rides along under the hull, so its squares are laid in world

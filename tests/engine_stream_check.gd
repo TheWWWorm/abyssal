@@ -503,6 +503,37 @@ func check_depth_lighting() -> void:
   expect(profile.x>0 and profile.z>0,"Deep water retains readable ambient light")
   previous=profile
 
+func check_depth_limit_warning(view) -> void:
+ var player=view.world.region.player
+ var was_docked: bool=view.world.session.docked
+ var was_on: bool=view.depth_limits;var was_always: bool=view.depth_limits_always
+ view.world.session.docked=false;view.set_depth_limits(true)
+ for index in 2:
+  var depth: int=player.stats.minimum_depth if index==0 else player.stats.maximum_depth
+  var height: float=float(player.station_depth-depth)*8.0*view.Library.UNIT
+  var inward: float=-1.0 if index==0 else 1.0
+  var panel: MeshInstance3D=view.limit_nodes[index]
+  # Four times the former warning reach: the panel is already readable at
+  # sixty metres and has begun appearing at ninety, before the old 30 m edge.
+  for distance in [60.0,90.0]:
+   view.place_depth_limits(Vector3(25,height+inward*distance,-40))
+   expect(panel.visible and panel.position.is_equal_approx(Vector3(25,height,-40)),"Depth limit %d warns before the old final thirty metres"%index)
+   var strength: float=panel.material_override.get_shader_parameter("strength")
+   var haze: float=panel.material_override.get_shader_parameter("haze_rate")
+   var old_distance: float=distance/4.0
+   var old_strength: float=1.0-old_distance/30.0
+   expect(is_equal_approx(strength,old_strength) and is_equal_approx(exp(-distance*haze),exp(-old_distance*.016)),"Earlier depth warning preserves its visible strength and absorption at four times the distance")
+  view.place_depth_limits(Vector3(25,height+inward*121,-40))
+  expect(not panel.visible,"Near-limit markers stay hidden outside their warning range")
+  view.set_depth_limits(true,true);view.place_depth_limits(Vector3(25,height+inward*500,-40))
+  expect(panel.visible,"Always-on depth markers still reach beyond the warning range")
+  view.place_depth_limits(Vector3(25,height+inward*30,-40))
+  expect(is_equal_approx(panel.material_override.get_shader_parameter("strength"),.55),"Always-on markers retain their existing brightness beyond the final approach")
+  view.set_depth_limits(true)
+ view.world.session.docked=true;view.place_depth_limits(Vector3.ZERO)
+ expect(view.limit_nodes.all(func(panel):return not panel.visible),"Depth markers are hidden while docked")
+ view.world.session.docked=was_docked;view.set_depth_limits(was_on,was_always)
+
 func run():
  check_imported_material_hints()
  check_depth_lighting()
@@ -528,6 +559,7 @@ func run():
  await process_frame
  app.set_process(false);app.view.set_process(false);app.close_page();app.view._process(0)
  var view=app.view
+ check_depth_limit_warning(view)
  var mine=load("res://native/simulation/special_actor.gd").new()
  mine.configure_special("mine",13,true,app.world.region.player.pose.origin.duplicate(),content.data,app.session.rng)
  app.world.region.enemies.append(mine);view._process(0)

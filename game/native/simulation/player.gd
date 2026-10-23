@@ -6,6 +6,9 @@ const Health = preload("res://native/simulation/health.gd")
 ## Lateral thrusters run at a fraction of cruise speed and ignore the throttle,
 ## so a stopped submarine can still slide sideways out of trouble.
 const STRAFE_RATE := 0.6
+## Roll has a little more authority than the steering fins, while retaining
+## the differences between hull handling and installed steering equipment.
+const MANUAL_ROLL_RATE_FACTOR := 1.5
 var pose := Transform.new()
 var health := Health.new()
 var stats
@@ -136,7 +139,17 @@ func advance(delta_ms: int) -> void:
  else:roll_level=roll_input
  if desired.length_squared()>.5:
   var facing:=Math.vector(pose.forward).normalized()
-  pose.face(Math.array(facing.lerp(desired,1-exp(-delta_ms*.006)).normalized()*4096))
+  if contact:
+   pose.face(Math.array(facing.lerp(desired,1-exp(-delta_ms*.006)).normalized()*4096))
+  else:
+   # The autopilot holds the same helm as the pilot. A new course cannot
+   # bypass hull handling or steering upgrades, including a course astern.
+   var angle:=facing.angle_to(desired)
+   var maximum: float=stats.steering()*delta_ms/3.0*TAU/4096.0
+   if angle>0.000001:
+    var axis:=facing.cross(desired)
+    if axis.length_squared()<0.000000000001:axis=Math.vector(pose.up)
+    pose.assign(Basis(axis.normalized(),minf(angle,maximum))*pose.basis())
   yaw_carry=0.0;pitch_carry=0.0;mouse_remainder=Vector2.ZERO;mouse_carry=Vector2.ZERO
  else:
   var rate: float=stats.steering()*delta_ms/3.0
@@ -148,15 +161,16 @@ func advance(delta_ms: int) -> void:
   if not smooth_steering:yaw_carry=0.0;pitch_carry=0.0
   pose.rotate_local("yaw",yaw_step);pose.rotate_local("pitch",pitch_step);pitch_total+=pitch_step
   if roll_level!=0:
-   # Roll turns at the hull's own steering rate, as yaw and pitch do.
-   roll_carry+=rate*roll_level;var roll_step:=roundi(roll_carry);roll_carry-=roll_step
+   roll_carry+=rate*MANUAL_ROLL_RATE_FACTOR*roll_level;var roll_step:=roundi(roll_carry);roll_carry-=roll_step
    if not smooth_steering:roll_carry=0.0
    # Positive input is roll right: the right side goes down.
    pose.rotate_local("roll",roll_step)
   apply_mouse(delta_ms)
  if yaw_level!=0 or pitch_level!=0 or roll_level!=0:steering_quiet_ms=0
  else:steering_quiet_ms=mini(1000,steering_quiet_ms+delta_ms)
- if not manual_roll and (touch_horizon_assist or steering_quiet_ms>=600):pose.auto_level(delta_ms)
+ # Automatic navigation levels the hull even when manual roll is enabled,
+ # but uses the gradual righting motion instead of snapping its bank away.
+ if autopilot_target!=null or (not manual_roll and (touch_horizon_assist or steering_quiet_ms>=600)):pose.auto_level(delta_ms)
  pose.advance(roundi(delta_ms*speed_factor*throttle/100.0))
  if strafe_input!=0:pose.strafe(roundi(strafe_input*delta_ms*speed_factor*STRAFE_RATE))
  # bb: the hull leans into a turn a unit a millisecond, to 384 (about

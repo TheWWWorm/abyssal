@@ -18,7 +18,7 @@ func run():
  expect(app.title_dock.abyss.lamps.all(func(lamp):return not lamp.visible) and app.title_dock.abyss.beams.all(func(beam):return not beam.visible),"The empty title has no orphaned submarine headlights or beam cones")
  await app.open_cache(args[0]);await process_frame
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
- expect(app.title_menu.continue_button.disabled,"No checkpoint disables load")
+ expect(not app.title_menu.continue_button.disabled,"Load stays available for importing the first save")
  # An import from before the water palette waits for the JAR again; a build
  # whose JAR has no palette table imports an empty one and plays.
  var palette=app.content.data.water_palette
@@ -202,12 +202,19 @@ func run():
  expect(game.page=="destinations","R release opens autopilot")
  game.close_page();key.pressed=true;game._unhandled_input(key);game.autopilot_pressed_at-=500;game._process(0)
  expect(game.world.autopilot and game.page.is_empty(),"Hold R navigates the current objective without opening a menu")
- key.pressed=false;game._unhandled_input(key);game.world.cancel_autopilot()
+ key.pressed=false;game._unhandled_input(key)
+ key.pressed=true;game._unhandled_input(key)
+ expect(not game.world.autopilot and game.page.is_empty(),"Pressing the autopilot key disengages immediately")
+ key.pressed=false;game._unhandled_input(key)
+ expect(game.page.is_empty() and game.autopilot_pressed_at<0,"Releasing a disengage press neither opens the menu nor queues a hold")
+ game.world.route_to(game.session.station_id);game.perform("autopilot")
+ expect(not game.world.autopilot and game.page.is_empty(),"Pad and touch autopilot actions disengage without a menu")
  game.show_settings("bindings")
  for i in 4:await process_frame
  expect(game.settings_panel.column.find_children("*","Button",true,false).any(func(node):return node.text.begins_with("Autopilot (tap / hold)") and node.is_visible_in_tree()),"Autopilot control is prominently visible")
  await check_key_rebinding(game)
  game.close_page()
+ await check_chart_keyboard(game)
  game.show_map();await process_frame
  expect(game.map_widget!=null,"Searchable route map retained")
  for direction in [Vector3(1,0,0),Vector3(0,0,1),Vector3(-1,0,0),Vector3(0,0,-1),Vector3(1,1,-1)]:
@@ -262,10 +269,62 @@ func run():
  await check_catch_view(game)
  await check_limit_arrow(game)
  await check_load_slots(game)
+ await check_docked_objective_route(game)
  game.queue_free();await process_frame
  DirAccess.remove_absolute("user://engine-ui-check.json");DirAccess.remove_absolute("user://engine-ui-check.json.bak");DirAccess.remove_absolute("user://engine-ui-check.cfg")
  print("ENGINE_UI ",failures," failures")
  quit(1 if failures else 0)
+
+func chart_key(code: int, repeat_press := false) -> void:
+ var key:=InputEventKey.new();key.keycode=code;key.physical_keycode=code;key.pressed=true;key.echo=repeat_press
+ Input.parse_input_event(key);await process_frame
+ key=key.duplicate();key.pressed=false;key.echo=false;Input.parse_input_event(key);await process_frame
+
+func check_chart_keyboard(game) -> void:
+ var processing: bool=game.is_processing();game.set_process(false)
+ var fire: int=game.key_bindings.fire;game.key_bindings.fire=KEY_F6
+ game.show_map()
+ for i in 3:await process_frame
+ expect(root.gui_get_focus_owner()==game.map_widget,"The map opens with its reticle ready for keyboard navigation")
+ var center: Vector2=game.map_widget.place_lens(Vector2(50,50))
+ await chart_key(KEY_RIGHT)
+ expect(game.map_widget.lens_center.x>center.x and game.map_widget.has_focus(),"Right moves the reticle without switching to a station control")
+ center=game.map_widget.lens_center;await chart_key(KEY_RIGHT,true)
+ expect(game.map_widget.lens_center.x>center.x,"Held direction keys keep moving the reticle")
+ center=game.map_widget.lens_center;await chart_key(KEY_DOWN)
+ expect(game.map_widget.lens_center.y>center.y,"Down moves the reticle south")
+ center=game.map_widget.lens_center;await chart_key(KEY_UP);await chart_key(KEY_LEFT)
+ expect(game.map_widget.lens_center.y<center.y and game.map_widget.lens_center.x<center.x,"Up and Left move the reticle in both remaining directions")
+ var target := -1
+ for station in game.session.stations:
+  if station.id!=game.session.station_id and game.world.stream_denial(station.id).is_empty() and game.zone_stations(Vector2(station.x,station.y)).size()>1:
+   target=station.id;break
+ expect(target>=0,"A reachable group of stations is available for keyboard route selection")
+ if target>=0:
+  var station: Dictionary=game.session.stations[target]
+  center=game.map_widget.place_lens(Vector2(station.x,station.y));game.map_widget.zone_moved.emit(center,-1)
+  await chart_key(KEY_F6)
+  expect(game.page=="map" and game.map_slice.has_focus(),"First Fire selects the region and enters station selection")
+  for code in [KEY_RIGHT,KEY_DOWN,KEY_LEFT,KEY_UP]:
+   var ids: Array=game.map_slice.ids.duplicate();var at: int=ids.find(game.map_slice.selected_id)
+   var step: int=1 if code in [KEY_RIGHT,KEY_DOWN] else -1
+   await chart_key(code)
+   expect(game.map_slice.selected_id==ids[posmod(at+step,ids.size())] and game.map_widget.lens_center==center,"Each direction cycles stations without moving the selected region")
+  await chart_key(KEY_ESCAPE)
+  expect(game.page=="map" and game.map_widget.has_focus(),"Back returns from station selection to the reticle")
+  await chart_key(KEY_ENTER)
+  expect(game.map_slice.has_focus(),"Enter also selects the region")
+  game.map_slice.choose(target)
+  await chart_key(KEY_F6)
+  expect(game.page=="confirm" and not game.world.autopilot,"Second Fire asks to travel to the selected station")
+  if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
+  expect(game.world.autopilot and game.world.gate_navigation and game.world.stream_destination==target,"The confirmed chart destination guides the submarine to STREAM")
+  game.world.cancel_autopilot();game.close_page()
+  game.autonavigate_from_journal(target)
+  if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
+  expect(game.world.autopilot and game.world.gate_navigation and game.world.stream_destination==target,"A mission-journal destination in STREAM range uses the gate")
+  game.world.cancel_autopilot();game.close_page()
+ game.key_bindings.fire=fire;game.set_process(processing)
 
 func check_station_availability(game) -> void:
  game.session.docked=true;game.session.notices.clear();game.gameplay_hints=false
@@ -508,13 +567,20 @@ func check_oblique_portals(game) -> void:
   for station in game.session.stations:
    if station.id!=0 and game.world.stream_denial(station.id).is_empty():game.stream_selection=station.id;break
   var before: int=game.session.station_id
-  # Reached the way a player reaches it: the chart opens at the gate and stops
-  # the submarine, and that stop must not be what the far side hands back.
+  # Opening and cancelling the chart pauses flight without changing thrust.
   game.world.region.player.set_throttle(75)
   game.show_stream_menu()
-  expect(game.world.region.player.throttle_target==0,"The chart stops the submarine while it is open")
+  expect(game.world.region.player.throttle_target==75,"The paused chart preserves the throttle setting")
+  game.close_page()
+  expect(game.world.region.player.throttle_target==75,"Backing out of STREAM retains manual thrust")
+  game.world.region.player.set_throttle(0);game.show_stream_menu();game.close_page()
+  expect(game.world.region.player.throttle_target==0,"Backing out at zero thrust does not apply the transit speed floor")
+  game.world.region.player.set_throttle(75);game.show_stream_menu()
   game.begin_stream_transit()
   expect(game.page=="confirm" and game.session.station_id==before,"Initiating transit asks first, from side %d"%side)
+  if named_button(game,"Cancel")!=null:named_button(game,"Cancel").pressed.emit()
+  expect(game.page=="stream" and game.world.region.player.throttle_target==75,"Cancelling the travel question retains thrust on the chart")
+  game.begin_stream_transit()
   if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
   # Confirming a destination is the crossing. Nothing is flown into the
   # aperture, so the far side has to be there before another frame is drawn.
@@ -542,6 +608,20 @@ func check_oblique_portals(game) -> void:
   expect(game.view.player_model.portal_enabled and game.stream_exit_active,"The submarine emerges clipped against the exit aperture rather than appearing whole")
   var covering: Array=game.ui.get_children().filter(func(node):return node.get_script()==preload("res://native/presentation/travel_fade.gd"))
   expect(covering.is_empty(),"Nothing is painted over the gate transition")
+  if side==1:
+   var old_fire: int=game.key_bindings.fire;game.key_bindings.fire=KEY_F6
+   var fire:=InputEventKey.new();fire.pressed=true;fire.keycode=KEY_F6;fire.physical_keycode=KEY_F6
+   game._input(fire)
+   expect(game.view.transit_progress<0 and not game.view.transit_emerging,"The rebound Fire key immediately skips the STREAM exit camera")
+   expect(game.world.region.player.throttle_target==75 and is_equal_approx(game.world.region.player.speed_factor,2.0),"Skipping STREAM restores the pre-transit thrust and speed multiplier")
+   expect(game.weapon_presses.is_empty() and game.world.weapon_pending.is_empty() and game.suppress_fire_until_release,"The skip press does not also fire a weapon")
+   game.key_bindings.fire=old_fire;game.suppress_fire_until_release=false
+   game.view.begin_transit(exit,-1.0);game.view.transit_emerging=true
+   var trigger:=InputEventJoypadMotion.new();trigger.device=0;trigger.axis=JOY_AXIS_TRIGGER_RIGHT;trigger.axis_value=.3
+   game._input(trigger)
+   expect(game.view.transit_progress<0 and not game.flight_input().guns,"A light trigger squeeze skips at the weapon firing threshold without shooting")
+   trigger.axis_value=0;game._input(trigger);game.controller.reset()
+   continue
   # Flying clear of the far gate hands the camera back; it must not hold.
   var exit_ticks:=0
   for i in 400:
@@ -966,6 +1046,30 @@ func check_departure(game) -> void:
  game.finish_departure()
  expect(game.world.autopilot and game.view.departure_progress<0,"Queued map navigation begins after the departure camera releases control")
  game.world.cancel_autopilot();game.close_page()
+
+func check_docked_objective_route(game) -> void:
+ game.set_process(false);game.close_page();game.world.cancel_autopilot()
+ game.session.new_game(game.content.data,"Journal route",91)
+ while game.session.campaign.chapter<48:game.session.campaign.next_chapter(game.session.counters)
+ game.session.campaign.primary.kind=-1
+ game.world.enter_region(0);game.view.rebuild();game.session.docked=true
+ var remote := -1
+ for station in game.session.stations:
+  if station.id!=game.session.station_id and game.world.stream_denial(station.id).is_empty():remote=station.id;break
+ expect(remote>=0,"There is a reachable remote destination for a docked journal departure")
+ if remote<0:return
+ var mission=load("res://native/simulation/mission.gd").new();mission.kind=14;mission.destination=remote;mission.destination_name=game.session.stations[remote].name
+ game.session.campaign.secondary=mission;game.show_journal();await process_frame
+ var routes: Array=game.column.find_children("*","Button",true,false).filter(func(node):return node.get_meta("journal_destination",-1)==remote)
+ expect(routes.size()==1,"The docked journal offers the contract's departure action")
+ if routes.is_empty():return
+ routes[0].pressed.emit()
+ expect(game.page=="confirm","A docked mission route asks before departing")
+ if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
+ expect(game.page=="departure" and game.departure_destination==remote and game.departure_route=="objective","The mission-board route is retained through the departure shot")
+ game.finish_departure()
+ expect(game.world.autopilot and game.world.gate_navigation and game.world.stream_destination==remote,"Finishing the mission-board departure starts a route to the STREAM gate")
+ game.world.cancel_autopilot();game.close_page();game.world.region.events.clear()
 
 func check_enemy_cues(game) -> void:
  var marker=load("res://native/presentation/contact_marker.gd").new();game.ui.add_child(marker)

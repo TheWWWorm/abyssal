@@ -115,6 +115,13 @@ func outside_safety(id: int) -> bool:
 	if id<0 or id>=session.stations.size() or id==session.station_id:return false
 	var target: Dictionary=session.stations[id]
 	return target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth
+func route_to_objective(id: int) -> bool:
+	# Remote mission destinations use the transit network when the engine can
+	# reach them. Local objectives still follow their encounter waypoints, and
+	# the continuous ocean remains available for destinations beyond range.
+	if id>=0 and id<session.stations.size() and id!=session.station_id and stream_distance(id)<stream_range():
+		return plan_stream(id)
+	return route_to(id)
 func route_to(id: int) -> bool:
 	if session.docked:return false
 	message=route_denial(id)

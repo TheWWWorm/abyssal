@@ -323,6 +323,8 @@
     "game/ui/vendors/amd-fsr-frame-generation-white.png.import",
     "game/ui/abyssal-monochrome.svg",
     "game/ui/abyssal-monochrome.svg.import",
-    ".gitattributes"
+    ".gitattributes",
+    "tests/title_save_check.gd",
+    "tests/native_navigation_check.gd"
   ]
 }

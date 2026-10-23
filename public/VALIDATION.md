@@ -1,23 +1,23 @@
-# Abyssal 1.21.11 — platform support
+# Abyssal 1.21.12 — platform support
 
-A compatible DEEP JAR must be supplied separately. Original game assets and data are not included in the downloads.
+Supply a compatible DEEP JAR separately. Original game assets and data are not included in the downloads.
 
-## What was checked
+## Checks
 
-The 46 Python checks passed, and so did all 26 native checks. The native checks cover content and startup, engine UI, controller and keyboard menu navigation, readability, graphics settings, world spacing, platform input, ocean options, stream travel, open-world missions, coordinates and the reference wiki. New checks cover the freelance board's location preview, the stations ringed by Range on chart, radar pictures for cargo and creatures, and the story's docking refusals in chapters 5 and 6.
+All 28 headless regression suites and 46 Python tests pass. They cover navigation, save transfer, keyboard and controller input, STREAM travel, hull handling and depth markers. The main-menu save test also passes against the compiled Linux package. Running the supplied original JAR confirms map selection stages, immediate autopilot disengagement, preserved thrust when cancelling STREAM, Fire skipping the arrival camera and active-encounter OUT-gate locks.
 
-The compiled Web build imported a supplied JAR in Linux WebKit with no script errors.
+The Near limits panel was rendered at four times its former distance with matching brightness. The GPU regression suite reports four hangar-door probe failures that also occur on the unchanged 1.21.11 source; the new depth checks pass.
+
+The compiled Web build imported a supplied JAR in Linux WebKit. From an empty Load menu it imported a portable save and downloaded an export with identical save contents.
 
 ## Packages
 
-All six platform packages were exported from the same source. Linux x86-64 passed rendered Vulkan and OpenGL startup checks and packaged UI and version checks. Linux x86-64 and ARM64 retain the portable 1.21.6 runtimes and require no glibc symbols newer than 2.28.
+All six platform packages are exported from the same source. Linux x86-64 passes rendered Vulkan and OpenGL startup and packaged UI/version checks. Linux x86-64 and ARM64 retain the portable runtimes used since 1.21.6 and require no glibc symbols newer than 2.28. The station-rendering engines and Windows AMD FidelityFX runtime are unchanged.
 
-The Android APK uses the existing release certificate and passes signature and 16 KiB alignment verification. It identifies itself as org.abyssal.engine version 1.21.11, version code 83, and requests no network or broad storage permission. Package contents, the source archive and SHA-256 checksums are verified before publication.
+The Android APK passes signature and 16 KiB alignment verification, uses the existing release certificate, identifies itself as org.abyssal.engine version 1.21.12, version code 84, and requests no network or broad storage permission. Package contents, source inventory and SHA-256 checksums are verified before publication.
 
-The station-rendering runtimes and Windows AMD FidelityFX runtime are unchanged from 1.21.6.
+## Platform limits and known issue
 
-## Platform limits
+Intermittent white flashes while firing remain unresolved. They did not reproduce on an NVIDIA RTX 3090 under Linux using the release engine. Windows Direct3D 12, upscaling and frame generation were not exercised for this report.
 
-This release was not run on an Android device, physical iPhone or iPad, or macOS Safari. Linux WebKit checks do not establish Apple-device performance. The Range on chart picker and radar pictures were checked by automated tests and desktop screenshots, not by hand on a touchscreen. Browser play requires WebGL 2 and an HTTPS host or localhost.
-
-Windows, macOS and Linux ARM64 gameplay were not rerun for this release. Windows and macOS packages are unsigned; macOS is not notarized and supports Apple Silicon. Direct3D 12 with AMD FSR requires the Microsoft Visual C++ x64 runtime.
+Windows, macOS and Linux ARM64 gameplay were not rerun for this release. Windows and macOS packages are unsigned; macOS is not notarized. Direct3D 12 with AMD FSR requires the Microsoft Visual C++ x64 runtime. This release was not run on an Android device, physical iPhone or iPad, or macOS Safari. Linux WebKit checks do not establish Apple-device performance. Browser play requires WebGL 2 and an HTTPS host or localhost.

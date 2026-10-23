@@ -907,7 +907,7 @@ func _process(delta: float) -> void:
 	# per-frame active state must not take them away from the editor drawing them.
 	touch.set_active(page.is_empty() and not session.docked and not world.region.cinematic())
 	if page=="layout": touch.refresh_visibility()
-	if page=="map": map_pad(delta)
+	if page in ["map","stream"]: map_pad(delta)
 	fullscreen_button.place(page=="pause")
 	dive_audio.set_context(page,session.docked)
 	advance_transit_view(delta)
@@ -1191,7 +1191,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.physical_keycode==key_bindings.autopilot and page.is_empty():
 		if event.echo:return
 		if event.pressed:
-			autopilot_pressed_at=Time.get_ticks_msec();autopilot_hold_used=false
+			if world.autopilot:
+				autopilot_pressed_at=-1;autopilot_hold_used=true
+				perform("autopilot")
+			else:autopilot_pressed_at=Time.get_ticks_msec();autopilot_hold_used=false
 		elif autopilot_pressed_at>=0:
 			var held := autopilot_hold_used
 			autopilot_pressed_at=-1
@@ -1254,6 +1257,13 @@ func _notification(what: int) -> void:
 		controller.reset();touch.reset();touch.release_contacts();mouse_steer=Vector2.ZERO
 		if session!=null and page.is_empty():show_pause()
 	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null:touch_action("menu")
+func cinematic_skip_requested(event: InputEvent) -> bool:
+	if event is InputEventKey:
+		return event.pressed and not event.echo and (event.keycode in [KEY_ENTER,KEY_SPACE,KEY_ESCAPE] or event.physical_keycode==key_bindings.fire)
+	if event is InputEventMouseButton:return event.pressed and event.button_index==MOUSE_BUTTON_LEFT
+	if event is InputEventJoypadButton:return event.pressed and event.button_index in [JOY_BUTTON_A,JOY_BUTTON_B,JOY_BUTTON_START,JOY_BUTTON_RIGHT_SHOULDER]
+	if event is InputEventJoypadMotion:return event.axis==JOY_AXIS_TRIGGER_RIGHT and event.axis_value>.25
+	return event is InputEventScreenTouch and event.pressed
 func _input(event: InputEvent) -> void:
 	FocusMap.before_move(get_viewport(),event)
 	var was_touch := touch.enabled()
@@ -1265,13 +1275,17 @@ func _input(event: InputEvent) -> void:
 		if touch.enabled():release_flight_mouse()
 		elif not OS.has_feature("web"):capture_flight_mouse()
 		layout()
-	if page in ["departure","opening"]:
-		var skip: bool=(event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER,KEY_SPACE,KEY_ESCAPE]) or (event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT) or (event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_A,JOY_BUTTON_B,JOY_BUTTON_START]) or (event is InputEventScreenTouch and event.pressed)
-		if skip:
+	if page in ["departure","opening"] or (page.is_empty() and view.transit_progress>=0):
+		if cinematic_skip_requested(event):
+			controller.accept(event);controller.blocked=true
 			if page=="departure":finish_departure()
-			else:opening.skip()
-		get_viewport().set_input_as_handled();return
+			elif page=="opening":opening.skip()
+			else:end_transit_shot()
+			weapon_presses.clear();world.weapon_pending.clear();suppress_fire_until_release=true
+			get_viewport().set_input_as_handled();return
+		if page in ["departure","opening"]:get_viewport().set_input_as_handled();return
 	controller.accept(event)
+	if chart_input(event):get_viewport().set_input_as_handled();return
 	# A camera button pressed in a menu is not a tap in flight when let go.
 	if event is InputEventJoypadButton and event.pressed and event.button_index==controller.look_button() and not page.is_empty():controller.look_hold_used=true
 	if event is InputEventMouseButton and not event.pressed:
@@ -1306,6 +1320,8 @@ func find_option(node: Node, key: String) -> Button:
 	return null
 func focus_page() -> void:
 	if not overlay.visible or not is_instance_valid(column):return
+	if page in ["map","stream"] and is_instance_valid(map_widget):
+		focus_option="";map_widget.grab_focus();return
 	if not focus_option.is_empty():
 		var wanted := find_option(column,focus_option)
 		focus_option=""
@@ -1345,7 +1361,8 @@ func perform(action: String) -> void:
 		"map": show_map()
 		"autopilot":
 			auto_fire=false
-			show_destinations()
+			if world.autopilot:world.cancel_autopilot(tr("Manual control"))
+			else:show_destinations()
 		"time": world.cycle_speed()
 		"time_up","time_down": world.step_speed(1 if action=="time_up" else -1)
 		"lights":
@@ -1468,8 +1485,9 @@ func autonavigate_from_journal(destination: int) -> void:
 	if session.docked:
 		depart()
 		if session.docked:return
-		if page=="departure":departure_destination=destination;return
-	if world.route_to(destination):
+		if page=="departure":departure_destination=destination;departure_route="objective";return
+	if world.route_to_objective(destination):
+		stream_prompted=false
 		auto_fire=false
 		if page not in ["dialogue","departure"]:close_page()
 	else:notice(world.message)
@@ -2181,6 +2199,8 @@ func finish_departure() -> void:
 	elif departure_destination>=0:
 		if departure_route=="stream":
 			if world.plan_stream(departure_destination):stream_prompted=false
+		elif departure_route=="objective":
+			if world.route_to_objective(departure_destination):stream_prompted=false
 		else:world.route_to(departure_destination)
 	departure_destination=-1;message.text="";notification_time=0
 	close_page();world.region.events.append({"kind":"departure_briefing"})
@@ -2487,9 +2507,7 @@ func show_map(autopilot_only: bool=false) -> void:
 			world.navigate_encounter();close_page(),actions).tooltip_text=tr("Local encounter active · follow its waypoint before travelling to the next story station.")
 	map_route_button=bar_button(tr("Autopilot") if tight else tr("Set station autopilot"),map_autopilot,actions)
 	if tight: map_route_button.tooltip_text=tr("Set station autopilot")
-	# A pad opens on the chart's main action, not on the station list.
 	map_route_button.set_meta("option","map_route")
-	if focus_option.is_empty():focus_option="map_route"
 	stream_button=bar_button(tr("S.T.R.E.A.M. transfer") if tight else tr("Plan S.T.R.E.A.M. transfer"),map_stream,actions)
 	stream_button.visible=not atlas_autopilot_only
 	if map_return.is_valid():back_row(map_return);map_return=Callable()
@@ -2500,14 +2518,50 @@ func show_map(autopilot_only: bool=false) -> void:
 	map_widget.place_lens(Vector2(start.x,start.y))
 	select_station(map_destination)
 var map_stick_moving := false
+func chart_input(event: InputEvent) -> bool:
+	"""The chart has two keyboard stages: move the zone, then pick an exit.
+	Tab still reaches search, the station list and the explicit route actions."""
+	if page not in ["map","stream"] or not is_instance_valid(map_widget) or not is_instance_valid(map_slice):return false
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused!=map_widget and focused!=map_slice:return false
+	if not event.is_pressed():return false
+	var station_mode: bool=focused==map_slice
+	if event.is_action_pressed("ui_cancel"):
+		if station_mode:map_widget.grab_focus();return true
+		return false
+	var direction := Vector2.ZERO
+	if event.is_action_pressed("ui_left",true):direction=Vector2.LEFT
+	elif event.is_action_pressed("ui_right",true):direction=Vector2.RIGHT
+	elif event.is_action_pressed("ui_up",true):direction=Vector2.UP
+	elif event.is_action_pressed("ui_down",true):direction=Vector2.DOWN
+	if direction!=Vector2.ZERO:
+		if station_mode:map_slice.step(-1 if direction.x<0 or direction.y<0 else 1)
+		else:
+			var zone: Vector2=map_widget.place_lens(map_widget.lens_center+direction*ZONE_RADIUS*.18/sqrt(map_widget.zoom))
+			map_widget.keep_in_view(zone,32)
+			map_widget.zone_moved.emit(zone,-1)
+		return true
+	var fire: bool=event is InputEventKey and event.physical_keycode==key_bindings.fire
+	if event.is_action_pressed("ui_accept") or fire:
+		if event is InputEventKey and event.echo:return true
+		if not station_mode:
+			var ids:=zone_stations(map_widget.lens_center)
+			if ids.is_empty():notice(zone_prompt(map_widget.lens_center)[1]);return true
+			map_slice.choose(map_slice.selected_id if map_slice.selected_id in ids else ids[0])
+			map_slice.grab_focus()
+		elif page=="stream":begin_stream_transit()
+		elif atlas_autopilot_only or map_destination==session.station_id:map_autopilot()
+		else:map_stream()
+		return true
+	return false
 func pad_axis(axis: int) -> float:
 	return float(controller.axes.get(axis,0.0))
 func map_pad(delta: float) -> void:
 	"""A pad walks the chart's zone with the left stick, as the original's
 	direction keys do, pans the chart with the right and zooms on the
-	triggers about the zone, whatever holds focus; the D-pad stays free to
-	move between the buttons. A zone walked towards the edge takes the chart
-	with it."""
+	triggers about the zone, whatever holds focus. The D-pad follows the
+	focused chart stage, or moves between other controls. A zone walked
+	towards the edge takes the chart with it."""
 	if not is_instance_valid(map_widget) or map_widget.lens_radius<=0: return
 	var stick := controller.stick()
 	var zone: Vector2=map_widget.lens_center
@@ -2575,10 +2629,12 @@ func station_chart(selection: int) -> HFlowContainer:
 	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=selection; map_widget.habitat_species=habitat_range; top.add_child(map_widget)
 	map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.size_flags_vertical=Control.SIZE_EXPAND_FILL; map_widget.size_flags_stretch_ratio=1.1
 	map_widget.custom_minimum_size=Vector2(300,200) # after its _ready, which sets its own
-	map_widget.lens_radius=ZONE_RADIUS;map_widget.focus_mode=Control.FOCUS_CLICK
+	map_widget.lens_radius=ZONE_RADIUS;map_widget.focus_mode=Control.FOCUS_ALL
 	touch_scroll.gesture_control=map_widget
 	var side := VBoxContainer.new(); side.size_flags_horizontal=Control.SIZE_EXPAND_FILL; side.add_theme_constant_override("separation",10); top.add_child(side)
 	map_slice=DepthSlice.new(); map_slice.world=world; map_slice.art=imported_art; map_slice.size_flags_vertical=Control.SIZE_EXPAND_FILL; side.add_child(map_slice)
+	map_widget.focus_entered.connect(chart_legend)
+	map_slice.focus_entered.connect(chart_legend)
 	if compact: map_slice.custom_minimum_size.y=96
 	# The side view and the station share the column evenly, so the station
 	# is shown at a size that reads rather than as a thumbnail.
@@ -2616,6 +2672,16 @@ func station_chart(selection: int) -> HFlowContainer:
 	var inset := MarginContainer.new(); body.add_child(inset); inset.add_child(actions)
 	for edge in ["margin_top","margin_bottom","margin_left","margin_right"]: inset.add_theme_constant_override(edge,4)
 	return actions
+func chart_legend() -> void:
+	if page not in ["map","stream"]:return
+	var legend:=overlay.find_child("KeyLegend",true,false)
+	if legend==null:return
+	var station_mode: bool=is_instance_valid(map_slice) and map_slice.has_focus()
+	var entries: Array=legend.get_children()
+	entries[1].text=tr("Move zone") if station_mode else tr("Back")
+	entries[3].text=tr("Choose station") if station_mode else tr("Move zone")
+	entries[4].text=OS.get_keycode_string(key_bindings.fire)+" / Enter / A"
+	entries[5].text=tr("Set destination") if station_mode else tr("Select area")
 func chart_panel() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new(); style.bg_color=Color("071631cc"); style.border_color=Color("2f6fa8"); style.set_border_width_all(1); style.set_content_margin_all(10)
 	return style
@@ -3040,7 +3106,7 @@ func autonavigate_objective() -> void:
 	if world.encounter_navigation_point()!=null:
 		world.navigate_encounter();close_page()
 	elif objective_has_location(mission):
-		if world.route_to(mission.destination):close_page()
+		if world.route_to_objective(mission.destination):stream_prompted=false;close_page()
 		else:notice(world.message)
 	else:notice(tr("This objective has no fixed destination. %s")%preload("res://native/presentation/mission_info.gd").instruction(mission))
 func show_destinations() -> void:
@@ -3180,12 +3246,10 @@ func show_stream_menu() -> void:
 	if not world.at_gate(world.departure_gate): return
 	stream_prompted=true
 	if world.stream_destination>=0: stream_selection=world.stream_destination
-	# The chart stops the submarine, so what it was doing has to be remembered
-	# here or the far side hands back a dead stop. Only the first open sees
-	# the real throttle. A notch is the floor because a crossing cannot put
-	# anyone down stationary.
+	# The menu pauses the simulation without changing manual thrust. A crossing
+	# keeps at least one notch so the submarine can clear the far aperture.
 	if page!="stream": stream_resume_throttle=maxi(world.region.player.throttle_target,25)
-	world.cancel_autopilot(); world.region.player.set_throttle(0)
+	world.cancel_autopilot()
 	open_page(chart_title(),"stream")
 	view.gate_preview=true
 	var eligible: Array=[]
