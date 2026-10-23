@@ -37,6 +37,15 @@ static func texture_path(resource: String) -> String:
 	var path := find("textures/"+stem+".png")
 	return path if not path.is_empty() else find("textures/"+stem+".bmp")
 
+static func normal_texture_path(resource: String) -> String:
+	# A normal atlas belongs to the active colour replacement in the same
+	# folder. Restoring the original colour also restores its shading, even
+	# when the optional companion is left on disk.
+	var albedo := texture_path(resource)
+	if albedo.is_empty(): return ""
+	var path := albedo.get_base_dir().path_join(resource.get_file().get_basename()+".normal.png")
+	return path if FileAccess.file_exists(path) else ""
+
 static func model_path(resource: String) -> String:
 	# data/v3d/u0.mbac -> models/u0.glb, or models/u0.gltf
 	var stem := resource.get_file().get_basename()

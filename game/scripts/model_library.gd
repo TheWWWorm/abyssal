@@ -14,6 +14,7 @@ var keyed_textures: Dictionary = {}
 var texture_resources: Dictionary = {}
 var texture_sizes: Dictionary = {}
 var surface_maps: Dictionary = {}
+var normal_maps: Dictionary = {}
 var shaders: Dictionary = {}
 var opaque_station_shaders: Dictionary = {}
 var station_depth_shaders: Dictionary = {}
@@ -111,6 +112,8 @@ func reload_textures() -> void:
 		var surface_key := root.path_join(texture_resources[path])
 		if surface_maps.has(surface_key):
 			surface_maps[surface_key].set_image(preload("res://native/presentation/imported_surface.gd").derive(img,texture_sizes[path]))
+		if normal_maps.has(surface_key):
+			normal_maps[surface_key].set_image(normal_image(texture_resources[path]))
 
 func texture_size(resource: String, alpha: bool = false) -> Vector2:
 	"""The imported atlas's size in texels, which is what the geometry's
@@ -183,6 +186,26 @@ func surface_map(resource: String) -> Texture2D:
 		var source := texture(resource).get_image()
 		surface_maps[key]=ImageTexture.create_from_image(preload("res://native/presentation/imported_surface.gd").derive(source,texture_size(resource)))
 	return surface_maps[key]
+
+func normal_image(resource: String) -> Image:
+	var path := preload("res://native/presentation/mods.gd").normal_texture_path(resource)
+	if not path.is_empty():
+		var image := Image.load_from_file(path)
+		if image!=null:
+			image.convert(Image.FORMAT_RGBA8)
+			image.generate_mipmaps(true)
+			return image
+		push_warning("Could not read replacement normal texture: "+path)
+	# Alpha zero selects the existing shading exactly. Keep this texture
+	# object alive across reloads so cached pose materials update with it.
+	var neutral := Image.create(2,2,false,Image.FORMAT_RGBA8)
+	neutral.fill(Color(0.5,0.5,1.0,0.0));neutral.generate_mipmaps(true)
+	return neutral
+
+func normal_map(resource: String) -> Texture2D:
+	var key := root.path_join(resource)
+	if not normal_maps.has(key):normal_maps[key]=ImageTexture.create_from_image(normal_image(resource))
+	return normal_maps[key]
 
 ## The lamp sprites of the original, additive quads that carry a whole
 ## radial glow from an atlas: the main atlas has two thirty-two texel ones at
@@ -646,6 +669,8 @@ uniform bool headlight_lens_enabled = true;
 uniform vec3 headlight_lens_color : source_color = vec3(.72,.9,1.0);
 uniform float bioluminescence = 0.0;
 uniform sampler2D surface_map : filter_linear_mipmap_anisotropic, repeat_disable;
+uniform sampler2D normal_map : filter_linear_mipmap_anisotropic, repeat_disable;
+uniform float normal_strength = 0.65;
 uniform float surface_roughness = 0.62;
 uniform float surface_specular = 0.35;
 uniform float effect_glow = 1.6;
@@ -730,6 +755,7 @@ void vertex() {
 			code += "if(OUTPUT_IS_SRGB){color.rgb=to_srgb(color.rgb);}\n"
 		code += "ALBEDO=color.rgb; ROUGHNESS=surface_roughness; METALLIC=0.0; SPECULAR=surface_specular;\n"
 		if modern and lit and blend == 0:
+			code += "vec3 surface_normal=NORMAL;vec4 normal_detail="+("texture(normal_map,(surface_uv+vec2(0.5))/texture_size)" if resource!="" else "vec4(0.5,0.5,1.0,0.0)")+";\n"
 			code += """
 // Station paint should catch the local work lights, not acquire the blue
 // sky's grazing-angle Fresnel reflection. Initialize the other material path
@@ -814,6 +840,31 @@ if(hull_coating && !replacement_enabled){
 		vec3 gradient=(dFdx(height)*r1+dFdy(height)*r2)/det;
 		gradient*=min(1.0,0.16/max(0.00001,length(gradient)));
 		NORMAL=normalize(NORMAL-gradient);
+	}
+}
+if(!replacement_enabled && normal_detail.a>0.0){
+	// OpenGL tangent normals use +Y toward the top of the atlas. The
+	// imported UVs count downward; derive the frame from the posed surface
+	// with V reversed so bones, hinges and mirrored UVs keep their lighting.
+	vec2 normal_uv=vec2(surface_uv.x,-surface_uv.y);
+	vec2 ux=dFdx(normal_uv),uy=dFdy(normal_uv);
+	vec3 px=dFdx(VERTEX),py=dFdy(VERTEX);
+	float uv_det=ux.x*uy.y-ux.y*uy.x;
+	if(abs(uv_det)>0.00000001){
+		vec3 base=normalize(surface_normal);
+		vec3 tangent=(px*uy.y-py*ux.y)/uv_det;
+		vec3 bitangent=(py*ux.x-px*uy.x)/uv_det;
+		tangent-=base*dot(base,tangent);
+		if(dot(tangent,tangent)>0.00000001){
+			tangent=normalize(tangent);
+			bitangent=normalize(cross(base,tangent))*sign(dot(cross(base,tangent),bitangent));
+			vec3 detail=normal_detail.rgb*2.0-1.0;
+			vec2 slope=detail.xy/max(0.1,detail.z)*normal_strength;
+			slope*=1.0-smoothstep(80.0,500.0,length(VERTEX));
+			// Stay inside the station shader's bounded-normal light rejection.
+			slope*=min(1.0,0.16/max(0.00001,length(slope)));
+			NORMAL=normalize(mix(NORMAL,normalize(base+tangent*slope.x+bitangent*slope.y),normal_detail.a));
+		}
 	}
 }
 if(bioluminescence>0.0){
@@ -938,5 +989,7 @@ if(replacement_enabled && architecture_enabled){
 		var tex := texture(resource,alpha)
 		mat.set_shader_parameter("albedo",tex)
 		mat.set_shader_parameter("texture_size",texture_size(resource,alpha))
-		if modern and lit and blend==0:mat.set_shader_parameter("surface_map",surface_map(resource))
+		if modern and lit and blend==0:
+			mat.set_shader_parameter("surface_map",surface_map(resource))
+			mat.set_shader_parameter("normal_map",normal_map(resource))
 	return mat

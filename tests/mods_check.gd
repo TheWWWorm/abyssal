@@ -30,6 +30,7 @@ func run():
 	expect(modded.texture_size("data/textures/deep.bmp")==original,"Geometry keeps addressing the replacement atlas in the original's texels")
 	var material: ShaderMaterial=modded.affine_material("data/textures/deep.bmp",0,false,true,false)
 	expect(material.get_shader_parameter("texture_size")==original,"Materials receive the original texel count, not the replacement's pixel count")
+	check_normal_texture(Mods,modded,material,folder,original)
 	var cut: Texture2D=modded.texture("data/textures/deep.bmp",true)
 	expect(cut.get_size()==drawn.get_size() and cut.get_image().get_pixel(0,0)==Color(1,0,1,1),"The cut-out polygons draw from the same one replacement")
 	var key_test := Image.create(8,8,false,Image.FORMAT_RGBA8);key_test.fill(Color(1,0,0,1));key_test.fill_rect(Rect2i(0,0,4,8),Color.WHITE)
@@ -102,6 +103,34 @@ func run():
 	await process_frame
 	print("MODS %d failures"%failures)
 	quit(1 if failures>0 else 0)
+
+func check_normal_texture(Mods, library, material: ShaderMaterial, folder: String, original: Vector2) -> void:
+	var resource := "data/textures/deep.bmp"
+	var companion := folder.path_join("textures/deep.normal.png")
+	var albedo := folder.path_join("textures/deep.png")
+	var normal: Texture2D=material.get_shader_parameter("normal_map")
+	expect(normal!=null and normal.get_image().get_pixel(0,0).a==0,"Without a companion normal atlas, existing surface shading remains selected")
+	var cached: ShaderMaterial=library.pose_copy(material)
+	# Normal maps are linear data, independently sized and not white-keyed.
+	var source := Image.create(int(original.x)*4,int(original.y)*4,false,Image.FORMAT_RGB8)
+	source.fill(Color(.65,.5,.975));source.set_pixel(0,0,Color.WHITE)
+	expect(source.save_png(ProjectSettings.globalize_path(companion))==OK,"Test normal atlas written")
+	expect(Mods.normal_texture_path(resource)==companion,"The active colour replacement finds its adjacent normal atlas")
+	library.reload_textures()
+	expect(material.get_shader_parameter("normal_map")==normal and cached.get_shader_parameter("normal_map")==normal,"Existing and cached pose materials share the reloaded normal texture")
+	expect(normal.get_size()==Vector2(source.get_size()) and normal.get_image().has_mipmaps(),"Normal atlases retain their resolution and receive normalized mipmaps")
+	var loaded: Image=library.normal_image(resource)
+	expect(loaded.get_pixel(0,0).a==1 and loaded.get_pixel(1,1).is_equal_approx(source.get_pixel(1,1)),"Normal pixels are loaded as linear vector data without the albedo's white cut-out key")
+	expect(material.get_shader_parameter("texture_size")==original,"A larger normal atlas keeps the original atlas UV scale")
+	DirAccess.remove_absolute(companion);library.reload_textures()
+	expect(normal.get_size()==Vector2(2,2) and library.normal_image(resource).get_pixel(0,0).a==0,"Removing the companion returns existing materials to inferred shading")
+	source.save_png(ProjectSettings.globalize_path(companion));library.reload_textures()
+	expect(normal.get_size()==Vector2(source.get_size()),"Adding the companion again updates the same texture object")
+	DirAccess.rename_absolute(albedo,albedo+".saved");library.reload_textures()
+	expect(Mods.normal_texture_path(resource).is_empty() and normal.get_size()==Vector2(2,2),"Restoring the original albedo disables a leftover normal atlas")
+	DirAccess.rename_absolute(albedo+".saved",albedo)
+	DirAccess.remove_absolute(companion);library.reload_textures()
+
 func tone(path: String, seconds: float) -> void:
 	"""A short code-made sine as 16-bit PCM WAV, standing in for a player's file."""
 	var wave := AudioStreamWAV.new();wave.format=AudioStreamWAV.FORMAT_16_BITS;wave.mix_rate=22050;wave.stereo=false
