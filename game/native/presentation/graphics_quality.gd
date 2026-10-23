@@ -30,7 +30,8 @@ const HEIGHTS := [720,900,1080,1440,2160]
 ## FSR 2; the FSR 3.1 and FSR 4 upscalers draw at least 50%
 ## (Amd.LOWEST_SCALE).
 const SCALES := [100,90,80,75,67,58,50,33]
-const MSAA := ["Off","2×","4×"]
+const MSAA := ["Off","2×","4×","8×"]
+const MSAA_MODES := [Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X,Viewport.MSAA_8X]
 ## How a 3D view drawn below the display resolution is scaled up. FSR 1.0
 ## works on both Vulkan renderers; FSR 2.2 and MetalFX temporal reuse earlier
 ## frames (they replace temporal antialiasing) and need Forward+; MetalFX needs
@@ -73,7 +74,7 @@ static func upscaler(quality: Dictionary) -> String:
 const SHADOWS := ["Off","Low","Medium","High"]
 static func msaa_names() -> Array:
 	"""MSAA in the engine's language."""
-	return [EngineLanguage.translate("Off"),"2×","4×"]
+	return [EngineLanguage.translate("Off"),"2×","4×","8×"]
 static func shadow_names() -> Array:
 	"""SHADOWS in the engine's language."""
 	return [EngineLanguage.translate("Off"),EngineLanguage.translate("Low"),EngineLanguage.translate("Medium"),EngineLanguage.translate("High")]
@@ -98,7 +99,7 @@ static func integer(config: ConfigFile, section: String, key: String, fallback: 
 	return clampi(int(value),0,highest)
 
 static func default_msaa() -> int:
-	return clampi(int(ProjectSettings.get_setting("rendering/anti_aliasing/quality/msaa_3d",0)),0,2)
+	return clampi(int(ProjectSettings.get_setting("rendering/anti_aliasing/quality/msaa_3d",0)),0,MSAA_MODES.size()-1)
 
 static func read(config: ConfigFile) -> Dictionary:
 	# The earlier single 3D resolution (1080p, 1440p, native) became the
@@ -112,7 +113,7 @@ static func read(config: ConfigFile) -> Dictionary:
 		"modern":bool(config.get_value("graphics","modern",config.get_value("graphics","materials",true))),
 		"height":height,
 		"scale":scale if scale in SCALES else 100,
-		"msaa":integer(config,"view","msaa",default_msaa(),2),
+		"msaa":integer(config,"view","msaa",default_msaa(),MSAA_MODES.size()-1),
 		"taa":bool(config.get_value("view","temporal_aa",false)),
 		"frame_generation":bool(config.get_value("view","frame_generation",false)),
 		"upscaler":str(config.get_value("view","upscaler","fsr")) if str(config.get_value("view","upscaler","fsr")) in UPSCALERS else "fsr",
@@ -211,7 +212,7 @@ static func apply_viewport(viewport: Viewport, quality: Dictionary, pixels: Vect
 	viewport.scaling_3d_scale=scale
 	viewport.use_taa=quality.taa and forward and not chosen in TEMPORAL_UPSCALERS
 	# The FSR SDK upscalers reconstruct edges from single-sampled frames.
-	var msaa: int=Viewport.MSAA_DISABLED if single_sampled(chosen) else [Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X][clampi(quality.msaa,0,2)]
+	var msaa: int=Viewport.MSAA_DISABLED if single_sampled(chosen) else MSAA_MODES[clampi(quality.msaa,0,MSAA_MODES.size()-1)]
 	if viewport.msaa_3d!=msaa: viewport.msaa_3d=msaa
 	var level: int=quality.shadows if quality.modern else 3
 	var small := handheld()

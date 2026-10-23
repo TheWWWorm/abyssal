@@ -95,6 +95,7 @@ var images := preload("res://native/platform/image_file.gd").new()
 var music_files := preload("res://native/platform/image_file.gd").new()
 var music_target := ""
 var mods_target := ""
+var mods_normal := false
 var mods_notice := ""
 var load_path := ""
 var transfer := preload("res://native/simulation/save_transfer.gd").new()
@@ -232,7 +233,7 @@ func _ready() -> void:
 	images.chosen.connect(func(path):(import_photo if photo_pick else install_texture).call(path))
 	images.failed.connect(func(message):
 		if photo_pick:show_face_note(message);return
-		mods_notice=message;show_mod_textures())
+		mods_notice=message;show_mod_textures(("NormalImport_" if mods_normal else "TextureImport_")+mods_target))
 	music_files.kind="audio";add_child(music_files)
 	music_files.chosen.connect(install_music)
 	music_files.failed.connect(func(message):mods_notice=message;show_mod_music())
@@ -431,6 +432,7 @@ func layout_ui() -> void:
 	# The character screen needs more room than the other dialogs.
 	var wide: bool=modal.get_node_or_null("CharacterSheet")!=null
 	modal.size=Vector2(minf(900 if wide else 640,ui.size.x-48),minf(700 if wide else 560,ui.size.y-40))
+	if modal.get_node_or_null("TextureMods")!=null:modal.size.y=minf(660,ui.size.y-40)
 	# The reference reads best with all the room the window has.
 	if modal.get_node_or_null("Reference")!=null:modal.size=Vector2(minf(1400,ui.size.x-32),ui.size.y-32)
 	modal.position=(ui.size-modal.size)*0.5
@@ -1012,10 +1014,10 @@ func show_about(page: String="") -> void:
 		var node := label(text,font_size,color);node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;node.custom_minimum_size.x=520;body.add_child(node);return node
 	if page=="original":
 		paragraph.call(content.text(26),20,Color("aedbec"))
-		paragraph.call(content.text(25),12,Color("a2c3d3"))
-		# The phone scrolled its credits with screens of blank lines between.
 		# Which build was imported: the player can tell it from another.
 		var jar: Label=paragraph.call(content.jar_edition(false)+"  ·  JAR "+content.profile.left(12),12,Color("a2c3d3"));jar.name="JarEdition"
+		paragraph.call(content.text(25),12,Color("a2c3d3"))
+		# The phone scrolled its credits with screens of blank lines between.
 		var credits := RegEx.create_from_string("\\n{3,}").sub(content.text(28),"\n\n",true)
 		paragraph.call(credits,15)
 	else:
@@ -1081,77 +1083,91 @@ func checkered(image: Image, side: float) -> Control:
 	frame.add_child(picture)
 	return frame
 
-func show_mod_textures() -> void:
-	"""Mods · Textures: each atlas the game is drawn with, as painted and as
-	the cut-out polygons see it (pure white see-through, the phone's rule),
-	what stands for it now, and the ways to see it, replace it, or have the
-	original back; on desktop, the folders themselves. A replacement is one
-	PNG of any size in the original's layout."""
+func show_mod_textures(focus_name: String="") -> void:
+	"""Colour atlases and normal maps have separate import, preview and removal
+	controls. Both use the same platform picker and apply to existing models."""
 	if not modal.visible:modal_origin=get_viewport().gui_get_focus_owner()
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
-	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
+	var box := VBoxContainer.new();box.name="TextureMods";box.add_theme_constant_override("separation",8);modal.add_child(box)
 	box.add_child(label(tr("Mods · Textures").to_upper(),22,Color("8bd6ee")))
 	var Mods=preload("res://native/presentation/mods.gd")
 	if not ready_for_preview:
 		box.add_child(label(tr("Import your DEEP JAR first; the textures come from it."),15))
 		var only := button(tr("Back"),show_mods,box);scrim.show();modal.show();layout_ui();only.grab_focus.call_deferred();return
-	var intro := label(tr("A PNG of any size replaces an atlas; keep the original layout. Pure white or transparent areas are see-through. Changes apply immediately."),12,Color("a2c3d3"))
-	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=580;box.add_child(intro)
+	var intro := label(tr("Keep the original atlas layout. Colour textures and normal maps can be imported separately. Changes apply immediately."),12,Color("a2c3d3"))
+	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;box.add_child(intro)
+	var guidance := label(tr("Normal maps add surface relief with Enhanced lighting enabled."),12,Color("a2c3d3"))
+	guidance.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;box.add_child(guidance)
+	var scroll := ScrollContainer.new();scroll.name="TextureList";scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;scroll.follow_focus=true;box.add_child(scroll)
+	var cards := VBoxContainer.new();cards.size_flags_horizontal=Control.SIZE_EXPAND_FILL;cards.add_theme_constant_override("separation",8);scroll.add_child(cards)
 	var first: Button=null
 	for atlas in Mods.atlases():
 		var status: Dictionary=Mods.texture_status(content.root,atlas)
-		var card := PanelContainer.new();card.add_theme_stylebox_override("panel",style(Color("0b1b22aa"),Color("2f4d57")));box.add_child(card)
+		var normal: Dictionary=Mods.texture_status(content.root,atlas,true)
+		var card := PanelContainer.new();var card_style := style(Color("0b1b22aa"),Color("2f4d57"));card_style.content_margin_top=12;card_style.content_margin_bottom=12;card.add_theme_stylebox_override("panel",card_style);cards.add_child(card)
 		var row := HBoxContainer.new();row.add_theme_constant_override("separation",10);card.add_child(row)
-		for form in [[tr("As painted"),status.image],[tr("Cut-outs see-through"),Mods.cut_out(status.image,256)]]:
-			var column_box := VBoxContainer.new();column_box.add_theme_constant_override("separation",2);row.add_child(column_box)
-			column_box.add_child(checkered(form[1],84))
-			column_box.add_child(label(form[0],10,Color("89a6a6")))
-		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",2);row.add_child(words)
-		words.add_child(label("%s · %s.png"%[atlas.title,atlas.name],15))
-		var about := label(atlas.about,11,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;about.custom_minimum_size.x=360;words.add_child(about)
+		var thumbnail := checkered(status.image,84);thumbnail.size_flags_vertical=Control.SIZE_SHRINK_BEGIN;row.add_child(thumbnail)
+		var words := VBoxContainer.new();words.size_flags_horizontal=Control.SIZE_EXPAND_FILL;words.add_theme_constant_override("separation",4);row.add_child(words)
+		var title := label(atlas.title,15);title.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;words.add_child(title)
+		var about := label(atlas.about,11,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;words.add_child(about)
 		var standing := (tr("Replacement · %d×%d") if status.replaced else tr("Original · %d×%d"))%[status.size.x,status.size.y]
-		words.add_child(label(standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
-		var actions := HBoxContainer.new();actions.add_theme_constant_override("separation",4);words.add_child(actions)
-		for entry in [[tr("View"),func():show_texture(atlas),true],[tr("Replace…"),func():mods_target=atlas.name;mods_notice="";photo_pick=false;images.any_image=false;images.choose(),images.available()],[tr("Restore original"),func():
+		words.add_child(label(atlas.name+".png · "+standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
+		var actions := HFlowContainer.new();actions.add_theme_constant_override("h_separation",4);words.add_child(actions)
+		for entry in [[tr("View"),func():show_texture(atlas),true,"TextureView_"],[tr("Replace…"),func():choose_texture(atlas.name),images.available(),"TextureImport_"],[tr("Restore original"),func():
 			mods_notice=(tr("Restored the original %s.")%atlas.name) if Mods.remove_texture(atlas.name) else tr("Could not remove the replacement.")
-			apply_textures();show_mod_textures(),status.replaced]]:
-			var act := button(entry[0],entry[1],actions);act.custom_minimum_size.y=28;act.add_theme_font_size_override("font_size",13);act.disabled=not entry[2]
-			for state in ["normal","hover","focus","pressed"]:
-				var box_style := act.get_theme_stylebox(state).duplicate();box_style.content_margin_top=4;box_style.content_margin_bottom=4;act.add_theme_stylebox_override(state,box_style)
+			apply_textures();show_mod_textures("TextureImport_"+atlas.name),status.replaced,"TextureRemove_"]]:
+			var act := texture_action(entry,atlas.name,actions)
 			if first==null:first=act
-	var folders := HBoxContainer.new();folders.add_theme_constant_override("separation",8);box.add_child(folders)
+		var normal_state := tr("Normal map")+" · "+("%d×%d"%[normal.size.x,normal.size.y] if normal.replaced else tr("None"))
+		var normal_label := label(normal_state,12,Color("d7c399") if normal.replaced else Color("89a6a6"));normal_label.name="NormalStatus_"+atlas.name;words.add_child(normal_label)
+		var normal_actions := HFlowContainer.new();normal_actions.add_theme_constant_override("h_separation",4);words.add_child(normal_actions)
+		for entry in [[tr("Import normal…"),func():choose_texture(atlas.name,true),images.available(),"NormalImport_"],[tr("View"),func():show_texture(atlas,false,true),normal.image!=null,"NormalView_"],[tr("Remove normal"),func():
+			mods_notice=tr("Normal map removed.") if Mods.remove_texture(atlas.name,true) else tr("Could not remove the replacement.")
+			apply_textures();show_mod_textures("NormalImport_"+atlas.name),normal.replaced,"NormalRemove_"]]:
+			texture_action(entry,atlas.name,normal_actions)
+	var folders := HFlowContainer.new();folders.add_theme_constant_override("h_separation",8);box.add_child(folders)
 	if not OS.has_feature("android") and not OS.has_feature("web"):
 		var mods_dir := ProjectSettings.globalize_path(Mods.user_texture_path("deep").get_base_dir())
-		button(tr("Open mods folder"),func():DirAccess.make_dir_recursive_absolute(mods_dir);OS.shell_open(mods_dir),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-		button(tr("Open original textures"),func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/textures"))),folders).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	var back := button(tr("Back"),show_mods,folders);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button(tr("Open mods folder"),func():DirAccess.make_dir_recursive_absolute(mods_dir);OS.shell_open(mods_dir),folders)
+		button(tr("Open original textures"),func():OS.shell_open(ProjectSettings.globalize_path(content.root.path_join("data/textures"))),folders)
+	var back := button(tr("Back"),show_mods,folders);back.name="TexturesBack"
 	if not mods_notice.is_empty():
-		var note := label(mods_notice,12,Color("d7c399"));note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;note.custom_minimum_size.x=560;box.add_child(note)
+		var note := label(mods_notice,12,Color("d7c399"));note.name="TexturesNotice";note.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;box.add_child(note)
 	scrim.show();modal.show();layout_ui()
-	(first if first!=null else back).grab_focus.call_deferred()
+	var preferred := modal.find_child(focus_name,true,false) as Button if not focus_name.is_empty() else null
+	(preferred if preferred!=null and not preferred.disabled else (first if first!=null else back)).grab_focus.call_deferred()
 
-func show_texture(atlas: Dictionary, cut: bool=false) -> void:
-	"""One atlas at the page's full size, texel for texel, over a
-	checkerboard: as painted, or as the cut-out polygons see it."""
+func texture_action(entry: Array, atlas: String, parent: Control) -> Button:
+	var act := button(entry[0],entry[1],parent);act.name=entry[3]+atlas;act.custom_minimum_size.y=32;act.add_theme_font_size_override("font_size",13);act.disabled=not entry[2]
+	for state in ["normal","hover","focus","pressed"]:
+		var box_style := act.get_theme_stylebox(state).duplicate();box_style.content_margin_top=5;box_style.content_margin_bottom=5;act.add_theme_stylebox_override(state,box_style)
+	return act
+
+func choose_texture(atlas: String, normal: bool=false) -> void:
+	mods_target=atlas;mods_normal=normal;mods_notice="";photo_pick=false;images.any_image=false;images.choose()
+
+func show_texture(atlas: Dictionary, cut: bool=false, normal: bool=false) -> void:
 	var Mods=preload("res://native/presentation/mods.gd")
-	var status: Dictionary=Mods.texture_status(content.root,atlas)
+	var status: Dictionary=Mods.texture_status(content.root,atlas,normal)
 	for child in modal.get_children():modal.remove_child(child);child.queue_free()
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",8);modal.add_child(box)
-	box.add_child(label("%s · %s · %d×%d"%[atlas.title.to_upper(),tr("Cut-outs see-through").to_upper() if cut else tr("As painted").to_upper(),status.size.x,status.size.y],18,Color("8bd6ee")))
-	var big := checkered(Mods.cut_out(status.image,1024) if cut else status.image,420);big.size_flags_horizontal=Control.SIZE_SHRINK_CENTER;box.add_child(big)
+	var kind := tr("Normal map") if normal else (tr("Cut-outs see-through") if cut else tr("As painted"))
+	var heading := label("%s · %s · %d×%d"%[atlas.title.to_upper(),kind.to_upper(),status.size.x,status.size.y],18,Color("8bd6ee"));heading.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;box.add_child(heading)
+	var big := checkered(Mods.cut_out(status.image,1024) if cut and not normal else status.image,360);big.name="TexturePreview";big.size_flags_horizontal=Control.SIZE_SHRINK_CENTER;box.add_child(big)
 	box.add_child(label((tr("%s  ·  replacement") if status.replaced else tr("%s  ·  original"))%status.path.get_file(),12,Color("a2c3d3")))
-	var row := HBoxContainer.new();row.add_theme_constant_override("separation",8);box.add_child(row)
-	var other := button(tr("Show cut-outs") if not cut else tr("Show as painted"),func():show_texture(atlas,not cut),row);other.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	var back := button(tr("Back"),show_mod_textures,row);back.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var row := HFlowContainer.new();row.add_theme_constant_override("h_separation",8);box.add_child(row)
+	if not normal:
+		button(tr("Show cut-outs") if not cut else tr("Show as painted"),func():show_texture(atlas,not cut),row)
+	var back := button(tr("Back"),func():show_mod_textures(("NormalView_" if normal else "TextureView_")+atlas.name),row);back.name="TexturePreviewBack"
 	scrim.show();modal.show();layout_ui();back.grab_focus.call_deferred()
 
 func install_texture(path: String) -> void:
 	var Mods=preload("res://native/presentation/mods.gd")
-	var trouble: String=Mods.install_texture(mods_target,path) if not mods_target.is_empty() else tr("Choose an atlas first.")
-	if path.begins_with("user://") or path.begins_with(OS.get_cache_dir()):DirAccess.remove_absolute(path)
-	mods_notice=trouble if not trouble.is_empty() else tr("%s.png replaced.")%mods_target
+	var trouble: String=Mods.install_texture(mods_target,path,mods_normal) if not mods_target.is_empty() else tr("Choose an atlas first.")
+	images.release(path)
+	mods_notice=trouble if not trouble.is_empty() else tr("%s.png replaced.")%(mods_target+(".normal" if mods_normal else ""))
 	if trouble.is_empty():apply_textures()
-	show_mod_textures()
+	show_mod_textures(("NormalImport_" if mods_normal else "TextureImport_")+mods_target)
 
 func show_mod_music() -> void:
 	"""Mods · Music: the JAR's two tracks, what plays for each now, and the

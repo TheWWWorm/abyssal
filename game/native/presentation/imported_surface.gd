@@ -33,13 +33,18 @@ static func derive(source: Image, atlas_size: Vector2=Vector2(128,128)) -> Image
 		var extent := high-low+Vector2i.ONE
 		if component.size()<=maxi(12,count/256) and maxi(extent.x,extent.y)<=maxi(6,mini(width,height)/10):
 			for i in component:lights[i]=1
-	var result := Image.create(width,height,false,Image.FORMAT_RGBA8)
+	# Infer geometry at the imported atlas's scale. A three-pixel kernel on
+	# an 8x replacement would otherwise turn paint grain into rapidly changing
+	# normals. Keep the sharper colour, emission and glass masks independent.
+	var relief := relief_image(luma,width,height,atlas_size)
+	var enlarged := width>atlas_size.x or height>atlas_size.y
+	# Smooth height ramps need more than eight bits: quantizing them again at
+	# replacement resolution would reintroduce steps in the screen derivative.
+	var result := Image.create(width,height,false,Image.FORMAT_RGBAH if enlarged else Image.FORMAT_RGBA8)
 	for y in height:
 		for x in width:
 			var i := y*width+x;var c := source.get_pixel(x,y)
-			var blurred := 0.0
-			for oy in range(-1,2):
-				for ox in range(-1,2):blurred+=luma[clampi(y+oy,0,height-1)*width+clampi(x+ox,0,width-1)]/9.0
+			var blurred := relief.get_pixel(x,y).r
 			var saturation := maxf(c.r,maxf(c.g,c.b))-minf(c.r,minf(c.g,c.b))
 			var roughness := clampf(.68-luma[i]*.16+saturation*.18,.48,.82)
 			# The original cockpit pane sits inside a metal frame, immediately
@@ -49,3 +54,18 @@ static func derive(source: Image, atlas_size: Vector2=Vector2(128,128)) -> Image
 			result.set_pixel(x,y,Color(lerpf(blurred,.5,lights[i]),roughness,float(lights[i])*smoothstep(.35,.8,luma[i]),glass))
 	result.generate_mipmaps()
 	return result
+
+static func relief_image(luma: PackedFloat32Array, width: int, height: int, atlas_size: Vector2) -> Image:
+	var coarse := Image.create_from_data(width,height,false,Image.FORMAT_RF,luma.to_byte_array())
+	var w := mini(width,maxi(1,roundi(atlas_size.x)))
+	var h := mini(height,maxi(1,roundi(atlas_size.y)))
+	if w!=width or h!=height:coarse.resize(w,h,Image.INTERPOLATE_TRILINEAR)
+	var filtered := Image.create(w,h,false,Image.FORMAT_RF)
+	for y in h:
+		for x in w:
+			var value := 0.0
+			for oy in range(-1,2):
+				for ox in range(-1,2):value+=coarse.get_pixel(clampi(x+ox,0,w-1),clampi(y+oy,0,h-1)).r/9.0
+			filtered.set_pixel(x,y,Color(value,0,0))
+	if w!=width or h!=height:filtered.resize(width,height,Image.INTERPOLATE_BILINEAR)
+	return filtered

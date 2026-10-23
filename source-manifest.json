@@ -325,6 +325,9 @@
     "game/ui/abyssal-monochrome.svg.import",
     ".gitattributes",
     "tests/title_save_check.gd",
-    "tests/native_navigation_check.gd"
+    "tests/native_navigation_check.gd",
+    "tests/mod_texture_ui_check.gd",
+    "tests/texture_filtering_check.gd",
+    "tests/preview_antialiasing_check.gd"
   ]
 }

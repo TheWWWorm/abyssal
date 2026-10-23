@@ -622,6 +622,11 @@ func affine_material(resource: String, blend: int, double_sided: bool, lit: bool
 		# Sky samples are numeric byte-color data. Avoid losing dark ramp values
 		# in Compatibility's 8-bit linear intermediate target.
 		code += "uniform sampler2D albedo : %s%s, repeat_disable;\n" % ["source_color, " if sky_pass == 0 else "",filtering]
+		if pixelated and resource!="":
+			# The original atlas keeps nearest sampling. A larger replacement
+			# needs its own texel grid and filtered minification, even when the
+			# player keeps crisp magnified texels. Both samplers share one image.
+			code += "uniform sampler2D albedo_filtered : %sfilter_linear_mipmap_anisotropic, repeat_disable;\n" % ("source_color, " if sky_pass == 0 else "")
 		code += """
 uniform bool replacement_enabled=false;
 uniform bool replacement_panels=true;
@@ -740,7 +745,37 @@ void vertex() {
 		# Rounding there keeps both edges visible in crisp mode, centered on
 		# the same aperture as the filtered texture and the departure path.
 		var coords := "(surface_uv+vec2(0.5))/texture_size" if (use_enhanced or smoothed) and not pixelated else "(floor(surface_uv+vec2(hangar_door?0.5:0.0001))+vec2(0.5))/texture_size"
-		code += "vec4 color="+("texture(albedo,%s)" % coords if resource != "" else "vec4(OUTPUT_IS_SRGB?COLOR.rgb:to_linear(COLOR.rgb),COLOR.a)")+";\n"
+		# Snapping preserves the source's crisp texels, but its zero/jumping
+		# derivatives cannot choose a stable mip level. Use the continuous UV
+		# footprint so larger atlases do not flicker between full detail and
+		# averaged mips as the camera crosses an original texel boundary.
+		var sample := "textureGrad(albedo,%s,dFdx(surface_uv)/texture_size,dFdy(surface_uv)/texture_size)"%coords if pixelated else "texture(albedo,%s)"%coords
+		if pixelated and resource!="":
+			code += """
+vec2 atlas_pixels=vec2(textureSize(albedo,0));
+vec2 atlas_dx=dFdx(surface_uv)/texture_size,atlas_dy=dFdy(surface_uv)/texture_size;
+vec4 color;
+if(any(greaterThan(atlas_pixels,texture_size))){
+	// Integrate the visible part of a replacement texel at a magnified edge.
+	// Away from that one-screen-pixel transition, texel colours stay exact.
+	// At minification this becomes continuous UV sampling, with anisotropic
+	// mip filtering. Snapping to source texels would skip most replacement
+	// detail and jump across it as the camera crosses the old coarse grid.
+	vec2 atlas_uv=(surface_uv+vec2(0.5))/texture_size;
+	vec2 texel_footprint=(abs(atlas_dx)+abs(atlas_dy))*atlas_pixels;
+	vec2 footprint=clamp(texel_footprint,vec2(0.001),vec2(1.0));
+	vec2 pixel=atlas_uv*atlas_pixels-0.5*footprint;
+	vec2 coverage=clamp((fract(pixel)-(vec2(1.0)-footprint))/footprint,vec2(0.0),vec2(1.0));
+	vec2 sampled_uv=(floor(pixel)+vec2(0.5)+coverage)/atlas_pixels;
+	// Constant UV axes are paint swatches, not magnified texture edges.
+	// Keep them continuous instead of amplifying tiny interpolation errors.
+	sampled_uv=mix(atlas_uv,sampled_uv,step(vec2(0.001),texel_footprint));
+	color=textureGrad(albedo_filtered,sampled_uv,atlas_dx,atlas_dy);
+}else{
+"""
+			code += "color="+sample+";\n}\n"
+		else:
+			code += "vec4 color="+(sample if resource != "" else "vec4(OUTPUT_IS_SRGB?COLOR.rgb:to_linear(COLOR.rgb),COLOR.a)")+";\n"
 		if alpha:
 			# The phone keys palette index 0 on these polygons, and that entry is
 			# pure white in every atlas; a replacement may use alpha instead.
@@ -988,6 +1023,7 @@ if(replacement_enabled && architecture_enabled){
 	if resource != "":
 		var tex := texture(resource,alpha)
 		mat.set_shader_parameter("albedo",tex)
+		if pixelated:mat.set_shader_parameter("albedo_filtered",tex)
 		mat.set_shader_parameter("texture_size",texture_size(resource,alpha))
 		if modern and lit and blend==0:
 			mat.set_shader_parameter("surface_map",surface_map(resource))

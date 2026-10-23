@@ -113,6 +113,7 @@ func reveal() -> void:
 
 func _process(delta: float) -> void:
 	if not is_visible_in_tree():return
+	preload("res://native/presentation/showroom_light.gd").apply_antialiasing(viewport)
 	if not pending.is_empty():
 		var args:=pending;pending=[]
 		if str(args[0])=="content":build_content(args[1],args[2],args[3],args[4],args[5])

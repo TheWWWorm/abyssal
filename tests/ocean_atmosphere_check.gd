@@ -146,6 +146,32 @@ func check_glass_mask() -> void:
 		for point in [Vector2i(49,102),Vector2i(54,103),Vector2i(54,119),Vector2i(100,10)]:
 			expect(map.get_pixelv(point*scale).a==0,"Frames, painted texels, engine grilles and faction panels do not become glass")
 
+func check_relief_scale() -> void:
+	var hints=load("res://native/presentation/imported_surface.gd")
+	var original := Image.create(128,128,false,Image.FORMAT_RGBA8);original.fill(Color(.3,.3,.3))
+	original.fill_rect(Rect2i(32,32,64,64),Color(.6,.6,.6))
+	var enlarged: Image=original.duplicate();enlarged.resize(1024,1024,Image.INTERPOLATE_NEAREST)
+	# Fine painted grain must not become extra inferred geometry at 8x scale.
+	for y in 1024:
+		for x in 1024:
+			var shade := enlarged.get_pixel(x,y).r+(.05 if (x+y)%2 else -.05)
+			enlarged.set_pixel(x,y,Color(shade,shade,shade))
+	var before := enlarged.get_data()
+	var source_map: Image=hints.derive(original)
+	var reference: Image=source_map.duplicate();reference.resize(1024,1024,Image.INTERPOLATE_BILINEAR)
+	var map: Image=hints.derive(enlarged)
+	var error := 0.0;var samples := 0
+	for y in range(128,896,3):
+		for x in range(128,896,3):
+			error+=absf(map.get_pixel(x,y).r-reference.get_pixel(x,y).r);samples+=1
+	expect(error/samples<.004,"Inferred relief follows source-scale panels rather than new paint grain")
+	expect(map.get_pixel(512,512).r-map.get_pixel(128,128).r>.28,"Filtering keeps the existing broad panel relief")
+	expect(enlarged.get_data()==before,"Relief filtering does not soften or rewrite the colour texture")
+	var increments := {}
+	for x in range(240,272):increments[map.get_pixel(x,512).r]=true
+	expect(increments.size()>20,"Higher-resolution relief ramps retain sub-byte precision instead of stair steps")
+	expect(map.has_mipmaps(),"Filtered relief remains mipmapped for distant surfaces")
+
 func check_cabins(content) -> void:
 	var model_type=load("res://native/presentation/model.gd")
 	var viewport := SubViewport.new();viewport.size=Vector2i(256,192);viewport.own_world_3d=true;viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
@@ -482,7 +508,7 @@ func check_sky_scattering() -> void:
 	viewport.queue_free();await process_frame
 
 func run() -> void:
-	check_glass_mask();check_headlight_attachment()
+	check_glass_mask();check_relief_scale();check_headlight_attachment()
 	await check_beam_intersections()
 	var content=load("res://native/content.gd").new()
 	if not content.load_cache(OS.get_cmdline_user_args()[0]):quit(1);return

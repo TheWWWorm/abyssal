@@ -6,11 +6,21 @@ extends RefCounted
 ## weak cool fill from the other, and a rim from behind that picks out the
 ## silhouette against the water.
 
-static func apply(viewport: SubViewport, env: Environment) -> void:
-	# A SubViewport starts without multisampling; the previews follow the
-	# antialiasing chosen for the main view.
+static func apply_antialiasing(viewport: SubViewport) -> void:
+	# Showrooms render at their own native size. Follow the main view's edge
+	# treatment without inheriting its resolution scale or upscaling buffers.
 	var tree := Engine.get_main_loop() as SceneTree
-	if tree!=null: viewport.msaa_3d=tree.root.msaa_3d
+	if tree==null:return
+	var main := tree.root
+	if viewport.msaa_3d!=main.msaa_3d:viewport.msaa_3d=main.msaa_3d
+	# Temporal upscalers turn the main view's use_taa flag off because they
+	# already reconstruct edges. Native-size previews still need temporal AA.
+	var temporal := main.use_taa or main.scaling_3d_mode in [Viewport.SCALING_3D_MODE_FSR2,Viewport.SCALING_3D_MODE_METALFX_TEMPORAL,preload("res://native/presentation/amd.gd").mode()]
+	var taa := temporal and RenderingServer.get_current_rendering_method()=="forward_plus"
+	if viewport.use_taa!=taa:viewport.use_taa=taa
+
+static func apply(viewport: SubViewport, env: Environment) -> void:
+	apply_antialiasing(viewport)
 	env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color=Color("9fb8c4");env.ambient_light_energy=.22
 	env.tonemap_mode=Environment.TONE_MAPPER_ACES;env.tonemap_exposure=1.1

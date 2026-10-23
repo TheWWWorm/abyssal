@@ -65,7 +65,7 @@ func check_presets() -> void:
 		var config := ConfigFile.new();Quality.write(config,preset)
 		expect(Quality.current(config)==preset,"%s reads back as itself"%Quality.PRESETS[preset])
 		expect(Quality.has_preset(config),"Writing a preset records it")
-		for msaa in [0,1,2]:
+		for msaa in [0,1,2,3]:
 			for taa in [false,true]:
 				config.set_value("view","msaa",msaa);config.set_value("view","temporal_aa",taa)
 				config.set_value("view","upscaler","fsr2");config.set_value("view","frame_generation",true)
@@ -310,6 +310,11 @@ func check_display_rows(app) -> void:
 	choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(50));await frames(2)
 	expect(Quality.read(saved()).scale==50 and is_equal_approx(app.get_viewport().scaling_3d_scale,0.5),"3D resolution draws at the chosen share")
 	var forward := RenderingServer.get_current_rendering_method()=="forward_plus"
+	var msaa := app.settings_panel.find_child("Row_msaa",true,false) as Button
+	expect(msaa.get_node("List").item_count==4,"Multisampling offers Off, 2×, 4× and 8×")
+	choose(msaa,3);await frames(2)
+	expect(Quality.read(saved()).msaa==3 and app.get_viewport().msaa_3d==Viewport.MSAA_8X,"The 8× choice is saved and applied to the main view")
+	choose(app.settings_panel.find_child("Row_msaa",true,false),2);await frames(2)
 	expect(app.get_viewport().scaling_3d_mode==(Viewport.SCALING_3D_MODE_FSR if forward else Viewport.SCALING_3D_MODE_BILINEAR),"FSR 1.0 scales up by default where the renderer has it")
 	if forward:
 		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr2"));await frames(2)

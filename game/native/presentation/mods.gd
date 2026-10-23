@@ -38,13 +38,8 @@ static func texture_path(resource: String) -> String:
 	return path if not path.is_empty() else find("textures/"+stem+".bmp")
 
 static func normal_texture_path(resource: String) -> String:
-	# A normal atlas belongs to the active colour replacement in the same
-	# folder. Restoring the original colour also restores its shading, even
-	# when the optional companion is left on disk.
-	var albedo := texture_path(resource)
-	if albedo.is_empty(): return ""
-	var path := albedo.get_base_dir().path_join(resource.get_file().get_basename()+".normal.png")
-	return path if FileAccess.file_exists(path) else ""
+	# Colour and surface relief can be installed and removed independently.
+	return find("textures/"+resource.get_file().get_basename()+".normal.png")
 
 static func model_path(resource: String) -> String:
 	# data/v3d/u0.mbac -> models/u0.glb, or models/u0.gltf
@@ -125,18 +120,18 @@ static func shown_entry(entry: Dictionary, shown: Dictionary) -> Dictionary:
 	result.title=shown[entry.name][0];result.about=shown[entry.name][1]
 	return result
 
-static func user_texture_path(name: String) -> String:
-	return "user://mods/textures/"+name+".png"
+static func user_texture_path(name: String, normal: bool=false) -> String:
+	return (only_root if not only_root.is_empty() else "user://mods").path_join("textures/"+name+(".normal.png" if normal else ".png"))
 
 static func original_texture_path(content_root: String, resource: String) -> String:
 	return content_root.path_join(resource)+".png"
 
-static func texture_status(content_root: String, atlas: Dictionary) -> Dictionary:
-	"""What stands for the atlas now: the replacement's path and size when
-	one is in place, else the original's."""
-	var original := original_texture_path(content_root,atlas.resource)
-	var replacement := texture_path(atlas.resource)
-	var shown := replacement if not replacement.is_empty() else original
+static func texture_status(content_root: String, atlas: Dictionary, normal: bool=false) -> Dictionary:
+	"""The active colour or normal atlas. Colour falls back to the imported
+	original; a normal slot without a replacement has no image."""
+	var original := "" if normal else original_texture_path(content_root,atlas.resource)
+	var replacement := normal_texture_path(atlas.resource) if normal else texture_path(atlas.resource)
+	var shown := replacement if normal or not replacement.is_empty() else original
 	var size := Vector2i.ZERO
 	var img := Image.load_from_file(shown) if FileAccess.file_exists(shown) else null
 	if img!=null: size=Vector2i(img.get_width(),img.get_height())
@@ -156,22 +151,22 @@ static func cut_out(image: Image, side: int) -> Image:
 			if c.r>=.97 and c.g>=.97 and c.b>=.97: view.set_pixel(x,y,Color(c.r,c.g,c.b,0))
 	return view
 
-static func install_texture(name: String, source: String) -> String:
+static func install_texture(name: String, source: String, normal: bool=false) -> String:
 	"""Copies an image into the user mods folder as the atlas. Returns the
 	trouble, or nothing when it is in place."""
 	if not FileAccess.file_exists(source): return EngineLanguage.translate("There is no file at %s.")%source
 	var img := Image.load_from_file(source)
 	if img==null: return EngineLanguage.translate("That file is not an image the engine can read. Use a PNG.")
 	if img.get_width()<8 or img.get_height()<8: return EngineLanguage.translate("That image is too small to be an atlas.")
-	var target := user_texture_path(name)
+	var target := user_texture_path(name,normal)
 	DirAccess.make_dir_recursive_absolute(target.get_base_dir())
 	if img.save_png(target)!=OK: return EngineLanguage.translate("Could not write into the mods folder.")
 	return ""
 
-static func remove_texture(name: String) -> bool:
-	"""Takes the replacement away, wherever the game found it, so the
-	original stands again."""
-	var found := texture_path("data/textures/"+name+".bmp")
+static func remove_texture(name: String, normal: bool=false) -> bool:
+	"""Remove the active colour or normal replacement, wherever it was found."""
+	var resource := "data/textures/"+name+".bmp"
+	var found := normal_texture_path(resource) if normal else texture_path(resource)
 	if found.is_empty(): return false
 	return DirAccess.remove_absolute(found)==OK
 

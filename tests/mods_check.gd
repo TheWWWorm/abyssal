@@ -115,7 +115,7 @@ func check_normal_texture(Mods, library, material: ShaderMaterial, folder: Strin
 	var source := Image.create(int(original.x)*4,int(original.y)*4,false,Image.FORMAT_RGB8)
 	source.fill(Color(.65,.5,.975));source.set_pixel(0,0,Color.WHITE)
 	expect(source.save_png(ProjectSettings.globalize_path(companion))==OK,"Test normal atlas written")
-	expect(Mods.normal_texture_path(resource)==companion,"The active colour replacement finds its adjacent normal atlas")
+	expect(Mods.normal_texture_path(resource)==companion,"The normal atlas is found alongside the colour atlas")
 	library.reload_textures()
 	expect(material.get_shader_parameter("normal_map")==normal and cached.get_shader_parameter("normal_map")==normal,"Existing and cached pose materials share the reloaded normal texture")
 	expect(normal.get_size()==Vector2(source.get_size()) and normal.get_image().has_mipmaps(),"Normal atlases retain their resolution and receive normalized mipmaps")
@@ -127,7 +127,7 @@ func check_normal_texture(Mods, library, material: ShaderMaterial, folder: Strin
 	source.save_png(ProjectSettings.globalize_path(companion));library.reload_textures()
 	expect(normal.get_size()==Vector2(source.get_size()),"Adding the companion again updates the same texture object")
 	DirAccess.rename_absolute(albedo,albedo+".saved");library.reload_textures()
-	expect(Mods.normal_texture_path(resource).is_empty() and normal.get_size()==Vector2(2,2),"Restoring the original albedo disables a leftover normal atlas")
+	expect(Mods.normal_texture_path(resource)==companion and normal.get_size()==Vector2(source.get_size()),"A normal atlas remains usable independently of the colour replacement")
 	DirAccess.rename_absolute(albedo+".saved",albedo)
 	DirAccess.remove_absolute(companion);library.reload_textures()
 

@@ -11,13 +11,14 @@ var any_image := false
 var open_dialog := FileDialog.new()
 var android: Object
 var callback: JavaScriptObject
+var staged_path := ""
 
 func _ready() -> void:
 	if OS.has_feature("android") and Engine.has_singleton("AbyssalImporter"):
 		var plugin: Object=Engine.get_singleton("AbyssalImporter")
 		if plugin.has_signal(kind+"_selected"):
 			android=plugin
-			android.connect(kind+"_selected",func(path):chosen.emit(path))
+			android.connect(kind+"_selected",func(path):staged_path=path;chosen.emit(path))
 			android.connect(kind+"_failed",func(message):failed.emit(message))
 	elif OS.has_feature("web"):
 		callback=JavaScriptBridge.create_callback(received)
@@ -60,4 +61,11 @@ func received(args: Array) -> void:
 	if file==null:failed.emit(tr("Browser storage is unavailable."));return
 	file.store_buffer(bytes);var result:=file.get_error();file.close()
 	if result!=OK:DirAccess.remove_absolute(path);failed.emit(tr("Browser storage is full."));return
+	staged_path=path
 	chosen.emit(path)
+
+func release(path: String) -> void:
+	# Only platform-created temporary copies belong to the picker. A desktop
+	# selection may already be an installed texture, or another valuable file.
+	if not staged_path.is_empty() and path==staged_path:
+		DirAccess.remove_absolute(path);staged_path=""

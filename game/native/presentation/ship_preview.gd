@@ -130,6 +130,7 @@ func reveal() -> void:
 
 func _process(delta: float) -> void:
  if selected_id<0 or not is_visible_in_tree():return
+ preload("res://native/presentation/showroom_light.gd").apply_antialiasing(viewport)
  elapsed+=delta
  if vessel!=null:
   vessel.advance(roundi(delta*1000))
