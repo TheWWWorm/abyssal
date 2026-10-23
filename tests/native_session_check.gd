@@ -54,6 +54,12 @@ func _initialize() -> void:
 	data.legacy_rules_id=Content.legacy_rules_id(data)
 	var from_1_16: Dictionary=reworded.duplicate(true); from_1_16.rules_id=data.legacy_rules_id
 	assert(saves.restore(data,from_1_16)!=null,"A save fingerprinted by 1.16.1 still loads")
+	var shorter_text: Dictionary=data.duplicate(true); shorter_text.constants.e["a:[[Ljava.lang.String;"].append(null)
+	assert(Content.rules_id(shorter_text)==data.rules_id,"An extra text slot in the constants, as 1.0.2 SE has one fewer, leaves the rules unchanged")
+	assert(Content.previous_rules_id(shorter_text)!=Content.previous_rules_id(data),"1.17.1 fingerprints still count the text slots")
+	data.previous_rules_id=Content.previous_rules_id(data)
+	var from_1_21: Dictionary=reworded.duplicate(true); from_1_21.rules_id=data.previous_rules_id
+	assert(saves.restore(data,from_1_21)!=null,"A save fingerprinted by 1.17.1 to 1.21.13 still loads")
 	relabelled.tables.ships[0][1]+=1
 	assert(Content.rules_id(relabelled)!=data.rules_id,"A changed table changes the rules")
 	reworded.rules_id="2".repeat(64)

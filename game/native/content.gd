@@ -15,7 +15,7 @@ var profile := ""
 const RULE_KEYS := ["constants","tables","campaign","timelines","habitats","station_geometry"]
 ## 1.16.1 to 1.17.0 fingerprinted every key except these. Saves from those
 ## versions carry that value and are still matched against it.
-const LEGACY_TEXT_KEYS := ["jar_sha256","language","strings","name_pools","rules_id","legacy_rules_id","cache_directory"]
+const LEGACY_TEXT_KEYS := ["jar_sha256","language","strings","name_pools","rules_id","legacy_rules_id","previous_rules_id","cache_directory"]
 static var imported_rules := {}
 
 static func without_station_names(rules: Dictionary) -> Dictionary:
@@ -24,13 +24,39 @@ static func without_station_names(rules: Dictionary) -> Dictionary:
 		rules.tables.stations=rules.tables.stations.map(func(row): return row.slice(1) if row is Array else row)
 	return rules
 
-static func rules_id(parsed: Dictionary) -> String:
-	"""Fingerprint of a cache's game data: two JARs that differ only in wording
-	share it, whichever importer version converted them."""
+static func without_text_constants(rules: Dictionary) -> Dictionary:
+	"""Drops the String fields of the class constants: resource folders, speaker
+	names and the slots the original fills from its .lang files while running.
+	Sony Ericsson 1.0.2 has one such slot fewer than 1.0.3 and 1.0.8 and the
+	same game data otherwise."""
+	if rules.get("constants") is Dictionary:
+		var constants := {}
+		for owner in rules.constants:
+			var fields: Variant = rules.constants[owner]
+			if fields is Dictionary:
+				var kept := {}
+				for field in fields:
+					if not str(field).contains("java.lang.String"): kept[field]=fields[field]
+				fields=kept
+			constants[owner]=fields
+		rules.constants=constants
+	return rules
+
+static func rule_data(parsed: Dictionary) -> Dictionary:
 	var rules := {}
 	for key in RULE_KEYS:
 		if parsed.has(key): rules[key]=parsed[key]
-	return JSON.stringify(without_station_names(rules),"",true).sha256_text()
+	return without_station_names(rules)
+
+static func rules_id(parsed: Dictionary) -> String:
+	"""Fingerprint of a cache's game data: two JARs that differ only in wording
+	share it, whichever importer version converted them."""
+	return JSON.stringify(without_text_constants(rule_data(parsed)),"",true).sha256_text()
+
+## 1.17.1 to 1.21.13 kept the String constants in the fingerprint. Saves from
+## those versions carry that value and are still matched against it.
+static func previous_rules_id(parsed: Dictionary) -> String:
+	return JSON.stringify(rule_data(parsed),"",true).sha256_text()
 
 static func legacy_rules_id(parsed: Dictionary) -> String:
 	var rules := {}
@@ -85,7 +111,7 @@ func load_cache(directory: String) -> bool:
 		for resource in [entry.model]+entry.textures:
 			if resource is not String or not resource.begins_with("data/") or resource.contains("..") or resource.contains("\\"):
 				failure=tr("The resource index contains an unsafe path.");return false
-	parsed.rules_id=rules_id(parsed); parsed.legacy_rules_id=legacy_rules_id(parsed); parsed.cache_directory=directory
+	parsed.rules_id=rules_id(parsed); parsed.previous_rules_id=previous_rules_id(parsed); parsed.legacy_rules_id=legacy_rules_id(parsed); parsed.cache_directory=directory
 	root=directory;data=parsed;registry=entries;profile=str(parsed.jar_sha256)
 	return true
 

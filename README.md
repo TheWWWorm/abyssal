@@ -87,6 +87,7 @@ Builds that have actually been run through the importer:
 | --- | --- |
 | Sony Ericsson 1.0.8 (English) | Developed and validated against this build |
 | Sony Ericsson 1.0.3 (Russian) | Converts; the engine check suite passes on it, and the game is in Russian |
+| Sony Ericsson 1.0.2 and 1.0.3 (English) | Convert. Their game data matches 1.0.8, so saves load on any of these Sony Ericsson builds in either language |
 | "Deep 3D: Submarine Odyssey (Mascot3D)" 1.0.8, Fishlabs manifest | Converts. It is the same build as the Sony Ericsson release apart from its manifest, but the circulating copy is repacked with its last entry a byte short, which stock ZIP readers refuse. The importer recovers the entry, checks its size and CRC, and produces identical content |
 | "Deep 3D Submarine Odyssey" 1.0.8 with `data/3d/*.m3g` | Does not convert, and says so. This is the JSR-184 (M3G) edition of the game: its models are in a different format from the Mascot Capsule (MBAC) builds the engine decodes |
 | Nokia 1.0.3 | Does not convert; its code differs in ways the restricted data reader does not cover |
@@ -240,7 +241,7 @@ As in the original, the water above takes the colour of the most common alga aro
 
 **Headlight colour**, on the same page, offers **White** (the default) or **Blue** from the original beam texture. It changes regular headlights, their lenses and cast light together, including other vessels. Aquarius retains its original red headlights in both modes. The choice applies immediately and is saved between launches.
 
-Campaign and radio content comes from your local JAR. Saves from 1.1.1 and earlier load; their random draws continue from a fresh seed of the game's generator. A save stays loadable when its JAR is replaced by a translated or reworded copy: saves record the JAR's game data without its text (`.lang` strings, name lists and station names) and load on any JAR whose remaining data matches. Saves from 1.16.0 and earlier record only the JAR's file hash; they load on a reworded JAR if the original JAR's import is still in the content folder.
+Campaign and radio content comes from your local JAR. Saves from 1.1.1 and earlier load; their random draws continue from a fresh seed of the game's generator. A save stays loadable when its JAR is replaced by a translated or reworded copy: saves record the JAR's game data without its text (`.lang` strings, name lists, station names and the text fields of its code) and load on any JAR whose remaining data matches. The Sony Ericsson 1.0.2, 1.0.3 and 1.0.8 builds share saves this way. Saves from 1.16.0 and earlier record only the JAR's file hash; they load on a reworded JAR if the original JAR's import is still in the content folder.
 
 ### Reference
 
