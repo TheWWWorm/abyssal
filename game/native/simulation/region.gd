@@ -204,14 +204,20 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 	# the next mark: each fish keeps its place in the group, as in the
 	# original, where the school simply swam on side by side. Every fish
 	# turning for the mark itself drew them into single file.
+	# Arrival at a mark is judged from that middle too: a single fish keeps to
+	# its own side of it and never comes within reach, so the school would
+	# stop at its first mark and leave the hunters further on asleep. Past the
+	# last mark it swims on, as the original's always did.
 	var school_heading=null
+	var middle=null
 	if school_route!=null and school_route.current()!=null:
-		var middle: Array=[0,0,0];var count := 0
+		var sum: Array=[0,0,0];var count := 0
 		for actor in creatures:
-			if actor.constrained and actor.health.enabled:middle=Math.added(middle,actor.pose.origin);count+=1
+			if actor.constrained and actor.health.enabled and actor.health.hull>0:sum=Math.added(sum,actor.pose.origin);count+=1
 		if count>0:
-			for axis in 3:middle[axis]=roundi(float(middle[axis])/count)
-			school_heading=Math.normalize_vector(Math.subtracted(school_route.current(),middle))
+			for axis in 3:sum[axis]=roundi(float(sum[axis])/count)
+			middle=sum;school_route.advance(middle)
+			if school_route.current()!=null:school_heading=Math.normalize_vector(Math.subtracted(school_route.current(),middle))
 	for actor in creatures:
 		actor.advance(delta_ms,session.rng,player.pose.origin,player.pose.forward)
 		if actor.constrained and school_heading!=null and actor.health.enabled:
@@ -228,7 +234,6 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 		for feedback in hook.feedback:events.append({"kind":"notice","text":feedback})
 		hook.feedback.clear()
 	route.advance(player.pose.origin)
-	if school_route!=null and not creatures.is_empty(): school_route.advance(creatures[0].pose.origin)
 	for actor in creatures+enemies+friends:
 		for event in actor.events:
 			if event in ["killed","capsule_destroyed","debris_destroyed"]:

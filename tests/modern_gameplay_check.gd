@@ -5,6 +5,7 @@ const Fishing=preload("res://native/simulation/fishing.gd")
 const Creature=preload("res://native/simulation/creature.gd")
 const Weapon=preload("res://native/simulation/weapon.gd")
 const NPC=preload("res://native/simulation/npc.gd")
+const Math=preload("res://native/simulation/fixed_math.gd")
 var failures := 0
 var checks := 0
 var data: Dictionary
@@ -241,12 +242,23 @@ func run():
  var regression_duel=fixture(10)
  var regression_pilot=NPC.new();regression_pilot.configure(0,2,true,[0,0,0],data,10,regression_duel.session.rng)
  regression_pilot.health.configure(100,0,0);regression_pilot.activate()
- var regression_victim=NPC.new();regression_victim.configure(0,1,false,[0,0,-8000],data,10,regression_duel.session.rng)
+ var regression_victim=NPC.new();regression_victim.configure(0,1,false,[0,0,12000],data,10,regression_duel.session.rng)
  regression_victim.health.configure(100,0,0);regression_pilot.targets=[regression_victim]
  var regression_gun=Weapon.new();regression_gun.configure(5,2,3000,200,20,[0,0,0]);regression_pilot.weapons=[regression_gun]
  for tick in 200:
   regression_gun.advance(40);regression_pilot.advance(40)
  expect(regression_gun.launch_serial>2,"An opponent with its nose on a target inside 350 m fires")
+ # A mark straight behind once left a ship flying away from it for good:
+ # the correction lay back along its heading and never turned it.
+ var runaway=NPC.new();runaway.configure(0,2,true,[0,0,0],data,10,regression_duel.session.rng)
+ runaway.health.configure(100,0,0);runaway.activate()
+ var left_behind=NPC.new();left_behind.configure(0,1,false,[0,0,-30000],data,10,regression_duel.session.rng)
+ left_behind.health.configure(100,0,0);runaway.targets=[left_behind]
+ var furthest:=0
+ for tick in 500:
+  runaway.advance(40);runaway.straight=false
+  furthest=maxi(furthest,runaway.pose.origin[2])
+ expect(furthest<20000 and Math.dot_long(runaway.pose.forward,Math.normalize_vector(Math.subtracted(left_behind.pose.origin,runaway.pose.origin)))>0,"A ship turns round for a target straight behind it")
  regression_pilot.targets=[];regression_pilot.weapons=[];regression_duel.dispose()
  var regression_navigation=fixture(10);regression_navigation.session.docked=false
  regression_navigation.region.route.configure([0,0,30000,0,0,60000])

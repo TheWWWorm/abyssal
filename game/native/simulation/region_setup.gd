@@ -157,6 +157,9 @@ func guarded_school(center: Array,route) -> void:
 		creature.health.set_hull(10);creature.previous_hull=10;creature.health.set_hull(20)
 		school.append(creature)
 	r.creatures=school
+	# It sets out for the mark it was placed short of, not for those behind it.
+	route.index=maxi(0,route.points.find(center))
+	for index in route.index:route.reached[index]=true
 	r.school_route=route
 
 func populate() -> void:

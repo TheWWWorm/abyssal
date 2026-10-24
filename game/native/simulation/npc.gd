@@ -16,6 +16,9 @@ const GUN_DISTANCE := 35000
 const VEER_DISTANCE := 8000
 const WAKE_DISTANCE := 10000
 const WRECK_SINK := 30000
+## Within thirty degrees of straight behind (sin 30° in Q12), a ship turns
+## across rather than along its heading.
+const ABOUT_TURN := 2048
 var pose := Transform.new()
 var health := Health.new()
 var radius := 2000
@@ -209,6 +212,15 @@ func advance(delta_ms: int) -> void:
 				# need the fixed-rate turn.
 				if Math.length_of(change)<=turn_amount:
 					pose.face(desired)
+				elif Math.dot_long(pose.forward,desired)<0 and Math.length_of(Math.subtracted(desired,Math.scaled(pose.forward,Math.dot_long(pose.forward,desired))))<ABOUT_TURN:
+					# A mark almost straight behind gives a correction that lies
+					# back along the heading: it shortens the heading without
+					# turning it, and the rounding holds the ship on its course,
+					# so it flew away from its target for good. Turn across at the
+					# full rate instead, toward the side the mark lies on.
+					var across: Array=Math.subtracted(desired,Math.scaled(pose.forward,Math.dot_long(pose.forward,desired)))
+					if Math.length_of(across)<64:across=pose.right.duplicate()
+					pose.face(Math.normalize_vector(Math.added(pose.forward,Math.scaled(Math.normalize_vector(across),turn_amount))))
 				else:
 					change=Math.normalize_vector(change)
 					change=Math.scaled(change,turn_amount)

@@ -22,6 +22,8 @@ const TRAIL := [Color("99ceff"),Color("78beff"),Color("52a8f2"),Color("2389ec"),
 ## The species whose range is drawn (bp's species list): a fish 0..12, the
 ## caught algae at -3, none at -1.
 var habitat_species := -1
+## The fish's name and catch weights, written under its range as bp does.
+var habitat_caption := ""
 ## bp's rings about a species' home station, outermost first: eight for a
 ## fish, seven for each alga, at the phone's fixed pixel radii.
 const FISH_RINGS := [Color("0053a3"),Color("0060bd"),Color("006ed9"),Color("2489eb"),Color("66b4ff"),Color("82c1ff"),Color("afd7ff"),Color("c7e3ff")]
@@ -227,6 +229,7 @@ func _draw() -> void:
 		draw_dashed_line(p,point(target.x,target.y),Color("97e4d3"),2,6)
 	draw_chart_labels()
 	scale_bar()
+	if habitat_species>=0 and not habitat_caption.is_empty():species_caption()
 	var direction:=heading()
 	if direction.length_squared()<.001:
 		draw_circle(p,3,Color("f4fafb")) # Straight up/down has no planar heading.
@@ -269,6 +272,18 @@ func scale_bar() -> void:
 	var text := distance_text(meters)
 	var width: float=ThemeDB.fallback_font.get_string_size(text,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
 	draw_string(ThemeDB.fallback_font,Vector2((left.x+right.x-width)*0.5,right.y-9),text,HORIZONTAL_ALIGNMENT_LEFT,-1,13,ink)
+func species_caption() -> void:
+	"""Bottom left, as the phone writes it; a row higher when a narrow chart
+	leaves no room beside the scale bar."""
+	var font := ThemeDB.fallback_font
+	var width: float=font.get_string_size(habitat_caption,HORIZONTAL_ALIGNMENT_LEFT,-1,13).x
+	var bar := scale_bar_rect()
+	var box := Rect2(Vector2(14,size.y-40),Vector2(width+20,34))
+	if box.end.x>bar.position.x-8:box.position.y-=40
+	draw_rect(box,Color("101a52b0"))
+	var baseline := Vector2(box.position.x+10,box.position.y+17+font.get_ascent(13)*.5)
+	draw_string_outline(font,baseline,habitat_caption,HORIZONTAL_ALIGNMENT_LEFT,-1,13,2,Color("233384"))
+	draw_string(font,baseline,habitat_caption,HORIZONTAL_ALIGNMENT_LEFT,-1,13,Color("d7edf1"))
 static func nice_distance(meters: float) -> float:
 	"""The largest 1, 2 or 5 times a power of ten not above the given length."""
 	var power: float=pow(10.0,floorf(log(maxf(meters,1.0))/log(10.0)))

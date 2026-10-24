@@ -24,6 +24,10 @@ var sky_environment: Environment
 var built := false
 var wanted_volumetric := true
 var wanted_detail := true
+## The camera draws only the water until the station is whole and the view
+## has placed it on its orbit; before that it sits at the origin, inside
+## whichever module is built there first.
+var revealed := false
 
 func _ready() -> void:
 	dock_environment=Environment.new()
@@ -61,6 +65,7 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	view.set_ship_smoothing(bool(config.get_value("graphics","ship_smoothing",false)))
 	view.set_headlight_mode(preload("res://native/presentation/headlight_options.gd").read(config))
 	world.configure(session);world.build_docked_view();abyss.world=world
+	camera.cull_mask=0;revealed=false
 	view.configure(world,content,camera);view.revision=-1
 	abyss.import_sky_ramp(content.root)
 	abyss.set_headlights(false);abyss.set_headlight_beams(false)
@@ -128,6 +133,9 @@ func set_audio_enabled(value: bool) -> void:
 func _process(delta: float) -> void:
 	camera.fov=preload("res://native/presentation/display_settings.gd").framed_fov(65,get_viewport().get_visible_rect().size)
 	if not built or world.region==null:return
+	# The view places the camera after this, in the same frame.
+	if not revealed and not view.rebuilding and view.revision==world.revision:
+		camera.cull_mask=0xFFFFF;revealed=true
 	# The station's clocks (hangar doors, rotor, caps) and the wildlife and
 	# station traffic outside run as they do beyond a berth's windows.
 	world.advance_docked(delta)

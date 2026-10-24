@@ -1529,6 +1529,13 @@ func launch_game(resume: bool=false, player_name: String="Pilot", path: String="
 	show_loading(content.text(229) if not content.text(229).is_empty() else tr("Loading…"),chapter)
 	await get_tree().process_frame
 	if not is_inside_tree():return
+	# The frame on screen now, the loading notice, stays up in the dive until
+	# its shaders are warm (gameplay.lift_cover). Read once that frame is drawn.
+	var cover: Texture2D=null
+	if DisplayServer.get_name()!="headless":
+		await RenderingServer.frame_post_draw
+		if not is_inside_tree():return
+		cover=ImageTexture.create_from_image(get_viewport().get_texture().get_image())
 	get_viewport().disable_3d=false
 	# The title is only freed at the end of the frame. Until then its fit_window
 	# and the dive's update_render_resolution would each answer the other's
@@ -1536,5 +1543,6 @@ func launch_game(resume: bool=false, player_name: String="Pilot", path: String="
 	if get_window().size_changed.is_connected(fit_window):get_window().size_changed.disconnect(fit_window)
 	var gameplay=load("res://native/gameplay.gd").new()
 	gameplay.save_path=save_path;gameplay.load_path=path;gameplay.settings_path=settings_path
+	gameplay.launch_cover=cover
 	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_photo=face_photo; gameplay.player_name=tr("Pilot") if player_name.is_empty() else player_name
 	get_tree().root.add_child(gameplay); get_tree().current_scene=gameplay; queue_free()

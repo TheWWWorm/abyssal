@@ -60,6 +60,13 @@ var show_fps := false
 var player_face: Array = [87,78,68,20,42,-1]
 ## The character sheet's imported picture, if any (session.face_photo).
 var player_photo := ""
+## The title's last frame, its loading notice, held over the dive until the
+## view's shader oven has drawn and the compilations it set off have stopped,
+## so that work is not seen as a stutter in the first second of the dive.
+var launch_cover: Texture2D
+var cover: TextureRect
+var cover_frames := 0
+var cover_compilations := -1
 var dock_prompt := Label.new()
 var dock_caption := Label.new()
 var market_selection := 0
@@ -368,10 +375,24 @@ func _ready() -> void:
 		var tooling: Array=OS.get_cmdline_user_args()
 		if continue_save or "--gameplay-capture" in tooling or "--no-opening" in tooling: briefing()
 		else: begin_opening()
+	if launch_cover!=null:
+		cover=TextureRect.new();cover.texture=launch_cover;cover.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;cover.stretch_mode=TextureRect.STRETCH_SCALE
+		cover.z_index=100;cover.mouse_filter=Control.MOUSE_FILTER_STOP;ui.add_child(cover);cover.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var launch_args := OS.get_cmdline_user_args()
 	for index in launch_args.size():
 		if launch_args[index]=="--gameplay-capture":simulated_capture=true
 		if launch_args[index]=="--capture" and index+1<launch_args.size():capture_path=launch_args[index+1]
+func lift_cover(delta: float) -> void:
+	"""Fades the launch cover once the oven is gone and a frame compiled no
+	pipeline; a renderer that counts none waits on the oven only. At most
+	240 frames, whatever the counters say."""
+	cover_frames+=1
+	var compilations:=RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_PIPELINE_COMPILATIONS_SURFACE)+RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_PIPELINE_COMPILATIONS_DRAW)
+	var settled:=view.oven==null and compilations==cover_compilations
+	cover_compilations=compilations
+	if cover.modulate.a>=1.0 and not settled and cover_frames<240:return
+	cover.modulate.a-=minf(delta,1.0/30.0)*4.0
+	if cover.modulate.a<=0.0:cover.queue_free();cover=null
 func layout() -> void:
 	instruments.position=Vector2.ZERO; instruments.size=ui.size
 	condition.size=Vector2(440,34); condition.position=Vector2((ui.size.x-440)*.5,ui.size.y-70)
@@ -899,6 +920,7 @@ func discord_context() -> Dictionary:
 
 func _process(delta: float) -> void:
 	if session==null: return
+	if is_instance_valid(cover):lift_cover(delta)
 	GraphicsQuality.update_frame_generation(get_viewport(),quality,page.is_empty() and get_window().has_focus())
 	if GraphicsQuality.upscaler_failed(get_viewport()): update_render_resolution()
 	view.stabilize_touch_horizon=touch.enabled()
@@ -2641,7 +2663,7 @@ func station_chart(selection: int) -> HFlowContainer:
 	var compact: bool=ui.size.y<700
 	var body := VBoxContainer.new(); body.size_flags_vertical=Control.SIZE_EXPAND_FILL; body.add_theme_constant_override("separation",10); column.add_child(body)
 	var top := HBoxContainer.new(); top.size_flags_vertical=Control.SIZE_EXPAND_FILL; top.add_theme_constant_override("separation",14); body.add_child(top)
-	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=selection; map_widget.habitat_species=habitat_range; top.add_child(map_widget)
+	map_widget=Map.new(); map_widget.world=world; map_widget.selected_id=selection; map_widget.habitat_species=habitat_range; map_widget.habitat_caption=species_caption(habitat_range); top.add_child(map_widget)
 	map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.size_flags_vertical=Control.SIZE_EXPAND_FILL; map_widget.size_flags_stretch_ratio=1.1
 	map_widget.custom_minimum_size=Vector2(300,200) # after its _ready, which sets its own
 	map_widget.lens_radius=ZONE_RADIUS;map_widget.focus_mode=Control.FOCUS_ALL
@@ -3367,7 +3389,15 @@ func habitat_picker(parent: Node) -> void:
 		if choice[0]==habitat_range:picker.select(picker.item_count-1)
 	picker.item_selected.connect(func(index):
 		var id: int=picker.get_item_id(index);habitat_range=id if id<1000 else 1000-id
-		if is_instance_valid(map_widget):map_widget.habitat_species=habitat_range;map_widget.queue_redraw())
+		if is_instance_valid(map_widget):map_widget.habitat_species=habitat_range;map_widget.habitat_caption=species_caption(habitat_range);map_widget.queue_redraw())
+func species_caption(id: int) -> String:
+	"""bp's line under the chart for the fish whose range it shows: the name
+	and the weights a catch comes in, three quarters to five quarters of the
+	species' mass (cj.a, cj.b)."""
+	var creatures: Array=content.data.tables.get("creatures",[])
+	if id<0 or id>=creatures.size():return ""
+	var mass:=float(creatures[id][1])
+	return "%s  (%s – %s)"%[item_name(id),tr("%d t")%int(mass*0.75),tr("%d t")%int(mass*1.25)]
 var travel_confirmed := -1
 func ask_travel(id: int, go: Callable, back: Callable, warn := true) -> bool:
 	"""The original asks before every trip, on the chart (bp) and again at the
