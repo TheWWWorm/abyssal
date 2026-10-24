@@ -256,6 +256,7 @@ func run():
  regression_navigation.region.success=null;regression_navigation.region.failure=null;regression_navigation.update_autopilot()
  expect(not regression_navigation.autopilot and regression_navigation.encounter_navigation_point()==null,"Resolved encounter cannot keep an obsolete regression_navigation target")
  regression_navigation.dispose()
+ check_full_hold()
  print("MODERN_GAMEPLAY ",checks," checks; ",failures," failures")
  quit(1 if failures else 0)
 func fish_fixture() -> Dictionary:
@@ -265,3 +266,17 @@ func fish_fixture() -> Dictionary:
  hook.visible_to_camera=func(_point):return true
  hook.attach(fish)
  return {"world":world,"fish":fish,"hook":hook}
+func check_full_hold() -> void:
+ # A carcass or a crate that will not fit stays on the water, as a live catch
+ # does, instead of being spent; with room it is taken as before.
+ var parts:=fish_fixture();var world=parts.world;var carcass=parts.fish
+ var room: int=world.session.ship.capacity()-world.session.ship.cargo_used
+ carcass.state=4;carcass.meat=true;carcass.mass=room+1;carcass.render_scale=[800,800,800]
+ expect(not carcass.capture(world.session) and carcass.health.enabled and carcass.capturable and carcass.render_scale==[4096,4096,4096] and carcass.events.has("cargo_full"),"A carcass that will not fit stays on the water, full size")
+ carcass.mass=1;carcass.events.clear()
+ expect(carcass.capture(world.session) and not carcass.health.enabled and carcass.events.has("meat_collected"),"A carcass that fits goes into the hold")
+ var crate:=NPC.new();crate.health.configure(30,0,0);crate.capturable=true;crate.loot=world.session.make_goods(18,room+5)
+ expect(not crate.capture(world.session) and crate.capturable and crate.health.enabled and crate.state!=4 and crate.events.has("cargo_full"),"A crate that will not fit stays on the water")
+ crate.loot=world.session.make_goods(18,1);crate.events.clear()
+ expect(crate.capture(world.session) and not crate.capturable and crate.events.has("salvaged"),"A crate that fits is salvaged")
+ world.dispose()

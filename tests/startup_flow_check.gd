@@ -20,6 +20,7 @@ func open_title() -> void:
 func close_title() -> void:
 	menu.queue_free();await process_frame;await process_frame
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	var pack:=Pack.new()
 	pack.remove_tree("user://startup-check")
 	var cache:=await pack.install(OS.get_cmdline_user_args()[0],"user://startup-check/content",self)

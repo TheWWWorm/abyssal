@@ -72,8 +72,8 @@ func advance(delta_ms: int) -> void:
 	if distance<=capture_distance:
 		var collected: bool=target.capture(session)
 		if not collected:feedback.append(tr("Cannot collect catch · cargo hold is full."))
-		# A wreck or a mine is spent by the attempt either way; a creature that
-		# would not fit stays on the water, off the line.
+		# A mine is spent by the attempt either way; a catch, a carcass or a
+		# crate that would not fit stays on the water, off the line.
 		detach(false);return
 	target.pose.origin=Math.added(target.pose.origin,Math.scaled(Math.normalize_vector(line),mini(maxi(0,distance-capture_distance),delta_ms*tow_speed)))
 	if target.is_creature:

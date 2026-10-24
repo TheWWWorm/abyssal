@@ -89,6 +89,7 @@ func check_standard_pad(pad) -> void:
  untouched.set_value("input","pad_layout",pad.Layout.STANDARD)
  expect(pad.read_layout(untouched)==pad.Layout.STANDARD and pad.read_roles(untouched)[1]==pad.Role.THROTTLE,"A chosen layout keeps its saved sticks")
 func run() -> void:
+ preload("decline_reconstruction.gd").attach(self)
  var pad=preload("res://native/input/flight_controls.gd").new()
  check_standard_pad(preload("res://native/input/flight_controls.gd").new())
  # The checks below cover the Classic layout.

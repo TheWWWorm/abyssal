@@ -20,6 +20,7 @@ func saved() -> ConfigFile:
 	var config := ConfigFile.new();config.load(SETTINGS);return config
 
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	# A headless window is tiny; touch arrives in window pixels.
 	root.size=Vector2i(1280,720)
 	check_presets()

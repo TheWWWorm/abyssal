@@ -98,11 +98,14 @@ func countdown() -> int:
 func capture(session) -> bool:
 	if state==4:
 		# A carcass is a third of the animal in fish meat, if there is room.
-		if session.ship.can_carry(mass):
-			session.counters.p+=mass
-			session.ship.set_cargo(preload("res://native/simulation/goods.gd").merge(session.ship.cargo,[session.make_goods(18,mass)]))
-			events.append("meat_collected")
-		else:events.append("cargo_full")
+		# af.c spends it even when the hold is full; here it stays on the
+		# water like a live catch that will not fit, for when there is room.
+		if not session.ship.can_carry(mass):
+			render_scale=[4096,4096,4096];secondary_scale=[4096,4096,4096];hooked=false
+			events.append("cargo_full");return false
+		session.counters.p+=mass
+		session.ship.set_cargo(preload("res://native/simulation/goods.gd").merge(session.ship.cargo,[session.make_goods(18,mass)]))
+		events.append("meat_collected")
 		meat=false;health.enabled=false;capturable=false;render_scale.fill(0);secondary_scale.fill(0)
 		return true
 	if not session.ship.can_carry(mass) or not session.register_catch(species,mass):

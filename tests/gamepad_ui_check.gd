@@ -41,6 +41,7 @@ func focused_text() -> String:
  var control:=root.gui_get_focus_owner()
  return control.text if control is Button else ""
 func run() -> void:
+ preload("decline_reconstruction.gd").attach(self)
  root.size=Vector2i(1280,720)
  var app=load("res://scenes/native_main.tscn").instantiate()
  app.settings_path="user://gamepad-ui-check.cfg";app.save_path="user://gamepad-ui-check.json"

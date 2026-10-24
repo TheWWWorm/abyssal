@@ -77,6 +77,7 @@ func source_image(path: String, resource: String) -> Image:
 	# A player's own atlas stands in for the imported one at any size; the
 	# art keeps addressing it by the original's texels (texture_size).
 	var replacement := preload("res://native/presentation/mods.gd").texture_path(resource)
+	if replacement.is_empty():replacement=preload("res://native/textures/reconstructed_textures.gd").texture_path(root,resource)
 	if not replacement.is_empty():
 		var own := Image.load_from_file(replacement)
 		if own!=null: img=own
@@ -189,6 +190,10 @@ func surface_map(resource: String) -> Texture2D:
 
 func normal_image(resource: String) -> Image:
 	var path := preload("res://native/presentation/mods.gd").normal_texture_path(resource)
+	# A custom colour atlas keeps its own surface treatment; the generated
+	# normal map belongs only to the generated colour atlas.
+	if path.is_empty() and preload("res://native/presentation/mods.gd").texture_path(resource).is_empty():
+		path=preload("res://native/textures/reconstructed_textures.gd").texture_path(root,resource,true)
 	if not path.is_empty():
 		var image := Image.load_from_file(path)
 		if image!=null:

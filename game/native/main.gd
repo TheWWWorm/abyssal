@@ -6,6 +6,8 @@ const Health = preload("res://native/simulation/health.gd")
 const Trade = preload("res://native/simulation/trade.gd")
 const StationTheme = preload("res://native/presentation/station_theme.gd")
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
+const Reconstruction = preload("res://native/textures/reconstructed_textures.gd")
+const ReconstructionDialog = preload("res://native/presentation/reconstruction_dialog.gd")
 var content := Content.new()
 var camera := Camera3D.new()
 var abyss := preload("res://native/presentation/abyss.gd").new()
@@ -351,7 +353,7 @@ func _ready() -> void:
 func dropped_files(paths: PackedStringArray) -> void:
 	"""A dropped file is the same request the picker makes, so it takes the same
 	two routes. Anything else is said out loud rather than quietly ignored."""
-	if paths.is_empty() or import_busy or portable.busy or content_starting or waiting_for_language: return
+	if paths.is_empty() or import_busy or portable.busy or content_starting or waiting_for_language or ReconstructionDialog.is_open(): return
 	var path: String = paths[0]
 	match path.get_extension().to_lower():
 		"abyss": import_pack(path)
@@ -377,7 +379,7 @@ func source_import_available() -> bool:
 	return bundled_import_available() or (not OS.has_feature("web") and not OS.has_feature("android") and FileAccess.file_exists(project_root.path_join("tools/import_native.py")))
 
 func choose_content() -> void:
-	if import_busy or content_starting or waiting_for_language:return
+	if import_busy or content_starting or waiting_for_language or ReconstructionDialog.is_open():return
 	if source_import_available():chooser.popup_centered_ratio(.8)
 	else:portable.choose()
 
@@ -503,6 +505,7 @@ func prepare_title() -> void:
 	for i in content.registry.size():
 		if int(content.registry[i].id)==0: initial=i; break
 	catalog.select(initial)
+	Reconstruction.restore(content.root,start_config_now())
 	title_dock.load_content(content,save_path,settings_path)
 	apply_render_quality()
 	# The title builds station modules in batches; keep its progress visible
@@ -513,8 +516,24 @@ func prepare_title() -> void:
 	ready_for_preview=true
 	if inspector_open:show_model(initial)
 	finish_content_work();update_old_import()
+	await offer_reconstruction()
 	if wants_graphics_probe():start_graphics_probe.call_deferred()
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): launch_game.call_deferred()
+
+func offer_reconstruction() -> void:
+	# Offered once per imported JAR, including imports already installed when
+	# this feature arrives. A recipe/cache update rebuilds only an opted-in set.
+	if DisplayServer.get_name()=="headless" or not capture_path.is_empty() or "--gameplay-capture" in OS.get_cmdline_user_args():return
+	if outdated_import() or inspector_open or modal.visible or (is_instance_valid(settings_panel) and settings_panel.visible):return
+	var config := start_config_now();var info := Reconstruction.inspect(content.root)
+	if info.is_empty():return
+	var offer := not Reconstruction.offered(config,info)
+	if not offer and (not Reconstruction.enabled(config) or Reconstruction.active.has(content.root)):return
+	cancel_graphics_probe()
+	var dialog := ReconstructionDialog.new();ui.add_child(dialog)
+	await dialog.run(content.root,settings_path,offer)
+	ui.remove_child(dialog);dialog.queue_free()
+	apply_textures();focus_title.call_deferred()
 
 func show_model(index: int) -> void:
 	if not ready_for_preview: return
@@ -590,6 +609,7 @@ func save_capture() -> void:
 	get_tree().quit()
 
 func _input(event: InputEvent) -> void:
+	if ReconstructionDialog.is_open():return
 	preload("res://native/input/touch_controls.gd").record_input(event)
 	preload("res://native/presentation/focus_map.gd").before_move(get_viewport(),event)
 	if modal.visible and event is InputEventJoypadButton and event.pressed and event.button_index==JOY_BUTTON_B:
@@ -602,6 +622,7 @@ func bound_key(action: String) -> int:
 	var code: Variant=config.get_value("keys",action,SettingsMenu.default_key(config,action))
 	return int(code) if code is int or code is float else SettingsMenu.DEFAULT_KEYS[action]
 func _unhandled_input(event: InputEvent) -> void:
+	if ReconstructionDialog.is_open():return
 	if modal.visible and event.is_action_pressed("ui_cancel"):
 		close_modal()
 		get_viewport().set_input_as_handled()
@@ -1023,7 +1044,7 @@ func show_about(page: String="") -> void:
 	else:
 		var version := str(ProjectSettings.get_setting("application/config/version",""))
 		paragraph.call("ABYSSAL" if version.is_empty() else "ABYSSAL  ·  "+version,20,Color("aedbec"))
-		paragraph.call(tr("ABYSSAL is a free 3D remake of DEEP, the 2007 phone game by FISHLABS. It contains nothing of the original: the art, text and music come from your own copy of the DEEP JAR."),15)
+		paragraph.call(tr("ABYSSAL is a free 3D remake of DEEP, the 2007 phone game by FISHLABS. Import your own DEEP JAR for the game content. Optional texture reconstruction is available in Graphics settings."),15)
 		var Links := preload("res://native/wiki/wiki_export.gd")
 		for link in [[tr("Source code"),Links.SOURCE_URL],[tr("Website"),Links.PLAY_URL],[tr("Reference"),Links.PLAY_URL+"wiki/"],[tr("Made by %s")%"TheWWWorm","https://github.com/TheWWWorm"]]:
 			var address: String=link[1]
@@ -1060,7 +1081,7 @@ func show_mods() -> void:
 	var box := VBoxContainer.new();box.add_theme_constant_override("separation",10);modal.add_child(box)
 	box.add_child(label(tr("Mods").to_upper(),24,Color("8bd6ee")))
 	stop_music_preview()
-	var intro := label(tr("Replace the game's textures and music with your own files. Remove a replacement to restore the original."),13,Color("a2c3d3"))
+	var intro := label(tr("Replace the game's textures and music with your own files. Custom textures take priority over reconstructed textures."),13,Color("a2c3d3"))
 	intro.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;intro.custom_minimum_size.x=560;box.add_child(intro)
 	var textures := button(tr("Textures"),show_mod_textures,box)
 	box.add_child(label(tr("The two texture atlases used by all models."),12,Color("89a6a6")))
@@ -1111,14 +1132,16 @@ func show_mod_textures(focus_name: String="") -> void:
 		var title := label(atlas.title,15);title.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;words.add_child(title)
 		var about := label(atlas.about,11,Color("a2c3d3"));about.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;words.add_child(about)
 		var standing := (tr("Replacement · %d×%d") if status.replaced else tr("Original · %d×%d"))%[status.size.x,status.size.y]
+		if status.reconstructed:standing=tr("Reconstructed textures")+" · %d×%d"%[status.size.x,status.size.y]
 		words.add_child(label(atlas.name+".png · "+standing,11,Color("d7c399") if status.replaced else Color("89a6a6")))
 		var actions := HFlowContainer.new();actions.add_theme_constant_override("h_separation",4);words.add_child(actions)
-		for entry in [[tr("View"),func():show_texture(atlas),true,"TextureView_"],[tr("Replace…"),func():choose_texture(atlas.name),images.available(),"TextureImport_"],[tr("Restore original"),func():
-			mods_notice=(tr("Restored the original %s.")%atlas.name) if Mods.remove_texture(atlas.name) else tr("Could not remove the replacement.")
+		for entry in [[tr("View"),func():show_texture(atlas),true,"TextureView_"],[tr("Replace…"),func():choose_texture(atlas.name),images.available(),"TextureImport_"],[tr("Remove replacement"),func():
+			mods_notice=(tr("Texture replacement removed.")) if Mods.remove_texture(atlas.name) else tr("Could not remove the replacement.")
 			apply_textures();show_mod_textures("TextureImport_"+atlas.name),status.replaced,"TextureRemove_"]]:
 			var act := texture_action(entry,atlas.name,actions)
 			if first==null:first=act
 		var normal_state := tr("Normal map")+" · "+("%d×%d"%[normal.size.x,normal.size.y] if normal.replaced else tr("None"))
+		if normal.reconstructed:normal_state=tr("Normal map")+" · "+tr("Reconstructed textures")
 		var normal_label := label(normal_state,12,Color("d7c399") if normal.replaced else Color("89a6a6"));normal_label.name="NormalStatus_"+atlas.name;words.add_child(normal_label)
 		var normal_actions := HFlowContainer.new();normal_actions.add_theme_constant_override("h_separation",4);words.add_child(normal_actions)
 		for entry in [[tr("Import normal…"),func():choose_texture(atlas.name,true),images.available(),"NormalImport_"],[tr("View"),func():show_texture(atlas,false,true),normal.image!=null,"NormalView_"],[tr("Remove normal"),func():
@@ -1154,7 +1177,9 @@ func show_texture(atlas: Dictionary, cut: bool=false, normal: bool=false) -> voi
 	var kind := tr("Normal map") if normal else (tr("Cut-outs see-through") if cut else tr("As painted"))
 	var heading := label("%s · %s · %d×%d"%[atlas.title.to_upper(),kind.to_upper(),status.size.x,status.size.y],18,Color("8bd6ee"));heading.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;box.add_child(heading)
 	var big := checkered(Mods.cut_out(status.image,1024) if cut and not normal else status.image,360);big.name="TexturePreview";big.size_flags_horizontal=Control.SIZE_SHRINK_CENTER;box.add_child(big)
-	box.add_child(label((tr("%s  ·  replacement") if status.replaced else tr("%s  ·  original"))%status.path.get_file(),12,Color("a2c3d3")))
+	var origin := (tr("%s  ·  replacement") if status.replaced else tr("%s  ·  original"))%status.path.get_file()
+	if status.reconstructed:origin=status.path.get_file()+" · "+tr("Reconstructed textures")
+	box.add_child(label(origin,12,Color("a2c3d3")))
 	var row := HFlowContainer.new();row.add_theme_constant_override("h_separation",8);box.add_child(row)
 	if not normal:
 		button(tr("Show cut-outs") if not cut else tr("Show as painted"),func():show_texture(atlas,not cut),row)
@@ -1238,7 +1263,7 @@ func apply_textures() -> void:
 	title_dock.view.library.reload_textures()
 
 func focus_title() -> void:
-	if not is_inside_tree() or modal.visible or loading.visible:return
+	if not is_inside_tree() or modal.visible or loading.visible or ReconstructionDialog.is_open():return
 	if not title_menu.is_visible_in_tree() or title_menu.focus_behavior_recursive==Control.FOCUS_BEHAVIOR_DISABLED:return
 	if has_saved_game and not title_menu.continue_button.disabled: title_menu.continue_button.grab_focus()
 	elif not title_menu.new_button.disabled: title_menu.new_button.grab_focus()
@@ -1330,7 +1355,7 @@ func wants_graphics_probe() -> bool:
 	return ready_for_preview and not launching
 
 func start_graphics_probe() -> void:
-	if probing() or not ready_for_preview or launching or inspector_open:return
+	if probing() or not ready_for_preview or launching or inspector_open or ReconstructionDialog.is_open():return
 	if is_instance_valid(settings_panel) and settings_panel.visible:return
 	if is_instance_valid(graphics_probe):graphics_probe.queue_free()
 	graphics_probe=GraphicsProbe.new();add_child(graphics_probe)
@@ -1440,6 +1465,7 @@ func show_settings(section: String="") -> void:
 	modal_origin=get_viewport().gui_get_focus_owner()
 	settings_panel.configure(settings_path,{
 		"text":content.text,
+		"content_root":func():return content.root if ready_for_preview else "",
 		"content_language":func():return content_language,
 		"auto_title":func():return title_dock.dive_audio.title_track() if title_dock.dive_audio.title_choice==0 and ready_for_preview else ""},
 		false,TouchControls.last_input=="touch" or (TouchControls.last_input.is_empty() and DisplayServer.is_touchscreen_available()))
@@ -1468,6 +1494,7 @@ func apply_setting(section: String, key: String) -> void:
 	if key in SettingsMenu.OceanOptions.VISUALS:
 		title_dock.apply_atmosphere(config)
 	match [section,key]:
+		["graphics","reconstructed_textures"]: apply_textures()
 		["input","mouse_wheel_throttle"]: title_menu.update_help(bool(config.get_value("input","mouse_wheel_throttle",false)))
 		["audio","music"]: title_dock.set_music(clampf(float(config.get_value("audio","music",0.65)),0,1))
 		["audio","effects"]: audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1);audio.apply_levels()
@@ -1487,7 +1514,7 @@ func apply_setting(section: String, key: String) -> void:
 		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))
 
 func launch_game(resume: bool=false, player_name: String="Pilot", path: String="") -> void:
-	if not ready_for_preview or launching or outdated_import(): return
+	if not ready_for_preview or launching or outdated_import() or ReconstructionDialog.is_open(): return
 	if path.is_empty():path=save_path
 	var chapter := 1
 	if resume:

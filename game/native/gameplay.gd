@@ -1181,6 +1181,7 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	if world.manual_roll:roll=clampf(float(Input.is_physical_key_pressed(key_bindings.roll_right))-int(Input.is_physical_key_pressed(key_bindings.roll_left))+pad.roll,-1,1)
 	return {"yaw":yaw,"pitch":pitch,"strafe":strafe,"roll":roll,"fire":fire,"guns":guns,"hook":hook,"boost":boost,"throttle":throttle,"mouse_x":mouse_delta.x,"mouse_y":mouse_delta.y,"aim_point":view.aim_point(),"hook_aim":view.aim_point(true)}
 func _unhandled_input(event: InputEvent) -> void:
+	if preload("res://native/presentation/reconstruction_dialog.gd").is_open():return
 	if page=="transit": return
 	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN] and mouse_wheel_throttle and page.is_empty() and not session.docked and world.region!=null and not world.region.cinematic() and not touch.enabled():
 		wheel_throttle_remainder+=event.factor*(1 if event.button_index==MOUSE_BUTTON_WHEEL_UP else -1)
@@ -1261,7 +1262,7 @@ func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_APPLICATION_PAUSED]:
 		controller.reset();touch.reset();touch.release_contacts();mouse_steer=Vector2.ZERO
 		if session!=null and page.is_empty():show_pause()
-	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null:touch_action("menu")
+	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null and not preload("res://native/presentation/reconstruction_dialog.gd").is_open():touch_action("menu")
 func cinematic_skip_requested(event: InputEvent) -> bool:
 	if event is InputEventKey:
 		return event.pressed and not event.echo and (event.keycode in [KEY_ENTER,KEY_SPACE,KEY_ESCAPE] or event.physical_keycode==key_bindings.fire)
@@ -1270,6 +1271,7 @@ func cinematic_skip_requested(event: InputEvent) -> bool:
 	if event is InputEventJoypadMotion:return event.axis==JOY_AXIS_TRIGGER_RIGHT and event.axis_value>.25
 	return event is InputEventScreenTouch and event.pressed
 func _input(event: InputEvent) -> void:
+	if preload("res://native/presentation/reconstruction_dialog.gd").is_open():return
 	FocusMap.before_move(get_viewport(),event)
 	var was_touch := touch.enabled()
 	touch.update_input(event,controller.deadzone)
@@ -1805,6 +1807,7 @@ func show_settings(section: String="", back: Callable=Callable()) -> void:
 			touch_scroll.scroll=null
 			if page=="settings": settings_return.call())
 	settings_panel.configure(settings_path,{
+		"content_root":func():return content.root,
 		"fullscreen":toggle_fullscreen,"layout_editor":func():settings_panel.hide();show_layout_editor(),
 		"touch_active":touch.enabled,"calibrate":calibrate_tilt,
 		"motion_enable":motion.enable,"buzz":func():buzz(150),"text":session.text,
@@ -1841,6 +1844,7 @@ func apply_setting(section: String, key: String) -> void:
 			dive_audio.apply_levels()
 		"graphics":
 			if key=="audio": dive_audio.set_enabled(graphics.audio)
+			elif key=="reconstructed_textures": view.library.reload_textures()
 			else: apply_graphics()
 		"view":
 			if key=="orientation": apply_orientation()
@@ -2294,7 +2298,7 @@ func consume_events() -> void:
 				var speaker: String = str(content.data.constants.ah["a:[Ljava.lang.String;"][entry.entry.speaker])
 				# cq announces a radio call in the water with the signal cue; the
 				# message cue is M.A.I.'s, for the mission screens.
-				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":keyed_text(entry.entry.text_id),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],func(): world.region.acknowledge_transmission(); close_page(),"signal")
+				show_dialogue([{"speaker":session.name if entry.entry.speaker==0 else speaker,"text":keyed_text(entry.entry.text_id),"portrait":content.data.constants.ah["a:[[B"][entry.entry.speaker] if entry.entry.speaker>0 else []}],finish_transmission,"signal")
 			"death","mission_failed":
 				dive_audio.cue("pressure")
 				# The heading names what happened; what to do next is the
@@ -2312,6 +2316,12 @@ func consume_events() -> void:
 		if not page.is_empty(): break
 	held.reverse()
 	for entry in held:world.region.events.push_front(entry)
+func finish_transmission() -> void:
+	"""The original keeps the water still through a whole radio exchange: a
+	line waiting on this one (timeline kind 6) opens in the same frame, so no
+	tick of the dive runs between the two windows."""
+	world.region.acknowledge_transmission(); close_page()
+	if world.region.update_radio() and world.region.active_transmission!=null:consume_events()
 func save_game(feedback: bool=true) -> void:
 	if not session.docked:
 		if feedback: notice(tr("Dock at a station to save."))

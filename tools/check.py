@@ -40,6 +40,8 @@ def main():
         'mod_texture_ui_check.gd':cache,
         'texture_filtering_check.gd':cache,
         'preview_antialiasing_check.gd':cache,
+        'reconstruction_check.gd':None,
+        'reconstruction_startup_check.gd':cache,
         'engine_language_check.gd':cache,
         'wiki_check.gd':cache/'native-data.json',
         'discord_presence_check.gd':cache,
@@ -51,7 +53,8 @@ def main():
         # Named either way: a renderer chosen in this machine's game settings
         # (renderer_choice.gd) must not change what the checks run on.
         command+=['--rendering-method','gl_compatibility' if args.compatibility else 'forward_plus']
-        command+=['--script',str(ROOT/'tests'/name),'--',str(argument)]
+        command+=['--script',str(ROOT/'tests'/name)]
+        if argument is not None:command+=['--',str(argument)]
         try:
             result=subprocess.run(command,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180)
             bad=result.returncode!=0 or 'SCRIPT ERROR:' in result.stdout or 'ERROR:' in result.stdout

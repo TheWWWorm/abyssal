@@ -39,6 +39,7 @@ func app_from(cache: String):
 	return app
 
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	DirAccess.remove_absolute(SETTINGS);DirAccess.remove_absolute(SAVE)
 	check_headlight_migration()
 	await check_scroll_position()

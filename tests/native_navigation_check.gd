@@ -40,14 +40,37 @@ func check_handling() -> void:
 				moved=moved or step>0.001
 				expect(error<previous_error,"Autopilot makes steady progress, including a destination directly astern")
 				previous=facing;previous_error=error
-			expect(moved and worst_step<=handling*40.0/3.0*TAU/4096.0+0.0007,"Each automatic turn stays within the hull's steering rate")
+			# bb.b adds (course - heading)*dt*5/4096 a tick: at most about a
+			# twentieth of a half turn in 40 ms.
+			expect(moved and worst_step<=40.0*5.0/4096.0*PI+0.0007,"Each automatic turn stays within the original's blend")
+	# The original's autopilot turn ignores hull handling and steering
+	# equipment; those only change the pilot's own helm.
 	var slow=pilot(0.67);var agile=pilot(1.82);var upgraded=pilot(0.67)
 	upgraded.stats.steering_bonus=56
-	for player in [slow,agile,upgraded]:player.autopilot_target=[100000,0,0];player.advance(40)
+	for player in [slow,agile,upgraded]:player.autopilot_target=[100000,0,0]
+	for _tick in 10:
+		for player in [slow,agile,upgraded]:player.advance(40)
 	var slow_angle:=Vector3.BACK.angle_to(Math.vector(slow.pose.forward).normalized())
 	var agile_angle:=Vector3.BACK.angle_to(Math.vector(agile.pose.forward).normalized())
 	var upgraded_angle:=Vector3.BACK.angle_to(Math.vector(upgraded.pose.forward).normalized())
-	expect(agile_angle>slow_angle*2.5 and upgraded_angle>slow_angle*1.7,"Hull handling and steering upgrades both improve autopilot turns")
+	expect(absf(agile_angle-slow_angle)<.002 and absf(upgraded_angle-slow_angle)<.002,"Autopilot turns at the original's rate whatever the hull")
+	# Even the least agile hull comes about in a few seconds instead of
+	# flying a wide loop, and the turn eases out instead of stopping dead.
+	var about=pilot(0.67);about.autopilot_target=[0,0,-100000]
+	var rates: Array=[];var heading:=Vector3.BACK
+	for _tick in 100:
+		about.advance(40)
+		var facing: Vector3=Math.vector(about.pose.forward).normalized()
+		rates.append(heading.angle_to(facing));heading=facing
+	expect(heading.angle_to(Vector3.FORWARD)<deg_to_rad(5),"Autopilot comes about within four seconds on the slowest hull")
+	var fastest: float=rates.max()
+	expect(rates[0]<fastest*.5 and rates[-1]<fastest*.1,"An automatic turn picks up and eases out rather than starting and stopping at full rate")
+	var level=pilot(1.1);level.autopilot_target=[100000,30000,60000]
+	var worst_tilt:=0.0
+	for _tick in 60:
+		level.advance(40)
+		worst_tilt=maxf(worst_tilt,absf(Math.vector(level.pose.right).normalized().y))
+	expect(worst_tilt<.01,"A climbing, turning autopilot course keeps the horizon level (%.4f)"%worst_tilt)
 	var aligned=pilot(1.1);aligned.autopilot_target=[0,50,100000]
 	aligned.advance(40)
 	expect(aligned.pose.forward[0]==0 and aligned.pose.forward[1]>0,"A nearly aligned vertical course corrects pitch without adding an unrelated yaw")

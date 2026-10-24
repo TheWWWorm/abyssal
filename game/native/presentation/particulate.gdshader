@@ -32,11 +32,14 @@ uniform vec3 water_motion=vec3(0.0);
 uniform sampler3D suspension : repeat_enable, filter_linear;
 global uniform vec3 ocean_suspension_phase;
 const vec3 SUSPENSION_SCALE=vec3(.014,.032,.014);
-// An exposure of a twentieth of a second: Deeper's .0028 s was set for its
+// An exposure of a thirtieth of a second: Deeper's .0028 s was set for its
 // much faster hulls, and left the snow round at this game's cruising and
-// boost speeds. Ends at a metre, as long as the old boost streak.
-const float SNOW_EXPOSURE=.05;
-const float SNOW_LONGEST=1.0;
+// boost speeds, while a twentieth drew metre-long streaks at cruise that
+// filled the view. Ends at sixty centimetres.
+const float SNOW_EXPOSURE=.03;
+const float SNOW_LONGEST=.6;
+// The share of the motes drawn as snow, against the bubbles' full count.
+const float SNOW_SHARE=.7;
 varying float shine;
 varying float bubble;
 varying float mote_seed;
@@ -85,11 +88,12 @@ void vertex(){
 			living_glow=max(living_glow,near_hull*exp(-age*1.3)*disturbance_strength[i]);
 		}
 		living_glow*=bioluminescence_enabled ? 1.0-bubble : 0.0;
-		float density=1.0-smoothstep(snow_density/1.3-0.04,snow_density/1.3,fract(mote_seed*17.37+0.19));
+		float share=snow_density/1.3*mix(SNOW_SHARE,1.0,bubble);
+		float density=1.0-smoothstep(share-0.04,share,fract(mote_seed*17.37+0.19));
 		// The snow is brighter where the water is thicker with matter, as
 		// the beam is, so the lit flakes and the lit water agree.
 		float matter=textureLod(suspension,(center+ocean_suspension_phase)*SUSPENSION_SCALE,0.0).r;
-		float suspended=(snow_enabled ? 1.0 : bubble)*mix(.32+matter*1.35,1.0,bubble);
+		float suspended=(snow_enabled ? 1.0 : bubble)*mix(.28+matter*1.1,1.0,bubble);
 		shine=((0.085+light*2.8)*suspended+living_glow*3.5)*density*(1.0-smoothstep(26.0,42.0,length(center-focus)))*smoothstep(3.0,8.0,distance);
 	}
 	vec3 view_center=(VIEW_MATRIX*vec4(center,1.0)).xyz;

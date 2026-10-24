@@ -298,12 +298,17 @@ func check_station_repel(world) -> void:
 	expect(player.pose.forward[2]<-4000,"A ship close to a station but clear of its walls is not turned")
 	# Flown straight at the wall it is turned back out instead of stopping on it.
 	player.pose.origin=[center[0],center[1],roundi(wall+6000)];player.pose.face([0,0,-4096]);player.set_throttle(100);player.throttle=100
-	var touched:=0
+	var touched:=0;var sharpest:=0.0
 	for step in 150:
+		var heading: Vector3=Vector3(player.pose.forward[0],player.pose.forward[1],player.pose.forward[2]).normalized()
 		world.advance(.04,{})
+		sharpest=maxf(sharpest,heading.angle_to(Vector3(player.pose.forward[0],player.pose.forward[1],player.pose.forward[2]).normalized()))
 		if player.contact and player.pose.origin[2]<=wall+2:touched+=1
 	expect(player.pose.forward[2]>0 and player.pose.origin[2]>wall+2000,"A hull flown into a station is turned away and leaves it")
 	expect(touched<5,"The hull is not held against the wall")
+	# bb.a(aw[]) blends the heading away by dt*5/4096 a tick: no faster than
+	# about nine degrees in 40 ms, rather than whipping round.
+	expect(sharpest<=40.0*5.0/4096.0*PI+.002,"A station turns the hull away gradually (%.3f rad in a tick)"%sharpest)
 func check_zone(app, target: int) -> void:
 	"""The original's chart: a tap moves a zone, and the side view lists only
 	what the zone covers; at the gate the zone stays inside the reach."""

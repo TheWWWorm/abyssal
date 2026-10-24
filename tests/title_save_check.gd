@@ -30,6 +30,7 @@ func settled() -> void:
 	await process_frame;await process_frame
 
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	var cleanup := preload("res://native/platform/content_pack.gd").new()
 	cleanup.remove_tree(DIRECTORY)
 	# The three named slots are global. Preserve them when a contributor runs

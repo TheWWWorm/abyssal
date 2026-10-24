@@ -18,6 +18,8 @@ const Quality = preload("res://native/presentation/graphics_quality.gd")
 const RendererChoice = preload("res://native/platform/renderer_choice.gd")
 const Pad = preload("res://native/input/flight_controls.gd")
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
+const Reconstruction = preload("res://native/textures/reconstructed_textures.gd")
+const ReconstructionDialog = preload("res://native/presentation/reconstruction_dialog.gd")
 const DiscordPresence = preload("res://native/platform/discord_presence.gd")
 
 ## Tabs in order of how often they are reached for: sound first, input last
@@ -292,7 +294,7 @@ func back() -> void:
 	hide();closed.emit()
 
 func _input(event: InputEvent) -> void:
-	if not visible or not is_inside_tree(): return
+	if not visible or not is_inside_tree() or ReconstructionDialog.is_open(): return
 	if scroll!=null:
 		# A pointer may hit the visible part of a clipped row. Focusing it on
 		# press must not move the target before the release activates it.
@@ -491,7 +493,7 @@ func restore_scroll(position_y: int, revision: int) -> void:
 	scroll.follow_focus=true
 
 func restore_focus() -> void:
-	if not is_inside_tree() or not visible or not is_instance_valid(column): return
+	if not is_inside_tree() or not visible or not is_instance_valid(column) or ReconstructionDialog.is_open(): return
 	var wanted := focus_key;focus_key=""
 	if not wanted.is_empty():
 		var found := find_option(self,wanted)
@@ -544,10 +546,29 @@ func graphics_page() -> void:
 	colour.tooltip_text=tr("How strongly each region's algae tint the open water. Lower is plain blue water, higher the region's own colour.")
 	group(tr("Surfaces and textures"))
 	graphics_options(["detail"])
+	var reconstruction := row(tr("Reconstructed textures"),tr("On") if flag("graphics","reconstructed_textures",false) else tr("Off"),"reconstructed_textures",request_reconstruction)
+	reconstruction.disabled=not can("content_root") or str(host.content_root.call()).is_empty()
+	reconstruction.tooltip_text=tr("Builds sharper textures and shallow surface relief from your imported game. Generated once, saved on this device. Custom texture packs take priority.")
+	if reconstruction.disabled:note(tr("Import your DEEP JAR to reconstruct its textures."))
 	var textures := graphics_grid()
 	for kind in ["station","ship"]:
 		var node := toggle(tr("Station texture smoothing") if kind=="station" else tr("Ship texture smoothing"),"graphics",kind+"_smoothing",false,tr("On"),tr("Off"),textures)
 		node.tooltip_text=tr("On: smoothly filtered textures. Off: original pixelated textures.")
+
+func request_reconstruction() -> void:
+	if ReconstructionDialog.is_open() or not can("content_root"):return
+	var content_root := str(host.content_root.call())
+	if content_root.is_empty():return
+	focus_key="reconstructed_textures"
+	if flag("graphics","reconstructed_textures",false):
+		if Reconstruction.save_choice(settings_path,Reconstruction.inspect(content_root),false)!=OK:
+			var error_dialog := ReconstructionDialog.new();get_parent().add_child(error_dialog)
+			await error_dialog.settings_error();get_parent().remove_child(error_dialog);error_dialog.queue_free()
+	else:
+		var dialog := ReconstructionDialog.new();get_parent().add_child(dialog)
+		await dialog.run(content_root,settings_path,false)
+		get_parent().remove_child(dialog);dialog.queue_free()
+	changed.emit("graphics","reconstructed_textures");rebuild(true)
 
 func choose_preset(preset: int) -> void:
 	var config := load_config();Quality.write(config,preset)

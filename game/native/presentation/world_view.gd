@@ -331,7 +331,7 @@ func bake_shaders() -> void:
 	# the first shot or the first station, and would compile then.
 	var tube := CylinderMesh.new();tube.radial_segments=6;tube.rings=1
 	var cone := CylinderMesh.new();cone.top_radius=0;cone.radial_segments=6;cone.rings=1
-	for entry in [[tube,"combat_line"],[QuadMesh.new(),"combat_sprite"],[QuadMesh.new(),"bubble"],[QuadMesh.new(),"gate_field"],[QuadMesh.new(),"beacon"],[QuadMesh.new(),"vessel_wake"],[QuadMesh.new(),"particulate"],[cone,"headlight_beam"]]:
+	for entry in [[tube,"combat_line"],[QuadMesh.new(),"combat_sprite"],[QuadMesh.new(),"bubble"],[QuadMesh.new(),"gate_field"],[QuadMesh.new(),"vessel_wake"],[QuadMesh.new(),"particulate"],[cone,"headlight_beam"]]:
 		var surface := MeshInstance3D.new();surface.mesh=entry[0]
 		var material := ShaderMaterial.new();material.shader=load("res://native/presentation/%s.gdshader"%entry[1]);surface.material_override=material
 		surface.custom_aabb=AABB(Vector3.ONE*-50,Vector3.ONE*100);oven.add_child(surface)
@@ -810,11 +810,8 @@ func add_station_lights(visual) -> void:
 		GraphicsQuality.work_lamp_shadow(lamp,library.shadow_level);lamp.shadow_bias=.08;lamp.shadow_normal_bias=.6
 		lamp.light_volumetric_fog_energy=.3
 		lamp.distance_fade_enabled=true;lamp.distance_fade_begin=650;lamp.distance_fade_length=300
-		var halo := MeshInstance3D.new();var quad := QuadMesh.new();quad.size=Vector2(4,4)
-		var material := ShaderMaterial.new();material.shader=preload("res://native/presentation/beacon.gdshader")
-		material.set_shader_parameter("tint",lamp.light_color);quad.material=material;halo.mesh=quad
-		lamp.set_meta("halo",material)
-		halo.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;lamp.add_child(halo)
+		# These lamps stand in the open water beside the module, where no
+		# fixture of the original's is; only their light shows, not a glow.
 
 func set_shadow_level(level: int) -> void:
 	"""Station lamps follow the shadow quality setting, built or yet to be."""

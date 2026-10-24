@@ -39,7 +39,6 @@
     "game/native/presentation/abyss_sky.gdshader",
     "game/native/presentation/action_freeze.gd",
     "game/native/presentation/audio_settings.gd",
-    "game/native/presentation/beacon.gdshader",
     "game/native/presentation/lamp_point.gdshader",
     "game/native/presentation/biological_surface.gd",
     "game/native/presentation/blood_puff.gdshader",
@@ -328,6 +327,16 @@
     "tests/native_navigation_check.gd",
     "tests/mod_texture_ui_check.gd",
     "tests/texture_filtering_check.gd",
-    "tests/preview_antialiasing_check.gd"
+    "tests/preview_antialiasing_check.gd",
+    "game/native/textures/recipe_renderer.gd",
+    "game/native/textures/normal_recipe.gd",
+    "game/native/textures/source_geometry.gd",
+    "game/native/textures/reconstructed_textures.gd",
+    "game/native/textures/reconstruction_recipe.json",
+    "game/native/presentation/reconstruction_dialog.gd",
+    "provenance/texture-reconstruction.md",
+    "tests/reconstruction_check.gd",
+    "tests/reconstruction_startup_check.gd",
+    "tests/decline_reconstruction.gd"
   ]
 }

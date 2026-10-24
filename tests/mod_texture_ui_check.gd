@@ -27,6 +27,7 @@ func click(name: String) -> void:
 	await settled()
 
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	var args := OS.get_cmdline_user_args()
 	var cleanup := preload("res://native/platform/content_pack.gd").new();cleanup.remove_tree(DIRECTORY)
 	DirAccess.make_dir_recursive_absolute(DIRECTORY)

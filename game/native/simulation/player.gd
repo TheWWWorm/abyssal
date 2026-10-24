@@ -60,6 +60,15 @@ const MOUSE_RATE_FACTOR := 3.0
 ## beyond it is dropped rather than carried, or a wide flick would leave the
 ## hull turning for seconds after the hand stopped.
 const MOUSE_BACKLOG := 700.0
+## bb.b and bb.a(aw[]) turn the heading towards a course or away from a wall
+## by adding (target - heading) * dt*5/4096 to it each tick, whatever the
+## hull's handling: most of a turn in under a second, easing out as the nose
+## comes round.
+const TURN_BLEND_PER_MS := 5.0/4096.0
+## The autopilot's turn picks up over this long instead of starting at full
+## rate, so a new waypoint is not a jolt.
+const AUTOPILOT_TURN_RESPONSE_MS := 150.0
+var autopilot_turn := 0.0
 var yaw_level := 0.0
 var pitch_level := 0.0
 var yaw_carry := 0.0
@@ -139,19 +148,31 @@ func advance(delta_ms: int) -> void:
  else:roll_level=roll_input
  if desired.length_squared()>.5:
   var facing:=Math.vector(pose.forward).normalized()
+  var blend:=minf(1.0,delta_ms*TURN_BLEND_PER_MS)
   if contact:
-   pose.face(Math.array(facing.lerp(desired,1-exp(-delta_ms*.006)).normalized()*4096))
+   autopilot_turn=0.0
+   # Blended by angle: the original's vector blend hardly turns a hull
+   # flown square at a wall, and its walls, unlike these, never stopped one.
+   pose.face(Math.array(facing.slerp(desired,blend)*4096))
   else:
-   # The autopilot holds the same helm as the pilot. A new course cannot
-   # bypass hull handling or steering upgrades, including a course astern.
-   var angle:=facing.angle_to(desired)
-   var maximum: float=stats.steering()*delta_ms/3.0*TAU/4096.0
-   if angle>0.000001:
-    var axis:=facing.cross(desired)
-    if axis.length_squared()<0.000000000001:axis=Math.vector(pose.up)
-    pose.assign(Basis(axis.normalized(),minf(angle,maximum))*pose.basis())
+   # A course dead astern has no one way round; come round through the side.
+   if facing.dot(desired)<-.999:
+    var side:=facing.cross(Vector3.UP)
+    if side.length_squared()<.01:side=facing.cross(Vector3.RIGHT)
+    desired=(desired+side.normalized()*.1).normalized()
+   autopilot_turn=lerpf(autopilot_turn,1.0,1.0-exp(-delta_ms/AUTOPILOT_TURN_RESPONSE_MS))
+   # The blend is taken of the angle rather than of the vectors: the same
+   # easing onto the course, but a course astern no longer starts with an
+   # almost idle second of the vectors cancelling out.
+   var heading:=facing.slerp(desired,blend*autopilot_turn)
+   # The Q12 heading drops a turn finer than a unit of its vectors, which
+   # would leave the eased tail of every correction short of the course.
+   var remaining:=facing.angle_to(desired);var least:=minf(remaining,2.0/4096.0)
+   if remaining>0.0 and facing.angle_to(heading)<least:heading=facing.slerp(desired,least/remaining)
+   turn_level(facing,heading)
   yaw_carry=0.0;pitch_carry=0.0;mouse_remainder=Vector2.ZERO;mouse_carry=Vector2.ZERO
  else:
+  autopilot_turn=0.0
   var rate: float=stats.steering()*delta_ms/3.0
   # Carry the fractions: the original rounds each tick, which at full input
   # is exact, but a helm settling through small values must not lose them.
@@ -195,6 +216,22 @@ func advance(delta_ms: int) -> void:
   while repair_timer>=600:repair_timer-=600;health.regenerate("hull")
  outside_depth_limits=depth>stats.maximum_depth+200 or depth<stats.minimum_depth-200
  if health.hull<=0:health.enabled=false
+
+func turn_level(facing: Vector3, heading: Vector3) -> void:
+ """Turns the nose from facing to heading by a yaw about the vertical and a
+ pitch about the level axis across the nose, so the turn itself never tips
+ the horizon; a bank already there is left for auto_level to right gently."""
+ if absf(facing.y)>.995 or absf(heading.y)>.995:
+  var axis:=facing.cross(heading)
+  if axis.length_squared()>0.000000000001:pose.assign(Basis(axis.normalized(),facing.angle_to(heading))*pose.basis())
+  return
+ var flat:=Vector3(facing.x,0,facing.z).normalized();var wanted:=Vector3(heading.x,0,heading.z).normalized()
+ var yaw:=atan2(flat.cross(wanted).y,flat.dot(wanted))
+ var rotation:=Basis(Vector3.UP,yaw)
+ var climb:=asin(clampf(heading.y,-1,1))-asin(clampf(facing.y,-1,1))
+ # Raising the nose is a negative turn about the axis to its right.
+ rotation=Basis(Vector3.UP.cross(rotation*facing).normalized(),-climb)*rotation
+ pose.assign(rotation*pose.basis())
 
 func set_throttle(value: int) -> void:
  throttle_target=clampi(value,0,100)

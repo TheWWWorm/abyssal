@@ -4,6 +4,7 @@ import argparse, hashlib, json, os, pathlib, re, shutil, subprocess, tempfile
 from paths import ROOT, cache_home
 from branding import ARTWORK, web_assets
 PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'linux-arm64':('Linux','abyssal.arm64'),'windows':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
+RECIPE = 'game/native/textures/reconstruction_recipe.json'
 
 VIEWPORT_DEFAULT = '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">'
 VIEWPORT_MOBILE = '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, viewport-fit=cover">'
@@ -95,7 +96,7 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
         if name.startswith(SDK_ARTWORK) and not sdks:continue
         if name.endswith('/NOTICE.md'):continue
         source=ROOT/name
-        if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK):raise ValueError('Unexpected runtime source: '+name)
+        if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK and name != RECIPE):raise ValueError('Unexpected runtime source: '+name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text()
@@ -133,7 +134,7 @@ name="{platform}"
 platform="{PLATFORMS[platform][0]}"
 runnable=true
 export_filter="all_resources"
-include_filter=""
+include_filter="native/textures/reconstruction_recipe.json"
 exclude_filter=""
 export_path=""
 script_export_mode=1

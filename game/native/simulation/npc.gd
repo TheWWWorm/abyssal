@@ -100,10 +100,13 @@ func release() -> void:pass
 func hook(_slow: int) -> void:pass
 
 func capture(session) -> bool:
-	# Taking a wreck spends it whether or not its salvage fits.
+	# bl.b spends a crate whose salvage does not fit; here it stays on the
+	# water, as a catch that will not fit does, until there is room.
+	if not protected_target and loot!=null and not session.ship.can_carry(loot.owned):
+		events.append("cargo_full");return false
 	capturable=false;health.enabled=false;state=4
 	if protected_target:events.append("rescued");return true
-	if loot!=null and session.ship.can_carry(loot.owned):
+	if loot!=null:
 		session.counters.r+=1
 		session.ship.set_cargo(Goods.merge(session.ship.cargo,[loot]))
 		events.append("salvaged")

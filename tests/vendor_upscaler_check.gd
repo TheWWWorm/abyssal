@@ -56,6 +56,7 @@ func generated() -> int:
 	return int(Amd.status().get("generated_frames",0))
 
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	root.size=Vector2i(1280,720)
 	var vendors: Array=Quality.upscalers().filter(Quality.single_sampled)
 	if vendors.is_empty():

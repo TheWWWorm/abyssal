@@ -7,6 +7,7 @@ func expect(ok: bool, why: String) -> void:
  if not ok:failures+=1;push_error(why)
 func _initialize():call_deferred("run")
 func run():
+ preload("decline_reconstruction.gd").attach(self)
  var args := OS.get_cmdline_user_args()
  var app=load("res://scenes/native_main.tscn").instantiate()
  app.save_path="user://engine-ui-check.json";app.settings_path="user://engine-ui-check.cfg"
@@ -265,6 +266,7 @@ func run():
  check_source_weapon_audio(game)
  await check_catch_notice(game)
  await check_dialogue_keeps_auto_fire(game)
+ await check_radio_chain(game)
  await check_auto_fire_banks(game)
  await check_catch_view(game)
  await check_limit_arrow(game)
@@ -422,6 +424,27 @@ func check_dialogue_keeps_auto_fire(game) -> void:
  expect(game.auto_fire and game.touch.automatic_weapons.has("guns"),"Automatic fire resumes when the transmission ends")
  game.show_pause();game.close_page()
  expect(not game.auto_fire and not game.touch.automatic_weapons.has("guns"),"A menu the player opens still stops automatic fire")
+
+func check_radio_chain(game) -> void:
+ # cq holds the water through a whole exchange: a line waiting on the one
+ # just read opens at once, with no tick of the dive between the windows.
+ game.session.docked=false;game.close_page();await process_frame
+ var region=game.world.region
+ var Timeline=preload("res://native/simulation/timeline.gd")
+ var first=Timeline.new().configure({"text_id":1,"speaker":1,"kind":5,"values":[0]})
+ var second=Timeline.new().configure({"text_id":2,"speaker":0,"kind":6,"values":[0]})
+ var saved_timeline: Array=region.timeline
+ region.timeline=[first,second];region.events=[];region.active_transmission=null
+ region.update_radio();game.consume_events()
+ expect(game.page=="dialogue" and region.active_transmission==first,"The first radio line opens")
+ var elapsed: int=region.elapsed_ms;var position: Array=region.player.pose.origin.duplicate()
+ game.column.find_child("DialogueNext",true,false).pressed.emit()
+ expect(game.page=="dialogue" and region.active_transmission==second,"The chained reply opens in the same frame")
+ await process_frame;await process_frame
+ expect(game.page=="dialogue" and region.elapsed_ms==elapsed and region.player.pose.origin==position,"No simulation runs between chained radio lines")
+ game.column.find_child("DialogueNext",true,false).pressed.emit()
+ expect(game.page.is_empty() and region.active_transmission==null,"The exchange closes after its last line")
+ region.timeline=saved_timeline;region.events=[]
 
 func check_auto_fire_banks(game) -> void:
  # Auto fire works the guns and never the harpoon. With the original weapon

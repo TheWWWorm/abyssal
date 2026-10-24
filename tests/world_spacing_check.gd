@@ -13,6 +13,7 @@ func expect(ok: bool,why: String) -> void:
 	if not ok:failures+=1;push_error(why)
 func _initialize():call_deferred("run")
 func run() -> void:
+	preload("decline_reconstruction.gd").attach(self)
 	var cache: String=OS.get_cmdline_user_args()[0]
 	data=JSON.parse_string(FileAccess.get_file_as_string(cache.path_join("native-data.json")))
 	check_preferences()

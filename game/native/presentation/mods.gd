@@ -132,10 +132,14 @@ static func texture_status(content_root: String, atlas: Dictionary, normal: bool
 	var original := "" if normal else original_texture_path(content_root,atlas.resource)
 	var replacement := normal_texture_path(atlas.resource) if normal else texture_path(atlas.resource)
 	var shown := replacement if normal or not replacement.is_empty() else original
+	var reconstructed := ""
+	if replacement.is_empty() and (not normal or texture_path(atlas.resource).is_empty()):
+		reconstructed=preload("res://native/textures/reconstructed_textures.gd").texture_path(content_root,atlas.resource,normal)
+		if not reconstructed.is_empty():shown=reconstructed
 	var size := Vector2i.ZERO
 	var img := Image.load_from_file(shown) if FileAccess.file_exists(shown) else null
 	if img!=null: size=Vector2i(img.get_width(),img.get_height())
-	return {"replaced":not replacement.is_empty(),"path":shown,"original":original,"size":size,"image":img}
+	return {"replaced":not replacement.is_empty(),"reconstructed":not reconstructed.is_empty(),"path":shown,"original":original,"size":size,"image":img}
 
 static func cut_out(image: Image, side: int) -> Image:
 	"""The atlas as the cut-out polygons see it: pure white, the phone's

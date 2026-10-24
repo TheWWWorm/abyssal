@@ -722,4 +722,3 @@ func update_station_lights() -> void:
 	if not is_inside_tree():return
 	for lamp in get_tree().get_nodes_in_group("station_work_lamps"):
 		lamp.light_color=OceanOptions.station_lamp_color(lamp.get_meta("overhead",true),OceanOptions.warm_station)
-		if lamp.has_meta("halo"):lamp.get_meta("halo").set_shader_parameter("tint",lamp.light_color)
