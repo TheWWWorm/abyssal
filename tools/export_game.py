@@ -82,18 +82,26 @@ def stamp_web_build(output):
     temporary=page.with_suffix('.html.tmp');temporary.write_text(html);temporary.replace(page)
     return digest[:12]
 
-# The Windows package, from a template with AMD's FidelityFX SDK: its splash
-# and the vendor artwork belong to the packages that bundle the SDK only.
-FSR_SPLASH = 'game/ui/abyssal-splash-fsr.png'
-SDK_ARTWORK = (FSR_SPLASH, 'game/ui/vendors/')
+# The Windows package, from a template with the vendor graphics SDKs: AMD's
+# FidelityFX always, NVIDIA's Streamline as well when it is passed. Their
+# splashes and the vendor artwork belong to the packages that bundle them.
+SPLASHES = {'amd': 'game/ui/abyssal-splash-fsr.png', 'nvidia': 'game/ui/abyssal-splash-dlss.png'}
+SDK_ARTWORK = (*SPLASHES.values(), 'game/ui/vendors/')
+# NVIDIA's GeForce RTX badge and the splash made with it, from
+# generate_branding.js --nvidia-badge, once NVIDIA approved their use.
+NVIDIA_BADGE = 'nvidia-geforce-rtx-white.png'
+NVIDIA_SPLASH = 'abyssal-splash-nvidia.png'
 
 
-def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, template=None, sdks=()):
+def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, template=None, sdks=(), nvidia_artwork=None):
     names=json.loads((ROOT/'source-manifest.json').read_text())['files']
     for name in names:
         if not name.startswith('game/'):continue
         # Vendor-attributed artwork belongs to the packages with their SDKs.
         if name.startswith(SDK_ARTWORK) and not sdks:continue
+        # Only the splash the package shows; NVIDIA's approved artwork brings its own.
+        shown=None if nvidia_artwork else SPLASHES['nvidia' if 'nvidia' in sdks else 'amd']
+        if name.startswith(tuple(SPLASHES.values())) and name!=shown:continue
         if name.endswith('/NOTICE.md'):continue
         source=ROOT/name
         if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK and name != RECIPE):raise ValueError('Unexpected runtime source: '+name)
@@ -101,7 +109,12 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
     settings=stage/'project.godot'
     text=settings.read_text()
     if sdks:
-        splash='res://'+str(pathlib.Path(FSR_SPLASH).relative_to('game'))
+        splash='res://'+str(pathlib.Path(SPLASHES['nvidia' if 'nvidia' in sdks else 'amd']).relative_to('game'))
+        if nvidia_artwork:
+            shutil.copyfile(nvidia_artwork/NVIDIA_SPLASH,stage/'ui'/NVIDIA_SPLASH);splash='res://ui/'+NVIDIA_SPLASH
+            shutil.copyfile(nvidia_artwork/NVIDIA_BADGE,stage/'ui/vendors'/NVIDIA_BADGE)
+            # About draws the badge far below its size: mipmaps keep it whole.
+            (stage/'ui/vendors'/(NVIDIA_BADGE+'.import')).write_text('[remap]\n\nimporter="texture"\ntype="CompressedTexture2D"\n\n[params]\n\nmipmaps/generate=true\n')
         text=text.replace('boot_splash/image="res://ui/abyssal-splash.png"','boot_splash/image="%s"'%splash)
         # The credits name the SDKs the package bundles (graphics_credits.gd).
         text+='\n[abyssal]\n\n'+''.join(f'graphics_sdk/{sdk}=true\n' for sdk in sdks)
@@ -166,16 +179,19 @@ def write_static_headers(output):
     (pathlib.Path(output)/'_headers').write_text(WEB_HEADERS)
 
 
-def check_template(template):
-    """The template has AMD's integration."""
-    if b'amd_fidelityfx_loader_dx12.dll' not in template.read_bytes():raise ValueError('The Windows template lacks the AMD FidelityFX integration')
+def check_template(template, nvidia):
+    """The template has AMD's integration, and NVIDIA's exactly when the
+    package is to carry NVIDIA's runtime."""
+    data=template.read_bytes()
+    if b'amd_fidelityfx_loader_dx12.dll' not in data:raise ValueError('The Windows template lacks the AMD FidelityFX integration')
+    if (b'sl.interposer.dll' in data)!=nvidia:raise ValueError('The Windows template must include NVIDIA Streamline exactly when --streamline is passed')
 
 
-def stage_vendor_runtimes(output, fsr_sdk):
-    """AMD's signed runtime, the DirectX Agility runtime and their license
-    terms beside a Windows export from the patched engine. The game starts on
-    Vulkan and loads none of them until Direct3D 12 is chosen in Settings
-    (renderer_choice.gd)."""
+def stage_vendor_runtimes(output, fsr_sdk, streamline=None):
+    """AMD's signed runtime, the DirectX Agility runtime, NVIDIA's production
+    runtime when asked, and their license terms beside a Windows export from
+    the patched engine. The game starts on Vulkan and loads none of them
+    until a Direct3D 12 renderer is chosen in Settings (renderer_choice.gd)."""
     from prepare_fsr_sdk import DLLS as AMD_DLLS, NOTICES as AMD_NOTICES, AGILITY_FILES, AGILITY_CORE_SHA256, digest
     fsr_sdk=pathlib.Path(fsr_sdk)
     for name in AMD_DLLS:shutil.copyfile(fsr_sdk/'Kits/FidelityFX/signedbin'/name,output/name)
@@ -186,10 +202,16 @@ def stage_vendor_runtimes(output, fsr_sdk):
     notices=output/'licenses/microsoft-directx-agility';notices.mkdir(parents=True,exist_ok=True)
     for name in AGILITY_FILES.values():
         if name.startswith('licenses/'):shutil.copyfile(fsr_sdk/'agility'/name,notices/pathlib.Path(name).name)
+    if streamline:
+        from prepare_streamline import DLLS, NOTICES
+        streamline=pathlib.Path(streamline)
+        for name in DLLS:shutil.copyfile(streamline/'bin/x64'/name,output/name)
+        notices=output/'licenses/nvidia-streamline';notices.mkdir(parents=True,exist_ok=True)
+        for name in NOTICES:shutil.copyfile(streamline/name,notices/name.replace('/','-'))
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--template',type=pathlib.Path,help='Custom desktop or web export template for the selected platform and build type');p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');p.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory; supplied architectures replace the official native libraries');args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--template',type=pathlib.Path,help='Custom desktop or web export template for the selected platform and build type');p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, or with nvidia-dlss.patch and amd-fsr-after-nvidia-dlss.patch for --streamline');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');p.add_argument('--streamline',type=pathlib.Path,help='Also NVIDIA DLSS: SDK directory prepared by prepare_streamline.py');p.add_argument('--nvidia-artwork',type=pathlib.Path,help='With --streamline, once NVIDIA approved it: a directory with '+NVIDIA_BADGE+' and '+NVIDIA_SPLASH);p.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory; supplied architectures replace the official native libraries');args=p.parse_args()
     if args.template and (args.platform not in {'linux','linux-arm64','windows','macos','web'} or args.windows_template):p.error('--template is for desktop or web exports and cannot be combined with --windows-template.')
     if args.android_native_libs and args.platform!='android':p.error('--android-native-libs is only supported for Android.')
     if args.version_code<1:p.error("Android version code must be positive")
@@ -197,20 +219,24 @@ def main():
     if output.is_relative_to(ROOT):p.error('Export outside the source directory.')
     if not args.godot and not args.stage_only:p.error('Install Godot 4.7 and matching export templates, or pass --godot.')
     if bool(args.windows_template)!=bool(args.fsr_sdk) or (args.windows_template and args.platform!='windows'):p.error('The vendor SDK build needs --windows-template and --fsr-sdk, for Windows only.')
+    if args.streamline and not args.windows_template:p.error('--streamline needs --windows-template and --fsr-sdk.')
+    if args.nvidia_artwork and not args.streamline:p.error('--nvidia-artwork needs --streamline.')
     selected_template=args.windows_template or args.template
     template=selected_template.expanduser().resolve() if selected_template else None
     if template and not template.is_file():p.error('No export template at '+str(template))
-    if args.windows_template:check_template(template)
-    sdks=('amd',) if args.windows_template else ()
+    if args.windows_template:check_template(template,bool(args.streamline))
+    sdks=(('amd','nvidia') if args.streamline else ('amd',)) if args.windows_template else ()
+    artwork=args.nvidia_artwork.expanduser().resolve() if args.nvidia_artwork else None
+    if artwork and not all((artwork/name).is_file() for name in (NVIDIA_BADGE,NVIDIA_SPLASH)):p.error('--nvidia-artwork needs '+NVIDIA_BADGE+' and '+NVIDIA_SPLASH)
     # Same reviewed input set as source packaging. Exported resources never include the local cache.
     from package_source import source_files
     source_files()
     output.mkdir(parents=True,exist_ok=True)
     home=cache_home()/'exports';home.mkdir(parents=True,exist_ok=True)
     if args.stage_only:
-        stage=output/'project';stage.mkdir(exist_ok=False);stage_project(stage,args.platform,args.version,args.version_code,template,sdks);print(stage);return
+        stage=output/'project';stage.mkdir(exist_ok=False);stage_project(stage,args.platform,args.version,args.version_code,template,sdks,artwork);print(stage);return
     with tempfile.TemporaryDirectory(prefix=args.platform+'-',dir=home) as temporary:
-        stage=pathlib.Path(temporary);stage_project(stage,args.platform,args.version,args.version_code,template,sdks)
+        stage=pathlib.Path(temporary);stage_project(stage,args.platform,args.version,args.version_code,template,sdks,artwork)
         if args.platform=='android':
             from android_runtime import stage as stage_android
             stage_android(stage,args.godot,args.release,args.android_native_libs.expanduser().resolve() if args.android_native_libs else None)
@@ -225,7 +251,7 @@ def main():
         from desktop_runtime import stage as stage_desktop_runtime, embed_macos
         stage_desktop_runtime(output,args.platform)
         if args.platform=="macos":embed_macos(output)
-    if args.windows_template:stage_vendor_runtimes(output,args.fsr_sdk)
+    if args.windows_template:stage_vendor_runtimes(output,args.fsr_sdk,args.streamline)
     # Preserve bundled engine attribution in native/web distributions as well as source.
     subprocess.run([args.godot,'--headless','--script',str(ROOT/'tools/export_notices.gd'),'--',str(output/'GODOT_LICENSES.txt')],check=True)
     shutil.copyfile(ROOT/'THIRD_PARTY_NOTICES.md',output/'THIRD_PARTY_NOTICES.md')

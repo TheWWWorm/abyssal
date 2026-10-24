@@ -51,26 +51,34 @@ async function main() {
     font: 'DejaVu Sans 64', rgba: true,
   }}).png().toBuffer({resolveWithObject: true});
   const iconSize = 512, gap = 42;
-  // The build with AMD's FidelityFX SDK credits it under the name: AMD's
+  // Builds with a vendor's graphics SDK credit it under the name: AMD's
   // white FSR lockups, as AMD's FSR guidelines provide them, in a row of
-  // equal cells.
+  // equal cells, and a text line for NVIDIA DLSS, whose licence asks for a
+  // splash attribution. Each cell may carry a caption below its logo.
   const amd = ['amd-fsr-upscaling-white.png', 'amd-fsr-frame-generation-white.png']
     .map(name => ({file: path.join(root, 'game/ui/vendors', name)}));
+  const text = async (markup, size) => sharp({text: {text: markup, font: 'DejaVu Sans ' + size, rgba: true}})
+    .png().toBuffer({resolveWithObject: true}).then(r => ({input: r.data, width: r.info.width, height: r.info.height}));
   async function row(cells) {
     const cell = 256, logo = 144, between = 40;
-    const height = logo;
+    const captions = await Promise.all(cells.map(c => c.caption ? text('<span foreground="white">' + c.caption + '</span>', 24) : null));
+    const height = logo + Math.max(0, ...captions.map(c => c ? 10 + c.height : 0));
     const width = cells.length * cell + (cells.length - 1) * between;
     const layers = [];
     for (let i = 0; i < cells.length; i++) {
-      const fitted = await sharp(cells[i].file).resize(cell, logo, {fit: 'inside', kernel: 'lanczos3'}).png().toBuffer({resolveWithObject: true});
+      let picture = sharp(cells[i].file);
+      if (cells[i].region) picture = picture.extract(cells[i].region);
+      const fitted = await picture.resize(cell, logo, {fit: 'inside', kernel: 'lanczos3'}).png().toBuffer({resolveWithObject: true});
       const x = i * (cell + between);
       layers.push({input: fitted.data, left: x + Math.floor((cell - fitted.info.width) / 2), top: Math.floor((logo - fitted.info.height) / 2)});
+      if (captions[i]) layers.push({input: captions[i].input, left: x + Math.floor((cell - captions[i].width) / 2), top: logo + 10});
     }
     const data = await sharp({create: {width, height, channels: 4, background: {r: 0, g: 0, b: 0, alpha: 0}}}).composite(layers).png().toBuffer();
     return {input: data, width, height, gap: 56};
   }
-  async function splash(cells) {
+  async function splash(line, cells) {
     const parts = [{input: title.data, width: title.info.width, height: title.info.height}];
+    if (line) parts.push({gap: 30, ...await text(line, 28)});
     if (cells) parts.push(await row(cells));
     const height = iconSize + parts.reduce((total, part) => total + (part.gap || gap) + part.height, 0);
     let y = Math.floor((1024 - height) / 2);
@@ -84,8 +92,20 @@ async function main() {
     return sharp({create: {width: 1024, height: 1024, channels: 4, background: {r: 0, g: 0, b: 0, alpha: 0}}})
       .composite(layers).png().toBuffer();
   }
-  save('game/ui/abyssal-splash.png', await splash());
-  save('game/ui/abyssal-splash-fsr.png', await splash(amd));
+  const dlss = '<span foreground="#8fb3bd" letter_spacing="2048">Powered by NVIDIA DLSS</span>';
+  save('game/ui/abyssal-splash.png', await splash(null));
+  save('game/ui/abyssal-splash-fsr.png', await splash(null, amd));
+  save('game/ui/abyssal-splash-dlss.png', await splash(dlss, amd));
+  // NVIDIA's own GeForce RTX artwork needs NVIDIA's written approval, so it
+  // is not part of the source: --nvidia-badge <png> <directory> writes the
+  // proposed splash with it outside the tree, for review.
+  const badge = process.argv.indexOf('--nvidia-badge');
+  if (badge > 0) {
+    const [file, directory] = process.argv.slice(badge + 1, badge + 3);
+    const cells = [{file, region: {left: 290, top: 278, width: 2420, height: 730}, caption: 'NVIDIA DLSS'}, ...amd];
+    fs.mkdirSync(directory, {recursive: true});
+    fs.writeFileSync(path.join(directory, 'abyssal-splash-nvidia.png'), await splash(null, cells));
+  }
   for (const [name, size] of [['favicon', 64], ['apple-touch-icon', 180], ['icon-192', 192], ['icon-512', 512]]) {
     save('browser/' + name + '.png', await png(size));
   }

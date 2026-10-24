@@ -94,6 +94,11 @@ func check_presets() -> void:
 	expect(Quality.heights_for(1080)==[0,720,900],"Only resolutions below the screen's are offered")
 	var unknown := ConfigFile.new();unknown.set_value("view","upscaler","xess")
 	expect(Quality.read(unknown).upscaler=="fsr","An unknown upscaler reads as FSR 1.0")
+	unknown.set_value("view","upscaler","dlss")
+	expect(Quality.read(unknown).upscaler=="dlss","A DLSS choice is kept for the engine build that has it")
+	if not Quality.Nvidia.dlss():
+		expect(Quality.upscaler(Quality.read(unknown)) in ["fsr","bilinear"] and not "dlss" in Quality.upscalers(),"DLSS without NVIDIA's runtime falls back")
+		expect(not Quality.Nvidia.frame_generation(),"Frame generation needs NVIDIA's runtime")
 	for sdk in ["fsr3","fsr4"]:
 		unknown.set_value("view","upscaler",sdk)
 		expect(Quality.read(unknown).upscaler==sdk,"An %s choice is kept for the engine build that has it"%sdk)
@@ -159,6 +164,15 @@ func check_renderer_choice() -> void:
 	expect(not FileAccess.file_exists(RendererChoice.OVERRIDE) and not FileAccess.file_exists(RendererChoice.TRIAL),"Choosing Vulkan removes the override")
 	RendererChoice.choose("d3d12")
 	expect(Amd.mode()>=0 or not FileAccess.file_exists(RendererChoice.OVERRIDE),"Direct3D 12 needs the engine build with AMD's integration")
+	if Amd.mode()>=0:
+		var amd := ConfigFile.new();amd.load(RendererChoice.OVERRIDE)
+		expect(amd.get_value("rendering","fsr_sdk/enabled",false) and not amd.has_section_key("rendering","streamline/enabled"),"Direct3D 12 with AMD FSR loads AMD's runtime only")
+	RendererChoice.choose("d3d12_dlss")
+	expect(Quality.Nvidia.dlss_mode()>=0 or not FileAccess.file_exists(RendererChoice.OVERRIDE),"Direct3D 12 with DLSS needs the engine build with NVIDIA's integration")
+	if Quality.Nvidia.dlss_mode()>=0:
+		var nvidia := ConfigFile.new();nvidia.load(RendererChoice.OVERRIDE)
+		expect(nvidia.get_value("rendering","streamline/enabled",false) and not nvidia.has_section_key("rendering","fsr_sdk/enabled") and nvidia.get_value("rendering","rendering_device/driver.windows")=="d3d12","Direct3D 12 with NVIDIA DLSS loads NVIDIA's runtime only")
+	RendererChoice.reset()
 	# 1.21.1 wrote its Direct3D 12 override without naming the renderer.
 	var older := ConfigFile.new();older.set_value("rendering","rendering_device/driver","d3d12");older.save(RendererChoice.OVERRIDE)
 	expect(RendererChoice.pending()=="d3d12","An override from 1.21.1 still reads as Direct3D 12")

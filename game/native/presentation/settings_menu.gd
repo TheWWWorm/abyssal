@@ -590,16 +590,17 @@ func performance_options() -> void:
 	var upscaling: Button
 	if upscalers.size()>1: upscaling=chooser(tr("Upscaling"),upscalers.map(Quality.upscaler_name),upscalers.find(Quality.upscaler(quality)),"upscaler",func(next): put("view","upscaler",upscalers[next]),grid)
 	else: upscaling=row(tr("Upscaling"),tr("Needs Vulkan"),"upscaler",func():pass,grid);upscaling.disabled=true
-	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2, FSR 3.1, FSR 4 and MetalFX temporal use earlier frames, replace temporal antialiasing and also smooth edges at full resolution.")
-	# Only the Windows engine build with AMD's runtime can generate frames,
-	# with its own upscalers.
+	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2, FSR 3.1, FSR 4, MetalFX temporal and NVIDIA DLSS use earlier frames, replace temporal antialiasing and also smooth edges at full resolution.")
+	# Only the Windows engine builds with AMD's or NVIDIA's runtime can
+	# generate frames, each with its own upscaler.
 	if Quality.frame_generation_offered():
 		var chosen := Quality.upscaler(quality)
 		var generation: Button
 		if Quality.generates_frames(chosen) or not Quality.single_sampled(chosen): generation=toggle(tr("Frame generation"),"view","frame_generation",false,tr("On"),tr("Off"),grid)
+		elif chosen=="dlss": generation=row(tr("Frame generation"),tr("Needs RTX 40 series"),"frame_generation",func():pass,grid)
 		else: generation=row(tr("Frame generation"),tr("Not on this GPU"),"frame_generation",func():pass,grid)
 		generation.disabled=not Quality.generates_frames(chosen)
-		generation.tooltip_text=tr("Adds a generated frame after every drawn frame while flying, for smoother motion with slightly more input delay. Needs AMD FSR 3.1 or FSR 4 upscaling. Menus stop it, and the FPS counter shows drawn frames.")
+		generation.tooltip_text=tr("Adds a generated frame after every drawn frame while flying, for smoother motion with slightly more input delay. Needs AMD FSR 3.1 or FSR 4 upscaling, or NVIDIA DLSS on an RTX 40-series or newer graphics card. Menus stop it, and the FPS counter shows drawn frames.")
 	var msaa := chooser(tr("Multisample antialiasing"),Quality.msaa_names(),quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
 	msaa.disabled=Quality.single_sampled(Quality.upscaler(quality))
 	msaa.tooltip_text=tr("Smooths the edges of models.")
@@ -622,6 +623,7 @@ func performance_options() -> void:
 			else: show_value(renderer,tr("%s · from the next start")%names[choices.find(next)])
 		var about := tr("Vulkan is the default. OpenGL is simpler and can help where a graphics driver draws Vulkan wrongly, with fewer enhanced effects. A change applies when the game starts again.")
 		if "d3d12" in choices: about+=" "+tr("Direct3D 12 adds AMD FSR 3.1 and FSR 4 upscaling and frame generation where the graphics card supports them.")
+		if "d3d12_dlss" in choices: about+=" "+tr("Direct3D 12 with NVIDIA DLSS adds DLSS upscaling, and DLSS Frame Generation on RTX 40-series and newer graphics cards.")
 		renderer.tooltip_text=about
 
 func graphics_grid() -> GridContainer:

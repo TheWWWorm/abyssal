@@ -2,9 +2,9 @@
 """Fetch and verify the pinned AMD FidelityFX SDK for the Windows FSR build.
 
 Writes the SDK headers into a Godot source tree patched with
-engine/godot-4.7/amd-fsr.patch, and AMD's signed runtime, the DirectX
-Agility runtime FSR 4 needs and their license files into an external
-directory for export_game.py --fsr-sdk.
+engine/godot-4.7/amd-fsr.patch (or amd-fsr-after-nvidia-dlss.patch), and
+AMD's signed runtime, the DirectX Agility runtime FSR 4 needs and their
+license files into an external directory for export_game.py --fsr-sdk.
 Nothing from either SDK is kept in this repository."""
 import argparse, hashlib, pathlib, shutil, urllib.request, zipfile
 

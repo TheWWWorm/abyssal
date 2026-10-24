@@ -3,9 +3,10 @@ extends Node
 ## Vulkan is the default: Forward+ on the desktop, the Mobile renderer on
 ## Android. OpenGL is the compatibility renderer the browser build uses, for
 ## graphics drivers whose Vulkan misbehaves. On Windows, the engine build
-## that carries AMD's FidelityFX integration (engine/godot-4.7/amd-fsr.patch)
-## also offers Direct3D 12, which loads AMD's runtime for FSR 3.1, FSR 4 and
-## frame generation. Godot picks the renderer before any script runs, so the
+## that carries the vendor integrations (engine/godot-4.7/) also offers
+## Direct3D 12 twice: with AMD's runtime for FSR 3.1, FSR 4 and frame
+## generation, or with NVIDIA's for DLSS and DLSS Frame Generation. The two
+## share the swap chain, so a session loads one of them. Godot picks the renderer before any script runs, so the
 ## choice is a settings override (project.godot's
 ## application/config/project_settings_override names OVERRIDE) read at the
 ## next start. Whatever branches on the renderer reads the running one,
@@ -19,6 +20,7 @@ extends Node
 ## Vulkan, and the title says so (`notice`, `failed_choice`).
 
 const Amd = preload("res://native/presentation/amd.gd")
+const Nvidia = preload("res://native/presentation/nvidia.gd")
 
 const OVERRIDE := "user://renderer.cfg"
 const TRIAL := "user://renderer-trial.cfg"
@@ -41,14 +43,16 @@ static func platform() -> bool:
 
 static func choices() -> Array:
 	var offered: Array=["vulkan","opengl"]
-	if Amd.mode()>=0 and (OS.has_feature("windows") or OS.get_cmdline_user_args().has("--renderer-option")): offered.append("d3d12")
+	if OS.has_feature("windows") or OS.get_cmdline_user_args().has("--renderer-option"):
+		if Amd.mode()>=0: offered.append("d3d12")
+		if Nvidia.dlss_mode()>=0: offered.append("d3d12_dlss")
 	return offered
 
 static func available() -> bool:
 	return platform()
 
 static func name_of(choice: String) -> String:
-	return {"vulkan":"Vulkan","opengl":"OpenGL","d3d12":"Direct3D 12 · AMD FSR"}.get(choice,choice)
+	return {"vulkan":"Vulkan","opengl":"OpenGL","d3d12":"Direct3D 12 · AMD FSR","d3d12_dlss":"Direct3D 12 · NVIDIA DLSS"}.get(choice,choice)
 
 static func names() -> Array:
 	return choices().map(name_of)
@@ -56,7 +60,8 @@ static func names() -> Array:
 static func running() -> String:
 	"""The renderer this run uses, as a choice."""
 	if RenderingServer.get_current_rendering_method()=="gl_compatibility": return "opengl"
-	return "d3d12" if RenderingServer.get_current_rendering_driver_name()=="d3d12" else "vulkan"
+	if RenderingServer.get_current_rendering_driver_name()!="d3d12": return "vulkan"
+	return "d3d12_dlss" if bool(ProjectSettings.get_setting("rendering/streamline/enabled",false)) else "d3d12"
 
 static func pending() -> String:
 	"""The renderer a trial or a confirmed choice names, or "" for the default."""
@@ -109,11 +114,12 @@ static func write_override(choice: String) -> void:
 	var settings := ConfigFile.new()
 	settings.set_value("abyssal","renderer",choice)
 	match choice:
-		"d3d12":
+		"d3d12","d3d12_dlss":
 			settings.set_value("rendering","rendering_device/driver","d3d12")
 			settings.set_value("rendering","rendering_device/driver.windows","d3d12")
 			settings.set_value("rendering","renderer/rendering_method","forward_plus")
-			settings.set_value("rendering","fsr_sdk/enabled",true)
+			# The engine loads the one vendor runtime named here.
+			settings.set_value("rendering","fsr_sdk/enabled" if choice=="d3d12" else "streamline/enabled",true)
 		"opengl":
 			# The project's feature-tagged methods outrank the plain one.
 			for key in ["renderer/rendering_method","renderer/rendering_method.mobile"]:

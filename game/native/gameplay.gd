@@ -2314,7 +2314,7 @@ func consume_events() -> void:
 		match entry.kind:
 			"briefing": show_dialogue(session.dialogue(entry.mission,0),close_page)
 			"departure_briefing": briefing()
-			"credits": show_dialogue([{"speaker":tr("Credits"),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)+("\n\n"+GraphicsCredits.text() if GraphicsCredits.amd() else "")}],func(): world.region.acknowledge_credits(); close_page())
+			"credits": show_dialogue([{"speaker":tr("Credits"),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)+("\n\n"+GraphicsCredits.text() if GraphicsCredits.amd() or GraphicsCredits.nvidia() else "")}],func(): world.region.acknowledge_credits(); close_page())
 			"mission_complete": show_dialogue(session.dialogue(entry.mission,1),func(): world.region.acknowledge_completion(); close_page())
 			"transmission":
 				var speaker: String = str(content.data.constants.ah["a:[Ljava.lang.String;"][entry.entry.speaker])

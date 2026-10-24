@@ -54,13 +54,15 @@ def main():
     parser.add_argument('--version-code',type=int,default=5,help='Monotonically increasing Android version code')
     parser.add_argument('--validation',type=pathlib.Path,help='Player-facing platform support notes included with the release')
     parser.add_argument('--template',action='append',metavar='PLATFORM=PATH',help='Custom desktop or web release template; repeat for multiple platforms')
-    parser.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, for the Direct3D 12 renderer choice with AMD FSR')
+    parser.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, or with nvidia-dlss.patch and amd-fsr-after-nvidia-dlss.patch for --streamline, for the Direct3D 12 renderer choices')
     parser.add_argument('--fsr-sdk',type=pathlib.Path,help='With --windows-template: directory prepared by prepare_fsr_sdk.py')
+    parser.add_argument('--streamline',type=pathlib.Path,help='With --windows-template: also NVIDIA DLSS, from the directory prepared by prepare_streamline.py')
     parser.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory')
     args=parser.parse_args()
     if not re.fullmatch(r'[0-9][A-Za-z0-9.-]{0,60}',args.version):parser.error('Invalid version identifier')
     if args.version_code<1:parser.error("Android version code must be positive")
     if bool(args.windows_template)!=bool(args.fsr_sdk):parser.error('The Windows template needs --fsr-sdk, and --fsr-sdk the template')
+    if args.streamline and not args.windows_template:parser.error('--streamline needs --windows-template and --fsr-sdk')
     try:templates=custom_templates(args.template)
     except ValueError as error:parser.error(str(error))
     if args.windows_template and 'windows' in templates:parser.error('Choose --windows-template or --template windows=PATH, not both')
@@ -73,8 +75,9 @@ def main():
         with tempfile.TemporaryDirectory(prefix='release-'+platform+'-',dir=output) as temp:
             folder=pathlib.Path(temp)/'build'
             # One Windows package: the patched template starts on Vulkan and
-            # offers Direct3D 12 with AMD FSR in Settings.
+            # offers Direct3D 12 with AMD FSR, or with NVIDIA DLSS, in Settings.
             runtime_args=['--windows-template',str(args.windows_template),'--fsr-sdk',str(args.fsr_sdk)] if platform=='windows' and args.windows_template else []
+            if runtime_args and args.streamline:runtime_args+=['--streamline',str(args.streamline)]
             if platform in templates:runtime_args+=['--template',str(templates[platform])]
             if platform=='android' and args.android_native_libs:runtime_args+=['--android-native-libs',str(args.android_native_libs)]
             subprocess.run([sys.executable,str(ROOT/'tools/export_game.py'),'--platform',platform,'--output',str(folder),'--release','--godot',args.godot,'--version',args.version,'--version-code',str(args.version_code),*runtime_args],check=True)
