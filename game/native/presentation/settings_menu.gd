@@ -295,6 +295,10 @@ func back() -> void:
 
 func _input(event: InputEvent) -> void:
 	if not visible or not is_inside_tree() or ReconstructionDialog.is_open(): return
+	if is_instance_valid(restart_box):
+		if (event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE) or (event is InputEventJoypadButton and event.pressed and event.button_index==JOY_BUTTON_B):
+			close_restart();get_viewport().set_input_as_handled()
+		return
 	if scroll!=null:
 		# A pointer may hit the visible part of a clipped row. Focusing it on
 		# press must not move the target before the release activates it.
@@ -494,6 +498,12 @@ func restore_scroll(position_y: int, revision: int) -> void:
 
 func restore_focus() -> void:
 	if not is_inside_tree() or not visible or not is_instance_valid(column) or ReconstructionDialog.is_open(): return
+	# The restart question keeps the focus until it is answered.
+	if is_instance_valid(restart_box):
+		var answer: Control=restart_box.find_child("RestartNow",true,false)
+		var held: Control=get_viewport().gui_get_focus_owner()
+		if answer!=null and (held==null or not restart_box.is_ancestor_of(held)): answer.grab_focus()
+		return
 	var wanted := focus_key;focus_key=""
 	if not wanted.is_empty():
 		var found := find_option(self,wanted)
@@ -532,8 +542,7 @@ func graphics_page() -> void:
 	if best>=0: presets[best]=tr("%s (Recommended)")%presets[best]
 	chooser(tr("Preset"),presets,preset,"preset",choose_preset,null,tr("Custom"))
 	note(tr("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom."))
-	group(tr("Performance"))
-	performance_options()
+	note(tr("Renderer, upscaling, antialiasing and shadow quality are in Display."))
 	group(tr("Enhanced lighting"))
 	graphics_options(["headlight_mode","blue_headlights","cabin_lights","warm_station_lights","cool_lighting","filtered_sunlight"])
 	var strength := slider(tr("Headlight brightness"),"graphics","headlight_strength",Quality.HEADLIGHT_HIGH,Quality.HEADLIGHT_LOW,Quality.HEADLIGHT_HIGH,0.05,true)
@@ -579,52 +588,101 @@ func choose_preset(preset: int) -> void:
 func performance_options() -> void:
 	var enhanced := modern()
 	var quality := Quality.read(load_config())
+	# The renderer first: what the rows below offer depends on it. Full width,
+	# since a choice for the next start is a long value.
+	if RendererChoice.available(): renderer_option()
 	var grid := graphics_grid()
-	var shadows := chooser(tr("Shadow quality"),Quality.shadow_names(),quality.shadows if enhanced else -1,"shadows",func(next): put("graphics","shadows",next),grid,tr("Classic"))
-	shadows.disabled=not enhanced
-	shadows.tooltip_text=tr("Shadows from station lamps, headlights and overhead light. Low and Medium use faster station-lamp shadows that can let a little light through close to a lamp.")
-	var scales: Array=Quality.SCALES
-	var resolution := chooser(tr("3D resolution"),scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
-	resolution.tooltip_text=tr("Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp.")
 	var upscalers: Array=Quality.upscalers()
+	var chosen := Quality.upscaler(quality)
 	var upscaling: Button
-	if upscalers.size()>1: upscaling=chooser(tr("Upscaling"),upscalers.map(Quality.upscaler_name),upscalers.find(Quality.upscaler(quality)),"upscaler",func(next): put("view","upscaler",upscalers[next]),grid)
+	if upscalers.size()>1:
+		var names: Array=[tr("Auto · %s")%Quality.upscaler_name(Quality.best_upscaler(upscalers))]+upscalers.map(Quality.upscaler_name)
+		var current: int=0 if quality.upscaler==Quality.AUTO else upscalers.find(chosen)+1
+		upscaling=chooser(tr("Upscaling"),names,current,"upscaler",func(next): put("view","upscaler",Quality.AUTO if next==0 else upscalers[next-1]),grid)
 	else: upscaling=row(tr("Upscaling"),tr("Needs Vulkan"),"upscaler",func():pass,grid);upscaling.disabled=true
-	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2, FSR 3.1, FSR 4, MetalFX temporal and NVIDIA DLSS use earlier frames, replace temporal antialiasing and also smooth edges at full resolution.")
+	upscaling.tooltip_text=tr("How the 3D view is scaled up below full resolution. FSR 2.2, FSR 3.1, FSR 4, MetalFX temporal and NVIDIA DLSS use earlier frames, replace temporal antialiasing and also smooth edges at full resolution. Auto picks NVIDIA DLSS, then AMD FSR 4 or FSR 3.1, where the graphics card has them.")
+	if chosen in Quality.TEMPORAL_UPSCALERS:
+		# Their own quality modes in place of a bare percentage.
+		var modes: Array=Quality.mode_scales(chosen)
+		var mode := chooser(tr("Upscaling mode"),modes.map(func(value): return Quality.mode_name(chosen,value)),modes.find(quality.scale),"render_scale",func(next): put("view","render_scale",modes[next]),grid,"%d%%"%quality.scale)
+		mode.tooltip_text=tr("DLAA and Native AA draw at full resolution and only smooth edges. Quality, Balanced and Performance draw fewer pixels and rebuild the detail, for higher frame rates.")
+	else:
+		var scales: Array=Quality.SCALES
+		var resolution := chooser(tr("3D resolution"),scales.map(func(value): return "%d%%"%value),scales.find(quality.scale),"render_scale",func(next): put("view","render_scale",scales[next]),grid)
+		resolution.tooltip_text=tr("Draws the 3D view at this share of the display resolution and scales it up. The interface stays sharp.")
 	# Only the Windows engine builds with AMD's or NVIDIA's runtime can
 	# generate frames, each with its own upscaler.
 	if Quality.frame_generation_offered():
-		var chosen := Quality.upscaler(quality)
 		var generation: Button
 		if Quality.generates_frames(chosen) or not Quality.single_sampled(chosen): generation=toggle(tr("Frame generation"),"view","frame_generation",false,tr("On"),tr("Off"),grid)
 		elif chosen=="dlss": generation=row(tr("Frame generation"),tr("Needs RTX 40 series"),"frame_generation",func():pass,grid)
 		else: generation=row(tr("Frame generation"),tr("Not on this GPU"),"frame_generation",func():pass,grid)
 		generation.disabled=not Quality.generates_frames(chosen)
-		generation.tooltip_text=tr("Adds a generated frame after every drawn frame while flying, for smoother motion with slightly more input delay. Needs AMD FSR 3.1 or FSR 4 upscaling, or NVIDIA DLSS on an RTX 40-series or newer graphics card. Menus stop it, and the FPS counter shows drawn frames.")
+		generation.tooltip_text=tr("Adds a generated frame after every drawn frame while flying, for smoother motion with slightly more input delay. Needs AMD FSR 3.1 or FSR 4 upscaling, or NVIDIA DLSS on an RTX 40-series or newer graphics card. Menus stop it. The FPS counter shows the frames displayed, and the frames drawn beside them.")
 	var msaa := chooser(tr("Multisample antialiasing"),Quality.msaa_names(),quality.msaa,"msaa",func(next): put("view","msaa",next),grid)
-	msaa.disabled=Quality.single_sampled(Quality.upscaler(quality))
+	msaa.disabled=Quality.single_sampled(chosen)
 	msaa.tooltip_text=tr("Smooths the edges of models.")
 	var taa: Button
 	if forward_plus(): taa=toggle(tr("Temporal antialiasing"),"view","temporal_aa",false,tr("On"),tr("Off"),grid)
 	else: taa=row(tr("Temporal antialiasing"),tr("Needs Vulkan"),"temporal_aa",func():pass,grid)
-	taa.disabled=not forward_plus() or Quality.upscaler(quality) in Quality.TEMPORAL_UPSCALERS
+	taa.disabled=not forward_plus() or chosen in Quality.TEMPORAL_UPSCALERS
 	taa.tooltip_text=tr("Smooths edges further; slightly blurs motion.")
-	# Full width below the others: a choice for the next start is a long value.
-	if RendererChoice.available():
-		var choices: Array=RendererChoice.choices()
-		var names: Array=RendererChoice.names()
-		var next: String=RendererChoice.chosen()
-		var running: String=RendererChoice.running()
-		var renderer := chooser(tr("Renderer"),names,choices.find(next),"renderer",func(index): RendererChoice.choose(choices[index]);focus_key="renderer";rebuild(true))
-		# A choice waiting for the next start says so; Vulkan that the engine
-		# could not start (it falls back to OpenGL by itself) says that.
-		if next!=running:
-			if RendererChoice.pending().is_empty() and RendererChoice.started_with.is_empty() and running=="opengl": show_value(renderer,tr("OpenGL · Vulkan unavailable"))
-			else: show_value(renderer,tr("%s · from the next start")%names[choices.find(next)])
-		var about := tr("Vulkan is the default. OpenGL is simpler and can help where a graphics driver draws Vulkan wrongly, with fewer enhanced effects. A change applies when the game starts again.")
-		if "d3d12" in choices: about+=" "+tr("Direct3D 12 adds AMD FSR 3.1 and FSR 4 upscaling and frame generation where the graphics card supports them.")
-		if "d3d12_dlss" in choices: about+=" "+tr("Direct3D 12 with NVIDIA DLSS adds DLSS upscaling, and DLSS Frame Generation on RTX 40-series and newer graphics cards.")
-		renderer.tooltip_text=about
+	var shadows := chooser(tr("Shadow quality"),Quality.shadow_names(),quality.shadows if enhanced else -1,"shadows",func(next): put("graphics","shadows",next),grid,tr("Classic"))
+	shadows.disabled=not enhanced
+	shadows.tooltip_text=tr("Shadows from station lamps, headlights and overhead light. Low and Medium use faster station-lamp shadows that can let a little light through close to a lamp.")
+
+func renderer_name(choice: String) -> String:
+	return tr("Automatic") if choice==RendererChoice.AUTO else RendererChoice.name_of(choice)
+
+func renderer_option() -> void:
+	var choices: Array=RendererChoice.choices()
+	var names: Array=choices.map(renderer_name)
+	var chosen: String=RendererChoice.chosen()
+	var next: String=RendererChoice.next()
+	var running: String=RendererChoice.running()
+	var renderer := chooser(tr("Renderer"),names,choices.find(chosen),"renderer",func(index):
+		RendererChoice.choose(choices[index]);focus_key="renderer";rebuild(true)
+		if RendererChoice.next()!=RendererChoice.running(): ask_restart())
+	# Automatic names what it runs. A choice waiting for the next start says
+	# so; Vulkan that the engine could not start (it falls back to OpenGL by
+	# itself) says that.
+	if next!=running:
+		if RendererChoice.pending().is_empty() and RendererChoice.started_with.is_empty() and running=="opengl" and next=="vulkan": show_value(renderer,tr("OpenGL · Vulkan unavailable"))
+		else: show_value(renderer,tr("%s · after a restart")%renderer_name(next))
+	elif chosen==RendererChoice.AUTO: show_value(renderer,tr("Automatic · %s")%renderer_name(running))
+	var about := tr("A change applies when the game starts again; the game offers to restart. OpenGL is simpler and can help where a graphics driver draws Vulkan wrongly, with fewer enhanced effects.")
+	if RendererChoice.AUTO in choices: about=tr("Automatic starts Direct3D 12 with NVIDIA DLSS on an NVIDIA RTX graphics card and Direct3D 12 with AMD FSR on others, and goes back to Vulkan if that cannot start.")+" "+about
+	else: about=tr("Vulkan is the default.")+" "+about
+	if "d3d12" in choices: about+=" "+tr("Direct3D 12 adds AMD FSR 3.1 and FSR 4 upscaling and frame generation where the graphics card supports them.")
+	if "d3d12_dlss" in choices: about+=" "+tr("Direct3D 12 with NVIDIA DLSS adds DLSS upscaling, and DLSS Frame Generation on RTX 40-series and newer graphics cards.")
+	renderer.tooltip_text=about
+
+## The restart offer after a renderer change, over the settings.
+var restart_box: Control
+
+func ask_restart() -> void:
+	if is_instance_valid(restart_box): return
+	restart_box=Control.new();restart_box.name="RestartPrompt";restart_box.mouse_filter=Control.MOUSE_FILTER_STOP;add_child(restart_box);restart_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new();dim.color=Color(0,0,0,.6);dim.mouse_filter=Control.MOUSE_FILTER_IGNORE;restart_box.add_child(dim);dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var centre := CenterContainer.new();centre.mouse_filter=Control.MOUSE_FILTER_IGNORE;restart_box.add_child(centre);centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var box := PanelContainer.new();box.add_theme_stylebox_override("panel",StationTheme.panel(golden));box.custom_minimum_size.x=minf(520,size.x-48);centre.add_child(box)
+	var lines := VBoxContainer.new();lines.add_theme_constant_override("separation",14);box.add_child(lines)
+	plain(tr("Renderer"),20,lines).add_theme_color_override("font_color",colours().text)
+	var message := tr("The renderer changes when the game starts again. Restart now?")
+	if can("unsaved"): message+=" "+tr("Progress since your last save will be lost.")
+	plain(message,16,lines).add_theme_color_override("font_color",colours().dim)
+	var buttons := HBoxContainer.new();buttons.add_theme_constant_override("separation",10);lines.add_child(buttons)
+	var yes := styled_button(tr("Restart now"),func(): RendererChoice.restart(get_tree()),buttons);yes.name="RestartNow";yes.set_meta("option","restart_now")
+	var later := styled_button(tr("Later"),close_restart,buttons);later.name="RestartLater";later.set_meta("option","restart_later")
+	for node in [yes,later]: node.alignment=HORIZONTAL_ALIGNMENT_CENTER
+	if is_instance_valid(scroll): scroll.get_parent().focus_behavior_recursive=Control.FOCUS_BEHAVIOR_DISABLED
+	yes.grab_focus.call_deferred()
+
+func close_restart() -> void:
+	if not is_instance_valid(restart_box): return
+	remove_child(restart_box);restart_box.queue_free();restart_box=null
+	if is_instance_valid(scroll): scroll.get_parent().focus_behavior_recursive=Control.FOCUS_BEHAVIOR_INHERITED
+	focus_key="renderer";restore_focus()
 
 func graphics_grid() -> GridContainer:
 	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1
@@ -684,12 +742,12 @@ func display_page() -> void:
 		# language change replaces its controls or reloads the title scene.
 		change_language.call_deferred(EngineLanguage.AUTO if next==0 else codes[next-1]))
 	note(tr("Menus and messages the engine adds. Auto matches the imported game's language."))
+	group(tr("Window"))
 	if not OS.has_feature("mobile") or OS.has_feature("web"):
-		var mode := DisplayServer.window_get_mode()
-		var full: bool=mode in [DisplayServer.WINDOW_MODE_FULLSCREEN,DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN]
+		var full := Display.fullscreen()
 		row(tr("Fullscreen"),tr("On") if full else tr("Off"),"fullscreen",func():
 			if can("fullscreen"): host.fullscreen.call()
-			else: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+			else: Display.set_fullscreen(not full,settings_path)
 			# The window reports its new mode a frame later.
 			await get_tree().process_frame
 			focus_key="fullscreen";rebuild())
@@ -706,8 +764,16 @@ func display_page() -> void:
 	if not quality.height in heights: heights.append(quality.height)
 	var shown := chooser(tr("Resolution"),heights.map(func(height): return Quality.height_name(height)),heights.find(quality.height),"resolution",func(next): put("view","resolution_height",heights[next]))
 	shown.tooltip_text=tr("The resolution the game is drawn at. The interface stays at the screen's own resolution.")
-	note(tr("3D resolution and antialiasing are in Graphics."))
-	toggle(tr("Show FPS"),"view","show_fps",false).tooltip_text=tr("Frames per second at the top of the screen.")
+	var timing := graphics_grid()
+	var limits: Array=Display.FPS_LIMITS
+	var limit := chooser(tr("Frame rate limit"),Display.fps_limit_names(),limits.find(Display.fps_limit(load_config())),"fps_limit",func(next): put("view","fps_limit",limits[next]),timing)
+	limit.tooltip_text=tr("The most frames drawn per second. Unlimited with VSync off is the unlocked frame rate.")
+	if Display.desktop():
+		toggle(tr("VSync"),"view","vsync",true,tr("On"),tr("Off"),timing).tooltip_text=tr("Waits for the display's refresh: no tearing, at most the display's frame rate. Off unlocks the frame rate.")
+	toggle(tr("Show FPS"),"view","show_fps",false,tr("On"),tr("Off"),timing).tooltip_text=tr("Frames per second at the top of the screen. With frame generation, the frames displayed and, beside them, the frames drawn.")
+	group(tr("Performance"))
+	performance_options()
+	group(tr("Interface"))
 	toggle(tr("Retro HUD"),"interface","retro_hud",false)
 	note(tr("Adds the original game's gauges to the HUD: the cargo hold along the top, and the shield and hull bars with the auto fire, autopilot and hull lamps along the bottom."))
 

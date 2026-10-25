@@ -72,9 +72,16 @@ vec3 ocean_skybox(vec3 d){
  // The cap is a cone tilted off the zenith: near white at its apex (row 46),
  // dark at its rim (row 16), about twenty degrees out. It is unlit, so the
  // opening stays visible after the deep water has turned the rest black.
+ // The phone's Gouraud cone stepped from 8 to 0 at its rim and its byte
+ // add clipped to a flat white disc; at screen resolution both read as a
+ // hard-edged blob. Here the rim fades over its outer degrees, the ramp
+ // eases in, and the cap screens over the water so it brightens to the
+ // same white at its apex without a plateau.
  float away=degrees(acos(clamp(dot(d,normalize(OCEAN_OPENING)),-1.0,1.0)));
- float glow=away<20.0?(8.0+240.0*(1.0-away/20.0))/255.0:0.0;
- return min(max(ocean_upper_color-cut,vec3(0.0))+glow,vec3(1.0));
+ float cone=clamp(1.0-away/20.0,0.0,1.0);
+ float glow=(8.0+240.0*smoothstep(0.0,1.0,cone))/255.0*smoothstep(0.0,0.15,cone);
+ vec3 water=max(ocean_upper_color-cut,vec3(0.0));
+ return min(1.0-(1.0-water)*(1.0-glow),vec3(1.0));
 }
 vec3 ocean_layered_water(vec3 d,float sun){
  // The enhanced water, in the Deeper project's three tones: dark below, a

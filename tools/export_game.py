@@ -88,9 +88,11 @@ def stamp_web_build(output):
 SPLASHES = {'amd': 'game/ui/abyssal-splash-fsr.png', 'nvidia': 'game/ui/abyssal-splash-dlss.png'}
 SDK_ARTWORK = (*SPLASHES.values(), 'game/ui/vendors/')
 # NVIDIA's GeForce RTX badge and the splash made with it, from
-# generate_branding.js --nvidia-badge, once NVIDIA approved their use.
+# generate_branding.js --nvidia-badge. NVIDIA's marks are not Apache-2.0
+# source, so the artwork stays outside the repository and comes in here.
 NVIDIA_BADGE = 'nvidia-geforce-rtx-white.png'
 NVIDIA_SPLASH = 'abyssal-splash-nvidia.png'
+SPLASH_MILLISECONDS = 2500
 
 
 def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, template=None, sdks=(), nvidia_artwork=None):
@@ -99,7 +101,7 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
         if not name.startswith('game/'):continue
         # Vendor-attributed artwork belongs to the packages with their SDKs.
         if name.startswith(SDK_ARTWORK) and not sdks:continue
-        # Only the splash the package shows; NVIDIA's approved artwork brings its own.
+        # Only the splash the package shows; NVIDIA's artwork brings its own.
         shown=None if nvidia_artwork else SPLASHES['nvidia' if 'nvidia' in sdks else 'amd']
         if name.startswith(tuple(SPLASHES.values())) and name!=shown:continue
         if name.endswith('/NOTICE.md'):continue
@@ -116,6 +118,9 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
             # About draws the badge far below its size: mipmaps keep it whole.
             (stage/'ui/vendors'/(NVIDIA_BADGE+'.import')).write_text('[remap]\n\nimporter="texture"\ntype="CompressedTexture2D"\n\n[params]\n\nmipmaps/generate=true\n')
         text=text.replace('boot_splash/image="res://ui/abyssal-splash.png"','boot_splash/image="%s"'%splash)
+        # The splash carries the vendors' attribution. Godot shows it only
+        # until the first frame, a moment on a fast PC, so it is held.
+        text=text.replace('boot_splash/use_filter=true\n','boot_splash/use_filter=true\nboot_splash/minimum_display_time=%d\n'%SPLASH_MILLISECONDS)
         # The credits name the SDKs the package bundles (graphics_credits.gd).
         text+='\n[abyssal]\n\n'+''.join(f'graphics_sdk/{sdk}=true\n' for sdk in sdks)
     # The title shows the package's version under its logo.
@@ -211,7 +216,7 @@ def stage_vendor_runtimes(output, fsr_sdk, streamline=None):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--template',type=pathlib.Path,help='Custom desktop or web export template for the selected platform and build type');p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, or with nvidia-dlss.patch and amd-fsr-after-nvidia-dlss.patch for --streamline');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');p.add_argument('--streamline',type=pathlib.Path,help='Also NVIDIA DLSS: SDK directory prepared by prepare_streamline.py');p.add_argument('--nvidia-artwork',type=pathlib.Path,help='With --streamline, once NVIDIA approved it: a directory with '+NVIDIA_BADGE+' and '+NVIDIA_SPLASH);p.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory; supplied architectures replace the official native libraries');args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--template',type=pathlib.Path,help='Custom desktop or web export template for the selected platform and build type');p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, or with nvidia-dlss.patch and amd-fsr-after-nvidia-dlss.patch for --streamline');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');p.add_argument('--streamline',type=pathlib.Path,help='Also NVIDIA DLSS: SDK directory prepared by prepare_streamline.py');p.add_argument('--nvidia-artwork',type=pathlib.Path,help='With --streamline: a directory with NVIDIA\'s '+NVIDIA_BADGE+' and '+NVIDIA_SPLASH);p.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory; supplied architectures replace the official native libraries');args=p.parse_args()
     if args.template and (args.platform not in {'linux','linux-arm64','windows','macos','web'} or args.windows_template):p.error('--template is for desktop or web exports and cannot be combined with --windows-template.')
     if args.android_native_libs and args.platform!='android':p.error('--android-native-libs is only supported for Android.')
     if args.version_code<1:p.error("Android version code must be positive")

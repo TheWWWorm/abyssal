@@ -82,29 +82,39 @@ func run() -> void:
 	if not app.ready_for_preview and not app.content_starting:await app.open_cache(OS.get_cmdline_user_args()[-1])
 	while app.content_starting:await process_frame
 	await frames(10)
-	app.show_settings("graphics");await frames(3)
+	app.show_settings("display");await frames(3)
 	expect(app.settings_panel.find_child("Row_frame_generation",true,false)!=null,"Frame generation is listed with a vendor upscaler")
+	# Auto, the default, is the best vendor upscaler, at its native mode.
+	var auto: String=Quality.upscaler(Quality.read(ConfigFile.new()))
+	expect(auto==Quality.best_upscaler(Quality.upscalers()) and auto in vendors,"Auto upscaling picks the vendor's upscaler (%s)"%auto)
+	var mode_row := app.settings_panel.find_child("Row_render_scale",true,false) as Button
+	expect(mode_row!=null and (mode_row.get_node("List") as OptionButton).get_item_text(0)==Quality.mode_name(auto,100) and mode_row.get_node("Value").text==Quality.mode_name(auto,100),"Auto starts at the vendor's native mode (%s)"%Quality.mode_name(auto,100))
+	choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr")+1);await frames(2)
 	await sample(app,"fsr1",'fsr')
 	for upscaler in vendors:
-		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find(upscaler));await frames(2)
+		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find(upscaler)+1);await frames(2)
 		var saved := ConfigFile.new();saved.load(SETTINGS)
 		expect(str(saved.get_value("view","upscaler",""))==upscaler,upscaler+": the choice is saved")
 		var generation=app.settings_panel.find_child("Row_frame_generation",true,false)
 		expect(generation!=null and generation.disabled==not Quality.generates_frames(upscaler),upscaler+": frame generation is available exactly where the GPU supports it")
+		expect(Quality.mode_scales(upscaler)==[100,67,58,50],upscaler+": the modes run from native to Performance")
 		for step in [[100,"native"],[67,"quality"],[58,"balanced"],[50,"performance"],[33,"below-half"]]:
-			choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(step[0]));await frames(2)
+			# A share below the modes, from an earlier version or FSR 2.2, still draws at half.
+			if step[0] in Quality.mode_scales(upscaler): choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.mode_scales(upscaler).find(step[0]))
+			else: app.settings_panel.put("view","render_scale",step[0])
+			await frames(2)
 			expect(app.settings_panel.find_child("Row_msaa",true,false).disabled,upscaler+" "+step[1]+": multisampling is greyed out")
 			await sample(app,upscaler+"-"+step[1],upscaler)
 			expect(app.get_viewport().scaling_3d_scale>=0.5,upscaler+" "+step[1]+": the upscaler keeps a share it accepts")
-	choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr"));await frames(2)
+	choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr")+1);await frames(2)
 	await sample(app,"fsr1-restored","fsr")
 	# Frame generation runs only in flight, with the first upscaler that has it.
 	var generating: Array=vendors.filter(Quality.generates_frames)
 	var flight := {}
 	if not generating.is_empty():
 		var upscaler: String=generating[0]
-		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find(upscaler));await frames(2)
-		choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(67));await frames(2)
+		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find(upscaler)+1);await frames(2)
+		choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.mode_scales(upscaler).find(67));await frames(2)
 		app.settings_panel.find_child("Row_frame_generation",true,false).pressed.emit();await frames(2)
 		var saved := ConfigFile.new();saved.load(SETTINGS)
 		expect(bool(saved.get_value("view","frame_generation",false)),"Frame generation is switched on")
@@ -117,7 +127,10 @@ func run() -> void:
 		for i in FRAMES:await RenderingServer.frame_post_draw
 		var made: int=generated(upscaler)-before
 		if upscaler=="dlss":made-=FRAMES
-		flight={"upscaler":upscaler,"generated":made,"viewport":bool(game.get_viewport().get("frame_generation")) if game!=null else false,"page":str(game.page) if game!=null else "","focus":root.has_focus()}
+		var counter: String=game.fps_counter.label.text if game!=null else ""
+		flight={"upscaler":upscaler,"generated":made,"viewport":bool(game.get_viewport().get("frame_generation")) if game!=null else false,"page":str(game.page) if game!=null else "","focus":root.has_focus(),"fps_counter":counter}
+		var numbers := counter.replace(" drawn","").replace(" FPS","").split(" · ")
+		expect(numbers.size()==2 and int(numbers[0])>int(numbers[1])*1.5,"%s: the FPS counter shows the displayed frames above the drawn ones (%s)"%[upscaler,counter])
 		var image := root.get_texture().get_image()
 		if image!=null:image.save_png("user://vendor-upscaler-check/flight-"+upscaler+".png")
 		expect(made>=FRAMES/2,"%s: frames are generated in flight (%d)"%[upscaler,made])

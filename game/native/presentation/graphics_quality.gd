@@ -41,6 +41,11 @@ const MSAA_MODES := [Viewport.MSAA_DISABLED,Viewport.MSAA_2X,Viewport.MSAA_4X,Vi
 ## each with its vendor's runtime (see Amd and Nvidia); with them, frames
 ## can also be generated.
 const UPSCALERS := ["bilinear","fsr","fsr2","metalfx_spatial","metalfx_temporal","fsr3","fsr4","dlss"]
+## The default: the best upscaler this renderer and GPU offer, in this order,
+## else FSR 1.0 as before. At 100% a temporal one is antialiasing (DLAA,
+## Native AA) rather than upscaling.
+const AUTO := "auto"
+const PREFERRED := ["dlss","fsr4","fsr3"]
 const TEMPORAL_UPSCALERS := ["fsr2","metalfx_temporal","fsr3","fsr4","dlss"]
 const SDK_VERSIONS := {"fsr3":3,"fsr4":4}
 static func upscaler_name(upscaler: String) -> String:
@@ -53,6 +58,23 @@ static func upscaler_name(upscaler: String) -> String:
 		"fsr4": return "AMD FSR 4"
 		"dlss": return "NVIDIA DLSS"
 	return EngineLanguage.translate("Bilinear")
+
+static func best_upscaler(available: Array) -> String:
+	for preferred in PREFERRED:
+		if preferred in available: return preferred
+	return "fsr" if "fsr" in available else "bilinear"
+
+## The quality modes of the temporal upscalers, as 3D resolution: the vendors'
+## Native AA (DLAA), Quality, Balanced and Performance; FSR 2.2 and MetalFX
+## also go to Ultra performance, which DLSS and the FSR SDK do not (their
+## LOWEST_SCALE).
+const MODE_SCALES := [100,67,58,50,33]
+static func mode_scales(upscaler: String) -> Array:
+	return MODE_SCALES.slice(0,4) if upscaler=="dlss" or upscaler in SDK_VERSIONS else MODE_SCALES
+
+static func mode_name(upscaler: String, scale: int) -> String:
+	var name: String={100:"DLAA" if upscaler=="dlss" else EngineLanguage.translate("Native AA"),67:EngineLanguage.translate("Quality"),58:EngineLanguage.translate("Balanced"),50:EngineLanguage.translate("Performance"),33:EngineLanguage.translate("Ultra performance")}.get(scale,"")
+	return "%d%%"%scale if name.is_empty() else "%s · %d%%"%[name,scale]
 
 static func upscalers() -> Array:
 	"""The upscalers this renderer and driver offer, bilinear first."""
@@ -72,7 +94,8 @@ static func upscaler(quality: Dictionary) -> String:
 	"""The chosen upscaler, or FSR 1.0 (bilinear without it) when this
 	renderer lacks the choice."""
 	var available := upscalers()
-	var wanted: String=quality.get("upscaler","fsr")
+	var wanted: String=quality.get("upscaler",AUTO)
+	if wanted==AUTO: return best_upscaler(available)
 	if wanted in available: return wanted
 	return "fsr" if "fsr" in available else "bilinear"
 const SHADOWS := ["Off","Low","Medium","High"]
@@ -120,7 +143,7 @@ static func read(config: ConfigFile) -> Dictionary:
 		"msaa":integer(config,"view","msaa",default_msaa(),MSAA_MODES.size()-1),
 		"taa":bool(config.get_value("view","temporal_aa",false)),
 		"frame_generation":bool(config.get_value("view","frame_generation",false)),
-		"upscaler":str(config.get_value("view","upscaler","fsr")) if str(config.get_value("view","upscaler","fsr")) in UPSCALERS else "fsr",
+		"upscaler":str(config.get_value("view","upscaler",AUTO)) if str(config.get_value("view","upscaler",AUTO)) in UPSCALERS else AUTO,
 		"shadows":integer(config,"graphics","shadows",3,3),
 		"volumetric":bool(config.get_value("graphics","volumetric",true)),
 		"detail":bool(config.get_value("graphics","detail",true)),

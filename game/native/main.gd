@@ -227,6 +227,7 @@ func _ready() -> void:
 	fullscreen_button=FullscreenButton.new(func(): FullscreenButton.toggle(func(text): status.text=text))
 	var start_config := ConfigFile.new();start_config.load(settings_path)
 	SettingsMenu.apply_menu_keys(start_config)
+	Display.restore_window(start_config);Display.apply_frame_pacing(start_config)
 	# Arrow keys, the menu keys and the D-pad move to the button drawn that way.
 	preload("res://native/presentation/focus_map.gd").attach(get_viewport())
 	title_menu.update_help(bool(start_config.get_value("input","mouse_wheel_throttle",false)))
@@ -630,7 +631,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode==KEY_ESCAPE: hide_tools() if inspector_open else close_modal()
 		elif event.physical_keycode==bound_key("lights"): toggle_lights()
-		elif event.physical_keycode==bound_key("fullscreen"): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode()==DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		elif event.physical_keycode==bound_key("fullscreen"): Display.set_fullscreen(not Display.fullscreen(),settings_path)
 	if modal.visible or not inspector_open: return
 	if event is InputEventMouseButton:
 		if event.button_index==MOUSE_BUTTON_RIGHT: dragging=event.pressed
@@ -1509,6 +1510,7 @@ func apply_setting(section: String, key: String) -> void:
 			title_dock.wanted_detail=bool(config.get_value("graphics","detail",true));title_dock.apply_lighting()
 		["view","aspect_ratio"],["input","touch"]: fit_window();layout_ui()
 		["view","show_fps"]: fps_counter.set_enabled(fps_counter.wanted(config))
+		["view","fps_limit"],["view","vsync"]: Display.apply_frame_pacing(config)
 		["view","resolution_height"],["view","render_scale"],["view","msaa"],["view","temporal_aa"],["view","upscaler"],["graphics","shadows"],["graphics","preset"]:
 			title_dock.set_lighting(bool(config.get_value("graphics","modern",true)));apply_render_quality()
 		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))

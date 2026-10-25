@@ -5,6 +5,7 @@ const Quality=preload("res://native/presentation/graphics_quality.gd")
 const Probe=preload("res://native/presentation/graphics_probe.gd")
 const RendererChoice=preload("res://native/platform/renderer_choice.gd")
 const Amd=preload("res://native/presentation/amd.gd")
+const Display=preload("res://native/presentation/display_settings.gd")
 const SETTINGS := "user://graphics-quality-check/settings.cfg"
 const SAVE := "user://graphics-quality-check/campaign.json"
 var failures := 0
@@ -26,6 +27,7 @@ func run() -> void:
 	check_presets()
 	check_probe_rules()
 	check_renderer_choice()
+	check_frame_pacing()
 	DirAccess.make_dir_recursive_absolute(SETTINGS.get_base_dir())
 	DirAccess.remove_absolute(SETTINGS);DirAccess.remove_absolute(SAVE)
 	var app=load("res://scenes/native_main.tscn").instantiate()
@@ -93,7 +95,12 @@ func check_presets() -> void:
 	expect(Quality.render_scale({"height":2160,"scale":100},Vector2i(1920,1080))==1.0,"A resolution above the screen's is the screen's")
 	expect(Quality.heights_for(1080)==[0,720,900],"Only resolutions below the screen's are offered")
 	var unknown := ConfigFile.new();unknown.set_value("view","upscaler","xess")
-	expect(Quality.read(unknown).upscaler=="fsr","An unknown upscaler reads as FSR 1.0")
+	expect(Quality.read(unknown).upscaler==Quality.AUTO and Quality.read(ConfigFile.new()).upscaler==Quality.AUTO,"Upscaling starts on Auto, and an unknown upscaler reads as Auto")
+	expect(Quality.best_upscaler(["bilinear","fsr","fsr2","fsr3","dlss"])=="dlss" and Quality.best_upscaler(["bilinear","fsr","fsr2","fsr3","fsr4"])=="fsr4","Auto picks NVIDIA DLSS, then FSR 4, on cards that have them")
+	expect(Quality.best_upscaler(["bilinear","fsr","fsr2"])=="fsr" and Quality.best_upscaler(["bilinear"])=="bilinear","Without a vendor upscaler Auto keeps FSR 1.0, as before")
+	if not Quality.Nvidia.dlss() and not Quality.Amd.upscaler(3): expect(Quality.upscaler(Quality.read(ConfigFile.new())) in ["fsr","bilinear"],"Auto on a stock engine is FSR 1.0")
+	expect(Quality.mode_scales("dlss")==[100,67,58,50] and Quality.mode_scales("fsr3")==[100,67,58,50] and Quality.mode_scales("fsr2")==[100,67,58,50,33],"DLSS and the FSR SDK offer DLAA or Native AA to Performance; FSR 2.2 also Ultra performance")
+	expect(Quality.mode_name("dlss",100).begins_with("DLAA") and Quality.mode_name("dlss",67).ends_with("67%") and Quality.mode_name("dlss",90)=="90%","DLSS modes are named, with their share")
 	unknown.set_value("view","upscaler","dlss")
 	expect(Quality.read(unknown).upscaler=="dlss","A DLSS choice is kept for the engine build that has it")
 	if not Quality.Nvidia.dlss():
@@ -130,10 +137,34 @@ func check_probe_rules() -> void:
 	expect(probe.best()==Quality.LOW,"Low is the floor, never Classic")
 	probe.free()
 
+func check_frame_pacing() -> void:
+	var Counter=preload("res://native/presentation/fps_counter.gd")
+	var config := ConfigFile.new()
+	expect(Display.fps_limit(config)==0 and Display.vsync(config),"The frame rate starts unlimited, held to the display by VSync")
+	var before := Engine.max_fps
+	Display.apply_frame_pacing(config)
+	var command_line: int=Display.command_line_fps
+	expect(command_line==(before if before!=int(ProjectSettings.get_setting("application/run/max_fps",0)) else 0),"A --max-fps on the command line is recognised (%d)"%command_line)
+	Display.command_line_fps=0
+	config.set_value("view","fps_limit",144);Display.apply_frame_pacing(config)
+	expect(Engine.max_fps==144,"A frame rate limit applies at once")
+	config.set_value("view","fps_limit",0);Display.apply_frame_pacing(config)
+	expect(Engine.max_fps==0,"Unlimited lifts the limit")
+	Display.command_line_fps=30;Engine.max_fps=30
+	config.set_value("view","fps_limit",144);Display.apply_frame_pacing(config)
+	expect(Engine.max_fps==30,"A --max-fps on the command line keeps its limit")
+	Display.command_line_fps=command_line;Engine.max_fps=before
+	config.set_value("view","fps_limit",75)
+	expect(Display.fps_limit(config)==0,"A limit outside the list reads as unlimited")
+	expect(Display.fps_limit_names().size()==Display.FPS_LIMITS.size(),"Every limit has a name")
+	expect(Counter.text(60.0,0.0)=="60 FPS" and Counter.text(60.0,60.2)=="60 FPS","Without generated frames the counter shows the frames drawn")
+	expect(Counter.text(60.0,119.6)=="120 FPS · 60 drawn","With frame generation the counter leads with the frames displayed")
+	expect(Counter.presented_frames()==-1 or Quality.Nvidia.generating or Quality.Amd.generating>0,"Presented frames are read only while frames are generated")
+
 func check_renderer_choice() -> void:
 	# Kept aside: a run on this machine may have a real choice there.
 	var kept := {}
-	for path in [RendererChoice.OVERRIDE,RendererChoice.TRIAL]:
+	for path in [RendererChoice.OVERRIDE,RendererChoice.TRIAL,RendererChoice.AUTO_STATE]:
 		if FileAccess.file_exists(path):kept[path]=FileAccess.get_file_as_bytes(path)
 	var started: String=RendererChoice.started_with
 	RendererChoice.reset();RendererChoice.notice=""
@@ -161,7 +192,8 @@ func check_renderer_choice() -> void:
 	RendererChoice.notice="";RendererChoice.choose("opengl");RendererChoice.confirm()
 	expect(FileAccess.file_exists(RendererChoice.TRIAL),"Only a run on the chosen renderer confirms the trial")
 	RendererChoice.choose("vulkan")
-	expect(not FileAccess.file_exists(RendererChoice.OVERRIDE) and not FileAccess.file_exists(RendererChoice.TRIAL),"Choosing Vulkan removes the override")
+	if RendererChoice.default_choice()=="vulkan": expect(not FileAccess.file_exists(RendererChoice.OVERRIDE) and not FileAccess.file_exists(RendererChoice.TRIAL),"Choosing Vulkan where it is the default removes the override")
+	else: expect(RendererChoice.chosen()=="vulkan" and RendererChoice.pending()=="vulkan" and not FileAccess.file_exists(RendererChoice.TRIAL),"Vulkan chosen over Automatic is kept, with no trial")
 	RendererChoice.choose("d3d12")
 	expect(Amd.mode()>=0 or not FileAccess.file_exists(RendererChoice.OVERRIDE),"Direct3D 12 needs the engine build with AMD's integration")
 	if Amd.mode()>=0:
@@ -177,6 +209,20 @@ func check_renderer_choice() -> void:
 	var older := ConfigFile.new();older.set_value("rendering","rendering_device/driver","d3d12");older.save(RendererChoice.OVERRIDE)
 	expect(RendererChoice.pending()=="d3d12","An override from 1.21.1 still reads as Direct3D 12")
 	RendererChoice.reset();RendererChoice.notice=""
+	# Automatic: DLSS on an NVIDIA RTX card, AMD FSR on any other.
+	expect(RendererChoice.preferred("NVIDIA","NVIDIA GeForce RTX 4090 Laptop GPU")==["d3d12_dlss","d3d12","vulkan"],"Automatic starts DLSS on an NVIDIA RTX card")
+	expect(RendererChoice.preferred("NVIDIA","NVIDIA GeForce GTX 1080")[0]=="d3d12" and RendererChoice.preferred("AMD","AMD Radeon RX 7900 XTX")[0]=="d3d12" and RendererChoice.preferred("Intel","Intel(R) Arc(TM) A770")[0]=="d3d12","Automatic starts AMD FSR on every other card")
+	expect(RendererChoice.default_choice()==(RendererChoice.AUTO if Amd.mode()>=0 or Quality.Nvidia.dlss_mode()>=0 else "vulkan"),"Automatic is the default only where Direct3D 12 is offered")
+	expect(not RendererChoice.automatic_restart() or RendererChoice.chosen()==RendererChoice.AUTO,"Only Automatic restarts by itself")
+	DirAccess.remove_absolute(RendererChoice.AUTO_STATE)
+	RendererChoice.auto_failed("d3d12_dlss");RendererChoice.auto_failed("vulkan")
+	var learned: Array=RendererChoice.auto_state().get_value("auto","failed",[])
+	expect(learned==["d3d12_dlss"],"A renderer that failed is left out of Automatic; Vulkan never is")
+	var moved := ConfigFile.new();moved.set_value("auto","fingerprint","another card");moved.set_value("auto","failed",["d3d12"]);moved.save(RendererChoice.AUTO_STATE)
+	expect(RendererChoice.auto_state().get_value("auto","failed",[])==[],"A new graphics card or driver tries every renderer again")
+	DirAccess.remove_absolute(RendererChoice.AUTO_STATE)
+	var args: PackedStringArray=RendererChoice.restart_args()
+	expect(not args.has("--rendering-driver") and not args.has("--rendering-method"),"A restart drops a renderer named on the command line")
 	RendererChoice.started_with=started
 	for path in kept:
 		var file := FileAccess.open(path,FileAccess.WRITE);file.store_buffer(kept[path])
@@ -233,6 +279,8 @@ func check_settings_rows(app) -> void:
 	var row := preset_row(app)
 	expect(row!=null and row.get_node("Value").text==Quality.PRESETS[Quality.current(saved())]+" (Recommended)","The Graphics page names the measured preset as recommended")
 	expect((app.settings_panel.scroll.get_child(0) as MarginContainer).get_theme_constant("margin_right")>0,"Rows keep clear of the scroll bar")
+	expect(app.settings_panel.find_child("Row_renderer",true,false)==null and app.settings_panel.find_child("Row_upscaler",true,false)==null and app.settings_panel.find_child("Row_shadows",true,false)==null,"Renderer, upscaling and shadow quality are not on the Graphics page")
+	app.show_settings("display");await frames(3)
 	var renderer_row: Node=app.settings_panel.find_child("Row_renderer",true,false)
 	expect((renderer_row!=null)==RendererChoice.available(),"The renderer row appears where the export runs Vulkan (%s)"%RendererChoice.available())
 	if renderer_row!=null:
@@ -242,6 +290,13 @@ func check_settings_rows(app) -> void:
 			if FileAccess.file_exists(path):kept[path]=FileAccess.get_file_as_bytes(path)
 		var other: String="vulkan" if RendererChoice.running()=="opengl" else "opengl"
 		(renderer_row.get_node("List") as OptionButton).item_selected.emit(RendererChoice.choices().find(other));await frames(3)
+		var prompt: Node=app.settings_panel.find_child("RestartPrompt",true,false)
+		expect(prompt!=null and prompt.find_child("RestartNow",true,false)!=null,"Changing the renderer offers to restart the game")
+		if prompt!=null:
+			var focused: Control=app.get_viewport().gui_get_focus_owner()
+			expect(focused!=null and prompt.is_ancestor_of(focused),"The restart offer takes focus")
+			prompt.find_child("RestartLater",true,false).pressed.emit();await frames(2)
+			expect(not is_instance_valid(prompt) or not prompt.is_inside_tree(),"Later closes the offer and keeps the choice for the next start")
 		renderer_row=app.settings_panel.find_child("Row_renderer",true,false)
 		var shown := renderer_row.get_node("Value") as Label
 		var style := renderer_row.get_theme_stylebox("normal") as StyleBoxFlat
@@ -250,7 +305,7 @@ func check_settings_rows(app) -> void:
 			# OpenGL without a choice is Godot's fallback; a chosen OpenGL run going back is not.
 			var started: String=RendererChoice.started_with
 			expect(shown.text==tr("OpenGL · Vulkan unavailable")==started.is_empty(),"Only Godot's own fallback to OpenGL reads as Vulkan unavailable")
-			RendererChoice.started_with="opengl" if started.is_empty() else "";app.show_settings("graphics");await frames(3)
+			RendererChoice.started_with="opengl" if started.is_empty() else "";app.show_settings("display");await frames(3)
 			shown=app.settings_panel.find_child("Row_renderer",true,false).get_node("Value") as Label
 			expect(shown.text==tr("OpenGL · Vulkan unavailable")==RendererChoice.started_with.is_empty(),"A run on a chosen OpenGL that goes back to Vulkan says from the next start")
 			RendererChoice.started_with=started
@@ -293,13 +348,17 @@ func check_settings_rows(app) -> void:
 	expect(app.get_viewport().msaa_3d==Viewport.MSAA_4X,"High preserves the selected multisampling")
 	app.settings_panel.put("view","msaa",0);await frames(2)
 	expect(Quality.current(saved())==Quality.HIGH and app.get_viewport().msaa_3d==Viewport.MSAA_DISABLED,"Changing multisampling keeps High selected")
+	app.show_settings("display");await frames(3)
 	choose(app.settings_panel.find_child("Row_shadows",true,false),3);await frames(3)
+	app.show_settings("graphics");await frames(3)
 	expect(Quality.current(saved())==Quality.VERY_HIGH,"High with full shadows matches Very high regardless of antialiasing")
 	app.settings_panel.put("graphics","detail",false);await frames(3)
 	expect(Quality.current(saved())==Quality.CUSTOM and preset_row(app).get_node("Value").text=="Custom","A changed setting shows Custom")
 	shadowed=lights(app,"work_lamp").filter(func(light):return light.shadow_enabled)
 	expect(not shadowed.is_empty() and shadowed.size()<=Quality.shadow_budget(3).x and shadowed.all(func(light):return light.omni_shadow_mode==OmniLight3D.SHADOW_CUBE),"High shadow quality uses full lamp shadows within its budget")
+	app.show_settings("display");await frames(3)
 	choose(app.settings_panel.find_child("Row_shadows",true,false),0);await frames(3)
+	app.show_settings("graphics");await frames(3)
 	expect(lights(app,"work_lamp").all(func(light):return not light.shadow_enabled),"Shadow quality Off removes the lamp shadows")
 	var slider := app.settings_panel.find_child("Slider_headlight_strength",true,false) as HSlider
 	expect(slider!=null and slider.editable,"Headlight brightness has a slider")
@@ -321,7 +380,14 @@ func check_display_rows(app) -> void:
 	expect(app.fps_counter.label.text.ends_with("FPS"),"The counter shows frames per second")
 	var resolution := app.settings_panel.find_child("Row_resolution",true,false) as Button
 	expect(resolution!=null and resolution.get_node("Value").text=="Native","Resolution starts native")
-	app.show_settings("graphics");await frames(3)
+	var limit := app.settings_panel.find_child("Row_fps_limit",true,false) as Button
+	expect(limit!=null and limit.get_node("List").item_count==Display.FPS_LIMITS.size() and app.settings_panel.find_child("Row_vsync",true,false)!=null,"Display offers a frame rate limit and VSync")
+	choose(limit,Display.FPS_LIMITS.find(144));await frames(2)
+	expect(Display.fps_limit(saved())==144 and (Display.command_line_fps>0 or Engine.max_fps==144),"A frame rate limit is saved and applied")
+	choose(app.settings_panel.find_child("Row_fps_limit",true,false),0);await frames(2)
+	expect(Display.command_line_fps>0 or Engine.max_fps==0,"Unlimited lifts the limit")
+	Display.set_fullscreen(false,SETTINGS)
+	expect(saved().get_value("view","fullscreen",true)==false,"The window mode is remembered for the next start")
 	choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(50));await frames(2)
 	expect(Quality.read(saved()).scale==50 and is_equal_approx(app.get_viewport().scaling_3d_scale,0.5),"3D resolution draws at the chosen share")
 	var forward := RenderingServer.get_current_rendering_method()=="forward_plus"
@@ -332,16 +398,19 @@ func check_display_rows(app) -> void:
 	choose(app.settings_panel.find_child("Row_msaa",true,false),2);await frames(2)
 	expect(app.get_viewport().scaling_3d_mode==(Viewport.SCALING_3D_MODE_FSR if forward else Viewport.SCALING_3D_MODE_BILINEAR),"FSR 1.0 scales up by default where the renderer has it")
 	if forward:
-		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr2"));await frames(2)
+		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr2")+1);await frames(2)
 		expect(str(saved().get_value("view","upscaler",""))=="fsr2" and app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_FSR2,"FSR 2.2 can be chosen on Forward+")
 		expect(not app.get_viewport().use_taa,"A temporal upscaler replaces temporal antialiasing")
-		choose(app.settings_panel.find_child("Row_render_scale",true,false),Quality.SCALES.find(100));await frames(2)
+		var modes := app.settings_panel.find_child("Row_render_scale",true,false) as Button
+		expect(modes.text==tr("Upscaling mode") and (modes.get_node("List") as OptionButton).get_item_text(0)==Quality.mode_name("fsr2",100),"A temporal upscaler offers its named quality modes")
+		choose(modes,Quality.mode_scales("fsr2").find(100));await frames(2)
 		expect(app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_FSR2,"FSR 2.2 keeps antialiasing at 100%")
-		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr"));await frames(2)
+		choose(app.settings_panel.find_child("Row_upscaler",true,false),Quality.upscalers().find("fsr")+1);await frames(2)
 		expect(app.get_viewport().scaling_3d_mode==Viewport.SCALING_3D_MODE_BILINEAR,"FSR 1.0 has nothing to do at 100%")
 	else:
 		expect(app.settings_panel.find_child("Row_upscaler",true,false).disabled,"OpenGL offers no upscaler choice")
 	if not Quality.frame_generation_offered(): expect(app.settings_panel.find_child("Row_frame_generation",true,false)==null,"Frame generation is only offered where a vendor upscaler runs")
+	app.show_settings("graphics");await frames(3)
 	var slider := app.settings_panel.find_child("Slider_headlight_strength",true,false) as HSlider
 	expect(slider!=null and not slider.scrollable,"The mouse wheel does not move sliders")
 	app.settings_panel.back();await frames(2)

@@ -1273,9 +1273,7 @@ func toggle_fullscreen() -> void:
 		if web_standalone(): notice(tr("Already running without browser bars."))
 		else: notice(tr(FullscreenButton.NO_FULLSCREEN))
 		return
-	var mode := DisplayServer.window_get_mode()
-	var full: bool = mode==DisplayServer.WINDOW_MODE_FULLSCREEN or mode==DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+	Display.set_fullscreen(not Display.fullscreen(),settings_path)
 func controller_connection(device: int, connected: bool) -> void:
 	if not connected and controller.device==device:
 		controller.reset();controller.device=-1
@@ -1835,7 +1833,7 @@ func show_settings(section: String="", back: Callable=Callable()) -> void:
 		"motion_enable":motion.enable,"buzz":func():buzz(150),"text":session.text,
 		"auto_title":func():return dive_audio.title_track() if dive_audio.title_choice==0 else "",
 		"content_language":func():return str(settings_config().get_value("interface","content_language","")),
-		"world_note":world_note},golden(),touch.enabled())
+		"world_note":world_note,"unsaved":func():return true},golden(),touch.enabled())
 	settings_panel.open(section)
 	touch_scroll.scroll=settings_panel.scroll;touch_scroll.gesture_control=null;touch_scroll.release()
 func calibrate_tilt() -> void:
@@ -1870,6 +1868,7 @@ func apply_setting(section: String, key: String) -> void:
 			else: apply_graphics()
 		"view":
 			if key=="orientation": apply_orientation()
+			elif key in ["fps_limit","vsync"]: Display.apply_frame_pacing(settings_config())
 			else: apply_graphics()
 		"input":
 			if key=="touch": update_render_resolution();touch.arrange();layout()

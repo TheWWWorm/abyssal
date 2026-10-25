@@ -49,6 +49,20 @@ def reviewed_icon(resource, source_names):
     return False
 
 
+# NVIDIA's GeForce RTX badge and the splash made with it are NVIDIA's
+# artwork, supplied to export_game.py --nvidia-artwork rather than kept in
+# the source; the Windows pack carries them at these paths.
+SUPPLIED_ARTWORK = {'game/ui/abyssal-splash-nvidia.png', 'game/ui/vendors/nvidia-geforce-rtx-white.png'}
+
+
+def supplied_artwork(resource):
+    for source in SUPPLIED_ARTWORK:
+        imported = '.godot/imported/' + Path(source).name + '-' + hashlib.md5(('res://' + source[5:]).encode()).hexdigest() + '.ctex'
+        if resource in {imported, source[5:], source[5:] + '.import'}:
+            return True
+    return False
+
+
 def pck_entries(data, source_names):
     """Inspect standalone Godot 4.7 pack directories without running the game.
 
@@ -87,7 +101,7 @@ def pck_entries(data, source_names):
             source = source[:-1]
         generated = name in {'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
         scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', name)
-        icon = reviewed_icon(name, source_names)
+        icon = reviewed_icon(name, source_names) or supplied_artwork(name)
         if not generated and not scene and not icon and 'game/' + source not in source_names:
             raise ValueError('Unreviewed resource in game pack: ' + name)
         names.append(name)

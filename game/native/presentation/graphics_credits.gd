@@ -10,13 +10,14 @@ const AMD := "abyssal/graphics_sdk/amd"
 const NVIDIA := "abyssal/graphics_sdk/nvidia"
 ## AMD's white FSR lockups, from AMD's FSR naming and branding guidelines.
 const AMD_LOGOS := ["res://ui/vendors/amd-fsr-upscaling-white.png","res://ui/vendors/amd-fsr-frame-generation-white.png"]
-## NVIDIA's GeForce RTX badge is only in packages made after NVIDIA approved
-## its use; without it NVIDIA is credited in text.
+## NVIDIA's GeForce RTX badge is only in packages exported with NVIDIA's
+## artwork (export_game.py --nvidia-artwork); without it NVIDIA is credited
+## in text.
 const NVIDIA_LOGO := "res://ui/vendors/nvidia-geforce-rtx-white.png"
 const NVIDIA_BADGE := Rect2(290,278,2420,730)
 ## The licensors' attributions are kept as written in every language.
 const AMD_CREDIT := "AMD FSR Upscaling and AMD FSR Frame Generation via the AMD FidelityFX SDK. AMD, the AMD Arrow logo, AMD FSR and combinations thereof are trademarks of Advanced Micro Devices, Inc."
-const NVIDIA_CREDIT := "This build uses NVIDIA DLSS. NVIDIA and DLSS are trademarks of NVIDIA Corporation."
+const NVIDIA_CREDIT := "This build uses NVIDIA DLSS. NVIDIA, the NVIDIA logo, GeForce RTX and DLSS are trademarks and/or registered trademarks of NVIDIA Corporation in the U.S. and other countries."
 
 ## The badge picture for a review capture, instead of the package's file.
 static var nvidia_badge: Texture2D
