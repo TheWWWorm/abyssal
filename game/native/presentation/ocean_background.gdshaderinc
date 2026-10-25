@@ -1,10 +1,13 @@
 // Shared direction-dependent water color keeps the terrain horizon seamless.
-// The colour itself is ocean_radiance.gdshaderinc, drawn into a direction map
-// by ocean_radiance_map.gd; looking it up costs one texture read per pixel.
+// Enhanced water uses the cached direction map. Classic's small analytic
+// profile is evaluated at screen resolution, also for surface fog: enlarging
+// the 256-pixel map made its sun and layer boundaries coarse at 4K.
 global uniform float ocean_haze_gain;
 global uniform sampler2D ocean_radiance_map;
 #include "res://native/presentation/ocean_direction.gdshaderinc"
+#include "res://native/presentation/ocean_classic.gdshaderinc"
 vec3 ocean_radiance(vec3 direction){
+ if(ocean_classic_sky>0.5)return ocean_classic_radiance(normalize(direction));
  return textureLod(ocean_radiance_map,ocean_direction_uv(direction),0.0).rgb;
 }
 vec3 ocean_background(vec3 direction){

@@ -4,7 +4,8 @@ extends RefCounted
 ## grid under a full-width button, Right from the left cell went up to the
 ## wide button instead of across to its neighbour. Whenever a control takes
 ## focus, its four neighbours are set to the nearest control that lies wholly
-## on that side, preferring one level with it; with nothing there, focus stays.
+## on that side, preferring one level with it; at an edge, focus wraps to the
+## opposite end of the row or column.
 ## A neighbour a page sets itself is kept.
 
 ## Panels whose controls are searched together; outside one, the topmost
@@ -44,9 +45,10 @@ static func place(control: Control) -> void:
 	collect(scope,control,candidates)
 	var own := control.get_global_rect()
 	var list := scroller(control)
-	var automatic: Array=control.get_meta(AUTO_META,[])
+	var automatic: Dictionary=control.get_meta(AUTO_META,{})
 	for side in [SIDE_LEFT,SIDE_TOP,SIDE_RIGHT,SIDE_BOTTOM]:
-		if not control.get_focus_neighbor(side).is_empty() and side not in automatic:continue
+		var current := control.get_focus_neighbor(side)
+		if not current.is_empty() and current!=automatic.get(side,NodePath()):continue
 		# Within a scrolling list its own rows come first, wherever they are
 		# scrolled to; anything outside it is measured where it shows.
 		var best: Control=null;var best_score := INF;var best_inside := false
@@ -57,9 +59,32 @@ static func place(control: Control) -> void:
 			if score==INF:continue
 			var inside: bool=list!=null and list.is_ancestor_of(other)
 			if (inside and not best_inside) or (inside==best_inside and score<best_score):best_score=score;best=other;best_inside=inside
-		control.set_focus_neighbor(side,control.get_path_to(best if best!=null else control))
-		if side not in automatic:automatic.append(side)
+		if best==null:best=wrapped(control,candidates,side)
+		var path := control.get_path_to(best if best!=null else control)
+		control.set_focus_neighbor(side,path)
+		automatic[side]=path
 	control.set_meta(AUTO_META,automatic)
+
+static func wrapped(control: Control, candidates: Array[Control], side: int) -> Control:
+	"""Stay in the same row or column when cycling a grid. A full-width
+	footer cycles to the first control on the opposite edge in reading order."""
+	var own := control.get_global_rect()
+	var list := scroller(control)
+	var best: Control=null;var best_inside := false
+	var best_alignment := INF;var best_edge := INF
+	var horizontal: bool=side in [SIDE_LEFT,SIDE_RIGHT]
+	var positive: bool=side in [SIDE_RIGHT,SIDE_BOTTOM]
+	for other in candidates:
+		var rect := shown(other,control)
+		if not rect.has_area() or distance(rect,own,side)==INF:continue
+		var from := Vector2(own.position.y,own.end.y) if horizontal else Vector2(own.position.x,own.end.x)
+		var to := Vector2(rect.position.y,rect.end.y) if horizontal else Vector2(rect.position.x,rect.end.x)
+		var alignment: float=maxf(0.0,maxf(to.x-from.y,from.x-to.y))
+		var edge: float=(rect.position.x if horizontal else rect.position.y) if positive else -(rect.end.x if horizontal else rect.end.y)
+		var inside: bool=list!=null and list.is_ancestor_of(other)
+		if (inside and not best_inside) or (inside==best_inside and (alignment<best_alignment or (is_equal_approx(alignment,best_alignment) and edge<best_edge))):
+			best=other;best_inside=inside;best_alignment=alignment;best_edge=edge
+	return best
 
 static func scroller(control: Control) -> ScrollContainer:
 	var node: Node=control.get_parent()

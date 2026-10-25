@@ -372,7 +372,8 @@ func check_lit_snow() -> void:
 	var material := ShaderMaterial.new();material.shader=preload("res://native/presentation/particulate.gdshader")
 	var quad := QuadMesh.new();quad.material=material;quad.size=Vector2.ONE
 	var mesh := MultiMesh.new();mesh.transform_format=MultiMesh.TRANSFORM_3D;mesh.use_custom_data=true;mesh.mesh=quad;mesh.instance_count=1
-	mesh.set_instance_transform(0,Transform3D(Basis.IDENTITY,Vector3(0,0,-14)));mesh.set_instance_custom_data(0,Color(.1,0,1,1))
+	# A small flake whose seed survives the enhanced snow density selection.
+	mesh.set_instance_transform(0,Transform3D(Basis.IDENTITY,Vector3(0,0,-14)));mesh.set_instance_custom_data(0,Color(.01,0,.07,1))
 	var node := MultiMeshInstance3D.new();node.multimesh=mesh;node.custom_aabb=AABB(Vector3(-30,-30,-40),Vector3.ONE*60);viewport.add_child(node)
 	var pixels := Image.create(12,12,false,Image.FORMAT_RF);pixels.fill(Color(80,0,0));var reach := ImageTexture.create_from_image(pixels)
 	material.set_shader_parameter("enhanced",1.0);material.set_shader_parameter("snow_density",1.3)
@@ -445,8 +446,11 @@ func check_sky_scattering() -> void:
 	var environment := WorldEnvironment.new();var env := Environment.new();environment.environment=env
 	var sky := Sky.new();var material := ShaderMaterial.new();material.shader=preload("res://native/presentation/abyss_sky.gdshader");sky.sky_material=material
 	env.background_mode=Environment.BG_SKY;env.sky=sky;env.tonemap_mode=Environment.TONE_MAPPER_ACES;viewport.add_child(environment)
-	# Isolate scattered light from the original sky palette and sun opening.
-	RenderingServer.global_shader_parameter_set("ocean_upper_color",Vector3.ZERO)
+	# The preceding region check ends in Classic mode. Scattering is enhanced
+	# only, and its colour follows the water: a black region emits no shafts.
+	RenderingServer.global_shader_parameter_set("ocean_classic_sky",0.0)
+	RenderingServer.global_shader_parameter_set("ocean_water_tint",Vector3.ONE)
+	RenderingServer.global_shader_parameter_set("ocean_upper_color",Vector3(.025,.095,.22))
 	RenderingServer.global_shader_parameter_set("ocean_sun_gain",0.0)
 	RenderingServer.global_shader_parameter_set("ocean_light_gain",1.0)
 	RenderingServer.global_shader_parameter_set("ocean_shaft_gain",1.0)
@@ -472,6 +476,7 @@ func check_sky_scattering() -> void:
 			expect(largest<=8,"Uneven strands do not repeat into extra contour bands (%s, time %s: %d crests)"%[direction,time,largest])
 	# The bright opening and the converging shafts must agree even while the
 	# scattering changes. A horizontal-only capture can hide an offset source.
+	RenderingServer.global_shader_parameter_set("ocean_sun_gain",1.0)
 	var sun_direction := Vector3(-.25,.95,-.15).normalized()
 	for direction in [sun_direction,Vector3.UP]:
 		camera.look_at_from_position(Vector3.ZERO,direction,Vector3.FORWARD if direction==Vector3.UP else Vector3.UP)
@@ -509,6 +514,53 @@ func check_sky_scattering() -> void:
 	expect(maximum>.04 and readable>2000,"Sun shafts are distinguishable in mid-water with the full background (contrast %.3f, %d pixels)"%[maximum,readable])
 	viewport.queue_free();await process_frame
 
+func check_classic_sky() -> void:
+	if DisplayServer.get_name()=="headless":return
+	# Exercise the real sky at 4K. A bogus cached map exposes any accidental
+	# low-resolution path; the fully fogged surface must match the sky too.
+	var viewport:=SubViewport.new();viewport.size=Vector2i(3840,2160);viewport.own_world_3d=true
+	viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
+	var camera:=Camera3D.new();camera.fov=65;viewport.add_child(camera)
+	var environment:=WorldEnvironment.new();var env:=Environment.new();environment.environment=env
+	var sky:=Sky.new();var material:=ShaderMaterial.new();material.shader=preload("res://native/presentation/abyss_sky.gdshader")
+	sky.sky_material=material;env.sky=sky;env.background_mode=Environment.BG_SKY;viewport.add_child(environment)
+	var placeholder:=Image.create(2,2,false,Image.FORMAT_RGBA8);placeholder.fill(Color.MAGENTA)
+	RenderingServer.global_shader_parameter_set("ocean_radiance_map",ImageTexture.create_from_image(placeholder))
+	RenderingServer.global_shader_parameter_set("ocean_classic_sky",1.0)
+	RenderingServer.global_shader_parameter_set("ocean_upper_color",Vector3(.7,.4,.12))
+	RenderingServer.global_shader_parameter_set("ocean_water_tint",Vector3.ONE)
+	RenderingServer.global_shader_parameter_set("ocean_light_gain",1.0)
+	var direction:=Vector3(-.25,.95,-.15).normalized();camera.look_at(direction)
+	for i in 4:await process_frame
+	await RenderingServer.frame_post_draw
+	var pixels:=viewport.get_texture().get_image()
+	var core:=pixels.get_pixel(1920,1080);var border:=pixels.get_pixel(2560,1080)
+	expect(core.r>.9 and core.g>.9 and core.b>.9,"Classic retains a bright white opening at 4K")
+	expect(border.r>border.b*2 and border.g>border.b,"The opening's halo preserves regional colour and ignores the small cached map")
+	var white:=0;var samples:=0
+	for y in range(0,2160,8):
+		for x in range(0,3840,8):
+			var c:=pixels.get_pixel(x,y);samples+=1
+			if minf(c.r,minf(c.g,c.b))>.85:white+=1
+	expect(float(white)/samples<.015,"The white sun core stays compact instead of washing out a broad disc")
+	var card:=MeshInstance3D.new();var quad:=QuadMesh.new();quad.size=Vector2(20,20);card.mesh=quad
+	var fog:=ShaderMaterial.new();var shader:=Shader.new()
+	shader.code='shader_type spatial; render_mode unshaded;\n#include "res://native/presentation/ocean_background.gdshaderinc"\nvoid fragment(){ALBEDO=vec3(1.0,0.0,1.0);FOG=ocean_fog((INV_VIEW_MATRIX*vec4(VERTEX,0.0)).xyz,1000.0,1.0);}'
+	fog.shader=shader;card.material_override=fog;camera.add_child(card);card.position=Vector3(0,0,-10)
+	RenderingServer.global_shader_parameter_set("ocean_haze_gain",1.0)
+	for i in 3:await process_frame
+	await RenderingServer.frame_post_draw
+	var fogged:=viewport.get_texture().get_image().get_pixel(2560,1080)
+	expect(Vector3(fogged.r,fogged.g,fogged.b).distance_to(Vector3(border.r,border.g,border.b))<.015,"Classic surface fog meets the 4K sky without a colour seam")
+	card.hide()
+	camera.look_at(Vector3(0,-.7,-1))
+	for i in 3:await process_frame
+	await RenderingServer.frame_post_draw
+	expect(viewport.get_texture().get_image().get_pixel(1920,1080).get_luminance()<.01,"The lower Classic water stays dark")
+	RenderingServer.global_shader_parameter_set("ocean_classic_sky",0.0)
+	RenderingServer.global_shader_parameter_set("ocean_radiance_map",root.get_node("OceanRadianceMap").get_texture())
+	viewport.queue_free();await process_frame
+
 func run() -> void:
 	check_glass_mask();check_relief_scale();check_headlight_attachment()
 	await check_beam_intersections()
@@ -529,6 +581,7 @@ func run() -> void:
 	await check_rendered_regions(world)
 	await check_jellyfish_pulse(content)
 	await check_sky_scattering()
+	await check_classic_sky()
 	world.dispose();await process_frame
 	print("OCEAN_ATMOSPHERE %d failures"%failures);quit(1 if failures else 0)
 

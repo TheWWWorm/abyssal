@@ -268,9 +268,39 @@ func run():
  regression_navigation.region.success=null;regression_navigation.region.failure=null;regression_navigation.update_autopilot()
  expect(not regression_navigation.autopilot and regression_navigation.encounter_navigation_point()==null,"Resolved encounter cannot keep an obsolete regression_navigation target")
  regression_navigation.dispose()
+ check_mission_navigation_subjects()
  check_full_hold()
  print("MODERN_GAMEPLAY ",checks," checks; ",failures," failures")
  quit(1 if failures else 0)
+func check_mission_navigation_subjects() -> void:
+ var world=fixture(10);var region=world.region
+ region.route.configure([]);region.player.pose.origin=[0,0,0]
+ var pirate:=NPC.new();pirate.health.configure(100,0,0);pirate.pose.origin=[100,0,0]
+ var debris=preload("res://native/simulation/special_actor.gd").new();debris.kind="debris";debris.health.configure(1,0,0);debris.pose.origin=[20000,0,0]
+ region.enemies=[debris,pirate]
+ region.success=preload("res://native/simulation/encounter_goal.gd").new().configure("first_enemies_dead",[],1)
+ expect(world.encounter_navigation_subject()==debris and world.encounter_navigation_point()==debris.pose.origin,"Junk-removal navigation follows debris rather than the nearer incidental pirate")
+ debris.health.hull=0;debris.state=3
+ expect(world.encounter_navigation_point()==null,"Clearing every mission subject never redirects the waypoint to an unrelated pirate")
+ region.success.configure("enemy_dead",[],0);debris.health.hull=1;debris.state=0
+ expect(world.encounter_navigation_subject()==debris,"A named kill objective selects its indexed target")
+ debris.excluded_from_objectives=true
+ expect(world.encounter_navigation_point()==null,"An actor excluded from objectives receives no mission destination")
+ debris.excluded_from_objectives=false
+ region.enemies=[pirate];pirate.protect(true);pirate.health.hull=0;pirate.state=4
+ region.success.configure("enemy_rescued",[],0)
+ expect(world.encounter_navigation_subject()==pirate,"A rescue destination follows the recoverable wreck after combat")
+ pirate.capture(world.session)
+ expect(world.encounter_navigation_point()==null,"A recovered mission subject leaves no stale waypoint")
+ region.route.configure([0,0,10000])
+ expect(world.encounter_navigation_point()==[0,0,10000] and world.encounter_navigation_subject()==null,"An authored route remains separate from actor targeting")
+ region.route.configure([])
+ var fish=region.creatures[0];fish.health.hull=1;fish.health.enabled=true;fish.state=0;region.creatures=[fish]
+ region.success.configure("harvest",[],1,fish.species)
+ expect(world.encounter_navigation_subject()==fish,"A harvest mission follows its requested species")
+ fish.health.enabled=false
+ expect(world.encounter_navigation_point()==null,"A collected catch is no longer a navigation target")
+ world.dispose()
 func fish_fixture() -> Dictionary:
  var world=fixture(12);var fish:=Creature.new();fish.configure(int(data.constants.ah["b:[S"][0]),data.tables.creatures[0],world.session.rng,world.region.sine,[0,0,-10000]);fish.mass=1
  var hook:=Fishing.new();hook.player=world.region.player;hook.session=world.session

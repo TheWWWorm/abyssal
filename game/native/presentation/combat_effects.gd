@@ -207,7 +207,8 @@ func update_player_wake(region, milliseconds: float) -> void:
 	# A lost hull runs no engines; the bubbles already out rise on.
 	if dt>0 and region.player.health.hull>0:
 		var power: float=clampf(region.player.throttle/100.0,0,1)
-		var interval := lerpf(.24,.035,power)
+		var boosting: bool=region.player.boost_active and not region.cinematic()
+		var interval := .012 if boosting else lerpf(.24,.035,power)
 		wake_timer=minf(wake_timer+dt,interval*8)
 		while wake_timer>=interval:
 			wake_timer-=interval
@@ -217,17 +218,21 @@ func update_player_wake(region, milliseconds: float) -> void:
 				var phase := float(wake_serial)*2.399963
 				var scatter := frame.basis.x*cos(phase)+frame.basis.y*sin(phase)
 				var size := .16+.22*(sin(phase*1.7)*.5+.5)
-				player_wake.append({"at":at+scatter*.22,"velocity":frame.basis.z*(3+power*4)+scatter*.85+Vector3.UP*.9,"age":0.0,"power":power,"size":size})
+				# Boost leaves a dense white wash from the same engine outlets.
+				# Each particle keeps its birth state so the trail fades naturally
+				# when boost ends, without changing speed or gameplay randomness.
+				player_wake.append({"at":at+scatter*(.38 if boosting else .22),"velocity":frame.basis.z*(18.0 if boosting else 3+power*4)+scatter*(1.4 if boosting else .85)+Vector3.UP*.9,"age":0.0,"power":power,"size":size*(2.8 if boosting else 1.0),"boost":boosting})
 				wake_serial+=1
 		wake_previous=outlets.duplicate()
 	for particle in player_wake:
 		var age: float=particle.age/2.4
-		var opacity: float=smoothstep(0.0,.02,age)*pow(1.0-age,1.4)*lerpf(.28,.8,particle.power)
+		var boosted: bool=particle.get("boost",false)
+		var opacity: float=smoothstep(0.0,.02,age)*pow(1.0-age,1.4)*(1.0 if boosted else lerpf(.28,.8,particle.power))
 		var at: Vector3=particle.at-anchor
 		var distance: float=at.distance_to(owner_view.camera.global_position)
 		opacity*=smoothstep(4.0,12.0,distance)*(1.0-smoothstep(240.0,400.0,distance))
 		if opacity<=.001 or bubble_count>=bubbles.multimesh.instance_count:continue
-		sprite(bubbles,bubble_count,at,particle.size*(1.0+age*1.8),1-opacity,2,Color("c4e3e9"));bubble_count+=1
+		sprite(bubbles,bubble_count,at,particle.size*(1.0+age*1.8),1-opacity,3 if boosted else 2,Color("eefaff") if boosted else Color("c4e3e9"));bubble_count+=1
 func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 	effect_bounds.clear()
 	segment_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0; blood_count=0; puff_count=0

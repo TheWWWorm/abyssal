@@ -1,6 +1,7 @@
 extends Node3D
 const Session = preload("res://native/simulation/session.gd")
 const World = preload("res://native/simulation/world.gd")
+const SpecialActor = preload("res://native/simulation/special_actor.gd")
 const Save = preload("res://native/simulation/save_store.gd")
 const Economy = preload("res://native/simulation/economy.gd")
 const View = preload("res://native/presentation/world_view.gd")
@@ -271,7 +272,7 @@ var friend_labels := true
 ## the original only drew it off screen with one fitted (cb.a).
 var waypoint_edge := true
 ## Settings > Display: the original's cargo, shield and hull bars as well.
-var retro := false
+var retro := true
 var flight_ms := 0
 ## Which Controls page is open. Empty is the list of sections itself.
 var freeze_view
@@ -1275,6 +1276,7 @@ func toggle_fullscreen() -> void:
 		return
 	Display.set_fullscreen(not Display.fullscreen(),settings_path)
 func controller_connection(device: int, connected: bool) -> void:
+	if not connected and is_instance_valid(map_widget):map_widget.release_cursor_device(device)
 	if not connected and controller.device==device:
 		controller.reset();controller.device=-1
 		if session!=null and page.is_empty():show_pause()
@@ -1921,6 +1923,9 @@ func read_settings() -> void:
 	controller.roles=controller.read_roles(config)
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
 	world.set_manual_roll(bool(config.get_value("input","manual_roll",false)))
+	world.objective_travel_mode=setting_index(config,"gameplay","objective_travel",0,1)
+	world.ship_collisions=bool(config.get_value("gameplay","ship_collisions",false))
+	view.boost_fov=bool(config.get_value("view","boost_fov",true))
 	original_weapons=bool(config.get_value("input","original_weapons",false));touch.original_weapons=original_weapons
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
@@ -1933,7 +1938,7 @@ func read_settings() -> void:
 	autopilot_status=bool(config.get_value("interface","autopilot_status",false))
 	friend_labels=bool(config.get_value("interface","friend_labels",true))
 	waypoint_edge=bool(config.get_value("interface","waypoint_edge",true))
-	retro=bool(config.get_value("interface","retro_hud",false))
+	retro=bool(config.get_value("interface","retro_hud",true))
 	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
 	hit_shake=bool(config.get_value("interface","hit_shake",true))
 	damage_feedback.pulse_enabled=bool(config.get_value("interface","low_hull_pulse",true))
@@ -1985,6 +1990,9 @@ func save_settings() -> void:
 	for index in 4: config.set_value("input",controller.AXIS_KEYS[index],controller.roles[index])
 	config.set_value("input","smooth_steering",world.smooth_steering)
 	config.set_value("input","manual_roll",world.manual_roll)
+	config.set_value("gameplay","objective_travel",world.objective_travel_mode)
+	config.set_value("gameplay","ship_collisions",world.ship_collisions)
+	config.set_value("view","boost_fov",view.boost_fov)
 	config.set_value("input","original_weapons",original_weapons)
 	config.set_value("input","motion",motion_steering);config.set_value("input","motion_sensitivity",motion_sensitivity)
 	config.set_value("input","motion_invert",invert_motion_pitch)
@@ -2104,7 +2112,6 @@ func station_service_reason(kind: String) -> String:
 			if session.is_colonist_station():return tr("Manufacturing is available at rebel stations.")
 			if economy.recipes(station).is_empty():return tr("No recipes available at this station's technology level.")
 		"missions":
-			if session.campaign.secondary.kind>=0:return tr("Finish or abandon the accepted contract first.")
 			if station.missions.is_empty():return tr("No contracts on this station's board.")
 	return ""
 func station_service(title: String, text: String, kind: String, icon: String, art: Texture2D, parent: Node) -> void:
@@ -2444,8 +2451,8 @@ func show_market(kind: String, reset: bool=false) -> void:
 			goods_tabs(kind)
 			goods_browser(station,kind=="manufacture")
 		"missions":
-			if session.campaign.secondary.kind>=0: label(tr("An accepted contract is already in your journal.")).add_theme_color_override("font_color",colours().dim)
-			elif station.missions.is_empty(): label(tr("No contracts on this station's board.")).add_theme_color_override("font_color",colours().dim)
+			if session.campaign.secondary.kind>=0: label(tr("Finish or abandon the accepted contract before accepting another.")).add_theme_color_override("font_color",colours().dim)
+			if station.missions.is_empty(): label(tr("No contracts on this station's board.")).add_theme_color_override("font_color",colours().dim)
 			else:
 				var board := GridContainer.new();board.columns=2 if ui.size.x>=1100 else 1;board.add_theme_constant_override("h_separation",16);board.add_theme_constant_override("v_separation",16);column.add_child(board)
 				for mission in station.missions: contract_card(station,mission,board)
@@ -2492,9 +2499,12 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 		map_destination=mission.destination;Map.preview_mission=mission
 		map_return=func():Map.preview_mission=null;show_market("missions")
 		show_map(),body),"map",22)
-	primary(iconic(button(tr("Accept contract"),func():
-		if session.accept_contract(mission): show_station()
+	var accept := primary(iconic(button(tr("Accept contract"),func():
+		if session.campaign.secondary.kind>=0: notice(tr("Finish or abandon the accepted contract first."))
+		elif session.accept_contract(mission): show_station()
 		else: notice(tr("Insufficient credits for the deposit.")),body),"contracts",22))
+	if session.campaign.secondary.kind>=0:
+		accept.disabled=true;accept.tooltip_text=tr("Finish or abandon the accepted contract first.")
 func transaction_result(result: int, done: String="") -> void:
 	"""A refusal's reason, or what the original says once it went through
 	(ai: "<ship> bought.", "<item> mounted.", "<item> sold.")."""
@@ -2560,6 +2570,11 @@ func chart_input(event: InputEvent) -> bool:
 	if page not in ["map","stream"] or not is_instance_valid(map_widget) or not is_instance_valid(map_slice):return false
 	var focused := get_viewport().gui_get_focus_owner()
 	if focused!=map_widget and focused!=map_slice:return false
+	# Digital directions are sampled together each frame. Consume both press
+	# and release here so focus navigation and OS repeats cannot move the ring.
+	if focused==map_widget and map_widget.cursor_input(event):return true
+	# The left stick always moves the area continuously through map_pad().
+	if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X,JOY_AXIS_LEFT_Y]:return true
 	if not event.is_pressed():return false
 	var station_mode: bool=focused==map_slice
 	if event.is_action_pressed("ui_cancel"):
@@ -2572,10 +2587,6 @@ func chart_input(event: InputEvent) -> bool:
 	elif event.is_action_pressed("ui_down",true):direction=Vector2.DOWN
 	if direction!=Vector2.ZERO:
 		if station_mode:map_slice.step(-1 if direction.x<0 or direction.y<0 else 1)
-		else:
-			var zone: Vector2=map_widget.place_lens(map_widget.lens_center+direction*ZONE_RADIUS*.18/sqrt(map_widget.zoom))
-			map_widget.keep_in_view(zone,32)
-			map_widget.zone_moved.emit(zone,-1)
 		return true
 	var fire: bool=event is InputEventKey and event.physical_keycode==key_bindings.fire
 	if event.is_action_pressed("ui_accept") or fire:
@@ -2583,10 +2594,11 @@ func chart_input(event: InputEvent) -> bool:
 		if not station_mode:
 			var ids:=zone_stations(map_widget.lens_center)
 			if ids.is_empty():notice(zone_prompt(map_widget.lens_center)[1]);return true
+			map_stick_moving=false
 			map_slice.choose(map_slice.selected_id if map_slice.selected_id in ids else ids[0])
 			map_slice.grab_focus()
 		elif page=="stream":begin_stream_transit()
-		elif atlas_autopilot_only or map_destination==session.station_id:map_autopilot()
+		elif atlas_autopilot_only or world.objective_travel_mode==World.ObjectiveTravel.OPEN_WATER or map_destination==session.station_id or world.stream_distance(map_destination)>=world.stream_range():map_autopilot()
 		else:map_stream()
 		return true
 	return false
@@ -2599,9 +2611,11 @@ func map_pad(delta: float) -> void:
 	focused chart stage, or moves between other controls. A zone walked
 	towards the edge takes the chart with it."""
 	if not is_instance_valid(map_widget) or map_widget.lens_radius<=0: return
-	var stick := controller.stick()
+	var stick: Vector2=controller.stick()
+	if map_widget.has_focus():stick=(stick+map_widget.cursor_direction()).limit_length(1.0)
 	var zone: Vector2=map_widget.lens_center
 	if stick!=Vector2.ZERO:
+		if not map_widget.has_focus():map_widget.grab_focus()
 		map_stick_moving=true
 		# The same pace on screen at any zoom.
 		zone=map_widget.place_lens(zone+stick*map_widget.lens_radius*3.0*delta/sqrt(map_widget.zoom))
@@ -2666,6 +2680,7 @@ func station_chart(selection: int) -> HFlowContainer:
 	map_widget.size_flags_horizontal=Control.SIZE_EXPAND_FILL; map_widget.size_flags_vertical=Control.SIZE_EXPAND_FILL; map_widget.size_flags_stretch_ratio=1.1
 	map_widget.custom_minimum_size=Vector2(300,200) # after its _ready, which sets its own
 	map_widget.lens_radius=ZONE_RADIUS;map_widget.focus_mode=Control.FOCUS_ALL
+	map_stick_moving=false
 	touch_scroll.gesture_control=map_widget
 	var side := VBoxContainer.new(); side.size_flags_horizontal=Control.SIZE_EXPAND_FILL; side.add_theme_constant_override("separation",10); top.add_child(side)
 	map_slice=DepthSlice.new(); map_slice.world=world; map_slice.art=imported_art; map_slice.size_flags_vertical=Control.SIZE_EXPAND_FILL; side.add_child(map_slice)
@@ -2710,9 +2725,10 @@ func station_chart(selection: int) -> HFlowContainer:
 	return actions
 func chart_legend() -> void:
 	if page not in ["map","stream"]:return
+	var station_mode: bool=is_instance_valid(map_slice) and map_slice.has_focus()
+	if is_instance_valid(map_widget) and (station_mode or map_widget.has_focus()):map_widget.select_area(station_mode)
 	var legend:=overlay.find_child("KeyLegend",true,false)
 	if legend==null:return
-	var station_mode: bool=is_instance_valid(map_slice) and map_slice.has_focus()
 	var entries: Array=legend.get_children()
 	entries[1].text=tr("Move zone") if station_mode else tr("Back")
 	entries[3].text=tr("Choose station") if station_mode else tr("Move zone")
@@ -2914,6 +2930,19 @@ func station_contacts() -> Array:
 
 ## How near the screen's edge a ship is still bracketed in place.
 const ENEMY_MARGIN := 12.0
+func encounter_marker_label() -> String:
+	var actor=world.encounter_navigation_subject()
+	if actor==null:return tr("Mission waypoint")
+	if actor.is_creature:return item_name(actor.species)
+	if actor is SpecialActor:
+		match actor.kind:
+			"debris":return tr("Debris")
+			"mine":return tr("Mine")
+			"freighter":return tr("Convoy target")
+			"capsule":return tr("Supply capsule")
+	if actor.protected_target:return tr("Rescue target") if world.region.mission.kind==2 else tr("Recovery target")
+	return tr("Mission target")
+
 func update_markers() -> void:
 	if not page.is_empty() or world.region.cinematic() or view.transit_progress>=0:
 		for marker in markers: marker.hide()
@@ -2937,8 +2966,8 @@ func update_markers() -> void:
 			if visual.global_position.distance_to(preload("res://scripts/model_library.gd").point(region.player.pose.origin))>2500.0:continue
 			targets.append({"key":"stream:"+str(id),"p":[0,0,0],"position":visual.global_position,"name":tr(str(visual.get_meta("gate_title","S.T.R.E.A.M.")))+" · "+session.stations[id].name,"color":Color("ac9ac9"),"edge":true,"hull":-1.0})
 	if world.autopilot and world.local_target!=null and world.stream_destination<0:
-		targets.append({"key":"waypoint","p":world.local_target,"name":session.stations[world.destination].name if world.destination>=0 else tr("Autopilot"),"color":Color("e5ce86"),"edge":true,"hull":-1.0})
-	elif world.encounter_navigation_point()!=null: targets.append({"key":"waypoint","p":world.encounter_navigation_point(),"name":tr("Encounter waypoint"),"color":Color("e5ce86"),"edge":radar>0 or waypoint_edge,"hull":-1.0})
+		targets.append({"key":"waypoint","p":world.local_target,"name":encounter_marker_label() if world.encounter_autopilot else session.stations[world.destination].name if world.destination>=0 else tr("Autopilot"),"color":Color("e5ce86"),"edge":true,"hull":-1.0})
+	elif world.encounter_navigation_point()!=null: targets.append({"key":"waypoint","p":world.encounter_navigation_point(),"name":encounter_marker_label(),"color":Color("e5ce86"),"edge":radar>0 or waypoint_edge,"hull":-1.0})
 	for role in ["friend","enemy","creature"]:
 		var actors: Array = region.friends if role=="friend" else (region.enemies if role=="enemy" else region.creatures)
 		for actor in actors:
@@ -3149,6 +3178,8 @@ func show_destinations() -> void:
 	open_page(tr("Autopilot"),"destinations")
 	var mission=current_objective()
 	label(objective_summary(mission),15).modulate=Color("ddca92")
+	button(tr("Objective travel · %s")%objective_travel_name(),func():
+		world.objective_travel_mode=1-world.objective_travel_mode;save_settings();show_destinations()).tooltip_text=tr("Prefer S.T.R.E.A.M. within engine range, or travel through the open ocean.")
 	var resume: int=world.resume_destination
 	if resume>=0 and resume<session.stations.size() and resume!=session.station_id and not world.autopilot:
 		# A route set on the chart (here or before leaving the station) stays
@@ -3175,6 +3206,8 @@ func resume_route() -> void:
 	if not resumed: notice(world.message); return
 	if world.resume_stream: stream_prompted=false
 	close_page()
+func objective_travel_name() -> String:
+	return tr("Open water") if world.objective_travel_mode==World.ObjectiveTravel.OPEN_WATER else tr("Prefer S.T.R.E.A.M.")
 func say_hint(key: String,text: String) -> bool:
 	if not gameplay_hints or session.hints_said.has(key) or text.is_empty():return false
 	session.hints_said[key]=true

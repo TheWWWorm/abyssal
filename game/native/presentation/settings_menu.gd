@@ -774,7 +774,7 @@ func display_page() -> void:
 	group(tr("Performance"))
 	performance_options()
 	group(tr("Interface"))
-	toggle(tr("Retro HUD"),"interface","retro_hud",false)
+	toggle(tr("Retro HUD"),"interface","retro_hud",true)
 	note(tr("Adds the original game's gauges to the HUD: the cargo hold along the top, and the shield and hull bars with the auto fire, autopilot and hull lamps along the bottom."))
 
 func controls_page() -> void:
@@ -896,6 +896,12 @@ func reference_page() -> void:
 		plain(line,16,column).add_theme_color_override("font_color",colours().text)
 
 func gameplay_page() -> void:
+	group(tr("Navigation"))
+	chooser(tr("Objective travel"),[tr("Prefer S.T.R.E.A.M."),tr("Open water")],index("gameplay","objective_travel",0,1),"objective_travel",func(next):put("gameplay","objective_travel",next))
+	note(tr("Prefer S.T.R.E.A.M. within engine range, or travel through the open ocean."))
+	toggle(tr("Ship collisions"),"gameplay","ship_collisions",false)
+	note(tr("Turn away on contact with vessels, as in the original. Station walls remain solid."))
+	toggle(tr("Boost field of view"),"view","boost_fov",true)
 	toggle(tr("Gameplay tips & control hints"),"interface","hints",true)
 	note(tr("Loading tips, M.A.I. guidance and the control reminder."))
 	group(tr("On-screen messages"))

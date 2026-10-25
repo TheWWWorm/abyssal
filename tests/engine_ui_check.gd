@@ -99,6 +99,7 @@ func run():
  app.close_modal();app.launch_game(false,"Engine test");await process_frame;await process_frame
  var game=current_scene
  expect(game!=null and not game.view.pack.enabled,"Native gameplay needs no material pack")
+ expect(game.retro,"The original-style cargo and hull HUD is enabled when no preference was saved")
  game.set_process(false)
  game.close_page();game.show_dialogue([{"speaker":"Test","text":"Departure briefing"}],game.close_page)
  await process_frame;await process_frame
@@ -150,6 +151,8 @@ func run():
   expect(game.condition.bars_hidden and game.objective_label.position.y<22+102*game.hud_scale(),"The retro bottom bars replace the top gauge rows")
  game.retro=false;game.layout();game._process(0);await process_frame
  expect(not game.retro_hud.visible and not game.condition.bars_hidden and game.classic_frame.lift==0.0 and game.condition.info.contains("/%dt"%game.session.ship.capacity()),"Retro HUD off restores the standard HUD")
+ game.save_settings();game.retro=true;game.read_settings()
+ expect(not game.retro,"An explicit saved choice to disable Retro HUD survives the new default")
  root.size=Vector2i(1280,720);await process_frame
  expect(game.camera.far==10000,"Open ocean retains 10 km visibility")
  expect(not game.graphics.station_smoothing,"Station smoothing defaults off")
@@ -190,6 +193,17 @@ func run():
  expect(not game.notice_history.any(func(value):return value.label.text.begins_with("Time ·")),"Repeated speed changes do not stack stale time notices")
  expect(game.key_bindings.autopilot==KEY_R and game.key_bindings.time==KEY_T,"Autopilot R and time T defaults")
  await check_objective_destinations(game)
+ game.show_settings("gameplay");await process_frame;await process_frame
+ expect(panel_button(game.settings_panel,"Objective travel")!=null and panel_button(game.settings_panel,"Ship collisions")!=null,"Gameplay settings expose both travel styles and optional vessel contact")
+ game.world.objective_travel_mode=1;game.world.ship_collisions=true;game.view.boost_fov=false;game.save_settings()
+ game.world.objective_travel_mode=0;game.world.ship_collisions=false;game.view.boost_fov=true;game.read_settings()
+ expect(game.world.objective_travel_mode==1 and game.world.ship_collisions and not game.view.boost_fov,"Travel, vessel contact and boost-view preferences survive a settings reload")
+ game.show_destinations()
+ var travel_choice:=named_button(game,"Objective travel · Open water")
+ expect(travel_choice!=null,"Autopilot exposes the saved travel style beside its objective action")
+ if travel_choice!=null:travel_choice.pressed.emit()
+ expect(game.world.objective_travel_mode==0,"Autopilot can switch travel styles without leaving the menu")
+ game.world.ship_collisions=false;game.view.boost_fov=true;game.save_settings()
  game.session.campaign.primary.kind=8;game.session.campaign.primary.destination=game.session.station_id
  game.show_destinations()
  for i in 6:await process_frame
@@ -281,6 +295,9 @@ func chart_key(code: int, repeat_press := false) -> void:
  var key:=InputEventKey.new();key.keycode=code;key.physical_keycode=code;key.pressed=true;key.echo=repeat_press
  Input.parse_input_event(key);await process_frame
  key=key.duplicate();key.pressed=false;key.echo=false;Input.parse_input_event(key);await process_frame
+func chart_hold(code: int, down: bool, echo: bool=false) -> void:
+ var key:=InputEventKey.new();key.keycode=code;key.physical_keycode=code;key.pressed=down;key.echo=echo
+ Input.parse_input_event(key);await process_frame
 
 func check_chart_keyboard(game) -> void:
  var processing: bool=game.is_processing();game.set_process(false)
@@ -289,14 +306,30 @@ func check_chart_keyboard(game) -> void:
  for i in 3:await process_frame
  expect(root.gui_get_focus_owner()==game.map_widget,"The map opens with its reticle ready for keyboard navigation")
  var center: Vector2=game.map_widget.place_lens(Vector2(50,50))
- await chart_key(KEY_RIGHT)
+ await chart_hold(KEY_RIGHT,true);game.map_pad(.04)
  expect(game.map_widget.lens_center.x>center.x and game.map_widget.has_focus(),"Right moves the reticle without switching to a station control")
- center=game.map_widget.lens_center;await chart_key(KEY_RIGHT,true)
- expect(game.map_widget.lens_center.x>center.x,"Held direction keys keep moving the reticle")
- center=game.map_widget.lens_center;await chart_key(KEY_DOWN)
- expect(game.map_widget.lens_center.y>center.y,"Down moves the reticle south")
- center=game.map_widget.lens_center;await chart_key(KEY_UP);await chart_key(KEY_LEFT)
- expect(game.map_widget.lens_center.y<center.y and game.map_widget.lens_center.x<center.x,"Up and Left move the reticle in both remaining directions")
+ var first_step: float=game.map_widget.lens_center.x-center.x
+ center=game.map_widget.lens_center;game.map_pad(.04)
+ expect(is_equal_approx(game.map_widget.lens_center.x-center.x,first_step),"A held direction moves on the next frame without waiting for OS repeat")
+ center=game.map_widget.lens_center;await chart_hold(KEY_RIGHT,true,true)
+ expect(game.map_widget.lens_center==center,"Key-repeat events do not add extra reticle movement")
+ await chart_hold(KEY_DOWN,true);game.map_pad(.04)
+ var diagonal: Vector2=game.map_widget.lens_center-center
+ expect(diagonal.x>0 and is_equal_approx(diagonal.x,diagonal.y) and is_equal_approx(diagonal.length(),first_step),"Two held directions move diagonally at the same total speed")
+ await chart_hold(KEY_RIGHT,false);await chart_hold(KEY_DOWN,false);game.map_pad(.04)
+ center=game.map_widget.lens_center;game.map_pad(.04)
+ expect(game.map_widget.lens_center==center,"Releasing both directions stops the reticle immediately")
+ await chart_hold(KEY_UP,true);await chart_hold(KEY_LEFT,true);game.map_pad(.04)
+ expect(game.map_widget.lens_center.y<center.y and game.map_widget.lens_center.x<center.x,"Up and Left can be held together")
+ await chart_hold(KEY_UP,false);await chart_hold(KEY_LEFT,false);game.map_pad(.04)
+ await chart_hold(KEY_RIGHT,true);await chart_hold(KEY_LEFT,true)
+ center=game.map_widget.lens_center;game.map_pad(.04)
+ expect(game.map_widget.lens_center==center,"Opposing held directions cancel")
+ await chart_hold(KEY_RIGHT,false);await chart_hold(KEY_LEFT,false)
+ await chart_hold(KEY_DOWN,true);game.map_slice.grab_focus();game.map_widget.grab_focus()
+ center=game.map_widget.lens_center;game.map_pad(.04)
+ expect(game.map_widget.lens_center==center,"Leaving reticle focus clears held directions")
+ await chart_hold(KEY_DOWN,false)
  var target := -1
  for station in game.session.stations:
   if station.id!=game.session.station_id and game.world.stream_denial(station.id).is_empty() and game.zone_stations(Vector2(station.x,station.y)).size()>1:
@@ -306,14 +339,14 @@ func check_chart_keyboard(game) -> void:
   var station: Dictionary=game.session.stations[target]
   center=game.map_widget.place_lens(Vector2(station.x,station.y));game.map_widget.zone_moved.emit(center,-1)
   await chart_key(KEY_F6)
-  expect(game.page=="map" and game.map_slice.has_focus(),"First Fire selects the region and enters station selection")
+  expect(game.page=="map" and game.map_slice.has_focus() and game.map_widget.area_selected,"First Fire visibly marks the selected area and enters station selection")
   for code in [KEY_RIGHT,KEY_DOWN,KEY_LEFT,KEY_UP]:
    var ids: Array=game.map_slice.ids.duplicate();var at: int=ids.find(game.map_slice.selected_id)
    var step: int=1 if code in [KEY_RIGHT,KEY_DOWN] else -1
    await chart_key(code)
    expect(game.map_slice.selected_id==ids[posmod(at+step,ids.size())] and game.map_widget.lens_center==center,"Each direction cycles stations without moving the selected region")
   await chart_key(KEY_ESCAPE)
-  expect(game.page=="map" and game.map_widget.has_focus(),"Back returns from station selection to the reticle")
+  expect(game.page=="map" and game.map_widget.has_focus() and not game.map_widget.area_selected,"Back returns to the reticle and clears the selected-area indicator")
   await chart_key(KEY_ENTER)
   expect(game.map_slice.has_focus(),"Enter also selects the region")
   game.map_slice.choose(target)
@@ -326,6 +359,17 @@ func check_chart_keyboard(game) -> void:
   if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
   expect(game.world.autopilot and game.world.gate_navigation and game.world.stream_destination==target,"A mission-journal destination in STREAM range uses the gate")
   game.world.cancel_autopilot();game.close_page()
+  game.world.objective_travel_mode=game.World.ObjectiveTravel.OPEN_WATER
+  game.map_destination=target;game.show_map()
+  for i in 3:await process_frame
+  await chart_key(KEY_ENTER);game.map_slice.choose(target);await chart_key(KEY_ENTER)
+  if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
+  expect(game.world.autopilot and game.world.destination==target and game.world.stream_destination<0 and not game.world.gate_navigation,"The open-water preference sends chart confirmation directly to the station")
+  game.world.cancel_autopilot();game.close_page()
+  game.autonavigate_from_journal(target)
+  if named_button(game,"Travel")!=null:named_button(game,"Travel").pressed.emit()
+  expect(game.world.autopilot and game.world.destination==target and game.world.stream_destination<0 and not game.world.gate_navigation,"The mission journal uses the same open-water preference")
+  game.world.cancel_autopilot();game.close_page();game.world.objective_travel_mode=game.World.ObjectiveTravel.STREAM
  game.key_bindings.fire=fire;game.set_process(processing)
 
 func check_station_availability(game) -> void:

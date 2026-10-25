@@ -1,10 +1,11 @@
 extends SubViewport
-## The water's colour in every direction, drawn into a small octahedral map
+## The water's colour in every direction, drawn into a small direction map
 ## each frame (ocean_radiance.gdshaderinc) and shared as the global
-## ocean_radiance_map. The sky and the distance haze of every station, hull
+## ocean_radiance_map. Enhanced sky and the distance haze of every station, hull
 ## and terrain surface read it with one texture lookup; evaluating the eight
 ## light shafts per pixel instead was most of the cost of an empty frame on
-## phones and in browsers, twice over for the sky.
+## phones and in browsers, twice over for the sky. Classic uses its inexpensive
+## analytic profile directly at screen resolution, keeping its sun smooth at 4K.
 const SIZE := 256
 const NAME := "OceanRadianceMap"
 

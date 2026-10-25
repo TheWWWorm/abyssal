@@ -8,6 +8,9 @@ const SpecialActor = preload("res://native/simulation/special_actor.gd")
 const STEP_MS := 40
 const Spacing = preload("res://native/simulation/world_spacing.gd")
 const SPEEDS := [1,2,4,8,16]
+enum ObjectiveTravel { STREAM, OPEN_WATER }
+var objective_travel_mode := ObjectiveTravel.STREAM
+var ship_collisions := false
 const COURSE_LOOKAHEAD := 60000.0
 const REGION_APPROACH_DISTANCE := preload("res://native/simulation/world_layout.gd").REGION_APPROACH_DISTANCE
 var session
@@ -119,10 +122,10 @@ func outside_safety(id: int) -> bool:
 	var target: Dictionary=session.stations[id]
 	return target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth
 func route_to_objective(id: int) -> bool:
-	# Remote mission destinations use the transit network when the engine can
-	# reach them. Local objectives still follow their encounter waypoints, and
-	# the continuous ocean remains available for destinations beyond range.
-	if id>=0 and id<session.stations.size() and id!=session.station_id and stream_distance(id)<stream_range():
+	# The preferred route applies to mission shortcuts and journal departures.
+	# Local encounters stay local; open water also reaches stations beyond the
+	# engine's transit range. Explicit chart actions keep their own route type.
+	if objective_travel_mode==ObjectiveTravel.STREAM and id>=0 and id<session.stations.size() and id!=session.station_id and stream_distance(id)<stream_range():
 		return plan_stream(id)
 	return route_to(id)
 func route_to(id: int) -> bool:
@@ -230,14 +233,34 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 func encounter_navigation_point():
 	if region==null or (region.success==null and region.failure==null): return null
 	if region.route.current()!=null: return region.route.current().duplicate()
-	# Encounters without a patrol route still need an actionable destination.
+	var actor=encounter_navigation_subject()
+	return actor.pose.origin.duplicate() if actor!=null else null
+func encounter_navigation_subject():
+	if region==null or region.success==null or region.route.current()!=null:return null
+	# The original's cb draws a route waypoint separately from enemy brackets.
+	# The modern route helper may follow a mission subject after the route ends,
+	# but a nearby escort or incidental pirate is not automatically that subject.
+	var goal=region.success
+	var candidates: Array=[]
+	var recovery: bool=goal.metric in ["enemy_rescued","all_rescued","recover"]
+	match goal.metric:
+		"no_enemies":candidates=region.enemies
+		"first_enemies_dead":candidates=region.enemies.slice(0,mini(goal.value,region.enemies.size()))
+		"enemy_dead","enemy_rescued":
+			if goal.value>=0 and goal.value<region.enemies.size():candidates=[region.enemies[goal.value]]
+		"all_rescued":candidates=region.enemies
+		"harvest":candidates=region.creatures.filter(func(actor):return actor.species==goal.species and actor.health.enabled and actor.state!=4)
+		"clear_hostiles","recover":candidates=goal.subjects
 	var nearest = null
 	var distance := INF
-	for actor in region.enemies:
-		if actor.health.hull<=0 or actor.state in [3,4,999]: continue
+	for actor in candidates:
+		if not actor.is_creature and actor.excluded_from_objectives:continue
+		if recovery:
+			if not actor.capturable or actor.escaped or actor.state in [3,4] and not actor.health.enabled:continue
+		elif actor.health.hull<=0 or actor.state in [3,4,999] or actor.health.special_kill:continue
 		var delta := Math.subtracted(actor.pose.origin,region.player.pose.origin)
 		var amount := Vector3(delta[0],delta[1],delta[2]).length_squared()
-		if amount<distance: distance=amount; nearest=actor.pose.origin.duplicate()
+		if amount<distance: distance=amount; nearest=actor
 	return nearest
 func navigate_encounter() -> bool:
 	var point = encounter_navigation_point()
@@ -275,8 +298,7 @@ func update_autopilot() -> void:
 		else: cancel_autopilot(message)
 		return
 	# Patrol waypoints use a strict 20 m trigger. Once the route ends, hand
-	# control back within weapon range of the live encounter target instead of
-	# trying to drive through its now-solid hull.
+	# control back within weapon range of the mission subject.
 	var arrival_distance := 20000.0 if encounter_autopilot and region.route.current()==null else 1800.0 if destination<0 else 12000.0
 	# Docking at the berth carries on until it is reached.
 	if destination==session.station_id and berth!=null:arrival_distance=0.0
@@ -623,6 +645,7 @@ func update_collision_bodies() -> void:
 		if Vector3(delta[0],delta[1],delta[2]).length()<neighbor.extent+40000:
 			active_collision_bodies.append(neighbor)
 	for actor in region.enemies+region.friends:
+		if not ship_collisions:break
 		if not actor.collision_enabled or not actor.health.enabled or actor.health.hull<=0:continue
 		if actor.shapes.is_empty() and (actor.model_id<12 or actor.model_id==19):
 			var shape:=CollisionShape.new()
@@ -675,7 +698,10 @@ func collides_station(point: Array) -> bool:
 func collision_shapes() -> Array:
 	var result: Array=[]
 	for body in active_collision_bodies:
-		if body!=region.station and body is not StationBody and (not body.collision_enabled or not body.health.enabled or body.health.hull<=0):continue
+		# bb turns away from a vessel using its contact normal. Hard correction
+		# belongs to stationary walls: correcting a moving hull's overlap every
+		# step could carry a submarine along with that hull, even across depth limits.
+		if body!=region.station and body is not StationBody:continue
 		result.append_array(body.shapes)
 	return result
 

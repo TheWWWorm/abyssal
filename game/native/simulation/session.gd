@@ -212,7 +212,7 @@ func depart() -> bool:
  return true
 
 func accept_contract(mission) -> bool:
- if mission.deposit>credits or not mission in stations[station_id].missions: return false
+ if campaign.secondary.kind>=0 or mission.deposit>credits or not mission in stations[station_id].missions: return false
  campaign.secondary=mission; credits-=mission.deposit
  stations[station_id].missions.erase(mission)
  return true

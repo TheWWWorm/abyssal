@@ -101,12 +101,23 @@ func check_objective_routes() -> void:
 	expect(world.route_to_objective(near_station) and world.stream_destination==near_station and world.gate_navigation,"Reachable remote objectives use the departure gate")
 	expect(world.resume_stream and world.resume_destination==near_station,"An objective transit route can be resumed")
 	world.cancel_autopilot()
+	world.objective_travel_mode=World.ObjectiveTravel.OPEN_WATER
+	expect(world.route_to_objective(near_station) and world.destination==near_station and world.stream_destination<0 and not world.gate_navigation,"Open-water preference takes a reachable objective through the continuous ocean")
+	expect(not world.resume_stream and world.resume_destination==near_station,"Open-water objective courses retain their route type for Resume")
+	world.cancel_autopilot()
+	expect(world.plan_stream(near_station) and world.gate_navigation,"An explicit transit plan is available with the open-water preference")
+	world.cancel_autopilot()
+	world.objective_travel_mode=World.ObjectiveTravel.STREAM
+	expect(world.route_to(near_station) and not world.gate_navigation and world.destination==near_station,"An explicit ocean course is available with the STREAM preference")
+	world.cancel_autopilot()
 	expect(world.route_to_objective(far_station) and world.destination==far_station and world.stream_destination<0,"Objectives beyond engine reach retain continuous ocean travel")
 	world.cancel_autopilot()
 	expect(world.route_to_objective(session.station_id) and world.destination==session.station_id and not world.gate_navigation,"Local station objectives remain local courses")
 	world.cancel_autopilot()
 	world.region.success={"kind":"no_enemies"}
 	expect(not world.route_to_objective(near_station) and not world.autopilot,"An encounter denial is preserved instead of falling back to a forbidden direct course")
+	world.objective_travel_mode=World.ObjectiveTravel.OPEN_WATER
+	expect(not world.route_to_objective(near_station) and not world.autopilot,"The open-water preference preserves the same active-encounter exit lock")
 	world.region.success=null
 	expect(not world.route_to_objective(-1),"Invalid objective destinations are rejected")
 	world.dispose()

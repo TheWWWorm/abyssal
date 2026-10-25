@@ -2,8 +2,10 @@ shader_type spatial;
 // Ordinary transparency keeps the hollow rim intact beside shadowed lights.
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
 varying float visibility;
+varying float boost_wash;
 void vertex(){
  visibility=1.0-INSTANCE_CUSTOM.y;
+ boost_wash=step(2.5,INSTANCE_CUSTOM.z);
  vec3 center=(VIEW_MATRIX*MODEL_MATRIX[3]).xyz;
  float pixel=2.0*abs(center.z)/(max(abs(PROJECTION_MATRIX[1][1]),0.001)*VIEWPORT_SIZE.y);
  float diameter=max(INSTANCE_CUSTOM.x,pixel*8.0);
@@ -17,5 +19,6 @@ void fragment(){
  float glint=exp(-dot(p-vec2(-0.32,-0.42),p-vec2(-0.32,-0.42))*65.0);
  float mist=pow(max(0.0,1.0-r),2.0);
  ALBEDO=COLOR.rgb*mix(vec3(0.55,0.73,0.8),vec3(0.92,1.0,1.0),clamp(rim+glint,0.0,1.0));
- ALPHA=(rim*0.7+glint*0.8+mist*0.09)*visibility*COLOR.a*(1.0-smoothstep(0.92,1.0,r));
+ float foam=exp(-r*r*3.5)*0.65;
+ ALPHA=(rim*0.7+glint*0.8+mix(mist*0.09,foam,boost_wash))*visibility*COLOR.a*(1.0-smoothstep(0.92,1.0,r));
 }

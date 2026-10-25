@@ -498,9 +498,9 @@ func import_sky_ramp(cache: String) -> void:
 	if not FileAccess.file_exists(path):return
 	var pixels:=Image.load_from_file(path)
 	if pixels==null:return
-	# Original sky geometry uses the right-hand ramp at rows 1..9 for the
-	# bright opening. Average that opening, scaled for compatible replacement
-	# textures, as the enhanced sunlight's colour rather than inventing one.
+	# The pale end of the original subtractive ramp supplies the enhanced
+	# sunlight's tint, scaled for compatible replacement textures. This is a
+	# presentation choice; the source opening uses the left-hand additive ramp.
 	var scale := Vector2(pixels.get_size())/Vector2(8,64)
 	var opening := Vector3.ZERO
 	for y in range(1,10):

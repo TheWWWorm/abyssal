@@ -14,6 +14,11 @@ var filtered := ""
 ## The circle the side view is cut through, in chart units; none at zero.
 var lens_center := Vector2.ZERO
 var lens_radius := 0.0
+## A confirmed area stays marked while its stations are being chosen.
+var area_selected := false
+## Held digital controls are tracked separately from analog sticks. Key repeat
+## must not set the pace, and two directions must be able to move together.
+var cursor_holds := {}
 ## How far from the current station the zone's middle may go, in chart units;
 ## unbounded below zero. The original keeps its cursor inside the reach.
 var lens_limit := -1.0
@@ -96,6 +101,7 @@ func chart_labels() -> Array:
 	if world==null:return []
 	var entries: Array=[]
 	var obstacles: Array=[scale_bar_rect()]
+	if lens_radius>0:obstacles.append(area_status_rect())
 	var markers: Array=[]
 	var session=world.session
 	for station in session.stations:
@@ -196,12 +202,13 @@ func _draw() -> void:
 		# the side view shows.
 		var middle := point(lens_center.x,lens_center.y)
 		var ring: float=lens_radius*minf(size.x,size.y)*0.0085*zoom
-		draw_circle(middle,ring,Color(0.46,0.92,0.91,0.12),true)
-		draw_arc(middle,ring,0,TAU,96,Color("75ebe8"),1.5,true)
+		var ink:=Color("ffd38b") if area_selected else Color("75ebe8")
+		draw_circle(middle,ring,Color(ink,0.17 if area_selected else 0.12),true)
+		draw_arc(middle,ring,0,TAU,96,ink,2.5 if area_selected else 1.5,true)
 		for side in [Vector2.RIGHT,Vector2.DOWN,Vector2.LEFT,Vector2.UP]:
 			var tip: Vector2=middle+side*(ring+7)
 			var across := Vector2(-side.y,side.x)
-			draw_colored_polygon(PackedVector2Array([tip,middle+side*(ring+2)+across*4,middle+side*(ring+2)-across*4]),Color("75ebe8"))
+			draw_colored_polygon(PackedVector2Array([tip,middle+side*(ring+2)+across*4,middle+side*(ring+2)-across*4]),ink)
 	# The recent trips (bp.e): a line through the last areas visited, the
 	# newest leg palest and the older ones darkening into the water.
 	var trail: Array=session.trail
@@ -228,6 +235,7 @@ func _draw() -> void:
 		var target: Dictionary = session.stations[world.destination]
 		draw_dashed_line(p,point(target.x,target.y),Color("97e4d3"),2,6)
 	draw_chart_labels()
+	if lens_radius>0:draw_area_status()
 	scale_bar()
 	if habitat_species>=0 and not habitat_caption.is_empty():species_caption()
 	var direction:=heading()
@@ -239,6 +247,23 @@ func _draw() -> void:
 		var right:=Vector2(-direction.y,direction.x)
 		draw_colored_polygon(PackedVector2Array([p+direction*7,p-direction*4-right*3.5,p-direction*4+right*3.5]),Color("f4fafb"))
 	if has_focus():draw_rect(Rect2(Vector2.ONE,size-Vector2(2,2)),Color("e5ae63"),false,2)
+func select_area(selected_area: bool) -> void:
+	area_selected=selected_area;queue_redraw()
+func area_status_rect() -> Rect2:
+	var caption:=tr("Area selected") if area_selected else tr("Select area")
+	var width:=ThemeDB.fallback_font.get_string_size(caption,HORIZONTAL_ALIGNMENT_LEFT,-1,14).x
+	return Rect2(Vector2(10,10),Vector2(width+42,30))
+func draw_area_status() -> void:
+	var box:=area_status_rect()
+	var ink:=Color("ffd38b") if area_selected else Color("75ebe8")
+	draw_rect(box,Color("071631ed"));draw_rect(box,ink,false,1)
+	var at:=box.position+Vector2(15,15)
+	if area_selected:
+		draw_polyline(PackedVector2Array([at+Vector2(-5,0),at+Vector2(-1,4),at+Vector2(6,-5)]),ink,2.5,true)
+	else:
+		draw_arc(at,5,0,TAU,16,ink,1.5,true)
+		for direction in [Vector2.LEFT,Vector2.RIGHT,Vector2.UP,Vector2.DOWN]:draw_line(at+direction*5,at+direction*8,ink,1.5,true)
+	draw_string(ThemeDB.fallback_font,box.position+Vector2(30,20),tr("Area selected") if area_selected else tr("Select area"),HORIZONTAL_ALIGNMENT_LEFT,-1,14,ink)
 func scale_bar_rect() -> Rect2:
 	var pixels_per_unit: float=minf(size.x,size.y)*0.0085*zoom
 	var meters_per_pixel: float=world.session.world_layout.spacing_meters/maxf(pixels_per_unit,0.001)
@@ -385,8 +410,7 @@ func heading() -> Vector2:
 	var planar:=Vector2(forward[0],forward[2])
 	return planar.normalized() if planar.length()>32 else Vector2.ZERO
 func _gui_input(event: InputEvent) -> void:
-	for pair in [["ui_left",Vector2.LEFT],["ui_right",Vector2.RIGHT],["ui_up",Vector2.UP],["ui_down",Vector2.DOWN]]:
-		if event.is_action_pressed(pair[0],true) and lens_radius>0:nudge(pair[1]);accept_event();return
+	if cursor_input(event):accept_event();return
 	# Touch gestures below own taps and drags; ignore their emulated mouse events.
 	if event.device==-1 and (event is InputEventMouseButton or event is InputEventMouseMotion):return
 	if event is InputEventMouseButton:
@@ -448,7 +472,7 @@ func in_ring(position: Vector2) -> bool:
 	var ring: float=lens_radius*minf(size.x,size.y)*0.0085*zoom
 	return position.distance_to(point(lens_center.x,lens_center.y))<=maxf(ring,24.0)
 func grab_zone(position: Vector2, keep_offset: bool) -> void:
-	zone_grabbed=true
+	zone_grabbed=true;select_area(false)
 	grab_offset=lens_center-chart_at(position) if keep_offset else Vector2.ZERO
 func drag_zone(position: Vector2) -> void:
 	zone_dragged.emit(place_lens(chart_at(position)+grab_offset))
@@ -464,6 +488,7 @@ func select_at(position: Vector2) -> void:
 	if lens_radius>0:
 		# With a zone on the chart a tap moves the zone, onto the station when
 		# one was tapped; the side view then picks among what it covers.
+		select_area(false)
 		var target:=chart_at(position)
 		if id>=0:target=Vector2(world.session.stations[id].x,world.session.stations[id].y)
 		zone_moved.emit(place_lens(target),id);return
@@ -472,7 +497,24 @@ func nudge(direction: Vector2) -> void:
 	"""The direction keys walk the zone, as the original's do."""
 	if lens_radius<=0:return
 	zone_moved.emit(place_lens(lens_center+direction*lens_radius*.5),-1)
+func cursor_input(event: InputEvent) -> bool:
+	if lens_radius<=0 or not (event is InputEventKey or event is InputEventJoypadButton):return false
+	for pair in [["ui_left",Vector2.LEFT],["ui_right",Vector2.RIGHT],["ui_up",Vector2.UP],["ui_down",Vector2.DOWN]]:
+		if not event.is_action(pair[0]):continue
+		var source: String="key:%d"%(event.physical_keycode if event.physical_keycode!=0 else event.keycode) if event is InputEventKey else "pad:%d:%d"%[event.device,event.button_index]
+		if event.is_pressed():cursor_holds[source]=pair[1]
+		else:cursor_holds.erase(source)
+		return true
+	return false
+func cursor_direction() -> Vector2:
+	var direction:=Vector2.ZERO
+	for held in cursor_holds.values():direction+=held
+	return direction.limit_length(1.0)
+func release_cursor_device(device: int) -> void:
+	for source in cursor_holds.keys():
+		if source.begins_with("pad:%d:"%device):cursor_holds.erase(source)
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_FOCUS_ENTER,NOTIFICATION_FOCUS_EXIT]:queue_redraw()
+	if what in [NOTIFICATION_FOCUS_EXIT,NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_APPLICATION_PAUSED,NOTIFICATION_VISIBILITY_CHANGED]:cursor_holds.clear()
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_VISIBILITY_CHANGED]:
 		touches.clear();dragging=false;tap_allowed=false;mouse_pressed=false;zone_grabbed=false

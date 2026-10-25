@@ -212,6 +212,26 @@ func run() -> void:
  # The chart zooms about the zone and the right stick pans it.
  game.show_map();await settle()
  var chart=game.map_widget
+ chart.place_lens(Vector2(50,50))
+ var dpad:=InputEventJoypadButton.new();dpad.device=3;dpad.button_index=JOY_BUTTON_DPAD_RIGHT;dpad.pressed=true
+ Input.parse_input_event(dpad);await process_frame
+ var start: Vector2=chart.lens_center;game.map_pad(.04)
+ var pace: float=chart.lens_center.distance_to(start)
+ start=chart.lens_center;game.map_pad(.04)
+ expect(pace>0 and is_equal_approx(chart.lens_center.distance_to(start),pace),"A held D-pad direction moves every frame without button repeats")
+ var down:=dpad.duplicate();down.button_index=JOY_BUTTON_DPAD_DOWN
+ Input.parse_input_event(down);await process_frame
+ start=chart.lens_center;game.map_pad(.04)
+ var diagonal: Vector2=chart.lens_center-start
+ expect(diagonal.x>0 and is_equal_approx(diagonal.x,diagonal.y) and is_equal_approx(diagonal.length(),pace),"A D-pad diagonal has the same speed as one direction")
+ dpad=dpad.duplicate();dpad.pressed=false;Input.parse_input_event(dpad)
+ down=down.duplicate();down.pressed=false;Input.parse_input_event(down);await process_frame
+ game.map_pad(.04);start=chart.lens_center;game.map_pad(.04)
+ expect(chart.lens_center==start,"Releasing the D-pad stops the area")
+ dpad=dpad.duplicate();dpad.pressed=true;Input.parse_input_event(dpad);await process_frame
+ game.controller_connection(3,false);game.map_pad(.04)
+ expect(chart.lens_center==start,"Unplugging a controller releases its held map directions")
+ dpad=dpad.duplicate();dpad.pressed=false;Input.parse_input_event(dpad);await process_frame
  var ring: Vector2=chart.point(chart.lens_center.x,chart.lens_center.y);var zoom: float=chart.zoom
  await tilt(JOY_AXIS_TRIGGER_RIGHT,1)
  for i in 8:game._process(.05)

@@ -29,6 +29,9 @@ static func camera_names() -> Array:
 	"""CAMERA_NAMES in the engine's language."""
 	return [EngineLanguage.translate("Chase"),EngineLanguage.translate("Front"),EngineLanguage.translate("Starboard"),EngineLanguage.translate("Port")]
 var camera_mode := 0
+var boost_fov := true
+const CRUISE_FOV := 65.0
+const BOOST_FOV := 90.0
 ## A thumb can hold yaw and pitch together long enough to accumulate a large
 ## simulation roll. Keep the touch chase view level during ordinary steering;
 ## the hull still banks and the actual flight pose is unchanged.
@@ -368,8 +371,9 @@ func _process(delta: float) -> void:
 	if revision!=world.revision: rebuild()
 	if rebuilding:return
 	var region=world.region
-	var framed: float=preload("res://native/presentation/display_settings.gd").framed_fov(70.0 if region.player.boost_active and not region.cinematic() else 65.0,camera.get_viewport().get_visible_rect().size)
-	camera.fov=lerpf(camera.fov,framed,1-exp(-delta*5))
+	var boosting: bool=boost_fov and region.player.boost_active and region.player.health.hull>0 and not world.session.docked and not region.cinematic() and transit_progress<0
+	var framed: float=preload("res://native/presentation/display_settings.gd").framed_fov(BOOST_FOV if boosting else CRUISE_FOV,camera.get_viewport().get_visible_rect().size)
+	camera.fov=lerpf(camera.fov,framed,1-exp(-delta*(7.0 if boosting else 4.0)))
 	neighbor_clock+=delta
 	shade_actor_beams()
 	var ms: int = maxi(0,region.elapsed_ms-previous_time)
@@ -545,6 +549,9 @@ func _process(delta: float) -> void:
 		var node=objects[id].visual
 		node.apply_actor_animation(actor)
 		node.visible=actor.health.enabled or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
+		# bl.c keeps a destroyed ship only as salvage, or during a multi-burst
+		# explosion. The Aquarian (19) has neither: its burst replaces its body.
+		if not actor.is_creature and not (actor is SpecialActor) and actor.state in [3,4] and not actor.capturable and actor.explosion_delays.size()<=1:node.visible=false
 		var powered: bool=actor.health.enabled and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter")
 		if Model.is_hull_id(actor.model_id):node.set_headlight_power(powered)
 		for lamp in objects[id].lamps:lamp.visible=powered and Headlights.casts_light(library.headlight_mode)

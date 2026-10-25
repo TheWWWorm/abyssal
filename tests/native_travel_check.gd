@@ -125,10 +125,17 @@ func _initialize() -> void:
 	actor.health.configure(100,0,0);actor.model_id=0;actor.radius=2000;actor.pose.origin=[0,0,70000]
 	collision.region.friends.append(actor)
 	collision.region.player.pose.origin=[0,0,60000];collision.update_collision_bodies()
-	expect(not actor.shapes.is_empty(),"A live ship receives a hull collider")
+	expect(not collision.ship_collisions and not collision.active_collision_bodies.has(actor),"Ship contact is optional and off by default")
 	collision.region.player.pose.origin=[0,0,80000];collision.resolve_body_contact([0,0,60000])
-	expect(collision.region.player.pose.origin==[0,0,60000] and collision.region.player.contact,"A fast step cannot cross a friendly ship")
-	# A freighter's hull box turns with it: heading along x, its length lies
+	expect(collision.region.player.pose.origin==[0,0,80000] and not collision.region.player.contact,"Disabled ship contact cannot stop or carry the player")
+	collision.ship_collisions=true;collision.update_collision_bodies()
+	expect(not actor.shapes.is_empty() and collision.active_collision_bodies.has(actor),"Enabled ship contact adds a live vessel to steering avoidance")
+	collision.region.player.pose.origin=[0,0,70000];collision.region.player.pose.face([0,0,4096])
+	var hull_before: int=collision.region.player.health.hull
+	collision.region.player.advance(40)
+	expect(collision.region.player.contact and collision.region.player.pose.forward[0]!=0,"Enabled ship contact turns the player away as the original does")
+	expect(collision.region.player.health.hull==hull_before,"Vessel contact adds no ramming damage")
+	# A freighter's avoidance box turns with it: heading along x, its length lies
 	# along x, and the water thirty metres off its beam is open. Far below
 	# the station, so only the freighter is there to meet.
 	var tanker=preload("res://native/simulation/special_actor.gd").new()
@@ -137,13 +144,16 @@ func _initialize() -> void:
 	var hull=preload("res://native/simulation/collision_shape.gd").new();hull.half_size=preload("res://native/simulation/region_setup.gd").FREIGHTER_HULL_HALF.duplicate();tanker.shapes=[hull]
 	collision.region.friends=[tanker];collision.region.player.pose.origin=at.call(0,3000);collision.update_collision_bodies()
 	expect(not collision.collides_station(at.call(0,0)),"The freighter test water is clear of the station")
+	expect(tanker.contains(at.call(5000,0)) and not tanker.contains(at.call(0,3000)),"Freighter steering contact follows the vessel's heading")
 	collision.region.player.contact=false;collision.resolve_body_contact(at.call(0,3500))
 	expect(collision.region.player.pose.origin==at.call(0,3000) and not collision.region.player.contact,"Beside a freighter heading across the world's z axis the water is open")
 	collision.region.player.pose.origin=at.call(5000,0);collision.resolve_body_contact(at.call(9000,0))
-	expect(collision.region.player.pose.origin==at.call(9000,0) and collision.region.player.contact,"A freighter blocks along its own length")
+	expect(collision.region.player.pose.origin==at.call(5000,0) and not collision.region.player.contact,"A moving freighter never causes hard positional correction")
 	collision.region.player.pose.origin=at.call(0,1500);collision.resolve_body_contact(at.call(0,1500))
 	var caught: Array=collision.region.player.pose.origin
-	expect(absi(caught[2])>=1995 and absi(caught[0])<10 and caught[1]==150000,"A hull caught by a freighter is set out at the nearest side of its hull: %s"%[caught])
+	expect(caught==at.call(0,1500),"An overlapping freighter cannot displace a submarine across its depth limit")
+	collision.ship_collisions=false;collision.update_collision_bodies()
+	expect(not collision.active_collision_bodies.has(tanker),"Disabling ship contact removes an existing freighter from steering avoidance")
 	collision.region.friends=[actor]
 	var neighbor_id:=1
 	var anchor: Array=collision.station_origin(collision.session.station_id)

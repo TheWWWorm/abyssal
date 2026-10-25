@@ -141,6 +141,26 @@ func run():
  expect(is_equal_approx(tracked.age,before_age+.040),"Paused simulation does not age its wake")
  effects.update(app.world.region,5000)
  expect(effects.player_wake.size()<=16,"Expired wake clears after a long step, with bounded replacement particles")
+ # Boost is a distinct camera and engine-wash state, on the visual clock.
+ effects.reset();player.boost_active=false
+ for i in 20:effects.update(app.world.region,40)
+ var cruising_count: int=effects.player_wake.size()
+ var cruising_size: float=effects.player_wake[-1].size
+ effects.reset();player.boost_active=true
+ for i in 20:effects.update(app.world.region,40)
+ expect(effects.player_wake.size()>cruising_count*2 and effects.player_wake[-1].size>cruising_size*1.5,"Boost produces a denser, larger engine wash than cruising")
+ expect(effects.player_wake.all(func(p):return p.boost),"Boost wash keeps a distinct birth state")
+ var boosted_particle: Dictionary=effects.player_wake[0]
+ player.boost_active=false;effects.update(app.world.region,40)
+ expect(boosted_particle.boost and not effects.player_wake[-1].boost,"Ending boost keeps existing foam and starts ordinary exhaust")
+ effects.reset();player.health.hull=0;effects.update(app.world.region,40)
+ expect(effects.player_wake.is_empty(),"Destroyed engines emit no new wash")
+ player.health.hull=player.health.max_hull;player.boost_active=true
+ app.view.boost_fov=true;app.view._process(1.0)
+ var wide_fov: float=app.camera.fov
+ app.view.boost_fov=false;app.view._process(2.0)
+ expect(wide_fov>app.camera.fov+15.0,"Boost widens the view substantially and its accessibility switch restores the cruise view")
+ player.boost_active=false;app.view.boost_fov=true
  player.pose=saved_pose;app.session.docked=true;effects.update(app.world.region,0)
  expect(effects.player_wake.is_empty(),"Docking stops the wake")
  app.world.previous_render_poses.clear();app.view._process(0)

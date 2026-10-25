@@ -18,9 +18,9 @@ const Shape=preload("res://native/simulation/collision_shape.gd")
 const WILDLIFE := 20
 const ALGAE_WILDLIFE := 49
 ## The freighter's hull (tanker1) as its mesh measures, centred on the ship.
-## The phone game used a looser box, 4000 x 4000 x 15000 raised 300, but only
-## turned a submarine that had already entered it; here the hull is solid, so
-## the volume is the hull itself and the submarine stops where the two touch.
+## The phone game used a looser box, 4000 x 4000 x 15000 raised 300. Optional
+## vessel contact still turns the submarine away, using the visible hull's
+## bounds; moving ships never push the player out through position correction.
 const FREIGHTER_HULL_HALF := [795,1046,6294]
 var r
 var s
