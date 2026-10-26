@@ -63,7 +63,7 @@ var player_model
 ## 9997) that ride with the submarine at its shallowest and deepest safe
 ## depth: here a drawn, hatched panel that fades in over the last stretch
 ## before each limit. Off unless asked for; the instruments show the limits.
-var depth_limits := false
+var depth_limits := true
 var depth_limits_always := false
 var limit_nodes: Array = []
 ## pfeil (bb): past a depth limit, an arrow 42 m ahead of the camera, on
@@ -529,6 +529,10 @@ func _process(delta: float) -> void:
 	var present := {}
 	for actor in region.creatures+region.enemies+region.friends:
 		var id: int = actor.get_instance_id()
+		# aw.e disables combat while a vessel waits for someone to approach;
+		# cf.c and bl.c still draw it. Its hull and lights already exist in the
+		# water, rather than appearing at the 500 m AI activation threshold.
+		var powered_vessel: bool=not actor.is_creature and actor.health.hull>0 and (actor.state<3 and actor.health.enabled or actor.state==5) and (not (actor is SpecialActor) or actor.kind=="freighter")
 		if not objects.has(id) or objects[id].model_id!=actor.model_id:
 			if objects.has(id): release_object(objects[id]); objects.erase(id)
 			var visual=model(actor.model_id)
@@ -538,7 +542,7 @@ func _process(delta: float) -> void:
 			# wreck a ship becomes has nobody aboard to switch them on.
 			var occluder=add_beam_occluder(visual)
 			objects[id].occluder=occluder
-			if not actor.is_creature and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter"):
+			if powered_vessel:
 				objects[id].lamps=add_actor_lights(visual,occluder)
 		var secondary_id: int = actor.secondary_model if actor.is_creature else -1
 		if objects[id].visual.replacement!=null: secondary_id=-1
@@ -548,13 +552,18 @@ func _process(delta: float) -> void:
 			objects[id].secondary_id=secondary_id
 		var node=objects[id].visual
 		node.apply_actor_animation(actor)
-		node.visible=actor.health.enabled or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
+		node.visible=actor.health.enabled or (actor.state==5 and powered_vessel) or (actor.state==3 and not (actor is SpecialActor and actor.kind=="mine"))
 		# bl.c keeps a destroyed ship only as salvage, or during a multi-burst
 		# explosion. The Aquarian (19) has neither: its burst replaces its body.
 		if not actor.is_creature and not (actor is SpecialActor) and actor.state in [3,4] and not actor.capturable and actor.explosion_delays.size()<=1:node.visible=false
-		var powered: bool=actor.health.enabled and actor.state<3 and (not (actor is SpecialActor) or actor.kind=="freighter")
-		if Model.is_hull_id(actor.model_id):node.set_headlight_power(powered)
-		for lamp in objects[id].lamps:lamp.visible=powered and Headlights.casts_light(library.headlight_mode)
+		if Model.is_hull_id(actor.model_id):node.set_headlight_power(powered_vessel)
+		for lamp in objects[id].lamps:lamp.visible=powered_vessel and Headlights.casts_light(library.headlight_mode)
+		# Collected wildlife has zero render scale. Keep its hidden nodes at
+		# their last valid transforms instead of inverting a collapsed basis.
+		if actor.is_creature and not node.visible:
+			if objects[id].secondary!=null:objects[id].secondary.hide()
+			present[id]=true
+			continue
 		if actor.is_creature:
 			# Newly set down, or new to the view, a creature is brought in out
 			# of the haze the way a streamed station is, not switched on.

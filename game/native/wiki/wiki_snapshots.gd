@@ -49,11 +49,13 @@ func render(catalog, content, directory: String, options := {}) -> Dictionary:
 			stage.configure(content, int(shown.model), bool(options.get("modern", true)), options.get("library"))
 			if stage.vessel != null and int(shown.get("faction", 0)) > 0:
 				stage.vessel.apply_range(Model.ship_animation_range(int(shown.model), int(shown.faction)))
-			if int(shown.model) > 11: stage.make_creature(content); stage.radius *= 1.1
-		stage.custom_minimum_size = Vector2(PICTURE); stage.size = Vector2(PICTURE)
+			if bool(shown.get("creature", int(shown.model) > 11)): stage.make_creature(content); stage.radius *= 1.1
+			if bool(shown.get("upright", false)): stage.make_upright()
+		var dimensions := Vector2i(440, 640) if bool(shown.get("upright", false)) else PICTURE
+		stage.custom_minimum_size = Vector2(dimensions); stage.size = Vector2(dimensions)
 		# The ocean's colour map only exists while a dive is drawn; the page
 		# paints its own water behind a transparent picture instead.
-		stage.stretch = false; stage.viewport.size = PICTURE; stage.viewport.transparent_bg = true
+		stage.stretch = false; stage.viewport.size = dimensions; stage.viewport.transparent_bg = true
 		stage.viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 		# A station is framed once its modules are built, a few frames in.
 		if stage is StationPreview:

@@ -25,6 +25,13 @@ var stream_destination := -1
 ## pilot can resume it; cleared on arriving there.
 var resume_destination := -1
 var resume_stream := false
+var resume_objective := false
+## An objective may need several gate crossings. Each leg still uses the
+## ordinary gate approach, confirmation and arrival; manual control cancels
+## continuation while retaining the final destination for Resume.
+var objective_destination := -1
+var objective_route: Array[int] = []
+var objective_route_pending := false
 var departure_gate := 0
 var gate_time := [0,0]
 var gate_closing := [0,0]
@@ -73,6 +80,8 @@ var mouse_pending := Vector2.ZERO
 var weapon_pending: Dictionary={}
 var previous_render_poses := {}
 var previous_render_bank := 0
+var previous_boost_timer: Dictionary = {}
+var previous_reload_timers: Dictionary = {}
 ## The helm setting outlives any one region's player; see player.gd.
 var smooth_steering := false
 var manual_roll := false
@@ -122,22 +131,78 @@ func outside_safety(id: int) -> bool:
 	var target: Dictionary=session.stations[id]
 	return target.depth<session.ship.minimum_depth or target.depth>session.ship.maximum_depth
 func route_to_objective(id: int) -> bool:
-	# The preferred route applies to mission shortcuts and journal departures.
-	# Local encounters stay local; open water also reaches stations beyond the
-	# engine's transit range. Explicit chart actions keep their own route type.
-	if objective_travel_mode==ObjectiveTravel.STREAM and id>=0 and id<session.stations.size() and id!=session.station_id and stream_distance(id)<stream_range():
-		return plan_stream(id)
+	if objective_travel_mode==ObjectiveTravel.STREAM and id!=session.station_id:
+		return plan_objective_stream(id)
 	return route_to(id)
+func objective_stream_route(id: int) -> Array[int]:
+	# Fewest crossings, with total map distance breaking ties. Intermediate
+	# stops stay inside the hull's limits and avoid unfinished encounters.
+	# The final destination retains the usual travel/depth warning rules.
+	var result: Array[int]=[]
+	if id<0 or id>=session.stations.size() or id==session.station_id:return result
+	var count: int=session.stations.size()
+	var hops: Array[int]=[];hops.resize(count);hops.fill(2147483647)
+	var distances: Array[float]=[];distances.resize(count);distances.fill(INF)
+	var previous: Array[int]=[];previous.resize(count);previous.fill(-1)
+	var pending: Array[int]=[session.station_id]
+	hops[session.station_id]=0;distances[session.station_id]=0
+	var reach := stream_range()
+	while not pending.is_empty():
+		var best := 0
+		for index in range(1,pending.size()):
+			var a: int=pending[index];var b: int=pending[best]
+			if hops[a]<hops[b] or (hops[a]==hops[b] and distances[a]<distances[b]):best=index
+		var current: int=pending.pop_at(best)
+		if current==id:break
+		var from: Dictionary=session.stations[current]
+		for station in session.stations:
+			var next: int=station.id
+			if next==current:continue
+			if next!=id:
+				if outside_safety(next):continue
+				if [session.campaign.primary,session.campaign.secondary].any(func(mission):return mission.destination==next and mission.kind in [0,1,2,3,4,5,6,7,9,10,11,12] and not mission.completed and not mission.failed):continue
+			var leg := Vector2(from.x,from.y).distance_to(Vector2(station.x,station.y))
+			if leg>=reach:continue
+			var steps: int=hops[current]+1
+			var length: float=distances[current]+leg
+			if steps>hops[next] or (steps==hops[next] and length>=distances[next]):continue
+			hops[next]=steps;distances[next]=length;previous[next]=current
+			if not next in pending:pending.append(next)
+	if previous[id]<0:return result
+	var stop := id
+	while stop!=session.station_id:
+		result.push_front(stop);stop=previous[stop]
+	return result
+func plan_objective_stream(id: int) -> bool:
+	message=route_denial(id)
+	if not message.is_empty() or session.docked:return false
+	if id==session.station_id:return route_to(id)
+	var stops := objective_stream_route(id)
+	if stops.is_empty():
+		if not route_to(id):return false
+		message=tr("No S.T.R.E.A.M. route available · travelling to %s through open water")%session.stations[id].name
+		return true
+	if not plan_stream(stops[0]):return false
+	objective_destination=id;objective_route=stops;objective_route_pending=false
+	resume_destination=id;resume_stream=true;resume_objective=true
+	if stops.size()>1:message=tr("S.T.R.E.A.M. to %s · next stop %s · %d jumps")%[session.stations[id].name,session.stations[stops[0]].name,stops.size()]
+	return true
+func continue_objective_route() -> bool:
+	if not objective_route_pending or objective_destination<0:return false
+	var target := objective_destination
+	objective_route_pending=false
+	return plan_objective_stream(target)
 func route_to(id: int) -> bool:
 	if session.docked:return false
 	message=route_denial(id)
 	if not message.is_empty():return false
+	objective_destination=-1;objective_route=[];objective_route_pending=false
 	if id==session.station_id and encounter_navigation_point()!=null:
 		return navigate_encounter()
 	stream_destination=-1
 	region.player.set_throttle(100)
 	encounter_autopilot=false;gate_navigation=false;avoidance_path=[]
-	if id!=session.station_id:resume_destination=id;resume_stream=false
+	if id!=session.station_id:resume_destination=id;resume_stream=false;resume_objective=false
 	destination=id; autopilot=true; approach_path=[]; approach_planned=false; course_start=global_position()
 	local_target=Math.subtracted(station_origin(id),station_origin(session.station_id))
 	if id==session.station_id and berth!=null:local_target=berth.duplicate()
@@ -148,11 +213,13 @@ func tutorial_travel_locked() -> bool:
 	return false # Exploration is available from the start; active encounters gate exits.
 func fly_to(point: Array) -> void:
 	if region==null or session.docked: return
+	objective_destination=-1;objective_route=[];objective_route_pending=false
 	stream_destination=-1
 	region.player.set_throttle(100)
 	encounter_autopilot=false;gate_navigation=false;avoidance_path=[]
 	destination=-1; approach_path=[]; approach_planned=false; course_start=[]; local_target=point.duplicate(); autopilot=true; region.player.autopilot_target=local_target
-func cancel_autopilot(reason: String="") -> void:
+func cancel_autopilot(reason: String="", keep_objective: bool=false) -> void:
+	if not keep_objective:objective_destination=-1;objective_route=[];objective_route_pending=false
 	autopilot=false; encounter_autopilot=false; gate_navigation=false;avoidance_path=[]; speed=1; destination=-1; local_target=null; approach_path=[]; approach_planned=false; course_start=[]
 	if region!=null: region.player.autopilot_target=null
 	if not reason.is_empty(): message=reason
@@ -189,7 +256,7 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 	# The booster does not: bb.b only speeds the plotted run up.
 	if not autopilot: mouse_pending+=Vector2(input.get("mouse_x",0.0),input.get("mouse_y",0.0))
 	else: mouse_pending=Vector2.ZERO
-	if autopilot and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot(tr("Manual control"))
+	if (autopilot or objective_route_pending) and (input.get("yaw",0)!=0 or input.get("pitch",0)!=0 or input.get("strafe",0)!=0 or input.get("fire",false) or input.get("guns",false) or input.get("hook",false) or input.get("throttle",0)!=0): cancel_autopilot(tr("Manual control"))
 	for action in ["fire","guns","hook"]:
 		if input.get(action,false):weapon_pending[action]=true
 	# Danger only changes accelerated time. At the ordinary 1x/2x rates there
@@ -199,6 +266,7 @@ func advance(real_seconds: float, input: Dictionary={}) -> void:
 	accumulator+=minf(real_seconds,0.25)*1000.0
 	while accumulator>=STEP_MS:
 		accumulator-=STEP_MS
+		capture_cooldown_timers()
 		var substeps: int = speed
 		for _i in substeps:
 			if render_interpolation_enabled:
@@ -522,7 +590,7 @@ func plan_stream(id: int) -> bool:
 	departure_gate=nearest_safe_gate()
 	if departure_gate<0: message=tr("No S.T.R.E.A.M. gate in this area.");return false
 	fly_to_gate(departure_gate); stream_destination=id; update_approach()
-	resume_destination=id;resume_stream=true
+	resume_destination=id;resume_stream=true;resume_objective=false
 	message=tr("Approach the S.T.R.E.A.M. gate for %s")%session.stations[id].name
 	return true
 func fly_to_gate(index: int) -> void:
@@ -569,6 +637,9 @@ func stream_transfer() -> bool:
 	if not at_gate(departure_gate): message=tr("Approach the S.T.R.E.A.M. gate's activation area."); return false
 	if gate_time[departure_gate]<GATE_OPEN_MS: message=tr("S.T.R.E.A.M. gate opening…"); return false
 	var target: int = stream_destination
+	var onward := objective_destination
+	var remaining := objective_route.duplicate()
+	if not remaining.is_empty() and remaining[0]==target:remaining.pop_front()
 	# bp.c's in-flight branch preserves health and f's expedition counters.
 	# dj.d increments journeys; it does not call the departure/count-jump path.
 	session.hull=region.player.health.hull; session.shield=region.player.health.shield; session.armor=region.player.health.armor
@@ -581,8 +652,47 @@ func stream_transfer() -> bool:
 	region.player.pose.set_euler(0,region.gate_yaw(arrival_gate),0)
 	region.player.depth=session.stations[target].depth
 	session.entered_gate=true; gate_time[arrival_gate]=GATE_OPEN_MS; accumulator=0; arrival_exit=arrival_gate
+	objective_destination=onward;objective_route=remaining;objective_route_pending=onward>=0
 	message=tr("S.T.R.E.A.M. arrival · %s")%session.stations[target].name
 	return true
+
+func capture_cooldown_timers() -> void:
+	# Time warp runs several simulation steps together every 40 ms. The HUD
+	# interpolates the whole batch, rather than jumping by 320 ms at 8x.
+	previous_boost_timer={"player":region.player.get_instance_id(),"timer":region.player.boost_timer,"active":region.player.boost_active}
+	previous_reload_timers.clear()
+	for weapon in region.loadout.all_weapons():
+		previous_reload_timers[weapon.get_instance_id()]={"elapsed":weapon.elapsed,"serial":weapon.launch_serial,"hook_busy":weapon.hook_busy}
+
+func render_boost_timer() -> float:
+	if region==null:return 0.0
+	var player=region.player
+	var current: float=player.boost_timer
+	if previous_boost_timer.get("player",0)!=player.get_instance_id():return current
+	var previous: float=previous_boost_timer.timer
+	if player.boost_active:
+		# A new boost must start full, including one started during a batch.
+		if not previous_boost_timer.active or previous>current:previous=0.0
+	elif current<0:
+		# Finishing or cancelling a boost starts a fresh, empty charge bar.
+		if previous>current:previous=-player.stats.boost_cooldown
+	else:return current
+	return lerpf(previous,current,cooldown_interpolation_weight())
+
+func render_reload_elapsed(weapon) -> float:
+	var current: float=weapon.elapsed
+	var sample: Dictionary=previous_reload_timers.get(weapon.get_instance_id(),{})
+	if sample.is_empty():return current
+	# A shot or released hook resets the timer; never blend back from ready.
+	var reset: bool=sample.serial!=weapon.launch_serial or sample.elapsed>current or sample.hook_busy and not weapon.hook_busy
+	var previous: float=0.0 if reset else sample.elapsed
+	return lerpf(previous,current,cooldown_interpolation_weight())
+
+func cooldown_interpolation_weight() -> float:
+	# A blocking transmission discards time debt; hold the actual charge
+	# rather than rewinding its display when the accumulator is cleared.
+	if region==null or session.docked or region.failed or region.pending_mission!=null or region.active_transmission!=null:return 1.0
+	return clampf(accumulator/STEP_MS,0,1)
 
 func render_pose(actor) -> Transform3D:
 	var current: Transform3D = actor.pose.godot_transform()

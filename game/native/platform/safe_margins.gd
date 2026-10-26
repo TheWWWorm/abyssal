@@ -26,7 +26,9 @@ static func platform_insets() -> Dictionary:
 			document.body.appendChild(probe);
 			var style=getComputedStyle(probe);
 			var result=[style.paddingLeft,style.paddingRight,style.paddingTop,style.paddingBottom].map(function(v){return parseFloat(v)||0;});
-			result.push(window.innerWidth||0,window.innerHeight||0);
+			var canvas=document.getElementById('canvas');
+			var rect=canvas?canvas.getBoundingClientRect():null;
+			result.push(rect?rect.width:window.innerWidth||0,rect?rect.height:window.innerHeight||0);
 			probe.remove();return result.join(',');})()""",true)
 		var parts := str(measured).split(",")
 		if parts.size()!=6 or float(parts[4])<=0 or float(parts[5])<=0: return none

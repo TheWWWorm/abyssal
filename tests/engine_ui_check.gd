@@ -60,6 +60,8 @@ func run():
   expect(root.get_visible_rect().encloses(app.settings_panel.get_global_rect()),"Options fit %s"%dimensions)
   app.settings_panel.back()
  app.show_settings("gameplay");await process_frame;await process_frame
+ var title_depth:=panel_button(app.settings_panel,"Depth limit markers")
+ expect(title_depth!=null and title_depth.get_node("Value").text=="Near limits","Fresh title options default depth markers to Near limits")
  var title_hints:=panel_button(app.settings_panel,"Gameplay tips & control hints")
  expect(title_hints!=null and title_hints.get_node("Value").text=="On","Title options expose enabled gameplay hints")
  title_hints.pressed.emit();await process_frame
@@ -68,6 +70,8 @@ func run():
  panel_button(app.settings_panel,"Gameplay tips & control hints").pressed.emit();await process_frame
  title_config.load(app.settings_path)
  expect(bool(title_config.get_value("interface","hints",false)),"The title switch restores hints")
+ panel_button(app.settings_panel,"Depth limit markers").get_node("List").item_selected.emit(0);await process_frame
+ expect(panel_button(app.settings_panel,"Depth limit markers").get_node("Value").text=="Off","Players can still explicitly disable depth markers")
  app.settings_panel.back()
  expect(not app.settings_panel.visible,"Back at the top of settings closes the panel")
  app.show_settings("steering");await process_frame;await process_frame
@@ -100,6 +104,11 @@ func run():
  var game=current_scene
  expect(game!=null and not game.view.pack.enabled,"Native gameplay needs no material pack")
  expect(game.retro,"The original-style cargo and hull HUD is enabled when no preference was saved")
+ expect(not game.graphics.depth_limits and not game.view.depth_limits,"A saved Off preference is preserved when starting the game")
+ game.show_settings("gameplay");await process_frame
+ panel_button(game.settings_panel,"Depth limit markers").get_node("List").item_selected.emit(1);await process_frame
+ expect(game.graphics.depth_limits and not game.graphics.depth_limits_always and game.view.depth_limits and not game.view.depth_limits_always,"Choosing Near limits enables the conditional markers in the running game")
+ game.close_page()
  game.set_process(false)
  game.close_page();game.show_dialogue([{"speaker":"Test","text":"Departure briefing"}],game.close_page)
  await process_frame;await process_frame
@@ -436,11 +445,11 @@ func check_continuous_catch(game) -> void:
  expect(game.struggle.value>middle and game.struggle.value-middle<1,"Catch progress resolves individual simulation steps rather than integer percentages")
  fish.struggle_total=2100;fish.struggle_remaining=100;fish.struggle_time=200
  game.update_catch_feedback(region,true)
- expect(game.struggle.value<75 and game.catch_status.text.contains("1.8 s"),"The final partial strength budget still has a full struggle interval; the bar must not finish early")
+ expect(game.struggle.value<75 and game.struggle.timer.text=="1.8 s","The final partial strength budget still has a full struggle interval; the countdown must not finish early")
  hook.towing=true;hook.capture_distance=400;hook.tow_start_distance=10000
  fish.pose.origin=region.player.pose.origin.duplicate();fish.pose.origin[0]+=5200
  game.update_catch_feedback(region,true)
- expect(game.struggle.visible and absf(game.struggle.value-50)<.1 and game.catch_status.text.begins_with("REELING IN"),"Reeling retains a progress bar through collection")
+ expect(game.struggle.visible and absf(game.struggle.value-50)<.1 and game.struggle.stage=="reel" and game.struggle.timer.text=="0.5 s","Reeling retains its diagram and countdown through collection")
  region.fishing=original;game.update_catch_feedback(region,false)
 
 func check_catch_notice(game) -> void:
@@ -573,13 +582,40 @@ func check_source_weapon_audio(game) -> void:
  var audio=load("res://native/presentation/dive_audio.gd").new();root.add_child(audio);audio.set_process(false);audio.configure(game.world,game.content.root)
  var loadout=game.world.region.loadout;var original: Array=loadout.groups
  var weapons: Array=[]
- for id in [0,3,12,15]:weapons.append(loadout.create(game.session.make_equipment(id),game.content.data))
+ for id in [0,3,6,9,12,15]:weapons.append(loadout.create(game.session.make_equipment(id),game.content.data))
  loadout.groups=[weapons];audio.collect_launches(game.world.region)
  for weapon in weapons:weapon.launch_serial+=1
  var cues: Array=audio.collect_launches(game.world.region)
- expect(cues.size()==1 and cues[0].kind=="harpoon","Only harpoon launch requests the original weapon cue; guns, beams and torpedoes stay silent")
+ expect(cues.map(func(event):return event.kind)==["gun","beam","plasma","mass","torpedo","harpoon"],"Each weapon family has its own recorded launch feedback")
+ expect(audio.collect_launches(game.world.region).is_empty(),"A held trigger or repeated audio update cannot replay an unfired shot")
+ for kind in audio.LAUNCH_CUES:
+  expect(audio.source_paths[kind]=="res://audio/weapons/"+kind+"-1.wav" and audio.sounds[kind].get_length()<=2.2,"The %s launch uses its bounded prepared sample bank"%kind)
+  expect(audio.launch_sounds[kind].size()==3,"The %s variations are ready before combat"%kind)
+ audio.play_cue("pressure",1,10000)
+ var priority: int=audio.priority_until
+ expect(audio.play_cue("gun",1,10001) and audio.priority_until==priority,"A gun remains audible under an alert without replacing its priority window")
+ expect(not audio.play_cue("gun",1,10002),"A simultaneous gun volley is coalesced")
+ expect(audio.play_cue("gun",1,10100),"A subsequent launched shot is heard during the alert")
+ expect(audio.played_log[-2].variation==0 and audio.played_log[-1].variation==1,"Successful shots vary; a suppressed volley does not consume a variation")
+ audio.set_enabled(false)
+ expect(not audio.play_cue("beam",1,10200),"Disabling sound silences the added firing cues too")
+ audio.set_enabled(true)
+ var original_region_weapons: Array=game.world.region.weapons
+ var other=loadout.create(game.session.make_equipment(0),game.content.data)
+ game.world.region.weapons=[other];audio.collect_launches(game.world.region)
+ var pose=load("res://native/simulation/ship_transform.gd").new()
+ pose.origin=game.world.region.player.pose.origin.duplicate();pose.origin[0]+=10000
+ other.launch(pose,40)
+ # Several NPCs share a pool: a distant shot later in the same frame must
+ # not mask a nearby launch, and hearing it uses the muzzle, not the bullet.
+ pose.origin[0]+=50000;other.launch(pose,40)
+ var nearby: Array=audio.collect_launches(game.world.region)
+ expect(nearby.size()==1 and nearby[0].kind=="gun" and nearby[0].gain>0 and nearby[0].gain<.65,"Nearby NPC fire is audible with distance attenuation even in a shared pool")
+ other.launch(pose,40)
+ expect(audio.collect_launches(game.world.region).is_empty(),"Distant weapon fire stays silent and cannot replay on approach")
+ game.world.region.weapons=original_region_weapons
  var now:=0
- for pair in [["harpoon","harpoon.amr.wav"],["harpoon_hit","harpoon_hit.amr.wav"],["tow","traktor.amr.wav"],["explosion","explosion.amr.wav"],["creature_death","tiertot.amr.wav"]]:
+ for pair in [["harpoon_hit","harpoon_hit.amr.wav"],["tow","traktor.amr.wav"],["explosion","explosion.amr.wav"],["creature_death","tiertot.amr.wav"]]:
   now+=5000;expect(audio.play_cue(pair[0],1,now),"Original %s cue remains playable"%pair[0])
   expect(audio.played_log.back().source.get_file()==pair[1],"The %s event uses its own imported cue"%pair[0])
  expect(not audio.play_cue("impact",1,now+5000),"A generic hit does not substitute a made-up sound for an original cue")
@@ -1306,6 +1342,29 @@ func check_action_freeze(game) -> void:
  expect(game.view.process_mode==Node.PROCESS_MODE_DISABLED,"The flight view stops driving the camera while frozen")
  game.freeze_view.toggle_lights()
  expect(game.view.library.headlight_mode==game.Headlights.Mode.OFF and game.headlight_mode==game.Headlights.Mode.CLASSIC,"Action freeze can hide Classic beams without changing the saved choice")
+ var freeze=game.freeze_view
+ var home: Transform3D=game.camera.global_transform
+ for step in 48:
+  var previous: Basis=game.camera.global_basis
+  freeze.orbit(Vector2(0,PI/12/.006))
+  var current: Transform3D=game.camera.global_transform
+  expect(absf(previous.z.angle_to(current.basis.z)-PI/12)<.0001,"Every vertical orbit step passes the old pitch limit")
+  expect(current.basis.is_finite() and absf(current.basis.determinant()-1.0)<.0001,"Orbit stays orthonormal at the poles")
+  expect(current.origin.distance_to(freeze.pivot+current.basis.z*freeze.distance)<.001,"Full orbit keeps its subject and distance")
+ expect(game.camera.global_transform.is_equal_approx(home),"Two full orbits return to the starting view")
+ freeze.roll_camera(PI/2)
+ expect(game.camera.global_position.is_equal_approx(home.origin) and absf(home.basis.x.dot(game.camera.global_basis.x))<.0001,"Roll rotates the image without moving the camera")
+ var rolled: Basis=game.camera.global_basis
+ var pivot: Vector3=freeze.pivot
+ freeze.pan(Vector2(20,30));freeze.zoom(1.1)
+ expect(game.camera.global_basis.is_equal_approx(rolled),"Pan and zoom retain camera roll")
+ expect((freeze.pivot-pivot).is_equal_approx((rolled.x*-20+rolled.y*30)*freeze.distance/1.1*.0015),"Pan follows the rolled camera's screen axes")
+ freeze.reset_camera()
+ expect(game.camera.global_transform.is_equal_approx(home),"Reset removes orbit, pan, zoom and roll")
+ toolbar_button(bar,"Roll left").pressed.emit()
+ expect(not game.camera.global_basis.is_equal_approx(home.basis),"The touch-accessible roll button rotates the camera")
+ toolbar_button(bar,"Roll right").pressed.emit()
+ expect(game.camera.global_basis.is_equal_approx(home.basis),"The opposite roll button restores the angle")
  game.freeze_view.orbit(Vector2(120,0));game.freeze_view.zoom(1.4)
  expect(game.camera.global_transform!=before,"The frozen camera actually moves")
  game._process(0.2)

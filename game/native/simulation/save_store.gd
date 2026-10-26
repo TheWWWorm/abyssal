@@ -206,6 +206,8 @@ func validate(value: Dictionary, data: Dictionary) -> bool:
 
 func write(path: String, session) -> bool:
 	failure=""
+	if session.demo_mode:
+		failure=tr("Demo sessions are not saved.");return false
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var file := FileAccess.open(path+".tmp",FileAccess.WRITE)
 	if file==null: failure=tr("Could not write the save file."); return false

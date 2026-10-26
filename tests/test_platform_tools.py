@@ -49,9 +49,14 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertIn('viewport-fit=cover',html)
                 self.assertEqual(html.count('apple-mobile-web-app-capable'),1)
                 self.assertIn('overscroll-behavior: none',html)
+                self.assertEqual(actual['canvasResizePolicy'],0)
+                self.assertIn((export_game.ROOT/'browser/viewport.js').read_text(),html)
+                self.assertIn((export_game.ROOT/'browser/viewport.css').read_text(),html)
                 self.assertEqual(export_game.stamp_web_build(root),build)
                 self.assertEqual((root/'index.html').read_text().count('name="engine-build"'),1)
                 self.assertEqual((root/'index.html').read_text().count('rel="manifest"'),1)
+                self.assertEqual((root/'index.html').read_text().count('id="abyssal-viewport-js"'),1)
+                self.assertEqual((root/'index.html').read_text().count('id="abyssal-viewport-css"'),1)
                 manifest=json.loads((root/'manifest.webmanifest').read_text())
                 self.assertEqual([icon['sizes'] for icon in manifest['icons']],['192x192','512x512'])
                 self.assertEqual((root/'index.png').read_bytes(),(export_game.ROOT/'game/ui/abyssal-splash.png').read_bytes())
@@ -112,12 +117,16 @@ class PlatformToolsTests(unittest.TestCase):
                 if platform in {'linux','windows'}:
                     self.assertIn('renderer/rendering_method="forward_plus"',settings);self.assertIn('fallback_to_opengl3=true',settings)
                 else:self.assertNotIn('forward_plus',settings)
-                self.assertFalse(any(p.suffix in {'.jar','.wav','.abyss'} for p in stage.rglob('*')))
+                self.assertFalse(any(p.suffix in {'.jar','.abyss'} for p in stage.rglob('*')))
+                # The only bundled WAVs are the explicitly licensed engine
+                # launch recordings, never converted original-game audio.
+                self.assertEqual({'game/'+p.relative_to(stage).as_posix() for p in stage.rglob('*.wav')},set(export_game.AUDIO))
                 self.assertEqual(sorted(p.relative_to(stage).as_posix() for p in stage.rglob('*.png')),['ui/abyssal-icon.png','ui/abyssal-splash.png'])
                 for name in ['abyssal-icon.ico','abyssal-icon.icns']:
                     self.assertTrue((stage/'ui'/name).is_file())
                 self.assertIn('boot_splash/image="res://ui/abyssal-splash.png"',settings)
             self.assertIn('variant/thread_support=false',(pathlib.Path(folder)/'web/export_presets.cfg').read_text())
+            self.assertIn('html/canvas_resize_policy=0',(pathlib.Path(folder)/'web/export_presets.cfg').read_text())
             for platform,architecture in [('linux','x86_64'),('linux-arm64','arm64')]:
                 preset=(pathlib.Path(folder)/platform/'export_presets.cfg').read_text()
                 self.assertIn('platform="Linux"',preset)

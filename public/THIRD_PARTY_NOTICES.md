@@ -27,6 +27,19 @@ Godot, the JDK, Python and FFmpeg are external execution/development tools. Thei
 
 DEEP and the supplied JAR, game code, text, models, textures, animation and audio are not licensed by this project. They remain the property of their respective rights holders. No game content is included in the source-only package.
 
+## Engine weapon launch sounds
+
+`game/audio/weapons/` contains 48 composite game effects, with three variations per weapon, adapted from these recordings:
+
+- **RescopicSound**, Pulse TM, Pulse DN, Plasma KU and Plasma PP weapon designs, via [Pixabay](https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-tm-01-233821/).
+- **DRAGON-STUDIO**, [Gentle Underwater Swish](https://pixabay.com/sound-effects/film-special-effects-gentle-underwater-swish-499658/), via Pixabay.
+- **ejah_music**, [Underwater whoosh (Deep)](https://pixabay.com/sound-effects/underwater-whoosh-deep-464534/), via Pixabay.
+- **felix.blume**, [Underwater recording of aquatic movement, bubbles and drops](https://freesound.org/people/felix.blume/sounds/384218/), under CC0 1.0.
+
+Attribution is optional under the [Pixabay Content License](https://pixabay.com/service/terms/#license) and [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); these credits are provided voluntarily. Each source title, contributor page, download URL and SHA-256 hash is recorded in `provenance/weapon-audio.json`.
+
+The effects combine recordings, frequency bands, timing and envelopes into equipment-specific discharges. These adapted effects retain the [Pixabay Content License](licenses/Pixabay-Content-License.txt); they are not CC0 or Apache-2.0. The hydrophone component remains [CC0 1.0](licenses/CC0-1.0.txt). Source MP3 quality is preserved, not described as lossless. Original source recordings are not bundled. Output hashes and preparation are in `provenance/weapon-audio.json` and `tools/build_weapon_audio.py`. Original harpoon sounds still come from the supplied compatible DEEP JAR.
+
 ## Browser importer runtime dependencies
 
 `browser/dependencies.json` records exact upstream URLs, sizes and SHA-256 hashes. `tools/browser_runtime.py` fetches these **unmodified** runtime files into an external cache and copies them to `importer/` when exporting for Web, packaged desktop or Android. They contain runtime/codec code, not game assets. No compiled vendor runtime is stored in this source tree.

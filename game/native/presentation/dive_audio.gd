@@ -1,6 +1,7 @@
 extends AudioStreamPlayer
 ## Source cue meanings and priority windows; bounded desktop playback. Imported
-## AMR/MIDI conversions stay in the owner's cache. Fallback PCM is code-authored.
+## AMR/MIDI conversions stay in the owner's cache. Launches use the engine's
+## credited prepared sample bank; missing original cues have code-authored fallbacks.
 const SPECS := {
 	"sonar":["echolot.amr",0,1300], "tow":["traktor.amr",95,2500],
 	"message":["message.amr",100,1100], "gate":["gate.amr",100,3000],
@@ -9,15 +10,25 @@ const SPECS := {
 	"water":["water.amr",0,2800], "creature_death":["tiertot.amr",100,1000],
 	"signal":["signal.amr",100,1000], "mine":["mine.amr",80,300],
 	"ambient_a":["amb02.amr",80,1500], "ambient_b":["amb03.amr",80,1500],
-	"harpoon_hit":["harpoon_hit.amr",90,150], "beep":["beep.amr",80,90]
+	"harpoon_hit":["harpoon_hit.amr",90,150], "beep":["beep.amr",80,90],
+	# These launches have no cue in the original's sound table.
+	"gun":["",0,0], "plasma":["",0,0], "beam":["",0,0], "mass":["",0,0], "torpedo":["",0,0], "eclipse":["",0,0]
 }
 const VOICES := 8
+const LAUNCH_VOICES := 4
+## Recorded discharges sit below the imported cues; their tier gains still
+## distinguish slow, powerful weapons without overwhelming ocean and alerts.
+const LAUNCH_TRIM_DB := -8.0
+const Launch = preload("res://native/presentation/weapon_audio.gd")
+const LAUNCH_CUES := Launch.FAMILIES
 const Mix = preload("res://native/presentation/audio_settings.gd")
 const Mods = preload("res://native/presentation/mods.gd")
 static var ambience: AudioStreamWAV
 static var wave_cache := {}
 var world
 var sounds := {}
+var launch_sounds := {}
+var launch_variations := {}
 var source_paths := {}
 var station_music: AudioStream
 ## Imported MIDI conversions by track name ("intro", "station"), or the
@@ -49,6 +60,7 @@ var last_priority := 0
 var last_played := {}
 var context := "flight"
 var enabled := true
+var weapon_sounds_enabled := true
 var previous_bed := ""
 var ambience_at := 0
 var ambience_index := 0
@@ -71,7 +83,17 @@ func _ready() -> void:
 	volume_db=-22
 func configure(owner_world, directory: String) -> void:
 	world=owner_world
+	for kind in Launch.BANKS:
+		var bank: Array[AudioStreamWAV]=[]
+		for variation in Launch.VARIATIONS:
+			var key: String=Launch.path(kind,variation)
+			if not wave_cache.has(key):wave_cache[key]=Launch.sample(kind,variation)
+			bank.append(wave_cache[key])
+		launch_sounds[kind]=bank
 	for cue in SPECS:
+		if cue in LAUNCH_CUES:
+			sounds[cue]=launch_sounds[cue][0];source_paths[cue]=Launch.path(cue)
+			continue
 		var filename: String = SPECS[cue][0]
 		var path := directory.path_join("data/sound/"+filename+".wav") if not filename.is_empty() else ""
 		var key: String = path if not path.is_empty() and FileAccess.file_exists(path) else "procedural:"+cue
@@ -84,7 +106,9 @@ func configure(owner_world, directory: String) -> void:
 	load_music(directory)
 	# Upload once during content loading, never on the first shot in flight.
 	if OS.has_feature("web"):
-		for sound in sounds.values():
+		var samples: Array=sounds.values()
+		for bank in launch_sounds.values():samples.append_array(bank)
+		for sound in samples:
 			if sound!=null and not AudioServer.is_stream_registered_as_sample(sound):
 				AudioServer.register_stream_as_sample(sound)
 	prepare_web_music("ocean",ambience)
@@ -159,6 +183,14 @@ func prepare_web_music(key: String, sound: AudioStream) -> bool:
 	return true
 func set_context(page: String, docked: bool) -> void:
 	context="title" if page=="title" else "station" if docked else "flight" if page.is_empty() else page if page in ["dialogue","failure","opening"] else "paused"
+func set_weapon_sounds_enabled(value: bool) -> void:
+	weapon_sounds_enabled=value
+	if not value:
+		for voice in voices:
+			if voice.get_meta("cue","") in LAUNCH_CUES:voice.stop()
+		# Observe even while disabled, so enabling never replays earlier shots.
+		if world!=null and world.region!=null:collect_launches(world.region)
+
 func set_enabled(value: bool) -> void:
 	if enabled==value: return
 	enabled=value; pending.clear(); ui_requests.clear(); priority_until=-1; last_played.clear()
@@ -182,13 +214,26 @@ func collect_launches(region) -> Array:
 	if region.get_instance_id()!=observed_region:
 		observed_region=region.get_instance_id(); observed_launches.clear()
 	var current := {}; var result: Array = []
-	for weapon in region.loadout.all_weapons():
+	var player_weapons: Array=region.loadout.all_weapons()
+	var weapons: Array=player_weapons.duplicate()
+	for weapon in region.weapons:
+		if weapon not in weapons:weapons.append(weapon)
+	for weapon in weapons:
 		var id: int = weapon.get_instance_id()
-		var count: int = maxi(0,weapon.launch_serial-int(observed_launches.get(id,weapon.launch_serial)))
-		# cm.a(IJZ) requests cue 5 only for the player's fishing weapon.
-		# Ordinary guns, beams and torpedoes have no source launch cue.
-		if count>0 and weapon.fishing:
-			result.append({"kind":"harpoon","count":count,"gain":1.0})
+		var previous: int=int(observed_launches.get(id,weapon.launch_serial))
+		var count: int = maxi(0,weapon.launch_serial-previous)
+		# A launch gets one short prepared report. Held fire during cooldown
+		# emits nothing, and identical simultaneous guns share one sample voice.
+		if count>0:
+			var kind: String=Launch.family(weapon)
+			var gain:=1.0
+			if weapon not in player_weapons:
+				gain=0.0
+				for i in weapon.launch_serials.size():
+					if weapon.launch_serials[i]<=previous:continue
+					var delta: Array=preload("res://native/simulation/fixed_math.gd").subtracted(weapon.launch_positions[i],region.player.pose.origin)
+					gain=maxf(gain,.65*clampf(1.0-Vector3(delta[0],delta[1],delta[2]).length()/40000.0,0,1))
+			if gain>.005:result.append({"kind":kind,"count":count,"gain":gain,"profile":Launch.profile(weapon)})
 		current[id]=weapon.launch_serial
 	observed_launches=current
 	return result
@@ -220,25 +265,52 @@ func admit(kind: String, now_ms: int) -> bool:
 	var priority: int = SPECS[kind][1]
 	if now_ms<=priority_until and priority<last_priority: return false
 	last_priority=priority; priority_until=now_ms+int(SPECS[kind][2]); return true
-func play_cue(kind: String, gain: float, now_ms: int) -> bool:
+func play_cue(kind: String, gain: float, now_ms: int, profile: Dictionary={}) -> bool:
 	if not enabled or not sounds.has(kind) or sounds[kind]==null or voices.is_empty() or gain<=0: return false
-	if now_ms-int(last_played.get(kind,-10000))<80 or not admit(kind,now_ms): return false
+	var launch: bool=kind in LAUNCH_CUES
+	if launch and not weapon_sounds_enabled:return false
+	var bank: String=String(profile.get("bank",kind)) if launch else kind
+	if launch and not launch_sounds.has(bank):bank=kind
+	if now_ms-int(last_played.get(bank,-10000))<80:return false
+	# Launch feedback sits underneath the original priority channel. Ambient
+	# water or a boost must not silence it for seconds; alerts still stand out.
+	if not launch and not admit(kind,now_ms):return false
 	var selected: AudioStreamPlayer
-	for voice in voices:
-		if voice.get_meta("cue","")==kind: selected=voice; break
+	if launch:
+		# Let successive shots finish naturally. Cap their overlap so pressure,
+		# mission messages and attachment cues still have spare voices.
+		var active: Array[AudioStreamPlayer]=[]
+		for voice in voices:
+			if voice.playing and voice.get_meta("cue","") in LAUNCH_CUES:active.append(voice)
+		if active.size()>=LAUNCH_VOICES:
+			for voice in active:
+				if selected==null or int(voice.get_meta("started",0))<int(selected.get_meta("started",0)):selected=voice
+	else:
+		for voice in voices:
+			if voice.get_meta("cue","")==kind: selected=voice; break
 	if selected==null:
 		for voice in voices:
 			if not voice.playing: selected=voice; break
 	if selected==null:
 		for voice in voices:
+			if launch and voice.get_meta("cue","") not in LAUNCH_CUES:continue
 			if selected==null or int(voice.get_meta("started",0))<int(selected.get_meta("started",0)): selected=voice
-	selected.stop(); selected.stream=sounds[kind]
+	if selected==null:return false
+	var variation:=0
+	selected.stop()
+	if launch and launch_sounds.has(bank):
+		variation=int(launch_variations.get(bank,0))
+		selected.stream=launch_sounds[bank][variation]
+		launch_variations[bank]=(variation+1)%Launch.VARIATIONS
+	else:selected.stream=sounds[kind]
+	selected.pitch_scale=clampf(float(profile.get("pitch",1.0)),.78,1.12) if launch else 1.0
 	selected.volume_db=-12+linear_to_db(maxf(gain,0.0001))+(4.0 if kind in ["pressure","message","gate","signal"] else 0.0)
+	if launch:selected.volume_db+=clampf(float(profile.get("db",0.0)),-2.0,3.0)+LAUNCH_TRIM_DB-(5.0 if now_ms<=priority_until and last_priority>=90 else 0.0)
 	selected.set_meta("cue",kind); selected.set_meta("started",now_ms)
 	if DisplayServer.get_name()!="headless": selected.play()
-	last_played[kind]=now_ms
+	last_played[bank]=now_ms
 	if played_log.size()>=64: played_log.pop_front()
-	played_log.append({"kind":kind,"gain":gain,"source":source_paths[kind],"time":now_ms})
+	played_log.append({"kind":kind,"gain":gain,"source":Launch.path(bank,variation) if launch else source_paths[kind],"bank":bank,"time":now_ms,"variation":variation,"volume_db":selected.volume_db,"pitch":selected.pitch_scale})
 	return true
 func _process(_delta: float) -> void:
 	if world==null or world.region==null: return
@@ -281,11 +353,18 @@ func _process(_delta: float) -> void:
 		ambience_index+=1; ambience_at=now
 	events.append_array(ui)
 	var combined := {}
+	var profiles := {}
+	var cue_kinds := {}
 	for event in events:
-		if SPECS.has(event.kind): combined[event.kind]=maxf(float(combined.get(event.kind,0)),event.gain)
+		if not SPECS.has(event.kind):continue
+		var profile: Dictionary=event.get("profile",{})
+		var key: String=String(profile.get("bank",event.kind)) if event.kind in LAUNCH_CUES else event.kind
+		var previous: Dictionary=profiles.get(key,{})
+		if not combined.has(key) or event.gain>combined[key] or (is_equal_approx(event.gain,combined[key]) and float(profile.get("db",0))>float(previous.get("db",0))):
+			combined[key]=event.gain;profiles[key]=profile;cue_kinds[key]=event.kind
 	var kinds: Array = combined.keys()
-	kinds.sort_custom(func(a,b): return int(SPECS[a][1])>int(SPECS[b][1]))
-	for kind in kinds: play_cue(kind,combined[kind],now)
+	kinds.sort_custom(func(a,b): return int(SPECS[cue_kinds[a]][1])>int(SPECS[cue_kinds[b]][1]))
+	for key in kinds: play_cue(cue_kinds[key],combined[key],now,profiles[key])
 func _exit_tree() -> void:
 	if web_music!=null:web_music.dispose();web_music=null
 	stop()
@@ -304,6 +383,7 @@ static func synthesize_ambience() -> AudioStreamWAV:
 	return sound
 
 static func synthesize_cue(kind: String) -> AudioStreamWAV:
+	if kind in LAUNCH_CUES:return Launch.sample(kind)
 	var seconds: float = {"sonar":1.3,"tow":1.5,"message":0.4,"gate":1.5,"pressure":0.8,"harpoon":0.2,"explosion":0.8,"boost":1.0,"water":2.0,"creature_death":0.5,"signal":0.5,"mine":0.1,"ambient_a":1.5,"ambient_b":1.5,"harpoon_hit":0.08,"beep":0.06}.get(kind,0.2)
 	var sound := AudioStreamWAV.new(); sound.mix_rate=22050; sound.format=AudioStreamWAV.FORMAT_16_BITS
 	var count := roundi(seconds*sound.mix_rate); var bytes := PackedByteArray(); bytes.resize(count*2)

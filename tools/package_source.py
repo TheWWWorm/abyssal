@@ -4,8 +4,9 @@ import argparse, hashlib, json, pathlib, zipfile
 from paths import ROOT
 from audit_provenance import verify as verify_provenance
 from branding import ARTWORK
+from weapon_audio_assets import AUDIO, verify_audio
 MANIFEST=ROOT/'source-manifest.json'
-ALLOWED={'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.java','.py','.md','.txt','.json','.uid','.js','.toml','.svg','.otf','.import','.patch'}
+ALLOWED={'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.java','.py','.md','.txt','.json','.uid','.js','.css','.toml','.svg','.otf','.import','.patch'}
 # docs/ holds screenshots for the README: pictures, not source, and not archived.
 IGNORED={'.godot','__pycache__','.git','public','docs'}
 
@@ -18,10 +19,11 @@ def source_files():
         if rel.is_absolute() or '..' in rel.parts or '\\' in name:raise ValueError(f'Unsafe source path: {name}')
         path=ROOT/name
         if not path.is_file() or any(p.is_symlink() for p in [path,*path.parents]):raise ValueError(f'Missing source or symbolic link: {name}')
-        if path.suffix not in ALLOWED and name not in {'.gitignore','.gitattributes'} and name not in ARTWORK:raise ValueError(f'Unreviewed file type: {name}')
+        if path.suffix not in ALLOWED and name not in {'.gitignore','.gitattributes'} and name not in ARTWORK and name not in AUDIO:raise ValueError(f'Unreviewed file type: {name}')
         if name in ARTWORK:
             signature={'.png':b'\x89PNG\r\n\x1a\n','.ico':b'\0\0\1\0','.icns':b'icns'}[path.suffix]
             if not path.read_bytes().startswith(signature):raise ValueError(f'Invalid application artwork: {name}')
+        elif name in AUDIO:verify_audio(path,name)
         elif path.read_bytes()[:4] in [b'PK\x03\x04',b'\xca\xfe\xba\xbe',b'\x89PNG',b'glTF',b'RIFF',b'OggS']:raise ValueError(f'Binary payload disguised as source: {name}')
         files.append(path)
     expected=set(names)|{'source-manifest.json','SHA256SUMS.json','provenance/source-provenance.json'}

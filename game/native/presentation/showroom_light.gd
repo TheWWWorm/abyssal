@@ -21,6 +21,10 @@ static func apply_antialiasing(viewport: SubViewport) -> void:
 
 static func apply(viewport: SubViewport, env: Environment) -> void:
 	apply_antialiasing(viewport)
+	# A reference preview may open without a dive behind it. Its sky and
+	# surface haze still need the same ocean texture used by every showroom.
+	if DisplayServer.get_name()!="headless":
+		preload("res://native/presentation/ocean_radiance_map.gd").ensure(viewport.get_tree())
 	env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color=Color("9fb8c4");env.ambient_light_energy=.22
 	env.tonemap_mode=Environment.TONE_MAPPER_ACES;env.tonemap_exposure=1.1

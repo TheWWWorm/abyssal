@@ -133,6 +133,7 @@ func run():
  c.hook.advance(40)
  expect(c.fish.health.enabled and c.fish.capturable and not c.hook.hooked,"Full hold preserves the catch and releases safely")
  c.world.dispose()
+ check_harpoon_targets()
  # Cho's export capsules carry goods toward the surface. The simulation's
  # positive Y is depth, so both placement and travel must use negative Y.
  var export_world=fixture(10);var exports: Array=export_world.region.friends.filter(func(actor):return actor.get("kind")=="capsule")
@@ -175,6 +176,9 @@ func run():
  expect(not shot.request_fire(pose,40,[0,0,4000]) and shot.launch_serial==serial and shot.elapsed==200,"Full pool preserves fire state")
  shot.advance(40);expect(target.health.hull==20,"Swept hit catches target between samples")
  shot.advance(40);expect(target.health.hull==20,"One projectile damages its target only once")
+ check_projectile_contacts()
+ check_torpedo_retirement()
+ check_torpedo_region()
  var layers=preload("res://native/simulation/health.gd").new();layers.configure(50,10,20);layers.damage(35)
  expect(layers.hull==45 and layers.shield==0 and layers.armor==0,"Damage flows through defensive layers")
  layers.configure(50,10,20);layers.damage(15,"armor");layers.damage(15,"armor")
@@ -207,9 +211,11 @@ func run():
  var contracts=preload("res://native/simulation/contracts.gd").new()
  contracts.session=Session.new();contracts.session.new_game(data,"Contract check",901)
  var bounded:=true;var sided:=true;var priced:=true
+ var portrait_offers: Array=[]
  for station in contracts.session.stations:
   var colonist: bool=contracts.session.is_colonist_station(station.id)
   var offers: Array=contracts.generate(station);bounded=bounded and offers.size()>=1 and offers.size()<=8
+  portrait_offers.append_array(offers)
   for offer in offers:
    if colonist:sided=sided and offer.kind not in [13,14,6,12]
    else:sided=sided and offer.kind not in [12,5,4,7,11]
@@ -218,6 +224,7 @@ func run():
  expect(bounded,"Every board carries one to eight offers")
  expect(sided,"Offers follow the station's side")
  expect(priced,"Fees and deposits fall on the fifty and deliveries avoid the story's goods")
+ check_contract_portraits(portrait_offers)
  var delivery_session=contracts.session
  delivery_session.ship.set_cargo([delivery_session.make_goods(0,3)])
  var delivery=preload("res://native/simulation/mission.gd").new()
@@ -272,6 +279,39 @@ func run():
  check_full_hold()
  print("MODERN_GAMEPLAY ",checks," checks; ",failures," failures")
  quit(1 if failures else 0)
+func check_contract_portraits(offers: Array) -> void:
+ # The imported sheet deliberately shares some hairstyles between columns.
+ # Face parts must stay in one column, while the female column draws its
+ # chin before its suit. A hairstyle's appearance cannot identify a column.
+ var parts: Dictionary=data.constants.ab
+ var table: Array=parts["a:[[[B"].duplicate(true)
+ for row in table:
+  for column in row.size():row[column]=row[column].map(func(id):return int(id))
+ var layered:=true;var coherent:=true;var named:=true;var sided:=true
+ var columns_seen: Dictionary={};var hair_seen: Array=[{},{},{}]
+ var accessories_seen: Dictionary={}
+ for offer in offers:
+  var layers: Array=offer.portrait
+  if layers.size()!=6:layered=false;continue
+  var column: int=-1
+  for candidate in 3:
+   var suit_layer: int=2 if candidate==2 else 1
+   var chin_layer: int=1 if candidate==2 else 2
+   if layers[suit_layer] in table[1][candidate] and layers[chin_layer] in table[2][candidate]:column=candidate;break
+  if column<0:layered=false;continue
+  columns_seen[column]=true;hair_seen[column][int(layers[4])]=true
+  accessories_seen[int(layers[5])>=0]=true
+  coherent=coherent and layers[3] in table[3][column] and layers[4] in table[4][column] and (int(layers[5])<0 or layers[5] in table[5][column])
+  named=named and offer.sponsor in data.name_pools[0 if column==2 else 1]
+  sided=sided and int(layers[0])==int(parts["f:[B"][offer.sponsor_faction])
+ expect(layered,"Contract portraits keep all six layers and the original chin/suit draw order")
+ expect(coherent,"Each contract portrait takes eyes, hair and accessories from its face column")
+ expect(named and sided,"A contract's portrait matches its sponsor name pool and faction")
+ expect(columns_seen.size()==3 and accessories_seen.size()==2,"The seeded boards exercise all face columns and both accessory states")
+ var shared_seen:=true
+ for hair in table[4][0]:
+  if hair in table[4][2]:shared_seen=shared_seen and hair_seen[0].has(int(hair)) and hair_seen[2].has(int(hair))
+ expect(shared_seen,"Hairstyles shared by the original sheet remain reachable in both portrait columns")
 func check_mission_navigation_subjects() -> void:
  var world=fixture(10);var region=world.region
  region.route.configure([]);region.player.pose.origin=[0,0,0]
@@ -308,6 +348,135 @@ func fish_fixture() -> Dictionary:
  hook.visible_to_camera=func(_point):return true
  hook.attach(fish)
  return {"world":world,"fish":fish,"hook":hook}
+func fire_harpoon_at(actor, world):
+ var line:=Fishing.new();line.player=world.region.player;line.session=world.session
+ line.player.pose.origin=[0,0,0];line.player.pose.face([0,0,4096])
+ actor.pose.origin=[0,0,4000]
+ line.weapon=preload("res://native/simulation/weapon_loadout.gd").create(world.session.make_equipment(15),data)
+ line.weapon.targets=[actor];line.slow_percent=line.weapon.slow_percent
+ line.visible_to_camera=func(_point):return true
+ expect(line.weapon.request_fire(line.player.pose,40),"A fresh harpoon launches toward the target")
+ for _tick in ceili(line.weapon.lifetime/40.0)+1:
+  line.advance(40)
+  if not line.weapon.impacts.is_empty() or not line.weapon.active:break
+ return line
+func check_projectile_contacts() -> void:
+ var pose=preload("res://native/simulation/ship_transform.gd").new()
+ var small:=NPC.new();small.health.configure(100,0,0);small.radius=100;small.pose.origin=[0,0,2000]
+ var large:=NPC.new();large.health.configure(100,0,0);large.radius=1000;large.pose.origin=[0,0,2200]
+ for targets in [[small,large],[large,small]]:
+  small.health.hull=100;large.health.hull=100
+  var shot:=Weapon.new();shot.configure(10,1,3000,200,100,[0,0,0]);shot.targets=targets
+  shot.request_fire(pose,40);shot.advance(40)
+  expect(large.health.hull==90 and small.health.hull==100 and shot.impacts.size()==1,"The first hull surface takes the shot regardless of target-list order")
+  expect(shot.positions[0]==[0,0,1200] and not shot.active and shot.remaining[0]<0,"A projectile retires at the surface, without penetrating to the target centre")
+  shot.targets=[]
+ var travel:=Vector3(0,0,1000)
+ expect(is_equal_approx(Weapon.sphere_entry(Vector3.ZERO,travel,Vector3(100,0,500),100),.5),"A tangent segment detects exactly one surface contact")
+ expect(Weapon.sphere_entry(Vector3.ZERO,travel,Vector3(101,0,500),100)<0,"A close pass outside the hull remains a miss")
+ expect(Weapon.sphere_entry(Vector3.ZERO,travel,Vector3(0,0,-500),100)<0,"A target behind a departing shot is not hit")
+ expect(Weapon.sphere_entry(Vector3.ZERO,travel,Vector3(0,0,50),100)==0,"A shot starting inside a target impacts immediately")
+ expect(Weapon.sphere_entry(Vector3.ZERO,Vector3.ZERO,Vector3(0,0,500),100)<0,"A stationary shot outside a target does not create an impact")
+func check_torpedo_retirement() -> void:
+ var session:=Session.new();session.new_game(data,"Torpedo impacts",1942)
+ var pose=preload("res://native/simulation/ship_transform.gd").new()
+ for id in [12,13,14]:
+  var shot=preload("res://native/simulation/weapon_loadout.gd").create(session.make_equipment(id),data)
+  var first:=NPC.new();first.health.configure(100,0,0);first.radius=2000
+  first.pose.origin=[0,0,roundi(shot.speed*2000)+2000]
+  var adjacent:=NPC.new();adjacent.health.configure(100,0,0);adjacent.radius=2000
+  adjacent.pose.origin=[3500,0,first.pose.origin[2]+4000]
+  shot.targets=[adjacent,first]
+  shot.request_fire(pose,40)
+  for _tick in ceili(shot.lifetime/40.0)+1:
+   shot.advance(40)
+   if not shot.impacts.is_empty() or not shot.active:break
+  expect(shot.impacts.size()==1 and shot.impacts[0].target==first and first.health.hull==100-shot.damage,"Torpedo %d hits the first ship after its homing phase begins"%id)
+  var impact_position: Array=shot.positions[0].duplicate()
+  expect(not shot.active and shot.remaining[0]<0 and adjacent.health.hull==100,"Torpedo %d retires at its first impact without hitting the adjacent ship"%id)
+  first.health.enabled=false
+  for _tick in 200:shot.advance(40)
+  expect(shot.positions[0]==impact_position and shot.impacts.size()==1 and adjacent.health.hull==100 and shot.launch_serial==1,"Retired torpedo %d cannot retarget, bounce, or damage a second ship on later ticks"%id)
+  expect(shot.request_fire(pose,40) and shot.launch_serial==2 and shot.positions[0]==[0,0,0] and shot.previous_positions[0]==[0,0,0],"Reusing torpedo %d's pool slot is a separate launch from the muzzle"%id)
+  shot.impacts.clear()
+  for _tick in ceili(shot.lifetime/40.0)+1:
+   shot.advance(40)
+   if not shot.impacts.is_empty() or not shot.active:break
+  expect(shot.impacts.size()==1 and shot.impacts[0].target==adjacent and adjacent.health.hull==100-shot.damage,"Only the second launched torpedo %d can hit the adjacent ship"%id)
+  shot.targets=[]
+func check_harpoon_targets() -> void:
+ # A hit and a retained line are different: the phone game stops a harpoon
+ # on a live hull, but only keeps the line on wildlife, salvage and mines.
+ var world=fixture(12)
+ var ship:=NPC.new();ship.configure(0,2,true,[0,0,4000],data,12,world.session.rng);ship.health.configure(100,0,0);ship.activate()
+ var line=fire_harpoon_at(ship,world)
+ expect(line.weapon.impacts.size()==1 and line.weapon.impacts[0].target==ship,"A live hull stops the harpoon instead of letting it pass through")
+ expect(not line.hooked and line.target==null and not line.weapon.hook_busy and line.weapon.hooked_target==null and not line.weapon.active,"A live hull does not retain a harpoon line")
+ expect(ship.health.hull==100 and world.session.counters.i==0,"The live-hull hit causes no gun damage or lost-catch count")
+ expect(not line.weapon.request_fire(line.player.pose,40),"A rejected attachment still keeps the shot's normal reload")
+ line.weapon.targets=[]
+ for wreck_state in [3,4]:
+  ship.health.hull=0;ship.state=wreck_state
+  line=fire_harpoon_at(ship,world)
+  expect(line.hooked and line.target==ship and line.ready_to_tow(),"A recoverable wreck retains the line in state %d"%wreck_state)
+  var before: int=ship.pose.origin[2];line.advance(40)
+  expect(line.towing and ship.pose.origin[2]<before,"The wreck is actually drawn toward the player")
+  line.release();line.weapon.targets=[]
+ ship.capturable=false;ship.state=4
+ line=fire_harpoon_at(ship,world)
+ expect(not line.hooked and not line.weapon.active,"A nonrecoverable wreck cannot retain a line")
+ line.weapon.targets=[]
+ var fish:=Creature.new();fish.configure(int(data.constants.ah["b:[S"][0]),data.tables.creatures[0],world.session.rng,world.region.sine,[0,0,4000])
+ line=fire_harpoon_at(fish,world)
+ expect(line.hooked and fish.hooked and not line.ready_to_tow(),"Live wildlife retains the line and must struggle before it can be towed")
+ fish.subdued=true;line.advance(40)
+ expect(line.towing and fish.towing,"A subdued creature starts towing")
+ line.release();line.weapon.targets=[]
+ fish.state=4;fish.health.hull=0;fish.subdued=false
+ line=fire_harpoon_at(fish,world)
+ expect(line.hooked and line.ready_to_tow(),"A carcass can be hooked and towed without another struggle")
+ line.release();line.weapon.targets=[]
+ var special=preload("res://native/simulation/special_actor.gd").new()
+ special.configure_special("capsule",9994,true,[0,0,4000],data,world.session.rng);special.health.configure(32,0,0)
+ line=fire_harpoon_at(special,world)
+ expect(line.weapon.impacts.size()==1 and not line.hooked and not line.weapon.active,"A supply capsule stops the shot but cannot be collected with a harpoon")
+ line.weapon.targets=[]
+ special.configure_special("mine",13,true,[0,0,4000],data,world.session.rng);special.health.configure(4,0,0)
+ line=fire_harpoon_at(special,world)
+ expect(not special.capturable and line.hooked and line.ready_to_tow(),"The original mine exception remains hookable without a salvage flag")
+ special.pose.origin=line.player.pose.origin.duplicate();line.advance(40)
+ expect(special.state==999 and not special.health.enabled and not line.hooked,"Reeling a mine all the way in detonates it and releases the line")
+ line.weapon.targets=[]
+ ship.health.enabled=false
+ line=fire_harpoon_at(ship,world)
+ expect(line.weapon.impacts.is_empty() and not line.hooked,"An inactive or already collected actor cannot stop or retain a harpoon")
+ line.weapon.targets=[];world.dispose()
+func check_torpedo_region() -> void:
+ # Exercise the same Region.step path used in the playable range, including
+ # actor movement/avoidance and forwarding the projectile's impact event.
+ var session:=Session.new();session.new_game(data,"Adjacent targets",1942)
+ var Demo=preload("res://native/simulation/demo_session.gd")
+ Demo.initialize(session)
+ var draft=Demo.new();draft.select_equipment(session,0,14);draft.apply(session)
+ var world:=World.new();world.configure(session);expect(world.depart(),"The torpedo reproduction enters the playable test range")
+ var region=world.region
+ var shot=region.weapons[0]
+ var first=region.enemies[0];var adjacent=region.enemies[1]
+ first.set_position([0,0,-86000]);adjacent.set_position([3500,0,-90000])
+ first.health.configure(200,0,0);adjacent.health.configure(200,0,0)
+ shot.targets=[adjacent,first]
+ var impact_count:=0;var impact_position: Array=[]
+ for tick in 200:
+  region.step(40,{"guns":true} if tick==0 else {})
+  for event in region.visual_events:
+   if event.kind=="impact" and event.time==region.elapsed_ms:
+    impact_count+=1;impact_position=event.position.duplicate()
+  if impact_count>0:
+   first.health.enabled=false;first.capturable=false;first.state=4
+ expect(shot.launch_serial==1 and impact_count==1 and first.health.hull==200-shot.damage,"A single torpedo creates exactly one hit through the gameplay update path")
+ expect(adjacent.health.hull==200 and not shot.active and shot.remaining[0]<0 and shot.positions[0]==impact_position,"The range torpedo stays retired even when the first ship disappears beside another target")
+ expect(not region.player.contact,"Ship collision avoidance is not engaged in the adjacent-target reproduction")
+ world.dispose()
 func check_full_hold() -> void:
  # A carcass or a crate that will not fit stays on the water, as a live catch
  # does, instead of being spent; with room it is taken as before.

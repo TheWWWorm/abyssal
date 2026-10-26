@@ -7,7 +7,13 @@ var lifetime := 0
 var cooldown := 0
 var elapsed := 0
 var mount: Array=[0,0,0]
+var muzzle: Array=[0,0,0]
 var positions: Array=[]
+## The last movement step, used only to draw shots between simulation ticks.
+var previous_positions: Array=[]
+## Bounded launch records also let shared NPC gun pools report nearby fire.
+var launch_positions: Array=[]
+var launch_serials: Array=[]
 var velocities: Array=[]
 var remaining: Array=[]
 var targets: Array=[]
@@ -32,16 +38,33 @@ var velocity_step_ms := 40
 const MAX_AIM_COSINE := 0.94
 static func vector(values: Array) -> Vector3:return Vector3(values[0],values[1],values[2])
 static func coordinates(value: Vector3) -> Array:return [roundi(value.x),roundi(value.y),roundi(value.z)]
+static func sphere_entry(start: Vector3, travel: Vector3, center: Vector3, radius: float) -> float:
+ # Return the first contact along the segment, not its nearest approach to
+ # the centre: a large or oblique hull may be reached before a nearer centre.
+ var offset:=start-center
+ var outside:=offset.length_squared()-radius*radius
+ if outside<=0.0:return 0.0
+ var distance_squared:=travel.length_squared()
+ if distance_squared<=0.000001:return -1.0
+ var approach:=offset.dot(travel)
+ if approach>=0.0:return -1.0
+ var discriminant:=approach*approach-distance_squared*outside
+ if discriminant<0.0:return -1.0
+ var entry:=(-approach-sqrt(discriminant))/distance_squared
+ return entry if entry<=1.0 else -1.0
 func configure(power: int,pool_size: int,life_ms: int,interval: int,units_per_ms: float,offset: Array) -> void:
  damage=maxi(0,power);lifetime=maxi(1,life_ms);cooldown=maxi(1,interval);speed=maxf(0,units_per_ms);mount=offset.duplicate()
+ muzzle=mount.duplicate()
  elapsed=cooldown # Newly equipped weapons are ready on the first press.
- positions.clear();velocities.clear();remaining.clear()
- for index in maxi(1,pool_size):positions.append([50000,50000,50000]);velocities.append([0,0,0]);remaining.append(-1)
-func launch(pose,delta_ms: int,aim=null) -> bool:
+ positions.clear();previous_positions.clear();launch_positions.clear();launch_serials.clear();velocities.clear();remaining.clear()
+ for index in maxi(1,pool_size):
+  positions.append([50000,50000,50000]);previous_positions.append([50000,50000,50000]);velocities.append([0,0,0]);remaining.append(-1)
+  launch_positions.append([0,0,0]);launch_serials.append(0)
+func launch(pose,delta_ms: int,aim=null,actor_mount=null) -> bool:
  if fishing and hook_busy:return false
  for index in remaining.size():
   if remaining[index]>0:continue
-  var start:=vector(pose.origin)+vector(pose.rotate_direction(mount))
+  var start:=vector(pose.origin)+vector(pose.rotate_direction(actor_mount if actor_mount is Array else mount))
   # A torpedo leaves along the hull as in the original (o.a without a
   # target); it finds its own way after the straight run.
   var direction:=vector(pose.forward) if aim==null or (homing and aim is Array) else vector(aim if aim is Array else aim.pose.origin)-start
@@ -51,18 +74,21 @@ func launch(pose,delta_ms: int,aim=null) -> bool:
   if direction.normalized().dot(vector(pose.forward).normalized())<MAX_AIM_COSINE:
    direction=vector(pose.forward)
   velocity_step_ms=maxi(1,delta_ms);positions[index]=coordinates(start);velocities[index]=launch_velocity(coordinates(direction),velocity_step_ms);remaining[index]=lifetime
-  elapsed=0;fired=true;active=true;launch_serial+=1;return true
+  previous_positions[index]=positions[index].duplicate()
+  elapsed=0;fired=true;active=true;launch_serial+=1
+  launch_positions[index]=positions[index].duplicate();launch_serials[index]=launch_serial;return true
  return false
 func launch_velocity(direction: Array,delta_ms: int) -> Array:
  return coordinates(vector(direction).normalized()*speed*maxi(1,delta_ms))
-func request_fire(pose,delta_ms: int,aim=null) -> bool:
- return launch(pose,delta_ms,aim) if elapsed>=cooldown else false
+func request_fire(pose,delta_ms: int,aim=null,actor_mount=null) -> bool:
+ return launch(pose,delta_ms,aim,actor_mount) if elapsed>=cooldown else false
 func advance(delta_ms: int) -> void:
  elapsed+=maxi(0,delta_ms)
  if not active or hook_busy:return
  hooked_target=null
  for index in remaining.size():
   if remaining[index]<=0:continue
+  previous_positions[index]=positions[index].duplicate()
   var start:=vector(positions[index]);var direction:=vector(velocities[index]).normalized()
   # A torpedo runs straight for its first second and a half, then turns
   # after the nearest live target within a hundred and fifty metres (dm.b).
@@ -86,11 +112,13 @@ func advance(delta_ms: int) -> void:
   var finish:=start+travel
   var hit=null;var hit_fraction:=1.0
   for actor in targets:
-   if not actor.health.enabled or (fishing and not actor.capturable):continue
+   # A harpoon can strike any enabled body, including a live hull or mine.
+   # Fishing decides whether that impact can retain a line; capturable is
+   # a salvage flag, not collision eligibility (o.c / cx.a).
+   if not actor.health.enabled:continue
    var radius:=maxf(1,fishing_radius if fishing else actor.radius)
-   var relative:=vector(actor.pose.origin)-start
-   var closest:=clampf(relative.dot(travel)/maxf(.001,travel.length_squared()),0,1)
-   if (relative-travel*closest).length_squared()<=radius*radius and (hit==null or closest<hit_fraction):hit=actor;hit_fraction=closest
+   var entry:=sphere_entry(start,travel,vector(actor.pose.origin),radius)
+   if entry>=0.0 and (hit==null or entry<hit_fraction):hit=actor;hit_fraction=entry
   # Bounded segment samples prevent ordinary shots crossing station walls.
   var terrain_hit:=false
   if terrain_collision.is_valid():

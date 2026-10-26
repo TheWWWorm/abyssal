@@ -17,6 +17,9 @@ var dragging := false
 ## A sea creature rather than a vessel (make_creature): drawn as the water
 ## draws it, from the creature's own life, and leaving no propeller wake.
 var creature := false
+## A standing character, framed from the front rather than like a swimming hull.
+var upright := false
+var display_basis := Basis.IDENTITY
 ## The simulated creature whose life poses the body, and its second part (a
 ## head or tail) where the species has one.
 var actor
@@ -102,6 +105,16 @@ func make_creature(content) -> void:
   whole=drawn if step==0 else whole.merge(drawn)
  bounds=whole;center=bounds.get_center();radius=maxf(2,bounds.size.length()*.45)
 
+## The Aquarian is authored swimming along the hull axis. Stand it on its
+## tail and face the reader, retaining the complete silhouette and trident.
+func make_upright() -> void:
+ upright=true;turn=0;tilt=0
+ display_basis=Basis(Vector3.UP,PI)*Basis(Vector3.RIGHT,PI/2)
+ if vessel!=null:
+  bounds=Transform3D(display_basis,Vector3.ZERO)*vessel.solid_bounds()
+  center=bounds.get_center()
+ _process(0)
+
 ## The body relative to its heading, as world_view draws it: its swing and
 ## half turn in the game's frame, then the breathing scale.
 func body_basis() -> Basis:
@@ -134,8 +147,10 @@ func _process(delta: float) -> void:
  elapsed+=delta
  if vessel!=null:
   vessel.advance(roundi(delta*1000))
-  var attitude:=Basis(Vector3.RIGHT,tilt)*Basis(Vector3.UP,turn)*Basis.from_euler(Vector3(sin(elapsed*.7)*.025,0,sin(elapsed*.5)*.035))
-  var origin:=-(attitude*center)+Vector3(0,sin(elapsed)*radius*.015,0)
+  var attitude:=Basis(Vector3.RIGHT,tilt)*Basis(Vector3.UP,turn)
+  if not upright:attitude*=Basis.from_euler(Vector3(sin(elapsed*.7)*.025,0,sin(elapsed*.5)*.035))
+  var origin:=-(attitude*center)
+  if not upright:origin+=Vector3(0,sin(elapsed)*radius*.015,0)
   if actor!=null:
    creature_ms+=roundi(delta*1000);actor.phase=creature_ms&0xFFF;actor.animate()
    vessel.transform=Transform3D(attitude*body_basis(),origin)
@@ -145,9 +160,9 @@ func _process(delta: float) -> void:
     var bent: bool=vessel.modern_graphics and actor.hinge_axis!=""
     if bent:part.set_hinge(1 if actor.hinge_axis=="yaw" else 0,(-1.0 if actor.hinge_axis=="yaw" else 1.0)*actor.hinge_angle*TAU/4096.0)
     else:part.set_hinge(1,0.0)
-  else:vessel.transform=Transform3D(attitude,origin)
- wake.visible_instance_count=0 if creature else -1
- if vessel!=null and not creature:
+  else:vessel.transform=Transform3D(attitude*display_basis,origin)
+ wake.visible_instance_count=0 if creature or upright else -1
+ if vessel!=null and not creature and not upright:
   for i in wake.instance_count:
    var age:=fposmod(float(i/2)/16.0+elapsed*.55,1.0)
    var side: float=-1 if i%2==0 else 1
@@ -155,7 +170,14 @@ func _process(delta: float) -> void:
    wake.set_instance_transform(i,Transform3D(Basis.IDENTITY,vessel.transform*at))
    wake.set_instance_custom_data(i,Color(radius*(.025+age*.045),age,0,0))
    wake.set_instance_color(i,Color(.7,.9,1,.55))
- camera.position=Vector3(1.25+sin(elapsed*.18)*.15,.65,-1.9)*radius;camera.look_at(Vector3.ZERO)
+ if upright:
+  var facing:=Basis(Vector3.RIGHT,tilt)*Basis(Vector3.UP,turn)
+  var framed:=Transform3D(facing,-(facing*center))*bounds
+  var aspect:=float(viewport.size.x)/maxi(1,viewport.size.y)
+  var distance:=maxf(framed.size.y,framed.size.x/aspect)*.5/tan(deg_to_rad(camera.fov)*.5)*1.12+framed.size.z*.5
+  camera.position=Vector3(0,0,-maxf(1,distance))
+ else:camera.position=Vector3(1.25+sin(elapsed*.18)*.15,.65,-1.9)*radius
+ camera.look_at(Vector3.ZERO)
  particles.set_shader_parameter("eye",camera.position)
  particles.set_shader_parameter("eye_phase",Vector3(0,0,-elapsed*6))
  particles.set_shader_parameter("drift_time",elapsed)

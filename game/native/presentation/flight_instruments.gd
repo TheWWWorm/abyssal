@@ -84,15 +84,16 @@ func _draw() -> void:
 		var sign := Vector2(gauge.position.x-26,gauge.end.y+20)
 		draw_colored_polygon(PackedVector2Array([sign+Vector2(0,-11),sign+Vector2(11,8),sign+Vector2(-11,8)]),Color("e0524a"))
 		draw_string(ThemeDB.fallback_font,sign+Vector2(-6,7),"!",HORIZONTAL_ALIGNMENT_CENTER,12,14,Color("1a0606"))
-static func boost_state(player) -> Dictionary:
+static func boost_state(player, world=null) -> Dictionary:
 	if player.stats.boost_cooldown<=0: return {"mode":"absent","fraction":0.0,"seconds":0.0}
+	var timer: float=world.render_boost_timer() if world!=null else float(player.boost_timer)
 	if player.boost_active:
-		var remaining: int = maxi(0,player.stats.boost_duration-player.boost_timer)
+		var remaining: float = maxf(0,player.stats.boost_duration-timer)
 		return {"mode":"active","fraction":float(remaining)/maxi(1,player.stats.boost_duration),"seconds":remaining/1000.0}
 	if player.boost_timer<0:
-		return {"mode":"charging","fraction":clampf(1.0+float(player.boost_timer)/player.stats.boost_cooldown,0,1),"seconds":-player.boost_timer/1000.0}
+		return {"mode":"charging","fraction":clampf(1.0+timer/player.stats.boost_cooldown,0,1),"seconds":-timer/1000.0}
 	return {"mode":"ready","fraction":1.0,"seconds":0.0}
-static func harpoon_state(region) -> Dictionary:
+static func harpoon_state(region, world=null) -> Dictionary:
 	"""The harpoon's reload, drawn like the booster's charge."""
 	var harpoon = null
 	for weapon in region.loadout.all_weapons():
@@ -100,9 +101,10 @@ static func harpoon_state(region) -> Dictionary:
 	if harpoon==null: return {"mode":"absent","fraction":0.0,"seconds":0.0}
 	if harpoon.hook_busy: return {"mode":"line","fraction":0.0,"seconds":0.0}
 	if harpoon.elapsed<harpoon.cooldown:
-		return {"mode":"reloading","fraction":clampf(float(harpoon.elapsed)/harpoon.cooldown,0,1),"seconds":(harpoon.cooldown-harpoon.elapsed)/1000.0}
+		var elapsed: float=world.render_reload_elapsed(harpoon) if world!=null else float(harpoon.elapsed)
+		return {"mode":"reloading","fraction":clampf(elapsed/harpoon.cooldown,0,1),"seconds":(harpoon.cooldown-elapsed)/1000.0}
 	return {"mode":"ready","fraction":1.0,"seconds":0.0}
-static func guns_state(region) -> Dictionary:
+static func guns_state(region, world=null) -> Dictionary:
 	"""The guns' reload: the slowest one, since they fire together and it is
 	the last to be ready again."""
 	var slowest = null
@@ -110,9 +112,10 @@ static func guns_state(region) -> Dictionary:
 		if not weapon.fishing and (slowest==null or weapon.cooldown>slowest.cooldown): slowest=weapon
 	if slowest==null: return {"mode":"absent","fraction":0.0,"seconds":0.0}
 	if slowest.elapsed<slowest.cooldown:
-		return {"mode":"reloading","fraction":clampf(float(slowest.elapsed)/slowest.cooldown,0,1),"seconds":(slowest.cooldown-slowest.elapsed)/1000.0}
+		var elapsed: float=world.render_reload_elapsed(slowest) if world!=null else float(slowest.elapsed)
+		return {"mode":"reloading","fraction":clampf(elapsed/slowest.cooldown,0,1),"seconds":(slowest.cooldown-elapsed)/1000.0}
 	return {"mode":"ready","fraction":1.0,"seconds":0.0}
-func update(region, boost_key: String) -> void:
+func update(region, boost_key: String, world=null) -> void:
 	var player=region.player; var stats=player.stats
 	warning=player.depth<stats.minimum_depth or player.depth>stats.maximum_depth
 	var condition := tr("Radiation · Descend").to_upper() if player.depth<stats.minimum_depth else tr("Pressure · Ascend").to_upper()
@@ -124,7 +127,7 @@ func update(region, boost_key: String) -> void:
 	depth_label.modulate=color; depth_fill.bg_color=color
 	depth_bar.value=clampf(float(player.depth-stats.minimum_depth)/maxi(1,stats.maximum_depth-stats.minimum_depth)*100.0,0,100)
 	pressure_strength=(0.12+0.24*clampf(float(region.pressure_ms)/5000,0,1)) if warning else 0.0
-	var boost := boost_state(player)
+	var boost := boost_state(player,world)
 	match boost.mode:
 		"absent": boost_label.text=tr("BOOST · Not installed")
 		"active": boost_label.text=tr("BOOSTING · %.1f s")%boost.seconds

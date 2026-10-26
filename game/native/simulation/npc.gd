@@ -30,6 +30,7 @@ var excluded_from_objectives := false
 var state := 0
 var targets: Array = []
 var weapons: Array = []
+var weapon_mount: Array = [0,0,2400]
 var shapes: Array = []
 var obstacle_groups: Array = []
 var route = null
@@ -200,7 +201,7 @@ func advance(delta_ms: int) -> void:
 			var local: Array=[Math.dot_long(pose.right,desired),-Math.dot_long(pose.up,desired),Math.dot_long(pose.forward,desired)]
 			if not following and target!=null and absi(local[0])<500 and absi(local[1])<500 and within(target_position,pose.origin,GUN_DISTANCE):
 				if live(target):
-					for weapon in weapons:weapon.request_fire(pose,delta_ms)
+					for weapon in weapons:weapon.request_fire(pose,delta_ms,null,weapon_mount)
 				else:target_lock=false
 			if not straight:
 				var change: Array=Math.subtracted(desired,pose.forward)

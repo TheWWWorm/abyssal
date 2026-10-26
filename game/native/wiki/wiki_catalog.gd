@@ -834,6 +834,7 @@ func media(key: String) -> Dictionary:
 					if line.speaker > 0 and entries.has("character/%d" % line.speaker): return portrait(line.speaker)
 			return {"image": "mission_story"}
 		"world":
+			if parts[1] == "aquarians": return {"model": 19, "creature": false, "upright": true}
 			if parts[1] in ["history", "colony", "stream"]: return {"chart": {"highlight": -1, "as_of": limit, "joining": []}}
 			if parts[1] == "ocean": return {"model": 4427}
 			if parts[1] == "abel": return {"glyph": "status"}

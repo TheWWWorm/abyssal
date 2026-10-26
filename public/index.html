@@ -96,17 +96,143 @@ body {
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 		<meta name="apple-mobile-web-app-title" content="Abyssal">
 		<meta name="theme-color" content="#03090e">
-		<style>
-/* Handhelds: fill the viewport and stop the page itself scrolling, bouncing or
-   zooming, so drags reach the game as steering rather than moving the page. */
-html, body { height: 100%; overscroll-behavior: none; }
-body { position: fixed; inset: 0; width: 100%; height: 100%; }
-#canvas { width: 100%; height: 100%; touch-action: none; }
-		</style>
+<style id="abyssal-viewport-css">
+/* Keep the scene edge to edge; Godot insets controls for the safe area. */
+html, body {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: absolute;
+  inset: auto;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Browser tabs follow the space available beside their changing toolbars. */
+@supports (height: 100dvh) {
+  body { width: 100dvw; height: 100dvh; }
+}
+
+/* Home Screen apps have no browser toolbar. On iOS the layout/dynamic
+   viewport can retain its shorter launch height; use the full app extent. */
+html.abyssal-standalone body {
+  width: var(--abyssal-app-width, 100vw);
+  height: var(--abyssal-app-height, 100vh);
+}
+@supports (height: 100lvh) {
+  html.abyssal-standalone body {
+    width: var(--abyssal-app-width, 100lvw);
+    height: var(--abyssal-app-height, 100lvh);
+  }
+}
+
+#canvas {
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+</style>
+<script id="abyssal-viewport-js">
+/* The shell owns canvas sizing (Godot canvasResizePolicy: 0). Measuring its
+ * displayed rectangle avoids stale innerHeight values on iOS Home Screen
+ * launch and keeps rendering and touch coordinates on the same scale. */
+(function () {
+  'use strict';
+  const modes = ['standalone', 'fullscreen'].map(mode => matchMedia(`(display-mode: ${mode})`));
+  function displayMode() {
+    const root = document.documentElement;
+    const installed = navigator.standalone === true || modes.some(mode => mode.matches);
+    root.classList.toggle('abyssal-standalone', installed);
+    // An installed iPhone app occupies the screen, but WebKit can retain even
+    // CSS viewport units from the previous orientation. Screen dimensions are
+    // CSS pixels, so use them here only; tabs and windowed iPads keep CSS sizing.
+    const screen = window.screen;
+    if (installed && /iPhone|iPod/.test(navigator.userAgent) && screen?.width > 0 && screen.height > 0) {
+      const short = Math.min(screen.width, screen.height), long = Math.max(screen.width, screen.height);
+      const landscape = typeof window.orientation === 'number' ? Math.abs(window.orientation) % 180 === 90
+        : Math.abs(window.innerWidth - long) < Math.abs(window.innerWidth - short);
+      root.style.setProperty('--abyssal-app-width', `${landscape ? long : short}px`);
+      root.style.setProperty('--abyssal-app-height', `${landscape ? short : long}px`);
+    } else {
+      root.style.removeProperty('--abyssal-app-width');
+      root.style.removeProperty('--abyssal-app-height');
+    }
+  }
+  displayMode();
+
+  function start() {
+    const canvas = document.getElementById('canvas');
+    if (!canvas) return;
+    let frame = 0;
+    let settling = [];
+
+    function resize() {
+      frame = 0;
+      if (document.hidden) return;
+      displayMode();
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const scale = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.round(rect.width * scale));
+      const height = Math.max(1, Math.round(rect.height * scale));
+      // Assigning either dimension clears a canvas, even when it is unchanged.
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+    }
+    function queue() {
+      if (!frame && !document.hidden) frame = requestAnimationFrame(resize);
+    }
+    function pause() {
+      settling.forEach(clearTimeout);
+      settling = [];
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+    function refresh() {
+      pause();
+      displayMode();
+      queue();
+      // WebKit may finish a launch/rotation after the first event. Recheck
+      // briefly, without a permanent render loop or work in the background.
+      if (!document.hidden) settling = [250, 1000].map(delay => setTimeout(queue, delay));
+    }
+
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(queue).observe(canvas);
+    window.addEventListener('resize', queue);
+    window.visualViewport?.addEventListener('resize', queue);
+    window.addEventListener('orientationchange', refresh);
+    window.addEventListener('pageshow', refresh);
+    window.addEventListener('load', refresh);
+    window.addEventListener('pagehide', pause);
+    document.addEventListener('visibilitychange', refresh);
+    document.addEventListener('fullscreenchange', refresh);
+    document.addEventListener('webkitfullscreenchange', refresh);
+    modes.forEach(mode => mode.addEventListener('change', refresh));
+    resize();
+    refresh();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once: true});
+  else start();
+}());
+</script>
 		<link rel="icon" type="image/x-icon" href="favicon.ico?v=bccec98d594b">
 		<link rel="apple-touch-icon" sizes="180x180" href="index.apple-touch-icon.png?v=bccec98d594b">
 		<link rel="manifest" href="manifest.webmanifest?v=bccec98d594b">
-		<meta name="engine-build" content="87936453a9eb75ef420a0e28444cd7dee13b6f57e9a102b743ceedf7401a38ca">
+		<meta name="engine-build" content="2c83c260d6aab664e35168689ada9ba0d0bf87c3c95c7b01169a8a81865dc6dc">
 </head>
 	<body>
 		<canvas id="canvas">
@@ -125,7 +251,7 @@ body { position: fixed; inset: 0; width: 100%; height: 100%; }
 
 		<script src="engine-8f34c254867c0685.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"engine-8f34c254867c0685","experimentalVK":false,"fileSizes":{"game-87936453a9eb75ef420a0e28444cd7dee13b6f57e9a102b743ceedf7401a38ca.pck":26227120,"engine-8f34c254867c0685.wasm":45964109},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"game-87936453a9eb75ef420a0e28444cd7dee13b6f57e9a102b743ceedf7401a38ca.pck"};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":0,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"engine-8f34c254867c0685","experimentalVK":false,"fileSizes":{"game-2c83c260d6aab664e35168689ada9ba0d0bf87c3c95c7b01169a8a81865dc6dc.pck":31661404,"engine-8f34c254867c0685.wasm":45964109},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"game-2c83c260d6aab664e35168689ada9ba0d0bf87c3c95c7b01169a8a81865dc6dc.pck"};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 

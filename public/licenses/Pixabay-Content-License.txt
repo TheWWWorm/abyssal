@@ -1,0 +1,23 @@
+Pixabay Content License — weapon audio source material
+
+Source license: https://pixabay.com/service/terms/ (section 5)
+Summary: https://pixabay.com/service/license-summary/
+License reviewed: 26 October 2026; terms dated 20 October 2026.
+
+The recordings credited in provenance/weapon-audio.json remain licensed by
+Pixabay and their contributors. They are not Apache-2.0 or CC0 material.
+The license permits commercial and noncommercial use and creative adaptation.
+It prohibits distributing substantially unchanged content on a standalone
+basis, misleading ownership claims, and the other uses listed in the full
+terms. Consult those terms for the complete license and restrictions.
+
+This game distributes composite, layered weapon effects integrated with its
+weapon presentation. Original source recordings are not included. Preserve
+this notice and the source credits when distributing these game effects.
+
+Attribution is optional under section 6. The game credits contributors
+voluntarily in About, THIRD_PARTY_NOTICES.md and its per-source inventory.
+
+Contributors: RescopicSound (pulse and plasma discharges), DRAGON-STUDIO
+(Gentle Underwater Swish), ejah_music (Underwater whoosh (Deep)).
+The separately credited felix.blume hydrophone recording is CC0-1.0.

@@ -16,6 +16,36 @@ import package_publication
 
 
 class PublicationTests(unittest.TestCase):
+    def test_only_hash_pinned_recorded_audio_is_allowed_in_source_archives(self):
+        from weapon_audio_assets import AUDIO
+        name = sorted(AUDIO)[0]
+        payload = (package_publication.ROOT/name).read_bytes()
+        def archive(sound_name, data):
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, 'w') as zipped:
+                zipped.writestr('abyssal-engine/'+sound_name, data)
+            return output.getvalue()
+        self.assertEqual(inspect_zip(archive(name,payload),set(AUDIO)),(1,[]))
+        with self.assertRaisesRegex(ValueError,'Private content'):
+            inspect_zip(archive('game/audio/unreviewed.wav',payload),set(AUDIO))
+        with self.assertRaisesRegex(ValueError,'changed since its provenance'):
+            inspect_zip(archive(name,payload[:-1]+b'x'),set(AUDIO))
+
+    def test_game_pack_accepts_only_imports_of_reviewed_recordings(self):
+        from weapon_audio_assets import AUDIO
+        source = sorted(AUDIO)[0]
+        imported = '.godot/imported/'+Path(source).name+'-'+hashlib.md5(('res://'+source[5:]).encode()).hexdigest()+'.sample'
+        def pack(resource):
+            name = resource.encode()+b'\0'
+            header = b'GDPC'+struct.pack('<5I2Q',4,4,7,0,2,40,40)
+            directory = struct.pack('<II',1,len(name))+name
+            return header+directory+struct.pack('<QQ',0,0)+bytes(16)+struct.pack('<I',0)
+        self.assertEqual(pck_entries(pack(imported),set(AUDIO)),1)
+        with self.assertRaisesRegex(ValueError,'Unreviewed resource'):
+            pck_entries(pack(imported),set())
+        with self.assertRaisesRegex(ValueError,'Unreviewed resource'):
+            pck_entries(pack('.godot/imported/other.sample'),set(AUDIO))
+
     def test_apk_checks_the_compatibility_converter_inventory_and_bytes(self):
         from browser_runtime import SOURCES
         from android_runtime import INDEX_HTML
@@ -25,6 +55,8 @@ class PublicationTests(unittest.TestCase):
             for name, source in {'bootstrap.js':'android/bootstrap.js', 'import.js':'android/import.js',
                                  'audio.js':'browser/audio.js', 'worker.js':'browser/worker.js',
                                  'LICENSE.md':'LICENSE.md', 'THIRD_PARTY_NOTICES.md':'THIRD_PARTY_NOTICES.md',
+                                 'licenses/CC0-1.0.txt':'licenses/CC0-1.0.txt',
+                         'licenses/Pixabay-Content-License.txt':'licenses/Pixabay-Content-License.txt',
                                  **{name:source for name,source in SOURCES.items()}}.items():
                 path = root/source; path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b'synthetic reviewed source')

@@ -9,12 +9,14 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabl
 varying float age;
 varying float bubble;
 varying float wake;
+varying float impact;
 // The water between the burst and the eye, which fog dimmed before.
 varying float haze;
 void vertex(){
 	age=clamp(INSTANCE_CUSTOM.y,0.0,1.0);
-	bubble=step(0.5,INSTANCE_CUSTOM.z);
-	wake=step(1.5,INSTANCE_CUSTOM.z);
+	impact=step(3.5,INSTANCE_CUSTOM.z);
+	bubble=step(0.5,INSTANCE_CUSTOM.z)*(1.0-impact);
+	wake=step(1.5,INSTANCE_CUSTOM.z)*(1.0-impact);
 	vec3 center=(VIEW_MATRIX*MODEL_MATRIX[3]).xyz;
 	haze=exp(-length(center)*0.0015);
 	float expand=mix(0.12+sqrt(age)*0.88,1.0,bubble);
@@ -52,6 +54,11 @@ void fragment(){
 	float exhaust=(ring*mix(.09,.3,wake)+glint*.25+core*.2*wake)*fade;
 	float edge=1.0-smoothstep(0.92,1.0,r);
 	float strength=clamp(mix(explosion,exhaust,bubble)*COLOR.a*edge*haze,0.0,2.5);
+	if(impact>0.5){
+		float front=(ring*0.42+splinters*0.18)*fade*fade;
+		float discharge=core*0.30*exp(-age*16.0);
+		strength=(front+discharge)*COLOR.a*edge*haze;
+	}
 	// Additive blending scales the colour by alpha, so the light is carried
 	// in the colour and alpha only marks where it falls.
 	vec3 light=COLOR.rgb*strength;

@@ -24,7 +24,7 @@ def add_documents(folder):
     for name in ['README.md','LICENSE.md','THIRD_PARTY_NOTICES.md']:
         shutil.copyfile(ROOT/name,folder/name)
     (folder/"provenance").mkdir(exist_ok=True)
-    for name in ["decoder-provenance.json"]:
+    for name in ["decoder-provenance.json","weapon-audio.json"]:
         shutil.copyfile(ROOT/"provenance"/name,folder/"provenance"/name)
 
 

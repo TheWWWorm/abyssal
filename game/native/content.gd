@@ -15,7 +15,7 @@ var profile := ""
 const RULE_KEYS := ["constants","tables","campaign","timelines","habitats","station_geometry"]
 ## 1.16.1 to 1.17.0 fingerprinted every key except these. Saves from those
 ## versions carry that value and are still matched against it.
-const LEGACY_TEXT_KEYS := ["jar_sha256","jar_version","language","strings","name_pools","rules_id","legacy_rules_id","previous_rules_id","cache_directory"]
+const LEGACY_TEXT_KEYS := ["jar_sha256","jar_version","language","strings","name_pools","rules_id","legacy_rules_id","previous_rules_id","cache_directory","weapon_geometry"]
 static var imported_rules := {}
 
 static func without_station_names(rules: Dictionary) -> Dictionary:
@@ -113,6 +113,8 @@ func load_cache(directory: String) -> bool:
 				failure=tr("The resource index contains an unsafe path.");return false
 	parsed.rules_id=rules_id(parsed); parsed.previous_rules_id=previous_rules_id(parsed); parsed.legacy_rules_id=legacy_rules_id(parsed); parsed.cache_directory=directory
 	root=directory;data=parsed;registry=entries;profile=str(parsed.jar_sha256)
+	# Derived geometry is not part of the imported rules/save fingerprint.
+	data.weapon_geometry=preload("res://native/simulation/weapon_mounts.gd").read(root,registry)
 	return true
 
 func jar_edition(hash_fallback: bool=true) -> String:

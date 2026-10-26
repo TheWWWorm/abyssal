@@ -52,9 +52,14 @@ static func deadline(mission) -> String:
 	# The accepted contract starts at -1 and its first launch advances to zero.
 	return EngineLanguage.translate("Departures used: %d / %d · %d remaining")%[maxi(0,mission.jumps+1),mission.jump_limit+1,maxi(0,mission.jump_limit-mission.jumps)]
 
-static func instruction(mission) -> String:
+static func instruction(mission, region=null) -> String:
 	if mission.completed:return EngineLanguage.translate("Objective complete")
 	if mission.failed:return EngineLanguage.translate("Objective failed")
+	if region!=null and mission.story and region.session.campaign.chapter==27:
+		if region.mission!=mission or region.encounter_dialogue==null or not region.encounter_dialogue.acknowledged:
+			return EngineLanguage.translate("Reach the meeting point near %s.")%mission.destination_name
+		if not region.enemies.is_empty() and region.enemies[0].health.hull<=0:
+			return EngineLanguage.translate("Objective complete") if region.enemies[0].rescued() else EngineLanguage.translate("Recover the container with the harpoon before it sinks.")
 	match mission.kind:
 		0,3,5: return EngineLanguage.translate("Follow the mission waypoint and defeat the hostile targets.")
 		1,2: return EngineLanguage.translate("Disable the designated ship, then recover it with the harpoon.")
@@ -79,6 +84,7 @@ static func instruction(mission) -> String:
 static func encounter_progress(region) -> String:
 	var goal=region.success
 	if goal==null:return ""
+	if region.encounter_dialogue!=null and not region.encounter_dialogue.acknowledged:return ""
 	var hostile: Array=region.enemies.filter(func(actor):return not actor.excluded_from_objectives)
 	match goal.metric:
 		"no_enemies","enemy_dead","first_enemies_dead":

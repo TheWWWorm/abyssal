@@ -175,7 +175,10 @@ func put(section_name: String, key: String, value: Variant, rebuild_after := tru
 	if rebuild_after: rebuild(true)
 
 func flag(section_name: String, key: String, fallback: bool) -> bool:
-	var value: Variant=load_config().get_value(section_name,key,fallback)
+	return config_flag(load_config(),section_name,key,fallback)
+
+static func config_flag(config: ConfigFile, section_name: String, key: String, fallback: bool) -> bool:
+	var value: Variant=config.get_value(section_name,key,fallback)
 	return bool(value) if value is bool or value is int else fallback
 
 func number(section_name: String, key: String, fallback: float, low: float, high: float) -> float:
@@ -526,6 +529,8 @@ func audio_page() -> void:
 	slider(tr("Music"),"audio","music",0.65,0.0,1.0,0.05,true)
 	slider(tr("Sound effects"),"audio","effects",0.75,0.0,1.0,0.05,true)
 	toggle(tr("Game audio"),"graphics","audio",true)
+	var weapons := toggle(tr("Added weapon sounds"),"audio","weapon_sounds",true)
+	weapons.tooltip_text=tr("Gun and rocket launch sounds. Off restores the original audio; harpoons keep their original sound in either mode.")
 	group(tr("Music"))
 	var choice := index("audio","title_music",0,2)
 	var auto_track: String=host.auto_title.call() if can("auto_title") else ""
@@ -543,6 +548,8 @@ func graphics_page() -> void:
 	chooser(tr("Preset"),presets,preset,"preset",choose_preset,null,tr("Custom"))
 	note(tr("Classic matches the original's lighting. The others add lights, fog and shading, and set shadows, volumetric light and surface shading. Changing one of those makes the preset Custom."))
 	note(tr("Renderer, upscaling, antialiasing and shadow quality are in Display."))
+	var weapons := toggle(tr("Enhanced weapon effects"),"graphics","weapon_effects",true)
+	weapons.tooltip_text=tr("New projectile, harpoon and impact visuals. Independent of lighting and weapon sounds.")
 	group(tr("Enhanced lighting"))
 	graphics_options(["headlight_mode","blue_headlights","cabin_lights","warm_station_lights","cool_lighting","filtered_sunlight"])
 	var strength := slider(tr("Headlight brightness"),"graphics","headlight_strength",Quality.HEADLIGHT_HIGH,Quality.HEADLIGHT_LOW,Quality.HEADLIGHT_HIGH,0.05,true)
@@ -898,7 +905,7 @@ func reference_page() -> void:
 func gameplay_page() -> void:
 	group(tr("Navigation"))
 	chooser(tr("Objective travel"),[tr("Prefer S.T.R.E.A.M."),tr("Open water")],index("gameplay","objective_travel",0,1),"objective_travel",func(next):put("gameplay","objective_travel",next))
-	note(tr("Prefer S.T.R.E.A.M. within engine range, or travel through the open ocean."))
+	note(tr("Prefer S.T.R.E.A.M. via intermediate stations, or travel through the open ocean."))
 	toggle(tr("Ship collisions"),"gameplay","ship_collisions",false)
 	note(tr("Turn away on contact with vessels, as in the original. Station walls remain solid."))
 	toggle(tr("Boost field of view"),"view","boost_fov",true)
@@ -911,7 +918,7 @@ func gameplay_page() -> void:
 	toggle(tr("Autopilot status line"),"interface","autopilot_status",false)
 	toggle(tr("Friendly contact labels"),"interface","friend_labels",true)
 	group(tr("Interface"))
-	var markers: int=(2 if flag("graphics","depth_limits_always",false) else 1) if flag("graphics","depth_limits",false) else 0
+	var markers: int=(2 if flag("graphics","depth_limits_always",false) else 1) if flag("graphics","depth_limits",true) else 0
 	chooser(tr("Depth limit markers"),[tr("Off"),tr("Near limits"),tr("Always")],markers,"depth_limits",func(next):
 		put("graphics","depth_limits_always",next==2,false);put("graphics","depth_limits",next>0))
 	note(tr("Shows the ship's depth limits as it nears them, or all the time."))

@@ -1,7 +1,7 @@
 extends RefCounted
-## Imported weapon categories with symmetric engine-owned mount spacing.
+## Imported weapon categories with launchers fitted ahead of the current hull.
 const Weapon = preload("res://native/simulation/weapon.gd")
-const Math = preload("res://native/simulation/fixed_math.gd")
+const Mounts = preload("res://native/simulation/weapon_mounts.gd")
 var groups: Array = []
 var selected := -1
 
@@ -33,9 +33,9 @@ func configure(ship, data: Dictionary) -> void:
 		else: combat.push_front(weapon)
 	if not combat.is_empty():
 		for i in combat.size():
-			combat[i].mount=Math.added(combat[i].mount,[roundi((i-(combat.size()-1)*.5)*700),0,0])
+			Mounts.fit(combat[i],data,ship.id,i,combat.size())
 		groups.append(combat)
-	if harpoon != null: groups.append([harpoon])
+	if harpoon != null:Mounts.fit(harpoon,data,ship.id);groups.append([harpoon])
 	if not groups.is_empty(): selected=0
 
 func all_weapons() -> Array:

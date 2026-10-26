@@ -54,6 +54,10 @@ var cinematic_camera: Array = []
 var cinematic_target := ""
 var finale_station_offset: Array = [0,0,0]
 var active_transmission = null
+## Chapter 27 uses its second dialogue table at the rendezvous (br.c,
+## bo phase 3), before the battle. It shares the radio acknowledgement so
+## the whole exchange pauses simulation and cannot be skipped by time warp.
+var encounter_dialogue = null
 ## Game time a radio call still waits for: the presentation holds the radio
 ## while a departure or a gate's way out is on screen, and a little after.
 var radio_hold_ms := 0
@@ -79,24 +83,23 @@ func configure(owner_session) -> void:
 	station.configure(record,session.is_colonist_station(),sine,session.data.get("station_geometry",{}))
 	player.collision_groups=[[station]]
 	gates=session.world_layout.clear_gates(session,record,gate_positions(record,sine),sine)
-	var setup := Setup.new(); setup.configure(self); setup.populate()
+	if session.demo_mode:preload("res://native/simulation/demo_session.gd").populate(self)
+	else:
+		var setup := Setup.new(); setup.configure(self); setup.populate()
 	if mission.story:
 		for record_event in session.data.timelines.get(str(session.campaign.chapter),[]): timeline.append(Timeline.new().configure(record_event))
+		if session.campaign.chapter==27:
+			encounter_dialogue=Timeline.new()
+			# The shipped follow-up points to the wreck prompt (entry 2).
+			# Wait for the actual recovery line (entry 3) before leaving.
+			if timeline.size()>=5 and timeline[3].kind==14 and timeline[4].kind==6 and timeline[4].values==[2]:timeline[4].values=[3]
 		# The last chapter's calls about Raoul name him as the last of the
 		# hostile list (cy: "aw_arr_a.length - 1"), an expression the import
 		# reads as nought; here he is the last ship placed.
 		if session.campaign.chapter==47 and not enemies.is_empty():
 			for entry in timeline:
 				if entry.kind in [1,17,19]:entry.values=[enemies.size()-1]
-	loadout.configure(session.ship,session.data)
-	for weapon in loadout.all_weapons():
-		weapon.targets=enemies+creatures
-		weapon.terrain_collision=station.contains
-		if weapon.fishing:
-			var hook := Fishing.new(); hook.weapon=weapon; hook.player=player; hook.session=session; hook.slow_percent=weapon.slow_percent
-			hook.visible_to_camera=func(point): return Math.dot_long(player.pose.forward,Math.normalize_vector(Math.subtracted(point,player.pose.origin)))>1700
-			fishing.append(hook)
-		else: weapons.append(weapon)
+	configure_player_weapons(session.ship)
 	# Who fights whom, in the order the phone game's cy lists them: pirates
 	# go for the player, then for the player's friends; in the missions that
 	# guard something (the school, the capsules, the convoy) they go for the
@@ -111,10 +114,29 @@ func configure(owner_session) -> void:
 		actor.obstacle_groups=[station]; actor.player=player
 		if actor in enemies: actor.targets=hostile_targets
 		else: actor.targets=enemies
-	configure_npc_weapons(enemies,true)
-	configure_npc_weapons(friends,false)
+	if not session.demo_mode:
+		configure_npc_weapons(enemies,true)
+		configure_npc_weapons(friends,false)
 	recount()
 	for entry in timeline:entry.poll(self)
+
+func configure_player_weapons(ship) -> void:
+	# A demo can swap the player's launchers without rebuilding the ocean or
+	# touching NPC pools. Release any tether before retiring its launcher.
+	for hook in fishing:hook.detach(false)
+	fishing.clear()
+	for weapon in loadout.all_weapons():weapons.erase(weapon)
+	loadout.configure(ship,session.data)
+	hook_was_down=false
+	for weapon in loadout.all_weapons():
+		weapon.targets=enemies+creatures
+		weapon.terrain_collision=station.contains
+		if weapon.fishing:
+			var hook := Fishing.new();hook.weapon=weapon;hook.player=player;hook.session=session;hook.slow_percent=weapon.slow_percent
+			hook.visible_to_camera=func(point):return Math.dot_long(player.pose.forward,Math.normalize_vector(Math.subtracted(point,player.pose.origin)))>1700
+			fishing.append(hook)
+		else:weapons.append(weapon)
+
 static func gate_positions(station: Dictionary,sine_table: Array) -> Array:
 	var result: Array=[]
 	for i in [1,2]:
@@ -161,6 +183,7 @@ func configure_npc_weapons(actors: Array,hostile: bool) -> void:
 	for actor in actors:
 		if actor is Special:continue
 		actor.weapons=[bolts if actor.original_model_id==19 else guns]
+		actor.weapon_mount=preload("res://native/simulation/weapon_mounts.gd").for_actor(actor.weapons[0],session.data,actor.original_model_id)
 func recount() -> void:
 	enemy_count=enemies.filter(func(actor): return actor.health.hull>0 and not actor.health.special_kill).size()
 	friendly_count=friends.filter(func(actor): return actor.health.hull>0).size()
@@ -260,7 +283,7 @@ func step(delta_ms: int, input: Dictionary={}) -> void:
 			# new impact: repeated flashes made a white trail behind the catch.
 			if not weapon.fishing:
 				# Presentation reads who was hit; the shot itself is unchanged.
-				visual_event({"kind":"impact","position":impact.position.duplicate(),"duration":400,"player":impact.target==player})
+				visual_event({"kind":"impact","position":impact.position.duplicate(),"direction":impact.direction.duplicate(),"duration":400,"player":impact.target==player,"model":weapon.model_id,"equipment":weapon.equipment_id,"damage":weapon.damage,"beam":weapon.beam,"homing":weapon.homing})
 		weapon.impacts.clear()
 	pressure(delta_ms)
 	recount(); session.update_rank()
@@ -297,6 +320,11 @@ func update_radio() -> bool:
 	for entry in timeline:entry.poll(self)
 	if active_transmission!=null:return true
 	if radio_hold_ms>0:return true
+	if encounter_dialogue!=null and not encounter_dialogue.fired and not enemies.is_empty():
+		var subject=enemies[0]
+		if subject.health.enabled or subject.health.hull<=0 or subject.rescued():
+			encounter_dialogue.fired=true;active_transmission=encounter_dialogue
+			events.append({"kind":"encounter_dialogue","mission":mission});return true
 	for entry in timeline:
 		if entry.evaluate(self):
 			active_transmission=entry;events.append({"kind":"transmission","entry":entry});return true

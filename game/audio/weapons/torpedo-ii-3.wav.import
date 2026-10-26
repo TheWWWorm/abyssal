@@ -1,0 +1,14 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+compress/mode=0

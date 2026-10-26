@@ -48,6 +48,11 @@ window/size/window_height_override=720
 window/stretch/mode="canvas_items"
 window/handheld/orientation=6
 
+[editor]
+
+; Godot 4.7 can crash while concurrently reimporting changed PCM samples.
+import/use_multiple_threads=false
+
 [input]
 
 ; Keep keyboard activation alongside gamepad south/east buttons on every device.

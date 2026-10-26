@@ -580,10 +580,12 @@ func run():
  app.world.region.enemies.erase(salvage);view._process(0)
  var vessel_actor=load("res://native/simulation/npc.gd").new()
  vessel_actor.configure(1,2,true,app.world.region.player.pose.origin.duplicate(),content.data,app.session.campaign.chapter,app.session.rng)
+ vessel_actor.health.configure(100,0,0)
  vessel_actor.state=1;app.world.region.enemies.append(vessel_actor);view._process(0)
  expect(view.objects[vessel_actor.get_instance_id()].lamps.size()==2 and view.objects[vessel_actor.get_instance_id()].lamps.all(func(lamp):return lamp.visible),"A vessel under way has both headlights lit")
  var sinking=load("res://native/simulation/npc.gd").new()
  sinking.configure(1,2,true,app.world.region.player.pose.origin.duplicate(),content.data,app.session.campaign.chapter,app.session.rng)
+ sinking.health.configure(100,0,0)
  sinking.state=1;app.world.region.enemies.append(sinking);view._process(0)
  var lit: Array=view.objects[sinking.get_instance_id()].lamps
  sinking.capturable=false;sinking.health.hull=0;sinking.advance(40);view._process(0)

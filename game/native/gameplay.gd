@@ -137,7 +137,7 @@ class Reticle extends Control:
 			var middle := quarter*PI*.5+PI*.25+turn
 			draw_arc(c,15.0,middle-.32,middle+.32,8,mark,2.0,true)
 var crosshair := Reticle.new()
-var struggle := ProgressBar.new()
+var struggle := preload("res://native/presentation/catch_progress.gd").new()
 var instruments := preload("res://native/presentation/flight_instruments.gd").new()
 var condition := preload("res://native/presentation/ship_condition.gd").new()
 var bank_label := Label.new()
@@ -187,7 +187,6 @@ var original_weapons := false
 ## still stop it.
 var interrupted_auto := {}
 var modern_graphics := true
-var catch_status := Label.new()
 var travel_status := Label.new()
 ## Older flight notices are shown together, then fade away as new ones arrive.
 var notice_history: Array[Dictionary] = []
@@ -196,7 +195,7 @@ const MAX_NOTICE_HISTORY := 2
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 var headlight_mode := Headlights.DEFAULT
 var headlight_previous := Headlights.DEFAULT
-var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"station_smoothing":false,"ship_smoothing":false,"depth_limits":false,"depth_limits_always":false}.merged(OceanOptions.defaults())
+var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"station_smoothing":false,"ship_smoothing":false,"depth_limits":true,"depth_limits_always":false}.merged(OceanOptions.defaults())
 var map_widget
 var map_info: RichTextLabel
 var map_title: Label
@@ -251,6 +250,10 @@ var motion_sensitivity := 0.5
 var invert_motion_pitch := false
 var touch_scroll := preload("res://native/input/touch_scroll.gd").new()
 var save_path := "user://native/campaign.json"
+var demo_mode := false
+var demo_outfit := preload("res://native/simulation/demo_session.gd").new()
+var demo_weapon_bar := preload("res://native/presentation/demo_weapon_bar.gd").new()
+var demo_fire_hold := false
 ## The save an expedition was resumed from; the checkpoint above is the autosave.
 var load_path := ""
 var transfer := preload("res://native/simulation/save_transfer.gd").new()
@@ -301,6 +304,9 @@ func _ready() -> void:
 	add_child(camera); camera.current=true; camera.fov=65; camera.near=0.5; camera.far=View.DRAW_DISTANCE
 	abyss.camera=camera; abyss.world=world; abyss.view=view; abyss.import_sky_ramp(content.root); Coin.install(content.root); add_child(abyss); dive_audio.world=world; add_child(dive_audio)
 	add_child(view); terrain.world=world; terrain.camera=camera; add_child(terrain); add_child(canvas); canvas.add_child(ui); ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); ui.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	ui.add_child(demo_weapon_bar)
+	demo_weapon_bar.stepped.connect(step_demo_weapon);demo_weapon_bar.finished.connect(finish_demo_weapon_test)
+	demo_weapon_bar.minimum_size_changed.connect(func():place_demo_weapon_bar.call_deferred())
 	classic_frame.imported_art=imported_art;condition.imported_art=imported_art
 	ui.add_child(classic_frame);classic_frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(dashboard); dashboard.imported_art=imported_art; dashboard.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -316,12 +322,9 @@ func _ready() -> void:
 	ui.add_child(bank_label); bank_label.add_theme_font_size_override("font_size",13); bank_label.add_theme_color_override("font_color",Color("a6ced7")); bank_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT; bank_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(hud); hud.position=Vector2(26,24); hud.clip_text=true; hud.add_theme_font_size_override("font_size",18); hud.add_theme_color_override("font_color",Color("c9e7ea"))
 	ui.add_child(objective_label); objective_label.position=Vector2(26,82); objective_label.bbcode_enabled=true; objective_label.scroll_active=false; objective_label.mouse_filter=Control.MOUSE_FILTER_IGNORE; objective_label.add_theme_color_override("default_color",Color("b7cbd0"))
-	ui.add_child(struggle); struggle.position=Vector2(26,150); struggle.size=Vector2(240,7); struggle.step=0.01; struggle.show_percentage=false; struggle.mouse_filter=Control.MOUSE_FILTER_IGNORE; struggle.hide()
-	for feedback in [catch_status,travel_status]:
-		ui.add_child(feedback);feedback.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;feedback.add_theme_font_size_override("font_size",15);feedback.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		feedback.add_theme_color_override("font_color",Color("8bd6ee"));feedback.add_theme_color_override("font_shadow_color",Color.BLACK);feedback.add_theme_constant_override("shadow_offset_y",2)
-	var track := StyleBoxFlat.new();track.bg_color=Color("173b42");struggle.add_theme_stylebox_override("background",track)
-	var fill := StyleBoxFlat.new();fill.bg_color=Color("8fddc4");struggle.add_theme_stylebox_override("fill",fill)
+	ui.add_child(struggle);struggle.size=Vector2(340,64);struggle.hide()
+	ui.add_child(travel_status);travel_status.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;travel_status.add_theme_font_size_override("font_size",15);travel_status.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	travel_status.add_theme_color_override("font_color",Color("8bd6ee"));travel_status.add_theme_color_override("font_shadow_color",Color.BLACK);travel_status.add_theme_constant_override("shadow_offset_y",2)
 	message.z_index=50;message.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
 	message.add_theme_color_override("font_shadow_color",Color.BLACK);message.add_theme_constant_override("shadow_offset_y",2)
 	var toast := StationTheme.frame(Color(.016,.07,.1,.9),Color("3f9fbf"),8,1,Color(.25,.8,1.0,.18),6)
@@ -357,7 +360,10 @@ func _ready() -> void:
 	if motion_steering: motion.enable()
 	touch.arrange()
 	if load_path.is_empty():load_path=save_path
-	if continue_save:
+	if demo_mode:
+		session=Session.new();session.new_game(content.data,"Demo",20261025)
+		demo_outfit.initialize(session);demo_outfit.apply(session)
+	elif continue_save:
 		session=store.read(load_path,content.data)
 		if session==null: session=Session.new(); session.new_game(content.data,player_name,Time.get_unix_time_from_system()); notice(store.failure)
 		elif store.recovered: notice(tr("Your save could not be read. Restored the previous checkpoint."))
@@ -366,7 +372,9 @@ func _ready() -> void:
 	imported_art.root=content.root
 	world.configure(session); economy.configure(session); view.configure(world,content,camera); dive_audio.configure(world,content.root);dive_audio.read_title_track(content.data)
 	apply_graphics()
-	if continue_save and session.docked:
+	if demo_mode:
+		world.depart();show_demo(false)
+	elif continue_save and session.docked:
 		# Build a stationary view without changing saved station state.
 		world.build_docked_view(); show_station()
 	else:
@@ -395,6 +403,7 @@ func lift_cover(delta: float) -> void:
 	cover.modulate.a-=minf(delta,1.0/30.0)*4.0
 	if cover.modulate.a<=0.0:cover.queue_free();cover=null
 func layout() -> void:
+	place_demo_weapon_bar()
 	instruments.position=Vector2.ZERO; instruments.size=ui.size
 	condition.size=Vector2(440,34); condition.position=Vector2((ui.size.x-440)*.5,ui.size.y-70)
 	bank_label.size=Vector2(minf(400,ui.size.x*0.45),50); bank_label.position=Vector2(ui.size.x-26-bank_label.size.x,ui.size.y-60)
@@ -419,6 +428,8 @@ func layout() -> void:
 		overlay.size=Vector2(minf(1120,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page in ["ship_status","profile"]:
 		overlay.size=Vector2(minf(1240,ui.size.x-48),minf(ui.size.y-48,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
+	elif page in ["demo","demo_picker"]:
+		overlay.size=Vector2(minf(900,ui.size.x-48),ui.size.y-48);overlay.position=(ui.size-overlay.size)*.5
 	elif page=="system":
 		overlay.size=Vector2(minf(880,ui.size.x-64),minf(ui.size.y-64,fitted_height()));overlay.position=(ui.size-overlay.size)*.5
 	elif page in ["controls","graphics","journal","failure","confirm","transfer","help","save_slots"]:
@@ -455,8 +466,8 @@ func layout() -> void:
 	hazard_warning.fit_width(minf(640,ui.size.x-64));hazard_warning.position.x=(ui.size.x-hazard_warning.size.x)*.5
 	# Under the hull in the chase view (its keel sits near 71% of the height
 	# in landscape, 63% upright), clear of the helm strip below.
-	catch_status.position=Vector2(ui.size.x*.5-240,minf(ui.size.y*(.67 if ui.size.x<ui.size.y else .75),ui.size.y-(96.0*hud_scale()+64.0)));catch_status.size=Vector2(480,44)
-	struggle.position=Vector2(ui.size.x*.5-140,catch_status.position.y+42);struggle.size=Vector2(280,7)
+	struggle.size=Vector2(minf(340,ui.size.x-64),64)
+	struggle.position=Vector2((ui.size.x-struggle.size.x)*.5,minf(ui.size.y*(.67 if ui.size.x<ui.size.y else .75),ui.size.y-(96.0*hud_scale()+94.0))+20)
 	travel_status.position=Vector2(ui.size.x*.5-240,ui.size.y-220);travel_status.size=Vector2(480,30)
 	objective_label.position=Vector2(30,103); objective_label.size=Vector2(minf(390,ui.size.x*.29),160); objective_label.add_theme_font_size_override("normal_font_size",12); objective_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	objective_label.position=Vector2(30,22+102*k);objective_label.scale=Vector2.ONE*k
@@ -467,6 +478,7 @@ func layout() -> void:
 		if touch.free_right>touch.free_left+120:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
 	place_retro()
+	place_catch_feedback()
 	update_render_resolution()
 	crosshair.position=(get_viewport().get_visible_rect().get_center()-ui.position-crosshair.size*.5).round()
 	# Under the notice band, clear of the hull below the crosshair.
@@ -474,6 +486,18 @@ func layout() -> void:
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
 	place_message()
 var layout_pending := false
+func place_catch_feedback() -> void:
+	if not touch.enabled():return
+	# The taller diagram sits above any thumb controls crossing its band,
+	# including controls moved in Settings and the portrait harpoon button.
+	for pass_index in 6:
+		var previous:=struggle.position.y
+		var band:=struggle.get_rect()
+		for id in ["stick","guns","hook","throttle","boost"]:
+			var button: Rect2=touch.control_rect(id)
+			if button.has_area() and band.intersects(button.grow(8)):
+				struggle.position.y=minf(struggle.position.y,button.position.y-struggle.size.y-8)
+		if is_equal_approx(previous,struggle.position.y):break
 func request_layout() -> void:
 	if layout_pending: return
 	layout_pending=true
@@ -570,8 +594,7 @@ func place_retro() -> void:
 		if width>=300.0*k:
 			retro_hud.row_rect=Rect2(Vector2(middle-width*.5,ui.size.y-24.0-height),Vector2(width,height))
 			classic_frame.lift=maxf(0.0,24.0+height+24.0*k-40.0*k)
-			catch_status.position.y=minf(catch_status.position.y,ui.size.y-(96.0*k+64.0)-classic_frame.lift)
-			struggle.position.y=catch_status.position.y+42
+			struggle.position.y=minf(struggle.position.y,ui.size.y-(96.0*k+64.0)-classic_frame.lift+20)
 	# The bottom bars stand in for the gauge rows; the line under them and the
 	# objective move up into their place.
 	if retro_hud.row_rect.has_area():
@@ -581,6 +604,7 @@ func place_retro() -> void:
 func flight_notice_top() -> float:
 	# Touch keeps its gauges in the top left, taller than the desktop line.
 	var top := 132.0 if touch.enabled() else 88.0*hud_scale()
+	if demo_weapon_bar.visible:top=maxf(top,demo_weapon_bar.position.y+demo_weapon_bar.size.y+8)
 	if narrow_touch_hud():
 		var objective_height := minf(objective_label.size.y,objective_label.get_content_height())*objective_label.scale.y
 		top=maxf(top,objective_label.position.y+objective_height+14)
@@ -676,6 +700,7 @@ func confirm(title: String, question: String, accept: String, act: Callable, can
 	button(accept,act)
 	button(tr("Cancel"),cancel)
 func open_page(title: String, id: String, subtitle: String="") -> void:
+	demo_weapon_bar.release_contacts();demo_weapon_bar.hide()
 	if id=="dialogue" and page.is_empty() and session!=null and not session.docked:
 		interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
 	elif not (id=="dialogue" and page=="dialogue"):interrupted_auto={}
@@ -722,7 +747,7 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		meaning.custom_minimum_size.x=meaning.get_minimum_size().x+14
 	overlay.show(); layout();layout.call_deferred();focus_page.call_deferred();settle_scroll.call_deferred(scroll)
 	if id!="dialogue":
-		for control in [classic_frame,retro_hud,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,catch_status,travel_status,struggle]:control.hide()
+		for control in [classic_frame,retro_hud,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,travel_status,struggle]:control.hide()
 	for marker in markers:marker.hide()
 func settle_scroll(scroll: ScrollContainer) -> void:
 	"""A page opens at its top, or as far down as its focused row needs.
@@ -783,6 +808,7 @@ func close_page() -> void:
 	# A departure may open a briefing in this same frame. Never enqueue a
 	# browser pointer-lock request before that menu decision has finished.
 	capture_flight_mouse.call_deferred()
+	if session.demo_mode and demo_outfit.quick_test:refresh_demo_weapon_bar.call_deferred()
 func capture_flight_mouse() -> void:
 	if page.is_empty() and DisplayServer.get_name()!="headless" and not session.docked and not touch.enabled():
 		mouse_flight_enabled=true
@@ -972,7 +998,7 @@ func _process(delta: float) -> void:
 			if page.is_empty():
 				flight_ms+=int(delta*1000)
 				check_stream_proximity()
-				if page.is_empty():check_flight_hints()
+				if page.is_empty() and not session.demo_mode:check_flight_hints()
 				if stream_exit_active:
 					var exit_local: Vector3=stream_exit_frame.affine_inverse()*world.region.player.pose.godot_transform().origin
 					if absf(exit_local.z)>view.player_model.solid_bounds().size.length():
@@ -992,8 +1018,9 @@ func _process(delta: float) -> void:
 			dock_prompt.text=tr("[ %s ]  Enter the S.T.R.E.A.M.")%control_name("dock")
 		elif not world.dock_denial().is_empty():
 			dock_prompt.text=world.dock_denial()
-		instruments.update(r,OS.get_keycode_string(key_bindings.boost))
+		instruments.update(r,OS.get_keycode_string(key_bindings.boost),world)
 		var flight_visible: bool=(page.is_empty() or page=="dialogue") and not r.cinematic() and not session.docked
+		demo_weapon_bar.visible=session.demo_mode and demo_outfit.quick_test and flight_visible and page.is_empty()
 		hazard_warning.update(r,flight_visible and page.is_empty() and not r.pressure_hold,not modern_graphics)
 		damage_feedback.visible=flight_visible
 		# With no notice or dock prompt under the top read-out the warning
@@ -1007,7 +1034,7 @@ func _process(delta: float) -> void:
 		# Over a warning doing damage the warning's own bar reads the hull.
 		damage_feedback.readout_covered=hazard_warning.visible and hazard_warning.status.get("damaging",false)
 		pressure_material.set_shader_parameter("warning_color",hazard_warning.accent)
-		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player),OS.get_keycode_string(key_bindings.boost),instruments.harpoon_state(r))
+		classic_frame.visible=flight_visible and not touch.enabled();classic_frame.update(r.player,session.ship,world.speed,instruments.boost_state(r.player,world),OS.get_keycode_string(key_bindings.boost),instruments.harpoon_state(r,world))
 		instruments.visible=flight_visible
 		instruments.modulate.a=1;condition.modulate.a=1;bank_label.modulate.a=1
 		dashboard.visible=false
@@ -1028,8 +1055,8 @@ func _process(delta: float) -> void:
 			var dockable: bool=world.in_docking_area() or (world.at_gate(0) and view.transit_progress<0 and not stream_exit_active and not (world.autopilot and world.gate_navigation))
 			var banks: Array=r.loadout.groups.filter(func(group):return not group.is_empty())
 			touch.set_banks(r.loadout.selected>=0 and not guns_selected(),banks.size()>1)
-			touch.show_state(r.player.throttle_target/100.0,flight_visible and page.is_empty() and dockable,instruments.boost_state(r.player),world.autopilot,world.speed,
-				banks.any(func(group):return group[0].fishing),banks.any(func(group):return not group[0].fishing),instruments.harpoon_state(r),instruments.guns_state(r))
+			touch.show_state(r.player.throttle_target/100.0,flight_visible and page.is_empty() and dockable,instruments.boost_state(r.player,world),world.autopilot,world.speed,
+				banks.any(func(group):return group[0].fishing),banks.any(func(group):return not group[0].fishing),instruments.harpoon_state(r,world),instruments.guns_state(r,world))
 		if r.loadout.selected>=0:
 			var bank: Array = r.loadout.groups[r.loadout.selected]
 			bank_label.text=(tr("FISHING BANK · Harpoon") if bank[0].fishing else (tr("COMBAT BANK · %d weapon") if bank.size()==1 else tr("COMBAT BANK · %d weapons"))%bank.size())
@@ -1040,6 +1067,7 @@ func _process(delta: float) -> void:
 		if hud.text!=previous_hud_text: previous_hud_text=hud.text; fit_hud()
 		var objective=current_objective()
 		var objective_text: String=objective_hud(objective)
+		if session.demo_mode:objective_text=tr("Demo mode")+" · "+tr("Pause")+" → "+tr("Test loadout")
 		if r.cinematic(): objective_text=session.title(objective)+"\n"+tr("Final sequence · Esc pauses")
 		# bd.a draws a timed job's remaining time (mm:ss) at the HUD's top left;
 		# the job fails when it runs out (region.time_limit).
@@ -1102,25 +1130,33 @@ func catch_in_view(point: Array) -> bool:
 	if camera.is_position_behind(at): return false
 	return Rect2(ui.position,ui.size).has_point(camera.unproject_position(at))
 func update_catch_feedback(region, show_feedback: bool) -> void:
-	struggle.hide();catch_status.hide();catch_status.text=""
+	struggle.hide()
+	var phase: float=view.combat.visual_time
 	for hook in region.fishing:
-		if not hook.hooked or hook.target==null:continue
-		if hook.towing:
+		var id: int=hook.weapon.equipment_id if hook.weapon!=null else 15
+		if not hook.hooked or hook.target==null:
+			var fraction:=clampf(world.accumulator/world.STEP_MS,0,1) if world.render_interpolation_enabled else 1.0
+			var cast: Dictionary=struggle.flight(hook.weapon,fraction)
+			if cast.is_empty():continue
+			struggle.present("flight",cast.progress,id,phase,cast.kind)
+			struggle.visible=show_feedback
+			break
+		var kind: String="fish" if hook.target.is_creature else "cargo"
+		# Attachment and the first tow step occupy adjacent simulation ticks.
+		# A wreck is already ready on impact; never ask to disable it again.
+		if hook.towing or hook.ready_to_tow():
 			var distance: float=preload("res://native/simulation/fixed_math.gd").length_of(preload("res://native/simulation/fixed_math.gd").subtracted(region.player.pose.origin,hook.target.pose.origin))
 			var seconds := maxf(0,distance-hook.capture_distance)/maxf(1,hook.tow_speed*1000)
-			catch_status.text=tr("REELING IN  ·  %.1f s TO COLLECTION")%seconds
-			struggle.value=100.0*(1.0-clampf((distance-hook.capture_distance)/maxf(1,hook.tow_start_distance-hook.capture_distance),0,1))
+			var initial: float=hook.tow_start_distance if hook.tow_start_distance>0 else distance
+			struggle.present("reel",100.0*(1.0-clampf((distance-hook.capture_distance)/maxf(1,initial-hook.capture_distance),0,1)),id,phase,kind,seconds)
 			struggle.visible=show_feedback
 		elif hook.target.is_creature:
 			# The original spends strength once per two-second struggle. Show
 			# that same progress continuously without changing the simulation.
 			var total := maxf(2000,ceilf(hook.target.struggle_total/1000.0)*2000)
 			var remaining := maxf(0,ceilf(hook.target.struggle_remaining/1000.0)*2000-hook.target.struggle_time)
-			catch_status.text=tr("CATCH  ·  %.1f s  ·  KEEP TARGET IN VIEW")%(remaining*.001)
-			struggle.value=clampf(100.0*(1.0-remaining/total),0,100)
+			struggle.present("struggle",100.0*(1.0-remaining/total),id,phase,kind,remaining*.001)
 			struggle.visible=show_feedback
-		else:catch_status.text=tr("HARPOON ATTACHED  ·  DISABLE TARGET TO RECOVER")
-		catch_status.visible=show_feedback
 		break
 func auto_firing() -> bool:
 	"""Auto fire works the guns and never the harpoon. With the original
@@ -1199,6 +1235,12 @@ func flight_input(seconds: float=0.0) -> Dictionary:
 	# Auto fire with the original controls, from the key or the touch fire
 	# button: only while the guns are selected.
 	if auto_shot or (screen.get("auto",false) and guns_selected()):fire=true
+	# A held trigger must be released after a swap, including restoration of
+	# the full outfit. Every normal fire control auditions the test launcher.
+	if demo_fire_hold:
+		if not fire and not guns and not hook:demo_fire_hold=false
+		fire=false;guns=false;hook=false
+	elif session.demo_mode and demo_outfit.quick_test:fire=fire or guns or hook;guns=false;hook=false
 	if stopping:perform("stop");throttle=0;boost=false
 	var roll := 0.0
 	if world.manual_roll:roll=clampf(float(Input.is_physical_key_pressed(key_bindings.roll_right))-int(Input.is_physical_key_pressed(key_bindings.roll_left))+pad.roll,-1,1)
@@ -1282,6 +1324,7 @@ func controller_connection(device: int, connected: bool) -> void:
 		if session!=null and page.is_empty():show_pause()
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT,NOTIFICATION_APPLICATION_PAUSED]:
+		demo_weapon_bar.release_contacts()
 		controller.reset();touch.reset();touch.release_contacts();mouse_steer=Vector2.ZERO
 		if session!=null and page.is_empty():show_pause()
 	if what==NOTIFICATION_WM_GO_BACK_REQUEST and session!=null and not preload("res://native/presentation/reconstruction_dialog.gd").is_open():touch_action("menu")
@@ -1304,6 +1347,7 @@ func _input(event: InputEvent) -> void:
 		if touch.enabled():release_flight_mouse()
 		elif not OS.has_feature("web"):capture_flight_mouse()
 		layout()
+	if handle_demo_weapon_input(event):get_viewport().set_input_as_handled();return
 	if page in ["departure","opening"] or (page.is_empty() and view.transit_progress>=0):
 		if cinematic_skip_requested(event):
 			controller.accept(event);controller.blocked=true
@@ -1364,6 +1408,8 @@ func focus_page() -> void:
 		if node is Button and node.is_visible_in_tree() and not node.disabled:node.grab_focus();return
 		pending.append_array(node.get_children())
 func perform(action: String) -> void:
+	if session.demo_mode and action=="dock":show_demo();return
+	if session.demo_mode and demo_outfit.quick_test and action=="bank":step_demo_weapon(1);return
 	if action in ["auto_fire","camera","bank","autopilot","time","time_up","time_down","lights"]: dive_audio.cue("beep")
 	match action:
 		"auto_fire":
@@ -1441,21 +1487,30 @@ func finish_docking() -> void:
 func show_pause() -> void:
 	open_page(tr("Paused"),"pause")
 	iconic(button(tr("Resume"),close_page),"resume")
+	if session.demo_mode:
+		primary(iconic(button(tr("Test loadout"),show_demo),"hangar"))
+		iconic(button(tr("Restore fitted weapons") if demo_outfit.quick_test else tr("Quick weapon test"),func():
+			if demo_outfit.quick_test:finish_demo_weapon_test();close_page()
+			else:start_demo_weapon_test()),"hangar")
+		iconic(button(tr("Reset test area"),reset_demo),"reload")
 	if touch.enabled():
 		# The touch overlay keeps only what a dive needs to hand; the view and
 		# fullscreen switches live here.
 		iconic(option(tr("Camera · %s")%view.camera_names()[view.camera_mode],"camera",func():perform("camera");show_pause()),"camera")
 		if touch.show_fullscreen: iconic(button(tr("Fullscreen / windowed"),toggle_fullscreen),"fullscreen")
 	iconic(button(tr("Overworld map"),show_map),"map")
-	iconic(button(tr("Mission journal"),show_journal),"journal")
+	if not session.demo_mode:iconic(button(tr("Mission journal"),show_journal),"journal")
 	iconic(button(tr("Ship and cargo"),show_ship_status),"cargo")
-	iconic(button(tr("Profile and medals"),show_profile),"person")
+	if not session.demo_mode:iconic(button(tr("Profile and medals"),show_profile),"person")
 	var freeze := iconic(button(tr("Action freeze"),show_action_freeze),"freeze")
 	freeze.disabled=session.docked or world.region==null
 	freeze.tooltip_text=tr("Freeze the game and move the camera.") if not freeze.disabled else tr("Not available while docked.")
 	iconic(button(tr("Settings"),show_settings),"controls")
 	iconic(button(tr("Help"),show_help),"help")
 	iconic(button(tr("Reference"),show_reference),"book")
+	if session.demo_mode:
+		iconic(button(tr("Return to main menu"),return_to_menu),"exit")
+		return
 	iconic(button(tr("Transfer save"),show_transfer),"transfer")
 	iconic(button(tr("Reload station checkpoint"),func(): confirm(tr("Reload checkpoint"),
 		tr("Return to your last saved station? Everything since that checkpoint is lost."),
@@ -1464,6 +1519,155 @@ func show_pause() -> void:
 		(tr("The game is saved at this station first.") if session.docked
 			else tr("Progress since your last station save will be lost.")),
 		tr("Return to main menu"),return_to_menu,show_pause)),"exit")
+func show_demo(refresh: bool=true) -> void:
+	if not session.demo_mode:return
+	if refresh:demo_outfit.read_outfit(session)
+	open_page(tr("Demo mode"),"demo")
+	label(tr("All ships and equipment are available. Campaign saves are untouched."),16)
+	iconic(button(tr("Quick weapon test"),func():start_demo_weapon_test(true)),"hangar")
+	label(tr("Switch weapons in flight and fire them one at a time."),14)
+	# Keep the launch action in reach while the outfit scrolls, especially
+	# after returning from the last slot on a phone.
+	var shell: Node=page_scroll.get_parent()
+	var apply := primary(iconic(button(tr("Apply and test"),apply_demo,shell),"depart"));apply.name="DemoApply"
+	shell.move_child(apply,page_scroll.get_index()+1)
+	label(tr("Unarmed ships ahead; live harpoon targets to the left. Reset the test area to repair, empty cargo and respawn targets."),15)
+	var hull: Array=session.data.tables.ships[demo_outfit.ship_id]
+	var vessel := option(content.ship_name(demo_outfit.ship_id)+" · "+tr("Equipment slots")+": "+str(int(hull[4])),"demo_ship",func():show_demo_picker(-1))
+	demo_item_icon(vessel,demo_outfit.ship_id,"ships")
+	for slot in demo_outfit.equipment.size():
+		var id: int=demo_outfit.equipment[slot]
+		var title: String=tr("Empty") if id<0 else item_name(id,"equipment")
+		var choose := option("%d.  %s"%[slot+1,title],"demo_slot_%d"%slot,func():show_demo_picker(slot))
+		demo_item_icon(choose,id,"equipment")
+		if id>=0:label(EquipmentInfo.stats(session.make_equipment(id)),14).modulate=colours().dim
+	back_row(close_page)
+
+func demo_item_icon(control: Button, id: int, kind: String) -> void:
+	control.icon=imported_art.item(id,kind) if id>=0 else null
+	control.expand_icon=true;control.icon_alignment=HORIZONTAL_ALIGNMENT_LEFT
+	control.add_theme_constant_override("icon_max_width",72 if kind=="ships" else 48)
+	control.add_theme_constant_override("h_separation",14)
+	control.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST
+	control.custom_minimum_size.y=64 if touch.enabled() else 56
+	control.clip_text=true;control.tooltip_text=control.text
+
+func show_demo_picker(slot: int) -> void:
+	if not session.demo_mode:return
+	open_page(tr("Ship") if slot<0 else tr("Equipment"),"demo_picker")
+	var search := LineEdit.new();search.placeholder_text=tr("Search");search.clear_button_enabled=true
+	search.custom_minimum_size.y=48;search.add_theme_font_size_override("font_size",18);column.add_child(search)
+	var rows: Array=[]
+	if slot>=0:
+		button(tr("Empty"),func():demo_outfit.select_equipment(session,slot,-1);show_demo(false))
+	var count: int=session.data.tables.ships.size() if slot<0 else session.data.tables.equipment.size()
+	for id in count:
+		var row := VBoxContainer.new();row.add_theme_constant_override("separation",4);column.add_child(row)
+		var title: String=content.ship_name(id) if slot<0 else item_name(id,"equipment")
+		var choose := button(title,func():
+			if slot<0:demo_outfit.select_ship(session,id)
+			else:demo_outfit.select_equipment(session,slot,id)
+			focus_option="demo_ship" if slot<0 else "demo_slot_%d"%slot
+			show_demo(false),row)
+		demo_item_icon(choose,id,"ships" if slot<0 else "equipment");choose.set_meta("demo_item",id)
+		var details: String=tr("Equipment slots")+": "+str(int(session.data.tables.ships[id][4])) if slot<0 else EquipmentInfo.stats(session.make_equipment(id))
+		label(details,14,row).modulate=colours().dim
+		row.set_meta("search",(title+" "+details).to_lower());rows.append(row)
+	var empty := label(tr("No matches"),16);empty.hide()
+	search.text_changed.connect(func(value: String):
+		var any := false
+		for row in rows:
+			row.visible=value.strip_edges().to_lower() in str(row.get_meta("search"));any=any or row.visible
+		empty.visible=not any;page_scroll.scroll_vertical=0)
+	back_row(func():show_demo(false))
+
+func apply_demo() -> void:
+	if not session.demo_mode:return
+	demo_outfit.apply(session)
+	clear_notices();flight_ms=0;stream_prompted=false;stream_exit_active=false
+	# Restarting the range teleports the hull; its old wake belongs to the
+	# previous run even when the same ship model remains selected.
+	view.combat.reset()
+	world.depart();view.rebuild();view._process(0)
+	if demo_outfit.quick_test:demo_outfit.refresh_weapons(world);clear_demo_fire();refresh_demo_weapon_bar()
+	close_page()
+
+func start_demo_weapon_test(apply_outfit: bool=false) -> void:
+	if not session.demo_mode:return
+	if apply_outfit:apply_demo()
+	clear_notices()
+	demo_outfit.quick_test=true;demo_outfit.refresh_weapons(world)
+	clear_demo_fire();refresh_demo_weapon_bar();close_page()
+
+func step_demo_weapon(direction: int) -> void:
+	if not session.demo_mode or not demo_outfit.quick_test:return
+	demo_outfit.step_weapon(world,direction)
+	clear_demo_fire();refresh_demo_weapon_bar()
+
+func finish_demo_weapon_test() -> void:
+	if not session.demo_mode:return
+	demo_outfit.quick_test=false;demo_outfit.refresh_weapons(world)
+	clear_demo_fire();demo_weapon_bar.hide();place_message()
+	notice(tr("Fitted weapons restored"))
+
+func clear_demo_fire() -> void:
+	weapon_presses.clear();world.weapon_pending.clear();auto_fire=false;interrupted_auto={}
+	touch.automatic_weapons.clear();touch.weapon_presses.clear();touch.last_weapon_tap=""
+	demo_fire_hold=true;controller.blocked=true
+	view.combat.reset(true);world.region.visual_events.clear()
+	# End the previous audition without adding a UI beep over the new shot.
+	for voice in dive_audio.voices:voice.stop()
+	dive_audio.pending.clear();dive_audio.last_serial=world.region.audio_serial
+	dive_audio.priority_until=-1;dive_audio.last_priority=0;dive_audio.last_played.clear()
+	dive_audio.collect_launches(world.region)
+
+func refresh_demo_weapon_bar() -> void:
+	if not session.demo_mode or not demo_outfit.quick_test:return
+	var ids: Array=demo_outfit.weapon_ids(session)
+	var prompt := tr("Tap arrows to switch · fire normally")
+	if not touch.enabled():
+		var pad: bool=touch.last_input=="gamepad" and controller.device>=0
+		prompt=tr("%s · Next weapon")%(control_name("bank") if pad else OS.get_keycode_string(key_bindings.bank))
+		if not pad:
+			if KEY_BRACKETLEFT not in key_bindings.values() and KEY_BRACKETRIGHT not in key_bindings.values():prompt="[ / ]  ·  "+tr("Previous / next weapon")
+			if KEY_BACKSPACE not in key_bindings.values():prompt+="     ·     "+OS.get_keycode_string(KEY_BACKSPACE)+"  ·  "+tr("Back")
+	demo_weapon_bar.show_weapon(item_name(demo_outfit.quick_weapon,"equipment"),imported_art.item(demo_outfit.quick_weapon,"equipment"),ids.find(demo_outfit.quick_weapon),ids.size(),prompt)
+	demo_weapon_bar.visible=page.is_empty();place_demo_weapon_bar();place_message()
+
+func place_demo_weapon_bar() -> void:
+	if not demo_weapon_bar.is_inside_tree():return
+	demo_weapon_bar.set_touch(touch.enabled())
+	var width := minf(500,ui.size.x-32)
+	if touch.enabled() and ui.size.x<ui.size.y:width=minf(width,ui.size.x-128)
+	if touch.enabled() and ui.size.x>ui.size.y:width=minf(width,maxf(360,ui.size.x-500))
+	demo_weapon_bar.size=Vector2(width,demo_weapon_bar.get_combined_minimum_size().y)
+	demo_weapon_bar.position=Vector2((ui.size.x-width)*.5,190 if ui.size.x<ui.size.y else 58)
+	if touch.enabled() and ui.size.x<ui.size.y:demo_weapon_bar.position.x=16
+
+func handle_demo_weapon_input(event: InputEvent) -> bool:
+	if session==null or not session.demo_mode or not page.is_empty() or not demo_outfit.quick_test:return false
+	if event is InputEventKey or event is InputEventJoypadButton or event is InputEventScreenTouch:refresh_demo_weapon_bar()
+	# A finger that began steering or looking keeps that role when it crosses
+	# the bar. Only a fresh contact there belongs to the weapon selector.
+	if (event is InputEventScreenTouch or event is InputEventScreenDrag) and touch.fingers.has(event.index):return false
+	if demo_weapon_bar.handle_pointer(event,not mouse_is_captured()):
+		if event is InputEventMouseButton and event.pressed:suppress_fire_until_release=true
+		return true
+	if event is InputEventKey and event.physical_keycode==KEY_BACKSPACE and KEY_BACKSPACE not in key_bindings.values():
+		if event.pressed and not event.echo:finish_demo_weapon_test()
+		return true
+	if event is InputEventKey and event.physical_keycode in [KEY_BRACKETLEFT,KEY_BRACKETRIGHT] and event.physical_keycode not in key_bindings.values():
+		if event.pressed and not event.echo:step_demo_weapon(-1 if event.physical_keycode==KEY_BRACKETLEFT else 1)
+		return true
+	if event is InputEventKey and event.physical_keycode==key_bindings.bank:
+		if event.pressed and not event.echo:step_demo_weapon(-1 if event.shift_pressed else 1)
+		return true
+	return false
+
+func reset_demo() -> void:
+	if not session.demo_mode:return
+	demo_outfit.read_outfit(session);apply_demo()
+
 func show_journal() -> void:
 	open_page(tr("Mission journal"),"journal")
 	var info=preload("res://native/presentation/mission_info.gd")
@@ -1505,12 +1709,12 @@ func target_line(mission, parent: Node) -> void:
 	var icon := TextureRect.new();icon.texture=imported_art.item(info.target_species(mission));icon.custom_minimum_size=Vector2(34,28)
 	icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED;line.add_child(icon)
 	label(text,15,line).add_theme_color_override("font_color",colours().good)
-func autonavigate_from_journal(destination: int) -> void:
+func autonavigate_from_journal(destination: int, back: Callable=Callable()) -> void:
 	# Validate before leaving the berth; a denied route keeps the journal open.
 	var denial: String=world.route_denial(destination)
 	if not denial.is_empty():notice(denial);return
 	if session.docked and destination==session.station_id:notice(tr("Already docked at the destination."));return
-	if ask_travel(destination,func():autonavigate_from_journal(destination),show_journal):return
+	if ask_travel(destination,func():autonavigate_from_journal(destination,back),back if back.is_valid() else show_journal):return
 	if session.docked:
 		depart()
 		if session.docked:return
@@ -1771,6 +1975,7 @@ func end_action_freeze(resume: bool) -> void:
 	if resume: close_page()
 	else: show_pause()
 func show_transfer() -> void:
+	if session.demo_mode:notice(tr("Demo sessions are not saved."));return
 	open_page(tr("Transfer save"),"transfer")
 	label(tr("Move your save to another device. The export contains only the save; each device imports its own JAR."),16)
 	label(tr("The other device must have imported the same JAR."),15).modulate=Color("9dc9bd")
@@ -1791,6 +1996,7 @@ func show_transfer() -> void:
 	label(tr("Importing replaces the save on this device. The old save is kept as a backup."),15).modulate=Color("d7c399")
 	back_row(show_system if session.docked else show_pause)
 func import_transfer(path: String) -> void:
+	if session.demo_mode:notice(tr("Demo sessions are not saved."));return
 	var record: Dictionary=transfer.read_export(content.data,path)
 	if record.is_empty(): notice(transfer.failure); return
 	if not transfer.install(content.data,save_path,record): notice(transfer.failure); return
@@ -1903,6 +2109,8 @@ func read_settings() -> void:
 		dive_audio.title_choice=setting_index(config,"audio","title_music",0,2)
 		view.camera_mode=setting_index(config,"view","camera",0,3)
 		dive_audio.apply_levels()
+	view.combat.set_enhanced_weapons(SettingsMenu.config_flag(config,"graphics","weapon_effects",true))
+	dive_audio.set_weapon_sounds_enabled(SettingsMenu.config_flag(config,"audio","weapon_sounds",true))
 	graphics.merge(OceanOptions.read(config),true)
 	headlight_mode=Headlights.read(config);headlight_previous=Headlights.previous(config)
 	quality=GraphicsQuality.read(config);headlight_strength=GraphicsQuality.headlight_strength(config)
@@ -2004,6 +2212,8 @@ func save_settings() -> void:
 	config.set_value("interface","waypoint_edge",waypoint_edge)
 	config.set_value("interface","retro_hud",retro)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
+	config.set_value("graphics","weapon_effects",view.combat.enhanced_weapons)
+	config.set_value("audio","weapon_sounds",dive_audio.weapon_sounds_enabled)
 	config.set_value("audio","title_music",dive_audio.title_choice)
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir()); config.save(settings_path)
 func set_graphics_mode(modern: bool) -> void:
@@ -2127,6 +2337,7 @@ func service_grid(parent: Node=null) -> GridContainer:
 	grid.add_theme_constant_override("h_separation",16);grid.add_theme_constant_override("v_separation",16);(parent if parent!=null else column).add_child(grid)
 	return grid
 func show_station() -> void:
+	if session.demo_mode:show_demo();return
 	open_page(session.stations[session.station_id].name,"station")
 	column.add_theme_constant_override("separation",12)
 	station_identity(glass(column,false,14))
@@ -2191,6 +2402,7 @@ func show_station_status() -> void:
 	service_card(tr("Pilot profile & medals"),tr("Rank %d · %d / 24 medals · statistics")%[session.counters.k,owned],"person",
 		imported_art.image("medal_%d"%(best if best>0 else (5 if session.is_colonist_station() else 7))),show_profile,grid)
 func show_system() -> void:
+	if session.demo_mode:show_pause();return
 	open_page(tr("System"),"system")
 	var grid := service_grid();grid.add_theme_constant_override("v_separation",10)
 	for entry in [[tr("Save game"),"save",show_save_slots],[tr("Load game"),"resume",show_load_slots],[tr("Settings"),"controls",show_settings],
@@ -2320,6 +2532,7 @@ func consume_events() -> void:
 		match entry.kind:
 			"briefing": show_dialogue(session.dialogue(entry.mission,0),close_page)
 			"departure_briefing": briefing()
+			"encounter_dialogue": show_dialogue(session.dialogue(entry.mission,3),finish_transmission)
 			"credits": show_dialogue([{"speaker":tr("Credits"),"text":session.text(26)+"\n\n"+session.text(28)+"\n\n"+session.text(27)+("\n\n"+GraphicsCredits.text() if GraphicsCredits.amd() or GraphicsCredits.nvidia() else "")}],func(): world.region.acknowledge_credits(); close_page())
 			"mission_complete": show_dialogue(session.dialogue(entry.mission,1),func(): world.region.acknowledge_completion(); close_page())
 			"transmission":
@@ -2336,7 +2549,7 @@ func consume_events() -> void:
 				if entry.kind=="mission_failed" and not world.region.mission.story:
 					button(tr("Continue"),func():
 						session.abandon_contract(); world.region.mission=session.campaign.active; world.region.success=null; world.region.failure=null; world.region.time_limit=0; world.region.failed=false; close_page())
-				button(tr("Reload station checkpoint"),reload_game); button(tr("Main menu"),return_to_menu)
+				button(tr("Reset test area") if session.demo_mode else tr("Reload station checkpoint"),reload_game); button(tr("Main menu"),return_to_menu)
 			_:
 				if entry.kind=="notice" and (entry.text.begins_with("Cannot collect catch") or entry.text==tr("Cannot collect catch · cargo hold is full. Make room at a station.")):hold_full_seen=true
 				notice(tr("%s · %s %dt")%[entry.text,item_name(entry.goods),entry.amount] if entry.has("goods") else entry.text)
@@ -2351,6 +2564,9 @@ func finish_transmission() -> void:
 	world.region.acknowledge_transmission(); close_page()
 	if world.region.update_radio() and world.region.active_transmission!=null:consume_events()
 func save_game(feedback: bool=true) -> void:
+	if session.demo_mode:
+		if feedback:notice(tr("Demo sessions are not saved."))
+		return
 	if not session.docked:
 		if feedback: notice(tr("Dock at a station to save."))
 		return
@@ -2358,6 +2574,7 @@ func save_game(feedback: bool=true) -> void:
 		if feedback: notice(session.text(32))
 	else: notice(store.failure)
 func show_save_slots() -> void:
+	if session.demo_mode:notice(tr("Demo sessions are not saved."));return
 	"""The phone game's three saves, each named for who and where it holds;
 	writing over one asks first. The autosave keeps the dock checkpoint."""
 	open_page(session.text(2),"save_slots")
@@ -2370,6 +2587,7 @@ func show_save_slots() -> void:
 		choice.alignment=HORIZONTAL_ALIGNMENT_LEFT
 	back_row(dock_back if session.docked else show_pause)
 func show_load_slots() -> void:
+	if session.demo_mode:notice(tr("Demo sessions are not saved."));return
 	"""Another save, loaded at the station, as the main menu loads one. The
 	autosave is left as it is: loading is not a reason to write over it."""
 	open_page(tr("Load game"),"load_slots")
@@ -2386,6 +2604,7 @@ func write_slot(path: String) -> void:
 	if session.docked:show_system()
 	else:close_page()
 func reload_game(path: String="") -> void:
+	if session.demo_mode:reset_demo();return
 	var restored=store.read(save_path if path.is_empty() else path,content.data)
 	if restored==null: notice(store.failure); return
 	var fell_back: bool=store.recovered
@@ -2598,8 +2817,8 @@ func chart_input(event: InputEvent) -> bool:
 			map_slice.choose(map_slice.selected_id if map_slice.selected_id in ids else ids[0])
 			map_slice.grab_focus()
 		elif page=="stream":begin_stream_transit()
-		elif atlas_autopilot_only or world.objective_travel_mode==World.ObjectiveTravel.OPEN_WATER or map_destination==session.station_id or world.stream_distance(map_destination)>=world.stream_range():map_autopilot()
-		else:map_stream()
+		elif atlas_autopilot_only:map_autopilot()
+		else:autonavigate_from_journal(map_destination,func():show_map(atlas_autopilot_only))
 		return true
 	return false
 func pad_axis(axis: int) -> float:
@@ -2998,7 +3217,7 @@ func update_markers() -> void:
 			if button.has_area() and touch.shown(id):occupied.append(Rect2(touch.get_global_transform()*button.position,button.size*touch.get_global_transform().get_scale()))
 	# The objective runs taller than the labels' top margin on touch.
 	if objective_label.visible:occupied.append(Rect2(objective_label.global_position,Vector2(objective_label.size.x,minf(objective_label.size.y,objective_label.get_content_height()))*objective_label.scale))
-	for feedback in [hazard_warning,catch_status,struggle,travel_status,message]:
+	for feedback in [hazard_warning,struggle,travel_status,message]:
 		if feedback.visible and (not feedback is Label or not feedback.text.is_empty()):occupied.append(feedback.get_global_rect())
 	# An enemy's hull bar gives way to these panels only, not to other labels.
 	var panels:=occupied.size()
@@ -3120,7 +3339,7 @@ func objective_summary(mission) -> String:
 	if mission.kind<0:return tr("Explore the ocean")
 	var info=preload("res://native/presentation/mission_info.gd")
 	var lines: Array[String]=[session.title(mission)]
-	var instruction: String=info.instruction(mission)
+	var instruction: String=info.instruction(mission,world.region)
 	if not instruction.is_empty():lines.append(instruction)
 	var target: String=info.target(session,mission)
 	if not target.is_empty():lines.append(target)
@@ -3173,13 +3392,17 @@ func autonavigate_objective() -> void:
 	elif objective_has_location(mission):
 		if world.route_to_objective(mission.destination):stream_prompted=false;close_page()
 		else:notice(world.message)
-	else:notice(tr("This objective has no fixed destination. %s")%preload("res://native/presentation/mission_info.gd").instruction(mission))
+	else:notice(tr("This objective has no fixed destination. %s")%preload("res://native/presentation/mission_info.gd").instruction(mission,world.region))
 func show_destinations() -> void:
 	open_page(tr("Autopilot"),"destinations")
 	var mission=current_objective()
 	label(objective_summary(mission),15).modulate=Color("ddca92")
 	button(tr("Objective travel · %s")%objective_travel_name(),func():
-		world.objective_travel_mode=1-world.objective_travel_mode;save_settings();show_destinations()).tooltip_text=tr("Prefer S.T.R.E.A.M. within engine range, or travel through the open ocean.")
+		world.objective_travel_mode=1-world.objective_travel_mode;save_settings();show_destinations()).tooltip_text=tr("Prefer S.T.R.E.A.M. via intermediate stations, or travel through the open ocean.")
+	if world.objective_travel_mode==World.ObjectiveTravel.STREAM and objective_has_location(mission) and world.encounter_navigation_point()==null:
+		var stops: Array[int]=world.objective_stream_route(mission.destination)
+		if stops.size()>1:
+			label(tr("S.T.R.E.A.M. route · %s")%" → ".join(stops.map(func(id):return session.stations[id].name)),13)
 	var resume: int=world.resume_destination
 	if resume>=0 and resume<session.stations.size() and resume!=session.station_id and not world.autopilot:
 		# A route set on the chart (here or before leaving the station) stays
@@ -3202,7 +3425,7 @@ func show_destinations() -> void:
 	label(tr("%s: 1× / 2× while steering · up to 16× on autopilot")%OS.get_keycode_string(key_bindings.time),12)
 func resume_route() -> void:
 	var id: int=world.resume_destination
-	var resumed: bool=world.plan_stream(id) if world.resume_stream else world.route_to(id)
+	var resumed: bool=world.plan_objective_stream(id) if world.resume_objective else world.plan_stream(id) if world.resume_stream else world.route_to(id)
 	if not resumed: notice(world.message); return
 	if world.resume_stream: stream_prompted=false
 	close_page()
@@ -3451,8 +3674,9 @@ func begin_stream_transit(chosen_here := true) -> void:
 	if not denial.is_empty() or not world.at_gate(world.departure_gate):notice(denial);return
 	# A destination planned earlier is asked about again at the gate, as br.a
 	# does, without repeating the chart's depth warning.
-	if ask_travel(stream_selection,begin_stream_transit,show_stream_menu,chosen_here):return
-	world.cancel_autopilot();world.gate_navigation=false;world.approach_planned=false;world.approach_path.clear()
+	if ask_travel(stream_selection,begin_stream_transit.bind(chosen_here),show_stream_menu,chosen_here):return
+	world.cancel_autopilot("",not chosen_here);world.gate_navigation=false;world.approach_planned=false;world.approach_path.clear()
+	if chosen_here:world.resume_destination=stream_selection;world.resume_stream=true;world.resume_objective=false
 	# The chart can be opened (E) before the aperture has finished opening,
 	# and nothing advances while it is up, so the gate would stay part open
 	# and refuse the crossing however often it was confirmed. Confirming at
@@ -3509,10 +3733,12 @@ func advance_transit_view(seconds: float) -> void:
 func end_transit_shot() -> void:
 	"""Hand the submarine back. The launch is a temporary speed multiplier and
 	has to come off however the shot ends, including early."""
-	if view.transit_emerging and world.region!=null:
+	var arriving: bool=view.transit_emerging
+	if arriving and world.region!=null:
 		world.region.player.speed_factor=transit_exit_factor
 		world.region.player.set_throttle(roundi(transit_exit_throttle))
 	view.end_transit()
+	if arriving and world.continue_objective_route():stream_prompted=false
 func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 	var entries: Array=[]
 	var kind := "ships" if ships else "equipment"

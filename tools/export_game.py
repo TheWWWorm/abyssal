@@ -3,6 +3,7 @@
 import argparse, hashlib, json, os, pathlib, re, shutil, subprocess, tempfile
 from paths import ROOT, cache_home
 from branding import ARTWORK, web_assets
+from weapon_audio_assets import AUDIO, verify_audio
 PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'linux-arm64':('Linux','abyssal.arm64'),'windows':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
 RECIPE = 'game/native/textures/reconstruction_recipe.json'
 
@@ -13,13 +14,6 @@ MOBILE_HEAD = """\t\t<meta name="mobile-web-app-capable" content="yes">
 \t\t<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 \t\t<meta name="apple-mobile-web-app-title" content="Abyssal">
 \t\t<meta name="theme-color" content="#03090e">
-\t\t<style>
-/* Handhelds: fill the viewport and stop the page itself scrolling, bouncing or
-   zooming, so drags reach the game as steering rather than moving the page. */
-html, body { height: 100%; overscroll-behavior: none; }
-body { position: fixed; inset: 0; width: 100%; height: 100%; }
-#canvas { width: 100%; height: 100%; touch-action: none; }
-\t\t</style>
 """
 
 
@@ -30,6 +24,13 @@ def stage_mobile_page(html):
     html = html.replace(VIEWPORT_DEFAULT, VIEWPORT_MOBILE, 1)
     if 'apple-mobile-web-app-capable' not in html:
         html = html.replace('</head>', MOBILE_HEAD + '</head>', 1)
+    # Inline these small files so page and resize policy update together, even
+    # when an installed app retains older cached runtime assets.
+    for tag, name in [('style', 'viewport.css'), ('script', 'viewport.js')]:
+        element = 'abyssal-' + name.replace('.', '-')
+        html = re.sub(r'<'+tag+r' id="'+element+r'">[\s\S]*?</'+tag+r'>\s*', '', html)
+        source = (ROOT/'browser'/name).read_text()
+        html = html.replace('</head>', f'<{tag} id="{element}">\n{source}</{tag}>\n</head>', 1)
     return html
 
 
@@ -46,6 +47,7 @@ def stamp_web_build(output):
     match=re.search(r'const GODOT_CONFIG = (\{[^\n]+\});',html)
     if match is None:raise ValueError('Cannot locate Godot Web configuration')
     config=json.loads(match.group(1))
+    config['canvasResizePolicy']=0
     config['mainPack']=pack_name
     config['fileSizes'].pop('index.pck',None)
     config['fileSizes'][pack_name]=pack.stat().st_size
@@ -106,7 +108,8 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
         if name.startswith(tuple(SPLASHES.values())) and name!=shown:continue
         if name.endswith('/NOTICE.md'):continue
         source=ROOT/name
-        if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK and name != RECIPE):raise ValueError('Unexpected runtime source: '+name)
+        if source.is_symlink() or (source.suffix not in {'.gd','.gdshader','.gdshaderinc','.tscn','.godot','.uid','.svg','.otf','.import'} and name not in ARTWORK and name not in AUDIO and name != RECIPE):raise ValueError('Unexpected runtime source: '+name)
+        if name in AUDIO:verify_audio(source,name)
         target=stage/pathlib.Path(name).relative_to('game');target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     settings=stage/'project.godot'
     text=settings.read_text()
@@ -139,7 +142,7 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
     if platform in {'web','android','macos','linux-arm64'}:text=text.replace('[rendering]','[rendering]\n\ntextures/vram_compression/import_etc2_astc=true')
     settings.write_text(text)
     options={'texture_format/s3tc_bptc':'true','texture_format/etc2_astc':'false'}
-    if platform=='web':options={'variant/extensions_support':'false','variant/thread_support':'false','vram_texture_compression/for_desktop':'true','vram_texture_compression/for_mobile':'true','html/export_icon':'true','html/canvas_resize_policy':'2','progressive_web_app/enabled':'false'}
+    if platform=='web':options={'variant/extensions_support':'false','variant/thread_support':'false','vram_texture_compression/for_desktop':'true','vram_texture_compression/for_mobile':'true','html/export_icon':'true','html/canvas_resize_policy':'0','progressive_web_app/enabled':'false'}
     elif platform=='android':options={'architectures/armeabi-v7a':'false','architectures/arm64-v8a':'true','architectures/x86_64':'true','architectures/x86':'false','gradle_build/use_gradle_build':'true','gradle_build/min_sdk':'26','gradle_build/target_sdk':'36','package/unique_name':'"org.abyssal.engine"','package/name':'"Abyssal"','package/signed':'true','version/code':str(version_code),'version/name':json.dumps(version),'screen/immersive_mode':'true','permissions/internet':'false','permissions/vibrate':'true','permissions/read_external_storage':'false','permissions/write_external_storage':'false','permissions/manage_external_storage':'false'}
     elif platform=='macos':options={'application/bundle_identifier':'"org.abyssal.engine"','application/icon':'"res://ui/abyssal-icon.icns"','application/short_version':'"0.1"','application/version':'"0.1"','binary_format/architecture':'"universal"','codesign/codesign':'0','notarization/notarization':'0'}
     elif platform=='linux-arm64':options.update({'binary_format/architecture':'"arm64"','texture_format/etc2_astc':'true'})
@@ -261,6 +264,6 @@ def main():
     subprocess.run([args.godot,'--headless','--script',str(ROOT/'tools/export_notices.gd'),'--',str(output/'GODOT_LICENSES.txt')],check=True)
     shutil.copyfile(ROOT/'THIRD_PARTY_NOTICES.md',output/'THIRD_PARTY_NOTICES.md')
     (output/'licenses').mkdir(exist_ok=True)
-    for name in ['Apache-2.0.txt','OFL-1.1.txt']:shutil.copyfile(ROOT/'licenses'/name,output/'licenses'/name)
+    for name in ['Apache-2.0.txt','OFL-1.1.txt','CC0-1.0.txt','Pixabay-Content-License.txt']:shutil.copyfile(ROOT/'licenses'/name,output/'licenses'/name)
     print(output/PLATFORMS[args.platform][1])
 if __name__=='__main__':main()

@@ -12,6 +12,8 @@ const Mission = preload("res://native/simulation/mission.gd")
 const WorldLayout = preload("res://native/simulation/world_layout.gd")
 var world_layout := WorldLayout.new()
 var data: Dictionary = {}
+## Transient only: demo sessions must never become campaign checkpoints.
+var demo_mode := false
 ## The pilot's portrait layers (ab.a): the plain backdrop, then for a man the
 ## suit under the chin, eyes and hair, and the accessory (-1 for none).
 var face_layers: Array = [87,78,68,20,42,-1]
@@ -51,6 +53,7 @@ var trail: Array = []
 const TRAIL_LENGTH := 6
 
 func new_game(owner_data: Dictionary, player_name: String, random_seed: int) -> void:
+ demo_mode=false
  data=owner_data; name=player_name; credits=15000; elapsed_ms=0
  world_layout=WorldLayout.new()
  hints_said={}

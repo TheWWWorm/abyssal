@@ -64,7 +64,9 @@ class DistributionTests(unittest.TestCase):
         files=packaging.source_files()
         self.assertTrue(files)
         for path in files:
-            self.assertNotIn(path.suffix,{'.jar','.glb','.wav','.class','.mbac','.mtra'})
+            self.assertNotIn(path.suffix,{'.jar','.glb','.class','.mbac','.mtra'})
+            if path.suffix=='.wav':
+                self.assertIn(path.relative_to(packaging.ROOT).as_posix(),packaging.AUDIO)
             if path.suffix=='.png':self.assertIn(path.relative_to(packaging.ROOT).as_posix(),packaging.ARTWORK)
         source='\n'.join(p.read_text() for p in files if p.suffix=='.gd')
         self.assertNotIn('res://art/',source)

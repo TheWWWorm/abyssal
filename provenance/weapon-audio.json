@@ -1,0 +1,657 @@
+{
+  "license": "Pixabay Content License; CC0-1.0 hydrophone component",
+  "license_file": "licenses/Pixabay-Content-License.txt",
+  "recipe": "tools/build_weapon_audio.py",
+  "format": {
+    "rate": 48000,
+    "channels": 1,
+    "sample_bits": 16,
+    "loop": false
+  },
+  "description": "Equipment-specific composite discharges from RescopicSound pulse/plasma designs, DRAGON-STUDIO and ejah_music underwater motion recordings on Pixabay, with felix.blume CC0 hydrophone material in torpedoes. MK III rail and coil shots use one attack with a declining body; torpedoes combine underwater pressure and flow. Source MP3 fidelity is retained; PCM output is not a lossless-source claim. These composite game effects retain the Pixabay Content License and are not CC0 or Apache-2.0. Original harpoon audio remains imported unchanged.",
+  "sources": [
+    {
+      "filename": "pulse-tm-01.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE TM 01",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-tm-01-233821/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_3472a401bd.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "f4b16be5b4875d3b5a1e8edd62f6d39cb733bd990550f52e02aa8ba7b646a0f9",
+      "bytes": 31488,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-tm-05.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE TM 05",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-tm-05-233825/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_8c43f2d125.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "f038d06ab59e72fa940758b92f99fa0b9104e0e885bc3c80c0e69b0adba46614",
+      "bytes": 29184,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-dn-05.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE DN 05",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-dn-05-233832/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_6bc2e11bb8.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "9ff3a1daf2e8a68ad4cda95b6ceb74f6a749a22da8003ae9d9568c05d986ee91",
+      "bytes": 43776,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-pp-04.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA PP 04",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-pp-04-233822/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_0b600297ed.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "de71b4d762667508e5972224157af45c66bd8c3294747b75570f2b35e15e7833",
+      "bytes": 32256,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-pp-01.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA PP 01",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-pp-01-233828/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_82adf89831.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "670952a74ae1d653cfc992ad18b538facca40f61e67330fac60f7bd4a4150bfc",
+      "bytes": 37632,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-ku-01.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA KU 01",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-ku-01-233816/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_c0253600dc.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "7f74c167e713c2572dcbd2c086f10e66fb79e1dd6b9628331d7b4c2ea0351bc7",
+      "bytes": 23040,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-pp-05.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA PP 05",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-pp-05-233829/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_bfb613023b.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "1bdb4e78d63e19254ae1aab2132d79ec761b8a43454be943d527142caf73abce",
+      "bytes": 39936,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-tm-04.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE TM 04",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-tm-04-233827/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_d0772c5ade.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "575ab3d7041d427508dcfcf6e622271c754557963b04becb233b072b01fcac2f",
+      "bytes": 36096,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-ku-02.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA KU 02",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-ku-02-233815/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_6a79630f11.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "adb653c9633fb64f84f387dfac49e83b6a3344c79c84155247bd5c0313e82eb4",
+      "bytes": 21504,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-ku-04.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA KU 04",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-ku-04-233814/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_3596772de9.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "878f9df39654437482fc3c1d4ace96add1795fec94b73ca108b9fa20c4fa885f",
+      "bytes": 18432,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-pp-02.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA PP 02",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-pp-02-233830/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_e4ac91dc2f.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "8ddae2d9a7a9be38481fb9a60f0b121d57c105b08dfb656100b71bf85d1658ae",
+      "bytes": 41472,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-ku-03.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA KU 03",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-ku-03-233817/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_c0c1e5e621.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "a3e9418a3f96927907faafe79594e4b7456c9b3fa7204cecd76b23f31d3c29e8",
+      "bytes": 22272,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-dn-02.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE DN 02",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-dn-02-233831/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_d7d43c71b3.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "0280f0b7a270adde94c653f44db9b6a665d2e67fc7287ac2800a5a57d6b20c20",
+      "bytes": 41472,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-ku-05.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA KU 05",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-ku-05-233818/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_a11447ab51.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "405f7ee34412a687bc9e585c25dc93f61a0e85bb5ca632d83afa269c2796e7c9",
+      "bytes": 22272,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-tm-02.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE TM 02",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-tm-02-233819/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_8d9f8fe75c.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "4050276f6d03d386592d6c6a9abf8007b59ba69dec8c2e2eda679fd156a448cf",
+      "bytes": 25344,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-dn-03.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE DN 03",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-dn-03-233834/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_3569d31133.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "43d772c34660264986a38efb1580222cf49caf2e0e245f85b88f3b477cc990ed",
+      "bytes": 48384,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-tm-03.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE TM 03",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-tm-03-233824/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_f44126162f.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "71677eb75f71352a76a3e5bae6f6cc491a9f3553259e0b6ea2eb543a91ec5101",
+      "bytes": 29184,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-dn-01.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE DN 01",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-dn-01-233835/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_d30f391dc5.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "60e771841ecf32173a9ae24ed3a007baeedbf7a552ed12489fc625ce6ca24e70",
+      "bytes": 46848,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "pulse-dn-04.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PULSE DN 04",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-pulse-dn-04-233836/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_52b862af30.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "3b0bbbf1e3c8fe0e739dfce99a13e7a0828cf3dd0110046ea6bf32c2e7857c07",
+      "bytes": 50688,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "plasma-pp-03.mp3",
+      "title": "Sci-Fi Weapon - Shoot - Firing - PLASMA PP 03",
+      "creator": "RescopicSound",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-sci-fi-weapon-shoot-firing-plasma-pp-03-233823/",
+      "download": "https://cdn.pixabay.com/audio/2024/08/20/audio_326f9858ed.mp3",
+      "license": "https://pixabay.com/service/license-summary/",
+      "sha256": "e6a4268d4d62c0dfeb8c1d53d42fc92b43a541a8c1cdbd47ade2a968c6ba1b1c",
+      "bytes": 33024,
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "name": "water",
+      "filename": "water.mp3",
+      "creator": "felix.blume",
+      "title": "Underwater recording of aquatic movement, bubbles and drops.",
+      "page": "https://freesound.org/people/felix.blume/sounds/384218/",
+      "download": "https://cdn.freesound.org/previews/384/384218_1661766-hq.mp3",
+      "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sha256": "168c87f0fb016146ced0323d26a0f9d0d5a084f453da8f768af976aaf9d0679b",
+      "bytes": 14502960,
+      "source_quality": "Hydrophone recording of bubbles and water movement; public HQ MP3 preview."
+    },
+    {
+      "filename": "underwater-swish.mp3",
+      "title": "Gentle Underwater Swish",
+      "creator": "DRAGON-STUDIO",
+      "page": "https://pixabay.com/sound-effects/film-special-effects-gentle-underwater-swish-499658/",
+      "download": "https://cdn.pixabay.com/audio/2026/03/10/audio_63bd5f2640.mp3",
+      "sha256": "ea473913cda8a0256fdea6a50465e858f50e65ed350a7a55dbfcb68c08aa4358",
+      "bytes": 92928,
+      "license": "https://pixabay.com/service/license-summary/",
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    },
+    {
+      "filename": "underwater-deep.mp3",
+      "title": "Underwater whoosh (Deep)",
+      "creator": "ejah_music",
+      "page": "https://pixabay.com/sound-effects/underwater-whoosh-deep-464534/",
+      "download": "https://cdn.pixabay.com/audio/2026/01/12/audio_1bfa69f75e.mp3",
+      "sha256": "eb99915b0926637e0817211d3803c532278fb092664549a0e379c96ec05938c8",
+      "bytes": 99072,
+      "license": "https://pixabay.com/service/license-summary/",
+      "source_quality": "Pixabay MP3 source; decoded to PCM without claiming lossless source quality."
+    }
+  ],
+  "assets": [
+    {
+      "path": "game/audio/weapons/beam-1.wav",
+      "sha256": "b82ceb3d1d2c2f3549143e91c8c8e5759f86f94a509e283fd5c6f37a68dae34f",
+      "bytes": 122924,
+      "equipment_id": 3
+    },
+    {
+      "path": "game/audio/weapons/beam-2.wav",
+      "sha256": "ed9f82cc23f6338f5cbbdf695ffa0dd56fc559e05c8d444c782cdc1df92af87c",
+      "bytes": 122924,
+      "equipment_id": 3
+    },
+    {
+      "path": "game/audio/weapons/beam-3.wav",
+      "sha256": "33b982cf6735ed42e2397eb4d17d4ff9add449ebfec6ee28f763f1f33ab8eb0f",
+      "bytes": 122924,
+      "equipment_id": 3
+    },
+    {
+      "path": "game/audio/weapons/beam-ii-1.wav",
+      "sha256": "b686605ed002cdc692eb7617b699d59c57ff800c954fbee772c43f29bfc19dd9",
+      "bytes": 145964,
+      "equipment_id": 4
+    },
+    {
+      "path": "game/audio/weapons/beam-ii-2.wav",
+      "sha256": "ad947267603830e446c8b64331268a5831c27dad5375305988f8a482d5e2220a",
+      "bytes": 145964,
+      "equipment_id": 4
+    },
+    {
+      "path": "game/audio/weapons/beam-ii-3.wav",
+      "sha256": "6b989886386f227f1904a7536786f05900f5b1c7de0e4f1514dd37e02c86cdc0",
+      "bytes": 145964,
+      "equipment_id": 4
+    },
+    {
+      "path": "game/audio/weapons/beam-iii-1.wav",
+      "sha256": "c8f0ccc0187afbdf0b4ef79f9cc58f711950a9c0089a7f2c2d23888b6eb2654d",
+      "bytes": 158444,
+      "equipment_id": 5
+    },
+    {
+      "path": "game/audio/weapons/beam-iii-2.wav",
+      "sha256": "adf60bb154353d3f41afad7dd156c6f86f41fabdd61a0c4cabd2dfe4533a996e",
+      "bytes": 158444,
+      "equipment_id": 5
+    },
+    {
+      "path": "game/audio/weapons/beam-iii-3.wav",
+      "sha256": "e86e7480c9d8865dbec6c5f1f4bf3b50222825b94ad8e08efb71200ca556ee27",
+      "bytes": 158444,
+      "equipment_id": 5
+    },
+    {
+      "path": "game/audio/weapons/eclipse-1.wav",
+      "sha256": "57716efc5695c88f9d7b57ecd23d8161ee99b4a00254e4be11ee21c666a99ef1",
+      "bytes": 136364,
+      "equipment_id": 42
+    },
+    {
+      "path": "game/audio/weapons/eclipse-2.wav",
+      "sha256": "d9ee565eea32b33bf51b437b61dee06d5badef840f5e6e2e25eafbddb2a43f0d",
+      "bytes": 136364,
+      "equipment_id": 42
+    },
+    {
+      "path": "game/audio/weapons/eclipse-3.wav",
+      "sha256": "d571413ed134a7d488230b963b1a67e51249a9722d8f22e3d72ee648ecb597ea",
+      "bytes": 136364,
+      "equipment_id": 42
+    },
+    {
+      "path": "game/audio/weapons/gun-1.wav",
+      "sha256": "f8d7afad1e8965033b5007e87898c9cb36c19d5f14d70eab9d78ac5d801011f5",
+      "bytes": 78764,
+      "equipment_id": 0
+    },
+    {
+      "path": "game/audio/weapons/gun-2.wav",
+      "sha256": "d2424237cb843447cd0092aca42a6fa9a5f5a38b5f7fee61a34510d878a065c5",
+      "bytes": 78764,
+      "equipment_id": 0
+    },
+    {
+      "path": "game/audio/weapons/gun-3.wav",
+      "sha256": "9427ac6957e6303464809c9d1efeae3e3d85eae438eeb0922a1289063f444764",
+      "bytes": 78764,
+      "equipment_id": 0
+    },
+    {
+      "path": "game/audio/weapons/gun-ii-1.wav",
+      "sha256": "76f662905cfa61a72d727e8e04e8d2fb1dd851e7279b14cf1e073ee0028ae31c",
+      "bytes": 70124,
+      "equipment_id": 1
+    },
+    {
+      "path": "game/audio/weapons/gun-ii-2.wav",
+      "sha256": "eb52a1cac9411a0a3cd1892f66c2a57dfac26e614f6d931d6d4572739f27ea29",
+      "bytes": 70124,
+      "equipment_id": 1
+    },
+    {
+      "path": "game/audio/weapons/gun-ii-3.wav",
+      "sha256": "a63fd5176e9ca56d75097646fec35c0cf650a9710b632b6050c2e9817ad2887f",
+      "bytes": 70124,
+      "equipment_id": 1
+    },
+    {
+      "path": "game/audio/weapons/gun-iii-1.wav",
+      "sha256": "37b516cc17398a146a4b0af776031bd9235937c20f59d992535e0f1481335784",
+      "bytes": 94124,
+      "equipment_id": 2
+    },
+    {
+      "path": "game/audio/weapons/gun-iii-2.wav",
+      "sha256": "1c321c2d0da906e082a6b5e6a01efb7c304c5f4746f462bf69f11e5cccb8c3ba",
+      "bytes": 94124,
+      "equipment_id": 2
+    },
+    {
+      "path": "game/audio/weapons/gun-iii-3.wav",
+      "sha256": "07118b4a4816cc6d36054418cdf6aa5fcbcf31b68783a05236f6e5c6ed6f4ddd",
+      "bytes": 94124,
+      "equipment_id": 2
+    },
+    {
+      "path": "game/audio/weapons/mass-1.wav",
+      "sha256": "0e1f71898bda07bf62bb76fb9a23efbbb6b8b1cd13d871c0ccfb06c419c7d3e3",
+      "bytes": 84524,
+      "equipment_id": 9
+    },
+    {
+      "path": "game/audio/weapons/mass-2.wav",
+      "sha256": "87f07aa04d9984d1f6c9bf644ffa5bb4e602f5ff45dbb10056ce7ef61989a7be",
+      "bytes": 84524,
+      "equipment_id": 9
+    },
+    {
+      "path": "game/audio/weapons/mass-3.wav",
+      "sha256": "280b50d8a942fbb14c4fa863bad946e3bcbe23ae4be85174c579dc5ea309a351",
+      "bytes": 84524,
+      "equipment_id": 9
+    },
+    {
+      "path": "game/audio/weapons/mass-ii-1.wav",
+      "sha256": "b21cdfabc46cefab04dd38b3c43fb8c0b73c41bab387f60fa724c00f274321ad",
+      "bytes": 65324,
+      "equipment_id": 10
+    },
+    {
+      "path": "game/audio/weapons/mass-ii-2.wav",
+      "sha256": "67c83a873cabb8d13f493f5bd5209a667db143fb838ad7aa65948f31b2a125f4",
+      "bytes": 65324,
+      "equipment_id": 10
+    },
+    {
+      "path": "game/audio/weapons/mass-ii-3.wav",
+      "sha256": "5b99a2c03c918f8d8ac19f3b387fdc77a2a8163ba853194af3d4bf411dfe89cc",
+      "bytes": 65324,
+      "equipment_id": 10
+    },
+    {
+      "path": "game/audio/weapons/mass-iii-1.wav",
+      "sha256": "00f29f2fd9c6420c908740e805d9c0fc04aa3fde1eb83eb59a776d27e24f8634",
+      "bytes": 96044,
+      "equipment_id": 11
+    },
+    {
+      "path": "game/audio/weapons/mass-iii-2.wav",
+      "sha256": "55f3a7d07f53eef9c1a2edb5ba25e1fcee0aae8043525c0dc900d4f46d880899",
+      "bytes": 96044,
+      "equipment_id": 11
+    },
+    {
+      "path": "game/audio/weapons/mass-iii-3.wav",
+      "sha256": "9ec6651a1638f44c3ef90fe054b7574875051ad6bb4a59cbaedb5b37cf3e2223",
+      "bytes": 96044,
+      "equipment_id": 11
+    },
+    {
+      "path": "game/audio/weapons/plasma-1.wav",
+      "sha256": "4f801f1744b1932b20fab3738b3d2f1824f8ce26b31933848b16911f0e4287f3",
+      "bytes": 62444,
+      "equipment_id": 6
+    },
+    {
+      "path": "game/audio/weapons/plasma-2.wav",
+      "sha256": "b607e8be653157ca212bbef0f9915fe0d4a6366374b1552e1471921946307127",
+      "bytes": 62444,
+      "equipment_id": 6
+    },
+    {
+      "path": "game/audio/weapons/plasma-3.wav",
+      "sha256": "41d838cf03227511cbe1f3a052d99c7041efced05258e0ad8fb3d142caca5edb",
+      "bytes": 62444,
+      "equipment_id": 6
+    },
+    {
+      "path": "game/audio/weapons/plasma-ii-1.wav",
+      "sha256": "2f5f639708ca2f405f64201a974763aee9910da397e5c2089523c1bad51d28e7",
+      "bytes": 52844,
+      "equipment_id": 7
+    },
+    {
+      "path": "game/audio/weapons/plasma-ii-2.wav",
+      "sha256": "3f575a790ae65a3fb6560121219a5f196dc4439634ab4830f838ada1ab7cfdad",
+      "bytes": 52844,
+      "equipment_id": 7
+    },
+    {
+      "path": "game/audio/weapons/plasma-ii-3.wav",
+      "sha256": "dcb4acd2f8a0e952ab71756130f07ab4c306bc022a07836c9661edbd19c3bc52",
+      "bytes": 52844,
+      "equipment_id": 7
+    },
+    {
+      "path": "game/audio/weapons/plasma-iii-1.wav",
+      "sha256": "91ea673883749988b3ba4baff62613c5dd84f23c54250339c9544c8b80e7b230",
+      "bytes": 65324,
+      "equipment_id": 8
+    },
+    {
+      "path": "game/audio/weapons/plasma-iii-2.wav",
+      "sha256": "69fb22ae075c3d275e14439a65d2fb53f0090f54da0e3647b77a07266dc98e59",
+      "bytes": 65324,
+      "equipment_id": 8
+    },
+    {
+      "path": "game/audio/weapons/plasma-iii-3.wav",
+      "sha256": "1c536bc5eebe5f1cc6f6c4f19ce4acb2d133c5a70c49c53dace3aef51f121a3f",
+      "bytes": 65324,
+      "equipment_id": 8
+    },
+    {
+      "path": "game/audio/weapons/torpedo-1.wav",
+      "sha256": "65285ec0092290c47164345a45d210ae3d5178cd177e056e7f1db6fac500e95d",
+      "bytes": 124844,
+      "equipment_id": 12
+    },
+    {
+      "path": "game/audio/weapons/torpedo-2.wav",
+      "sha256": "1f7f9d16bbe13562bf2ceafd2aa3f5036904bce54c9ad619b0f9f32025d2c1c2",
+      "bytes": 124844,
+      "equipment_id": 12
+    },
+    {
+      "path": "game/audio/weapons/torpedo-3.wav",
+      "sha256": "111120404190aeddf06a7c78bc756e82b859d349a9f48e207e02417a43d97a80",
+      "bytes": 124844,
+      "equipment_id": 12
+    },
+    {
+      "path": "game/audio/weapons/torpedo-ii-1.wav",
+      "sha256": "12744279b24a57662fb9a90773ad10b12334c302e8b37924e4be3e6677ba7362",
+      "bytes": 153644,
+      "equipment_id": 13
+    },
+    {
+      "path": "game/audio/weapons/torpedo-ii-2.wav",
+      "sha256": "d3333dcd687aebe14f62eaa1cb78f133846675c0d6dde2c7ea2dad409f2ee518",
+      "bytes": 153644,
+      "equipment_id": 13
+    },
+    {
+      "path": "game/audio/weapons/torpedo-ii-3.wav",
+      "sha256": "90ef9b95465364953448cf2cbcdb8c16fd9cc5d61109e266fba648e0ec62a267",
+      "bytes": 153644,
+      "equipment_id": 13
+    },
+    {
+      "path": "game/audio/weapons/torpedo-iii-1.wav",
+      "sha256": "c0d041201cb26f520032ecddfd1de18fcd16758ea5a312c8d8d1be18cdd28e88",
+      "bytes": 187244,
+      "equipment_id": 14
+    },
+    {
+      "path": "game/audio/weapons/torpedo-iii-2.wav",
+      "sha256": "73ff92154fbca3c90ab1bb50fc3ef62c57183941bb4dac4f6ef11e9738404f5d",
+      "bytes": 187244,
+      "equipment_id": 14
+    },
+    {
+      "path": "game/audio/weapons/torpedo-iii-3.wav",
+      "sha256": "82092a0a6d9ca1fc271ebe35afa7dede31832aed6863857f3d9d61f056d95b17",
+      "bytes": 187244,
+      "equipment_id": 14
+    }
+  ],
+  "banks": [
+    {
+      "bank": "gun",
+      "equipment_id": 0,
+      "duration": 0.82,
+      "variations": 3
+    },
+    {
+      "bank": "gun-ii",
+      "equipment_id": 1,
+      "duration": 0.73,
+      "variations": 3
+    },
+    {
+      "bank": "gun-iii",
+      "equipment_id": 2,
+      "duration": 0.98,
+      "variations": 3
+    },
+    {
+      "bank": "beam",
+      "equipment_id": 3,
+      "duration": 1.28,
+      "variations": 3
+    },
+    {
+      "bank": "beam-ii",
+      "equipment_id": 4,
+      "duration": 1.52,
+      "variations": 3
+    },
+    {
+      "bank": "beam-iii",
+      "equipment_id": 5,
+      "duration": 1.65,
+      "variations": 3
+    },
+    {
+      "bank": "plasma",
+      "equipment_id": 6,
+      "duration": 0.65,
+      "variations": 3
+    },
+    {
+      "bank": "plasma-ii",
+      "equipment_id": 7,
+      "duration": 0.55,
+      "variations": 3
+    },
+    {
+      "bank": "plasma-iii",
+      "equipment_id": 8,
+      "duration": 0.68,
+      "variations": 3
+    },
+    {
+      "bank": "mass",
+      "equipment_id": 9,
+      "duration": 0.88,
+      "variations": 3
+    },
+    {
+      "bank": "mass-ii",
+      "equipment_id": 10,
+      "duration": 0.68,
+      "variations": 3
+    },
+    {
+      "bank": "mass-iii",
+      "equipment_id": 11,
+      "duration": 1.0,
+      "variations": 3
+    },
+    {
+      "bank": "torpedo",
+      "equipment_id": 12,
+      "duration": 1.3,
+      "variations": 3
+    },
+    {
+      "bank": "torpedo-ii",
+      "equipment_id": 13,
+      "duration": 1.6,
+      "variations": 3
+    },
+    {
+      "bank": "torpedo-iii",
+      "equipment_id": 14,
+      "duration": 1.95,
+      "variations": 3
+    },
+    {
+      "bank": "eclipse",
+      "equipment_id": 42,
+      "duration": 1.42,
+      "variations": 3
+    }
+  ],
+  "attribution": "Attribution is optional under the Pixabay Content License and CC0 1.0. Contributors are credited voluntarily in About and THIRD_PARTY_NOTICES.md; per-source titles, links and hashes are recorded here."
+}

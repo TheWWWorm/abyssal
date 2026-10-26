@@ -18,11 +18,13 @@ var map: PanelContainer
 var row: HBoxContainer
 ## What is shown now: "model", "image", "portrait", "chart", "glyph" or "".
 var shown := ""
+var portrait_model := false
 
 ## Builds the picture for a page. Returns false when there is nothing to show.
 func show_media(descriptor: Dictionary, catalog, content, art, palette: Dictionary, options: Dictionary) -> bool:
 	for child in get_children(): remove_child(child); child.queue_free()
 	frame = PanelContainer.new(); caption = Label.new(); shown = ""; map = null; row = null
+	portrait_model = bool(descriptor.get("upright", false))
 	add_theme_constant_override("separation", 6)
 	var style := StyleBoxFlat.new(); style.bg_color = Color(palette.panel, 0.5); style.border_color = Color(palette.edge, 0.6)
 	style.set_border_width_all(1); style.set_corner_radius_all(4); style.set_content_margin_all(6)
@@ -42,7 +44,8 @@ func show_media(descriptor: Dictionary, catalog, content, art, palette: Dictiona
 		preview.custom_minimum_size = Vector2(200, 180)
 		# Creatures are drawn whole, head or tail joined to the body, and
 		# framed with a little room for their sway.
-		if int(descriptor.model) > 11: preview.make_creature(content); preview.radius *= 1.1
+		if bool(descriptor.get("creature", int(descriptor.model) > 11)): preview.make_creature(content); preview.radius *= 1.1
+		if bool(descriptor.get("upright", false)): preview.make_upright()
 		# The showroom frames for a wide card; a tall frame narrows the view
 		# across, so the camera stands further back in proportion.
 		var base: float = preview.radius
@@ -112,7 +115,7 @@ func _reshape() -> void:
 	# it must fit with the page's Back, so both shrink with the screen's height.
 	var screen := get_viewport_rect().size
 	var short := screen.y < 700.0
-	var height := 0.0 if band else roundf(clampf(size.x * 0.82, 120.0, minf(460.0, screen.y * 0.22) if short else 460.0))
+	var height := 0.0 if band else roundf(clampf(size.x * (1.45 if portrait_model else 0.82), 120.0, minf(460.0, screen.y * 0.22) if short else 460.0))
 	if frame.size_flags_vertical != flags: frame.size_flags_vertical = flags
 	if not is_equal_approx(frame.custom_minimum_size.y, height): frame.custom_minimum_size.y = height
 	if map == null or not is_instance_valid(map): return

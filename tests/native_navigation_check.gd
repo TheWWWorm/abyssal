@@ -15,6 +15,7 @@ func _initialize() -> void:
 	data=JSON.parse_string(FileAccess.get_file_as_string(OS.get_cmdline_user_args()[0]))
 	check_handling()
 	check_objective_routes()
+	check_stream_connections()
 	print("NATIVE_NAVIGATION %d checks; %d failures"%[checks,failures])
 	quit(1 if failures else 0)
 func pilot(handling: float):
@@ -110,7 +111,9 @@ func check_objective_routes() -> void:
 	world.objective_travel_mode=World.ObjectiveTravel.STREAM
 	expect(world.route_to(near_station) and not world.gate_navigation and world.destination==near_station,"An explicit ocean course is available with the STREAM preference")
 	world.cancel_autopilot()
-	expect(world.route_to_objective(far_station) and world.destination==far_station and world.stream_destination<0,"Objectives beyond engine reach retain continuous ocean travel")
+	world.objective_travel_mode=World.ObjectiveTravel.OPEN_WATER
+	expect(world.route_to_objective(far_station) and world.destination==far_station and world.stream_destination<0,"Open-water objectives beyond engine reach retain continuous ocean travel")
+	world.objective_travel_mode=World.ObjectiveTravel.STREAM
 	world.cancel_autopilot()
 	expect(world.route_to_objective(session.station_id) and world.destination==session.station_id and not world.gate_navigation,"Local station objectives remain local courses")
 	world.cancel_autopilot()
@@ -120,4 +123,47 @@ func check_objective_routes() -> void:
 	expect(not world.route_to_objective(near_station) and not world.autopilot,"The open-water preference preserves the same active-encounter exit lock")
 	world.region.success=null
 	expect(not world.route_to_objective(-1),"Invalid objective destinations are rejected")
+	world.dispose()
+
+func check_stream_connections() -> void:
+	var session:=Session.new();session.new_game(data,"Connected gates",91)
+	while session.campaign.chapter<48:session.campaign.next_chapter(session.counters)
+	session.campaign.primary.kind=-1
+	session.ship.minimum_depth=0;session.ship.maximum_depth=50000
+	# A deterministic three-jump route plus a slightly longer alternative.
+	# The rest of the imported atlas is isolated from this small network.
+	for station in session.stations:station.x=65;station.y=65;station.depth=22500
+	for id in 4:session.stations[id].x=id*15;session.stations[id].y=0
+	for id in [4,5]:session.stations[id].x=(id-3)*15;session.stations[id].y=1
+	session.prepare_station(0)
+	var world:=World.new();world.configure(session);world.depart()
+	expect(world.objective_stream_route(3)==[1,2,3],"Distant objectives choose the shortest of the fewest-jump routes")
+	expect(world.route_to_objective(3) and world.stream_destination==1 and world.objective_destination==3,"A distant objective starts with its first reachable gate")
+	expect(world.resume_destination==3 and world.resume_objective and world.resume_stream,"Resume retains the final objective and the STREAM route type")
+	world.cancel_autopilot()
+	expect(world.objective_destination<0 and not world.objective_route_pending and world.resume_destination==3,"Manual control cancels continuation but retains the final destination")
+	expect(world.plan_objective_stream(world.resume_destination),"The complete objective course can be resumed")
+	for target in [1,2,3]:
+		world.region.player.pose.origin=world.region.gates[world.departure_gate].duplicate()
+		world.update_gates(1000)
+		expect(world.stream_transfer() and session.station_id==target,"Each planned jump uses a reachable gate and arrives at its next stop")
+		expect(world.objective_route_pending and not world.autopilot,"The next course waits until the arrival shot ends")
+		expect(world.continue_objective_route(),"The arrival hands back to the remaining objective course")
+		if target!=3:expect(world.gate_navigation and world.stream_destination==target+1 and world.resume_destination==3,"Intermediate arrival keeps the final destination and chooses the next gate")
+	expect(world.autopilot and world.destination==3 and not world.gate_navigation and world.objective_destination<0,"The last jump continues to the local destination")
+	world.cancel_autopilot();world.enter_region(0)
+	world.route_to_objective(3);world.region.player.pose.origin=world.region.gates[0].duplicate();world.update_gates(1000);world.stream_transfer()
+	world.advance(.001,{"yaw":1.0})
+	expect(not world.continue_objective_route() and not world.autopilot,"Steering during an arrival cancels automatic continuation")
+	world.enter_region(0)
+	# Neither unsafe water nor an unrelated active encounter is an automatic
+	# intermediate stop. The requested endpoint can still be hazardous.
+	for id in [2,5]:session.stations[id].depth=50001
+	expect(world.objective_stream_route(3).is_empty(),"Unsafe intermediate depths are excluded")
+	expect(world.route_to_objective(3) and world.destination==3 and world.message.contains("open water"),"An unreachable network explains its open-water fallback")
+	session.stations[2].depth=22500
+	session.campaign.secondary.kind=3;session.campaign.secondary.destination=2
+	expect(world.objective_stream_route(3).is_empty(),"An unfinished side encounter is not used as an intermediate stop")
+	session.campaign.secondary.kind=-1;session.stations[3].depth=50001
+	expect(world.objective_stream_route(3)==[1,2,3],"The endpoint keeps the existing travel warning policy")
 	world.dispose()

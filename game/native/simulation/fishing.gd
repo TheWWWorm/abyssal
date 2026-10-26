@@ -5,7 +5,6 @@ extends RefCounted
 ## Subdued, dead or wrecked, it is drawn in at ten units a millisecond and
 ## taken aboard at four metres. A second press of the hook lets a catch go.
 const Math=preload("res://native/simulation/fixed_math.gd")
-const SpecialActor=preload("res://native/simulation/special_actor.gd")
 var weapon
 var player
 var session
@@ -36,16 +35,23 @@ func detach(count_miss: bool) -> void:
 func release() -> void:detach(true)
 
 func attach(actor) -> void:
+	audio_event("harpoon_hit",actor.pose.origin)
+	# The original retires the shot on impact, then only keeps its line for
+	# a creature, a recoverable wreck or a mine. A live hull can stop the
+	# shot, but does not become an indefinitely hooked, untowable target.
+	if not actor.is_creature and not towable(actor):
+		weapon.hooked_target=null;weapon.active=false;weapon.fired=false
+		return
 	target=actor;hooked=true;weapon.hook_busy=true;weapon.fired=false
 	original_hull=actor.health.hull
 	if actor.is_creature and actor.state!=4:actor.hook(slow_percent)
-	audio_event("harpoon_hit",actor.pose.origin)
 
-func ready_to_tow() -> bool:
-	if target.is_creature:return target.subdued or target.state==4
-	if target.model_id==13:return true
-	if target is SpecialActor and target.kind=="capsule":return target.capturable
-	return target.capturable and target.state in [3,4]
+static func towable(actor) -> bool:
+	if actor.is_creature:return actor.subdued or actor.state==4
+	if actor.model_id==13:return true
+	return actor.capturable and actor.state in [3,4]
+
+func ready_to_tow() -> bool:return towable(target)
 
 func advance(delta_ms: int) -> void:
 	if not hooked:

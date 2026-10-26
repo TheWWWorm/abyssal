@@ -98,6 +98,9 @@ def stage(project, godot, release, native_libraries=None):
     (importer/'index.html').write_text(INDEX_HTML)
     for name in ['LICENSE.md', 'THIRD_PARTY_NOTICES.md']:
         shutil.copyfile(ROOT/name, importer/name)
+    # The launch bank is credited engine audio, separate from JAR content.
+    shutil.copyfile(ROOT/'licenses/CC0-1.0.txt', importer/'licenses/CC0-1.0.txt')
+    shutil.copyfile(ROOT/'licenses/Pixabay-Content-License.txt', importer/'licenses/Pixabay-Content-License.txt')
     subprocess.run([godot, '--headless', '--script', str(ROOT/'tools/export_notices.gd'),
         '--', str(importer/'GODOT_LICENSES.txt')], check=True)
     # Secrets are supplied only to the disposable export preset, never public source.

@@ -195,8 +195,13 @@ func _draw() -> void:
 	# Over a species' range the reach is a black ring, as on the phone.
 	draw_arc(point(home.x,home.y),reach,0,TAU,96,Color("9fb4ff") if habitat_species==-1 else Color.BLACK,1.5,true)
 	if world.stream_destination>=0:
-		var arrival: Dictionary = session.stations[world.stream_destination]
-		draw_dashed_line(point(home.x,home.y),point(arrival.x,arrival.y),Color("bdabf2"),2,6)
+		var previous := point(home.x,home.y)
+		var stops: Array=world.objective_route if not world.objective_route.is_empty() else [world.stream_destination]
+		for id in stops:
+			var arrival: Dictionary=session.stations[id]
+			var next := point(arrival.x,arrival.y)
+			draw_dashed_line(previous,next,Color("bdabf2"),2,6)
+			previous=next
 	if lens_radius>0:
 		# The original's cursor: a ring with a tick on each side, marking what
 		# the side view shows.

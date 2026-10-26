@@ -570,8 +570,9 @@ static func pose_copy(material: ShaderMaterial) -> ShaderMaterial:
 	a station part first posed while its station was fading in was cached
 	half dithered, and every part sharing the pose then flickered into a
 	see-through box whenever its animation reached that frame."""
-	while material.has_meta("stream_original") or material.has_meta("portal_original") or material.has_meta("hinge_original") or material.has_meta("opaque_original"):
-		if material.has_meta("opaque_original"):material=material.get_meta("opaque_original")
+	while material.has_meta("stream_original") or material.has_meta("portal_original") or material.has_meta("hinge_original") or material.has_meta("opaque_original") or material.has_meta("weapon_original"):
+		if material.has_meta("weapon_original"):material=material.get_meta("weapon_original")
+		elif material.has_meta("opaque_original"):material=material.get_meta("opaque_original")
 		elif material.has_meta("stream_original"):material=material.get_meta("stream_original")
 		elif material.has_meta("portal_original"):material=material.get_meta("portal_original")
 		else:material=material.get_meta("hinge_original")

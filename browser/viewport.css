@@ -1,0 +1,47 @@
+/* Keep the scene edge to edge; Godot insets controls for the safe area. */
+html, body {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: absolute;
+  inset: auto;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Browser tabs follow the space available beside their changing toolbars. */
+@supports (height: 100dvh) {
+  body { width: 100dvw; height: 100dvh; }
+}
+
+/* Home Screen apps have no browser toolbar. On iOS the layout/dynamic
+   viewport can retain its shorter launch height; use the full app extent. */
+html.abyssal-standalone body {
+  width: var(--abyssal-app-width, 100vw);
+  height: var(--abyssal-app-height, 100vh);
+}
+@supports (height: 100lvh) {
+  html.abyssal-standalone body {
+    width: var(--abyssal-app-width, 100lvw);
+    height: var(--abyssal-app-height, 100lvh);
+  }
+}
+
+#canvas {
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}

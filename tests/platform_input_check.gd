@@ -88,6 +88,26 @@ func check_standard_pad(pad) -> void:
  expect(pad.read_layout(untouched)==pad.Layout.CLASSIC,"Reassigned earlier sticks keep Classic")
  untouched.set_value("input","pad_layout",pad.Layout.STANDARD)
  expect(pad.read_layout(untouched)==pad.Layout.STANDARD and pad.read_roles(untouched)[1]==pad.Role.THROTTLE,"A chosen layout keeps its saved sticks")
+func check_cooldown_redraw(touch) -> void:
+ # Each change is smaller than the former 1% threshold, with no dock pulse
+ # or input to incidentally redraw the controls. Observe actual draw events.
+ var draws: Array=[0]
+ var record:=func():draws[0]+=1
+ touch.draw.connect(record)
+ var boost: Dictionary={"mode":"charging","fraction":.2}
+ var hook: Dictionary={"mode":"reloading","fraction":.2}
+ var guns: Dictionary=hook.duplicate()
+ touch.show_state(1,false,boost,false,1,true,true,hook,guns)
+ await process_frame;await process_frame
+ for channel in [boost,hook,guns]:
+  for frame in 4:
+   var before: int=draws[0]
+   channel.fraction+=.002
+   touch.show_state(1,false,boost,false,1,true,true,hook,guns)
+   await process_frame;await process_frame
+   expect(draws[0]>before,"Every small cooldown change redraws without unrelated input")
+ touch.draw.disconnect(record)
+ touch.show_state(1,false,{"mode":"ready","fraction":1.0},false,1,true,true,{"mode":"ready","fraction":1.0},{"mode":"ready","fraction":1.0})
 func run() -> void:
  preload("decline_reconstruction.gd").attach(self)
  var pad=preload("res://native/input/flight_controls.gd").new()
@@ -137,6 +157,7 @@ func run() -> void:
  var touch=preload("res://native/input/touch_controls.gd").new();root.add_child(touch);touch.mode=1;touch.set_active(true)
  await process_frame
  check_weapon_taps(touch)
+ await check_cooldown_redraw(touch)
  check_mirrored_throttle(touch)
  check_throttle_slider(touch)
  for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2560,1080)]:
@@ -227,6 +248,13 @@ func run() -> void:
  expect(looked.look.x>0 and looked.look.y<0,"Dragging the free surface looks around")
  expect(touch.snapshot().look==Vector2.ZERO,"Look delta is consumed once per frame")
  expect(touch.snapshot().yaw>0,"Looking around does not disturb the steering stick")
+ # Web touchmove batches can contain either finger alone, in either order.
+ # Their engine-provided relative may incorrectly span the other finger.
+ drag(touch,0,landing+Vector2(45,-20),Vector2(-700,400))
+ drag(touch,3,free+Vector2(55,-20),Vector2(700,-400))
+ expect(touch.snapshot().look==Vector2(5,4),"Interleaved steering and look use only the look finger's displacement")
+ drag(touch,3,free+Vector2(55,-20),Vector2(-700,400))
+ expect(touch.snapshot().look==Vector2.ZERO,"A stationary look finger cannot jump when the other thumb moves")
  finger(touch,3,free,false)
  expect(touch.orbit_held(),"The camera stays swung after the look finger lifts")
  finger(touch,0,landing,false);expect(touch.steer==Vector2.ZERO and touch.stick_center.is_equal_approx(touch.stick_home),"Releasing the stick returns it home")
@@ -235,6 +263,11 @@ func run() -> void:
  expect(not touch.orbit_held(),"Touching the stick again brings the camera back")
  finger(touch,3,free,true);finger(touch,3,free,false);touch.look_released_ms-=touch.ORBIT_HOLD_MS+1
  expect(not touch.orbit_held(),"The camera comes back by itself after a few seconds")
+ finger(touch,3,free+Vector2(100,0),true)
+ drag(touch,3,free+Vector2(102,3),Vector2(600,300))
+ expect(touch.snapshot().look==Vector2(2,3),"Reusing a lifted touch ID starts a new displacement history")
+ finger(touch,3,free,false,true)
+ expect(not touch.finger_positions.has(3),"A cancelled touch drops its movement history")
  touch.snapshot()
  # A fixed stick stays put; a touch has to land on it to steer.
  touch.fixed_stick=true
@@ -250,6 +283,11 @@ func run() -> void:
  finger(touch,6,touch.zones.guns.get_center()+Vector2(70,0),true)
  expect(touch.fingers.get(6,"")=="guns","An inset overlay maps screen touches onto its buttons")
  finger(touch,6,touch.zones.guns.get_center()+Vector2(70,0),false);touch.position=Vector2.ZERO
+ touch.scale=Vector2(2,2);touch.position=Vector2(70,20)
+ var scaled_free: Vector2=touch.get_global_transform_with_canvas()*free
+ finger(touch,6,scaled_free,true);drag(touch,6,scaled_free+Vector2(12,-8),Vector2(600,-400))
+ expect(touch.snapshot().look==Vector2(6,-4),"Scaled and inset controls measure camera drags in their own coordinates")
+ finger(touch,6,scaled_free,false);touch.scale=Vector2.ONE;touch.position=Vector2.ZERO
  var margins=preload("res://native/platform/safe_margins.gd")
  var landscape: Dictionary=margins.margins(Vector2(1280,589),Vector2i(2000,920),true)
  expect(landscape.side>=60 and landscape.top==0,"A widescreen phone held landscape keeps the interface off both side edges")

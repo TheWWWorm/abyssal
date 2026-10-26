@@ -12,8 +12,7 @@ var saved_audio: Array = []
 var restored := false
 var pivot := Vector3.ZERO
 var home_pivot := Vector3.ZERO
-var yaw := 0.0
-var pitch := 0.0
+var orientation := Basis.IDENTITY
 var distance := 50.0
 var minimum_distance := 4.0
 var toolbar: PanelContainer
@@ -21,6 +20,7 @@ var controls_visible := true
 var fingers := {}
 var pinch_span := 0.0
 var pinch_center := Vector2.ZERO
+var pinch_angle := 0.0
 
 func configure(owner) -> void:
 	game=owner
@@ -82,12 +82,13 @@ func build_toolbar() -> void:
 	var rows := VBoxContainer.new()
 	toolbar.add_child(rows)
 	var touching: bool=game!=null and game.touch.enabled()
-	caption(tr("Action freeze").to_upper()+"  ·  "+(tr("Drag to orbit  ·  Two fingers to pan and zoom") if touching
+	caption(tr("Action freeze").to_upper()+"  ·  "+(tr("Drag to orbit  ·  Two fingers to pan, zoom and roll") if touching
 		else tr("Drag to orbit  ·  Right-drag to pan  ·  Wheel to zoom")),14,rows)
 	var actions := HFlowContainer.new()
 	actions.alignment=FlowContainer.ALIGNMENT_CENTER
 	rows.add_child(actions)
-	for item in [["−",zoom.bind(1.15)],["+",zoom.bind(1.0/1.15)],[tr("Lights"),toggle_lights],
+	for item in [["−",zoom.bind(1.15)],["+",zoom.bind(1.0/1.15)],
+			[tr("Roll left"),roll_camera.bind(PI/12)],[tr("Roll right"),roll_camera.bind(-PI/12)],[tr("Lights"),toggle_lights],
 			[tr("Reset camera"),reset_camera],[tr("Hide panel"),toggle_panel],
 			[tr("Back to pause"),dismiss.bind(false)],[tr("Resume"),dismiss.bind(true)]]:
 		var node := Button.new()
@@ -98,7 +99,7 @@ func build_toolbar() -> void:
 		node.pressed.connect(item[1])
 		actions.add_child(node)
 	caption((tr("Double-tap to bring the panel back") if touching
-		else tr("H panel  ·  R reset  ·  L lights  ·  Esc back  ·  Pad: right stick orbit, left stick pan, triggers zoom")),11,rows)
+		else tr("Q/E roll  ·  H panel  ·  R reset  ·  L lights  ·  Esc back  ·  Pad: right stick orbit, left stick pan, triggers zoom, shoulders roll")),11,rows)
 
 func dismiss(resume: bool) -> void:
 	"""Marks the event handled before tearing anything down: emitting first frees
@@ -123,13 +124,19 @@ func reset_camera() -> void:
 	var offset: Vector3 = saved_camera.origin-pivot
 	if offset.length()<minimum_distance: offset=saved_camera.basis.z*minimum_distance*2.0
 	distance=offset.length()
-	yaw=atan2(offset.x,offset.z)
-	pitch=asin(clampf(offset.y/maxf(distance,.001),-.9999,.9999))
+	var up := saved_camera.basis.y
+	if absf(offset.normalized().dot(up))>.999:up=saved_camera.basis.x
+	orientation=Basis.looking_at(-offset,up)
 	apply_camera()
 
 func orbit(movement: Vector2) -> void:
-	yaw-=movement.x*.006
-	pitch=clampf(pitch+movement.y*.006,-PI*.47,PI*.47)
+	# Rotate about the camera's own axes. A world-up look_at has a pole at
+	# either end of a vertical orbit and cannot retain a rolled composition.
+	orientation=(orientation*Basis(Vector3.UP,-movement.x*.006)*Basis(Vector3.RIGHT,-movement.y*.006)).orthonormalized()
+	apply_camera()
+
+func roll_camera(radians: float) -> void:
+	orientation=(orientation*Basis(Vector3.BACK,radians)).orthonormalized()
 	apply_camera()
 
 func pan(movement: Vector2) -> void:
@@ -141,8 +148,7 @@ func zoom(multiplier: float) -> void:
 	apply_camera()
 
 func apply_camera() -> void:
-	game.camera.global_position=pivot+Vector3(sin(yaw)*cos(pitch),sin(pitch),cos(yaw)*cos(pitch))*distance
-	game.camera.look_at(pivot,Vector3.UP)
+	game.camera.global_transform=Transform3D(orientation,pivot+orientation.z*distance)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouse and event.device==InputEvent.DEVICE_ID_EMULATION: return
@@ -165,11 +171,14 @@ func _gui_input(event: InputEvent) -> void:
 			var points: Array = fingers.values()
 			var span: float = points[0].distance_to(points[1])
 			var center: Vector2 = (points[0]+points[1])*.5
+			var angle: float = (points[1]-points[0]).angle()
 			if pinch_span>0 and span>0:
 				zoom(pinch_span/span)
 				pan(center-pinch_center)
+				roll_camera(wrapf(angle-pinch_angle,-PI,PI))
 			pinch_span=span
 			pinch_center=center
+			pinch_angle=angle
 	accept_event()
 
 func _input(event: InputEvent) -> void:
@@ -182,6 +191,7 @@ func _input(event: InputEvent) -> void:
 			KEY_H: toggle_panel()
 			KEY_R: reset_camera()
 			KEY_L: toggle_lights()
+			KEY_Q, KEY_E: pass # Held roll is sampled each frame below.
 			KEY_ESCAPE, KEY_P: dismiss(false); return
 			_: return
 		var window := get_viewport()
@@ -197,6 +207,9 @@ func _input(event: InputEvent) -> void:
 		if window!=null: window.set_input_as_handled()
 
 func _process(seconds: float) -> void:
+	if not visible:return
+	var roll_axis := float(Input.is_physical_key_pressed(KEY_Q))-float(Input.is_physical_key_pressed(KEY_E))
+	if roll_axis!=0:roll_camera(roll_axis*seconds)
 	var devices := Input.get_connected_joypads()
 	if devices.is_empty(): return
 	var device: int = devices[0]
@@ -206,3 +219,5 @@ func _process(seconds: float) -> void:
 	if slide.length()>.15: pan(slide*seconds*150)
 	var closer := Input.get_joy_axis(device,JOY_AXIS_TRIGGER_LEFT)-Input.get_joy_axis(device,JOY_AXIS_TRIGGER_RIGHT)
 	if absf(closer)>.1: zoom(exp(closer*seconds))
+	var bank := float(Input.is_joy_button_pressed(device,JOY_BUTTON_LEFT_SHOULDER))-float(Input.is_joy_button_pressed(device,JOY_BUTTON_RIGHT_SHOULDER))
+	if bank!=0:roll_camera(bank*seconds)

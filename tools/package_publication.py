@@ -18,6 +18,7 @@ import zipfile
 
 from paths import ROOT
 from package_source import source_files, ARTWORK
+from weapon_audio_assets import AUDIO, verify_audio_payload
 
 PRIVATE = {'.jar', '.class', '.abyss', '.mbac', '.mtra', '.amr', '.mid',
            '.midi', '.ogg', '.wav', '.glb', '.gltf', '.blend', '.keystore'}
@@ -33,11 +34,11 @@ def digest(path):
         return result.hexdigest()
 
 
-def safe_name(name):
+def safe_name(name, allow_audio=False):
     path = PurePosixPath(name)
     if not name or path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name:
         raise ValueError('Unsafe archive path: ' + name)
-    if path.suffix.lower() in PRIVATE or PRIVATE_DIRS.intersection(path.parts):
+    if (path.suffix.lower() in PRIVATE and not (allow_audio and path.suffix.lower()=='.wav')) or PRIVATE_DIRS.intersection(path.parts):
         raise ValueError('Private content path: ' + name)
 
 
@@ -47,6 +48,24 @@ def reviewed_icon(resource, source_names):
         imported='.godot/imported/'+Path(source).name+'-'+hashlib.md5(('res://'+source[5:]).encode()).hexdigest()+'.ctex'
         if resource==imported and source in source_names:return True
     return False
+
+
+def reviewed_audio(resource, source_names):
+    for source in AUDIO & source_names:
+        imported = '.godot/imported/'+Path(source).name+'-'+hashlib.md5(('res://'+source[5:]).encode()).hexdigest()+'.sample'
+        if resource in {imported, source[5:], source[5:]+'.import'}:
+            return True
+    return False
+
+
+def archived_audio(name, source_names):
+    # These are source/publication roots, never arbitrary runtime data folders.
+    for prefix in ('abyssal-engine/', 'engine/'):
+        if name.startswith(prefix):
+            source = name[len(prefix):]
+            if source in AUDIO & source_names:
+                return source
+    return ''
 
 
 # NVIDIA's GeForce RTX badge and the splash made with it are NVIDIA's
@@ -91,7 +110,8 @@ def pck_entries(data, source_names):
         offset, size = struct.unpack_from('<QQ', data, cursor)
         entry_flags, = struct.unpack_from('<I', data, cursor + 32)
         cursor += 36
-        safe_name(name)
+        audio = reviewed_audio(name, source_names)
+        safe_name(name, allow_audio=audio)
         if entry_flags or base + offset + size > len(data):
             raise ValueError('Invalid/encrypted game pack payload: ' + name)
         source = name[:-6] if name.endswith('.remap') else name
@@ -102,8 +122,10 @@ def pck_entries(data, source_names):
         generated = name in {'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
         scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', name)
         icon = reviewed_icon(name, source_names) or supplied_artwork(name)
-        if not generated and not scene and not icon and 'game/' + source not in source_names:
+        if not generated and not scene and not icon and not audio and 'game/' + source not in source_names:
             raise ValueError('Unreviewed resource in game pack: ' + name)
+        if audio and name.endswith('.wav'):
+            verify_audio_payload(data[base+offset:base+offset+size], 'game/'+name)
         names.append(name)
     if len(names) != len(set(names)):
         raise ValueError('Duplicate game pack entry')
@@ -118,13 +140,16 @@ def inspect_zip(data, source_names, depth=0):
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         seen = set()
         for info in archive.infolist():
-            safe_name(info.filename)
+            audio_source = archived_audio(info.filename, source_names)
+            safe_name(info.filename, allow_audio=bool(audio_source))
             if info.filename in seen or stat.S_ISLNK(info.external_attr >> 16):
                 raise ValueError('Duplicate entry or link: ' + info.filename)
             seen.add(info.filename)
             if info.is_dir():
                 continue
             payload = archive.read(info)  # also checks CRC
+            if audio_source:
+                verify_audio_payload(payload, audio_source)
             count += 1
             if info.filename.endswith('.zip'):
                 nested, nested_packs = inspect_zip(payload, source_names, depth + 1)
@@ -145,7 +170,9 @@ def inspect_apk(path, source_names):
     for name, source in {'bootstrap.js':'android/bootstrap.js', 'import.js':'android/import.js', 'audio.js':'browser/audio.js',
                          'worker.js':'browser/worker.js', 'dependencies.json':'browser/dependencies.json',
                          'android-dependencies.json':'android/dependencies.json',
-                         'LICENSE.md':'LICENSE.md', 'THIRD_PARTY_NOTICES.md':'THIRD_PARTY_NOTICES.md'}.items():
+                         'LICENSE.md':'LICENSE.md', 'THIRD_PARTY_NOTICES.md':'THIRD_PARTY_NOTICES.md',
+                         'licenses/CC0-1.0.txt':'licenses/CC0-1.0.txt',
+                         'licenses/Pixabay-Content-License.txt':'licenses/Pixabay-Content-License.txt'}.items():
         expected[name] = digest(ROOT/source)
     with zipfile.ZipFile(path) as archive:
         if archive.testzip() is not None: raise ValueError('Corrupt APK')
@@ -166,14 +193,17 @@ def inspect_apk(path, source_names):
         for name in names:
             if not name.startswith('assets/') or name.startswith(prefix) or name.endswith('/'): continue
             resource = name[len('assets/'):]
-            safe_name(resource)
+            audio = reviewed_audio(resource, source_names)
+            safe_name(resource, allow_audio=audio)
             source = resource[:-7] if resource.endswith('.import') else resource[:-6] if resource.endswith('.remap') else resource
             if source.endswith('.gdc'): source=source[:-1]
             generated = resource in {'_cl_', 'assets.sparsepck', 'dexopt/baseline.prof', 'dexopt/baseline.profm', 'project.binary', '.godot/global_script_class_cache.cfg', '.godot/uid_cache.bin'}
             scene = re.fullmatch(r'\.godot/exported/\d+/export-[a-f0-9]+-native_main\.scn', resource)
             icon = reviewed_icon(resource, source_names)
-            if not generated and not scene and not icon and 'game/'+source not in source_names:
+            if not generated and not scene and not icon and not audio and 'game/'+source not in source_names:
                 raise ValueError('Unreviewed Android game asset: '+resource)
+            if audio and resource.endswith('.wav'):
+                verify_audio_payload(archive.read(name), 'game/'+resource)
         abis={name.split('/')[1] for name in names if name.endswith('/libgodot_android.so')}
         if abis != {'arm64-v8a','x86_64'}: raise ValueError('Unexpected Android architectures')
     return {'file':path.name, 'archive_entries_including_nested':len(names),
@@ -189,13 +219,16 @@ def inspect_archive(path, source_names):
         count, packs, seen = 0, [], set()
         with tarfile.open(path, 'r:gz') as archive:
             for member in archive:
-                safe_name(member.name)
+                audio_source = archived_audio(member.name, source_names)
+                safe_name(member.name, allow_audio=bool(audio_source))
                 if member.name in seen or not (member.isfile() or member.isdir()):
                     raise ValueError('Duplicate entry or special file: ' + member.name)
                 seen.add(member.name)
                 if member.isdir():
                     continue
                 payload = archive.extractfile(member).read()
+                if audio_source:
+                    verify_audio_payload(payload, audio_source)
                 count += 1
                 if member.name.endswith('.zip'):
                     nested, nested_packs = inspect_zip(payload, source_names)
@@ -248,7 +281,10 @@ def inventory(folder):
             raise ValueError('Symbolic link in publication folder: ' + str(path))
         if path.is_file() and path != folder / MANIFEST:
             name = path.relative_to(folder).as_posix()
-            safe_name(name)
+            audio_source = archived_audio(name, AUDIO)
+            safe_name(name, allow_audio=bool(audio_source))
+            if audio_source:
+                verify_audio_payload(path.read_bytes(), audio_source)
             result[name] = digest(path)
     return result
 

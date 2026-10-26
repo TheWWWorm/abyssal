@@ -68,6 +68,9 @@ func select_at_station(station_id: int, show_briefing: bool = true) -> void:
 
 func dialogue(mission, phase: int) -> Array:
 	if not mission.story: return []
+	# Raymond's confrontation is phase 3 in br.c/bo; br.b advances chapter
+	# 27 without replaying that table after the container has been recovered.
+	if chapter==27 and phase==1:return []
 	var tables: Dictionary = data.constants.bo
 	var key := "a:[[S" if phase == 0 else "b:[[S"
 	if chapter >= tables[key].size(): return []

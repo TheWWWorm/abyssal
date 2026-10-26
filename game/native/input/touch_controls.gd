@@ -35,6 +35,7 @@ var layout_preview := false:
 var unit := 1.0
 var active := false
 var fingers := {}
+var finger_positions := {}
 const DOUBLE_TAP_MS := 320
 var automatic_weapons := {}
 var weapon_presses := {}
@@ -150,7 +151,7 @@ func update_input(event: InputEvent, deadzone: float=.18) -> void:
 		reset();refresh_visibility()
 func reset() -> void:
 	automatic_weapons.clear();weapon_presses.clear();weapon_touches.clear();last_weapon_tap=""
-	fingers.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;orbit_hold=false;queue_redraw()
+	fingers.clear();finger_positions.clear();steer=Vector2.ZERO;look=Vector2.ZERO;engaged=false;stick_center=stick_home;orbit_hold=false;queue_redraw()
 func orbit_held() -> bool:
 	"""Whether the camera should stay where a look drag swung it."""
 	if "look" in fingers.values(): return true
@@ -328,7 +329,9 @@ func handle(event: InputEvent) -> bool:
 	if event is InputEventScreenTouch or event is InputEventScreenDrag:
 		event=event.duplicate();event.position=get_global_transform_with_canvas().affine_inverse()*event.position
 	if event is InputEventScreenTouch:
+		if not event.pressed:finger_positions.erase(event.index)
 		if event.pressed:
+			finger_positions[event.index]=event.position
 			var key:=button_at(event.position)
 			if not key.is_empty() and key not in fingers.values():
 				fingers[event.index]=key
@@ -377,10 +380,16 @@ func handle(event: InputEvent) -> bool:
 			queue_redraw();return true
 	if event is InputEventScreenDrag and fingers.has(event.index):
 		var key: String=fingers[event.index]
+		# Web touch batches can reorder or omit fingers that did not move.
+		# Some engine versions calculate relative against the batch slot, not
+		# the touch ID, so it can contain the distance to the other thumb.
+		# Our own per-finger positions also keep deltas in overlay coordinates.
+		var relative: Vector2=event.position-finger_positions.get(event.index,event.position)
+		finger_positions[event.index]=event.position
 		if weapon_touches.has(event.index) and event.position.distance_to(weapon_touches[event.index].position)>24*unit:
 			weapon_touches[event.index].valid=false
 		if key=="steer":move_stick(event.position)
-		elif key=="look":look+=event.relative
+		elif key=="look":look+=relative
 		elif key=="throttle":slide(event.position)
 		return true
 	return false
@@ -403,7 +412,10 @@ func show_state(throttle: float, dock: bool, boost: Dictionary, autopilot: bool,
 	var sliding: bool="throttle" in fingers.values()
 	var reload: float=float(harpoon.fraction) if harpoon.get("mode","")=="reloading" else 1.0
 	var rearming: float=float(gun_reload.fraction) if gun_reload.get("mode","")=="reloading" else 1.0
-	var changed: bool=absf(reload-harpoon_reload)>.01 or absf(rearming-guns_reload)>.01 or hook!=has_hook or guns!=has_guns or dock!=dock_ready or autopilot!=autopilot_on or speed!=time_speed or boost.mode!=boost_mode or absf(boost.fraction-boost_fraction)>.01 or (not sliding and absf(throttle-throttle_level)>.001)
+	# A long cooldown changes by less than one percent per frame. Comparing
+	# against that threshold while storing every sample suppressed all redraws
+	# until an unrelated control changed, making the fill jump forward.
+	var changed: bool=not is_equal_approx(reload,harpoon_reload) or not is_equal_approx(rearming,guns_reload) or hook!=has_hook or guns!=has_guns or dock!=dock_ready or autopilot!=autopilot_on or speed!=time_speed or boost.mode!=boost_mode or not is_equal_approx(boost.fraction,boost_fraction) or (not sliding and absf(throttle-throttle_level)>.001)
 	if not sliding:throttle_level=throttle
 	var rearm: bool=hook!=has_hook or guns!=has_guns
 	has_hook=hook;has_guns=guns

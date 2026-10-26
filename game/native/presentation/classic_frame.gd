@@ -54,7 +54,12 @@ func harpoon_width() -> float:
 func rail(rect: Rect2, amount: float, lit: Color) -> void:
 	var count := int(rect.size.x/5)
 	for index in count:
-		draw_rect(Rect2(rect.position+Vector2(index*5,0),Vector2(3,rect.size.y)),lit if (index+.5)/count<=amount else Color("1d3c48cc"))
+		var segment := Rect2(rect.position+Vector2(index*5,0),Vector2(3,rect.size.y))
+		draw_rect(segment,Color("1d3c48cc"))
+		var filled := clampf(amount*count-index,0,1)
+		if filled>0:
+			segment.size.x*=filled
+			draw_rect(segment,lit)
 func words(at: Vector2, value: String, colour: Color, pixels: int=11, align:=HORIZONTAL_ALIGNMENT_LEFT, width:=-1.0) -> void:
 	draw_string(font,at,value,align,width,pixels,colour)
 func _draw() -> void:

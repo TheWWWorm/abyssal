@@ -224,6 +224,7 @@ func _ready() -> void:
 	title_menu.help_requested.connect(show_help)
 	title_menu.mods_requested.connect(show_mods)
 	title_menu.about_requested.connect(show_about)
+	title_menu.demo_requested.connect(func():launch_game(false,"Demo","",true))
 	fullscreen_button=FullscreenButton.new(func(): FullscreenButton.toggle(func(text): status.text=text))
 	var start_config := ConfigFile.new();start_config.load(settings_path)
 	SettingsMenu.apply_menu_keys(start_config)
@@ -1052,6 +1053,7 @@ func show_about(page: String="") -> void:
 			var visit := button(str(link[0])+"  ·  "+address.trim_prefix("https://").trim_suffix("/"),func():OS.shell_open(address),body)
 			visit.name="Link"+str(body.get_child_count());visit.tooltip_text=address
 		paragraph.call(tr("Free software under the Apache License 2.0."),12,Color("a2c3d3"))
+		paragraph.call(tr("Sound effects")+": RescopicSound, DRAGON-STUDIO, ejah_music · Pixabay Content License\nfelix.blume · CC0 1.0",12,Color("a2c3d3"))
 		var sdks: Control=GraphicsCredits.panel()
 		if sdks!=null: body.add_child(sdks)
 	var back := button(tr("Back"),close_modal,box)
@@ -1500,6 +1502,8 @@ func apply_setting(section: String, key: String) -> void:
 		["audio","music"]: title_dock.set_music(clampf(float(config.get_value("audio","music",0.65)),0,1))
 		["audio","effects"]: audio.effects_gain=clampf(float(config.get_value("audio","effects",0.75)),0,1);audio.apply_levels()
 		["audio","title_music"]: audio.title_choice=title_dock.title_choice(config)
+		["audio","weapon_sounds"]: audio.set_weapon_sounds_enabled(SettingsMenu.config_flag(config,"audio","weapon_sounds",true))
+		["graphics","weapon_effects"]: title_dock.view.combat.set_enhanced_weapons(SettingsMenu.config_flag(config,"graphics","weapon_effects",true))
 		["graphics","audio"]: title_dock.set_audio_enabled(bool(config.get_value("graphics","audio",true)))
 		["graphics","modern"]: title_dock.set_lighting(bool(config.get_value("graphics","modern",true)));apply_render_quality()
 		["graphics","station_smoothing"]: title_dock.view.set_station_smoothing(bool(config.get_value("graphics","station_smoothing",false)))
@@ -1515,7 +1519,7 @@ func apply_setting(section: String, key: String) -> void:
 			title_dock.set_lighting(bool(config.get_value("graphics","modern",true)));apply_render_quality()
 		["view","orientation"]: Display.apply_orientation(clampi(int(config.get_value("view","orientation",0)),0,2))
 
-func launch_game(resume: bool=false, player_name: String="Pilot", path: String="") -> void:
+func launch_game(resume: bool=false, player_name: String="Pilot", path: String="", demo: bool=false) -> void:
 	if not ready_for_preview or launching or outdated_import() or ReconstructionDialog.is_open(): return
 	if path.is_empty():path=save_path
 	var chapter := 1
@@ -1545,6 +1549,7 @@ func launch_game(resume: bool=false, player_name: String="Pilot", path: String="
 	if get_window().size_changed.is_connected(fit_window):get_window().size_changed.disconnect(fit_window)
 	var gameplay=load("res://native/gameplay.gd").new()
 	gameplay.save_path=save_path;gameplay.load_path=path;gameplay.settings_path=settings_path
+	gameplay.demo_mode=demo
 	gameplay.launch_cover=cover
 	gameplay.content=content; gameplay.continue_save=resume; gameplay.player_face=face_layers.duplicate(); gameplay.player_photo=face_photo; gameplay.player_name=tr("Pilot") if player_name.is_empty() else player_name
 	get_tree().root.add_child(gameplay); get_tree().current_scene=gameplay; queue_free()

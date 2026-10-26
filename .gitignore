@@ -23,8 +23,9 @@
 *.amr
 *.mbac
 *.mtra
-# Only reviewed, independently authored UI assets may be committed.
+# Reviewed UI assets and provenance-checked weapon recordings may be committed.
 !game/ui/**
+!game/audio/weapons/*.wav
 !browser/favicon.png
 !browser/apple-touch-icon.png
 !browser/icon-192.png

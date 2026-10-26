@@ -8,6 +8,7 @@ signal quit_requested
 signal help_requested
 signal mods_requested
 signal about_requested
+signal demo_requested
 var continue_button: Button
 var new_button: Button
 var status: Label
@@ -16,6 +17,9 @@ var rule: ColorRect
 var choices := VBoxContainer.new()
 var footer: Button
 var edition: Label
+var demo_hotspot := Button.new()
+var demo_taps := 0
+var demo_last_tap := -1
 var logo := TextureRect.new()
 var panel := PanelContainer.new()
 var menu_title: Label
@@ -65,6 +69,11 @@ func _ready() -> void:
 	footer=entry(tr("Choose game JAR…"),func():tools_requested.emit(),false,"cargo")
 	edition=caption(edition_text(),12,palette.faint)
 	edition.add_theme_font_override("font",StationTheme.spaced(edition.get_theme_font("font"),3))
+	# A normal Button consumes one activation per tap, including iOS's
+	# emulated mouse events. It adds no visible entry to the main menu.
+	add_child(demo_hotspot);demo_hotspot.focus_mode=Control.FOCUS_NONE
+	for state in ["normal","hover","pressed","focus"]:demo_hotspot.add_theme_stylebox_override(state,StyleBoxEmpty.new())
+	demo_hotspot.pressed.connect(tap_edition)
 	rule=ColorRect.new();rule.color=Color(palette.edge,.6);rule.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(rule)
 	add_child(help);help.hide();update_help()
 	help.add_theme_font_size_override("font_size",15);help.modulate=palette.text;help.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT;help.mouse_filter=Control.MOUSE_FILTER_IGNORE;help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
@@ -78,6 +87,13 @@ func edition_text(jar: String="") -> String:
 	var version := str(ProjectSettings.get_setting("application/config/version",""))
 	var text := "ABYSSAL" if version.is_empty() else "ABYSSAL  /  "+version
 	return text if jar.is_empty() else text+"  ·  "+jar
+
+func tap_edition(now: int=-1) -> void:
+	if now<0:now=Time.get_ticks_msec()
+	if demo_last_tap<0 or now-demo_last_tap>1500:demo_taps=0
+	demo_last_tap=now;demo_taps+=1
+	if demo_taps==7:
+		demo_taps=0;demo_last_tap=-1;demo_requested.emit()
 
 func load_content(directory: String, jar: String="") -> void:
 	edition.text=edition_text(jar)
@@ -129,6 +145,8 @@ func layout() -> void:
 	help.position=Vector2(left,minf(below,size.y-(help.get_combined_minimum_size().y+12)*unit))
 	footer.scale=Vector2.ONE*unit;footer.size=Vector2(column,42);footer.position=Vector2(left,size.y-94*unit)
 	edition.scale=Vector2.ONE*unit;edition.position=Vector2(left,size.y-33*unit)
+	demo_hotspot.position=Vector2(left,size.y-maxf(44,44*unit))
+	demo_hotspot.size=Vector2(minf(size.x-left-16,maxf(column*unit,edition.get_combined_minimum_size().x*unit)),maxf(44,44*unit))
 	rule.position=Vector2(16,size.y-110*unit);rule.size=Vector2(size.x-32,1)
 	queue_redraw()
 
