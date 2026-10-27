@@ -679,7 +679,7 @@ func iconic(node: Button, icon: String, extent: float=26.0) -> Button:
 static func plain_money(text: String) -> String:
 	return Coin.dollars(text)
 func money_text(body: RichTextLabel, text: String) -> void:
-	body.text=Coin.dollars(text)
+	body.text=Coin.coins(Coin.dollars(text))
 func label(text: String, size: int=18, parent: Node=null) -> Label:
 	var node := Label.new(); node.text=plain_money(text); node.add_theme_font_size_override("font_size",size); node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; node.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	(parent if parent!=null else column).add_child(node); return node
