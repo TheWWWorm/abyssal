@@ -125,7 +125,9 @@ func _initialize() -> void:
 	actor.health.configure(100,0,0);actor.model_id=0;actor.radius=2000;actor.pose.origin=[0,0,70000]
 	collision.region.friends.append(actor)
 	collision.region.player.pose.origin=[0,0,60000];collision.update_collision_bodies()
-	expect(not collision.ship_collisions and not collision.active_collision_bodies.has(actor),"Ship contact is optional and off by default")
+	expect(collision.ship_collisions and collision.active_collision_bodies.has(actor),"Vessels turn the player away by default")
+	collision.ship_collisions=false;collision.update_collision_bodies()
+	expect(not collision.active_collision_bodies.has(actor),"Explicitly disabling ship contact removes vessels from steering")
 	collision.region.player.pose.origin=[0,0,80000];collision.resolve_body_contact([0,0,60000])
 	expect(collision.region.player.pose.origin==[0,0,80000] and not collision.region.player.contact,"Disabled ship contact cannot stop or carry the player")
 	collision.ship_collisions=true;collision.update_collision_bodies()
@@ -145,6 +147,12 @@ func _initialize() -> void:
 	collision.region.friends=[tanker];collision.region.player.pose.origin=at.call(0,3000);collision.update_collision_bodies()
 	expect(not collision.collides_station(at.call(0,0)),"The freighter test water is clear of the station")
 	expect(tanker.contains(at.call(5000,0)) and not tanker.contains(at.call(0,3000)),"Freighter steering contact follows the vessel's heading")
+	var contact_normal: Array=tanker.avoidance_normal(at.call(5000,500))
+	expect(contact_normal[0]>4000 and contact_normal[2]>300,"Freighter contact steers away from its centre, not only its nearest face")
+	tanker.dormant();collision.update_collision_bodies()
+	expect(collision.active_collision_bodies.has(tanker),"An intact dormant freighter keeps its steering contact")
+	check_freighter_steering(collision,tanker)
+	tanker.activate();collision.region.player.pose.origin=at.call(0,3000)
 	collision.region.player.contact=false;collision.resolve_body_contact(at.call(0,3500))
 	expect(collision.region.player.pose.origin==at.call(0,3000) and not collision.region.player.contact,"Beside a freighter heading across the world's z axis the water is open")
 	collision.region.player.pose.origin=at.call(5000,0);collision.resolve_body_contact(at.call(9000,0))
@@ -323,3 +331,30 @@ func _initialize() -> void:
 		crossing_ms+=crossing.session.elapsed_ms; crossing.dispose()
 	print("NATIVE_TRAVEL ",failures," failures; multi-leg simulated milliseconds ",total_ms,"; terrain crossings ",crossing_ms,"; pressure routes ",pressure_routes)
 	quit(1 if failures else 0)
+
+func check_freighter_steering(world, tanker) -> void:
+	var math=preload("res://native/simulation/fixed_math.gd")
+	var player=world.region.player
+	var old_origin: Array=tanker.pose.origin.duplicate()
+	var center: Array=[0,0,100000]
+	tanker.pose.origin=center.duplicate()
+	for dormant in [false,true]:
+		if dormant:tanker.dormant()
+		else:tanker.activate()
+		for approach in [[9000,0,0],[0,0,3000]]:
+			player.pose.origin=math.added(center,approach)
+			player.pose.face(math.scaled(approach,-4096))
+			player.set_throttle(100);player.autopilot_target=null
+			var hull: int=player.health.hull
+			var contacts:=0;var largest_step:=0.0
+			for tick in 250:
+				var before: Array=player.pose.origin.duplicate()
+				world.update_collision_bodies();player.advance(40);world.resolve_body_contact(before)
+				if player.contact:contacts+=1
+				largest_step=maxf(largest_step,math.vector(math.subtracted(player.pose.origin,before)).length())
+				expect(player.pose.origin[1]==0,"Freighter avoidance stays at safe depth on a level approach")
+			var away: Vector3=math.vector(math.subtracted(player.pose.origin,center)).normalized()
+			expect(contacts>0 and not tanker.contains(player.pose.origin),"A %s freighter turns a head-on or broadside approach clear of its hull"%("dormant" if dormant else "live"))
+			expect(away.dot(math.vector(player.pose.forward).normalized())>.5,"The submarine leaves a freighter pointing away from it")
+			expect(largest_step<=81.0 and player.health.hull==hull,"Freighter avoidance keeps normal movement without teleporting or ramming damage")
+	tanker.pose.origin=old_origin;world.update_collision_bodies()

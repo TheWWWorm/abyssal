@@ -173,9 +173,10 @@ func buy_equipment(station: Dictionary,item) -> int:
 	session.medals.observe_credits(session.credits);return -1
 
 func sell_equipment_denial(station: Dictionary,item) -> int:
-	# The Eclipse stays until the war is won; a cargo unit cannot go while
-	# the hold needs it.
-	if item.id==42 and not session.campaign.finished():return 290
+	# Protect the Eclipse once the story can issue it (chapter 41). Older
+	# saves can carry an early shop copy, which must not trap an armed loadout.
+	# A cargo unit cannot go while the hold needs it.
+	if item.id==42 and session.campaign.chapter>=41 and not session.campaign.finished():return 290
 	if item not in session.ship.equipment:return 144
 	if item.kind==5:
 		var without: int=int(Math.f32(float(session.ship.capacity())-Math.f32(Math.f32(float(item.parameters[0])/100.0)*float(session.ship.base_cargo))))

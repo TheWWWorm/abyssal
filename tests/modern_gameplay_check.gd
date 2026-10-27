@@ -235,6 +235,10 @@ func run():
  expect(delivery_session.ship.cargo_used==3,"Docking preserves cargo for deliveries and player-directed trading")
  expect(delivery_session.campaign.completion(true,0,0,delivery_session.ship,delivery_session.counters)==delivery,"Delivery remains eligible after docking")
  var payment_before: int=delivery_session.credits
+ var completion_text: String=delivery_session.dialogue(delivery,1)[0].text
+ expect(completion_text.contains(delivery_session.tr("Reward: %d cr")%500),"Freelance completion names the exact contract reward")
+ expect(delivery_session.credits==payment_before,"Displaying a reward does not pay it before completion")
+ expect(not delivery_session.dialogue(delivery,2)[0].text.contains(delivery_session.tr("Reward: %d cr")%500),"A failed contract never announces a reward")
  delivery_session.complete_mission(delivery);delivery_session.complete_mission(delivery)
  expect(delivery_session.ship.cargo_used==1 and delivery_session.credits==payment_before+500,"Delivery consumes required goods and pays only once")
  delivery_session.campaign.rebel_stations[0]=false

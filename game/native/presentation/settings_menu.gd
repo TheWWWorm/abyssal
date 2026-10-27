@@ -21,6 +21,7 @@ const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Reconstruction = preload("res://native/textures/reconstructed_textures.gd")
 const ReconstructionDialog = preload("res://native/presentation/reconstruction_dialog.gd")
 const DiscordPresence = preload("res://native/platform/discord_presence.gd")
+enum FishingFeedback { LINE, TIMER, BOTH, NONE }
 
 ## Tabs in order of how often they are reached for: sound first, input last
 ## but one, and the world rules that only matter between dives at the end.
@@ -423,7 +424,14 @@ func chooser(title: String, names: Array, current: int, key: String, choose: Cal
 	list.get_popup().popup_hide.connect(func(): list.set_meta("closed_at",Time.get_ticks_msec()))
 	node.pressed.connect(func():
 		if Time.get_ticks_msec()-int(list.get_meta("closed_at",-10000))<300:return
-		list.show_popup())
+		list.show_popup()
+		# Embedded menus include the frame's padding after placement. Keep
+		# that last few pixels, and every choice, inside the scaled viewport.
+		var popup := list.get_popup()
+		if popup.is_embedded():
+			var bounds := get_viewport().get_visible_rect()
+			var low := bounds.position+Vector2(6,6)
+			popup.position=Vector2i(Vector2(popup.position).clamp(low,(bounds.end-Vector2(popup.size)-Vector2(6,6)).max(low))))
 	var arrow := StationIcon.new("down",colours().accent,14 if not touch else 18);node.add_child(arrow)
 	arrow.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
 	var extent: float=arrow.custom_minimum_size.x
@@ -906,7 +914,7 @@ func gameplay_page() -> void:
 	group(tr("Navigation"))
 	chooser(tr("Objective travel"),[tr("Prefer S.T.R.E.A.M."),tr("Open water")],index("gameplay","objective_travel",0,1),"objective_travel",func(next):put("gameplay","objective_travel",next))
 	note(tr("Prefer S.T.R.E.A.M. via intermediate stations, or travel through the open ocean."))
-	toggle(tr("Ship collisions"),"gameplay","ship_collisions",false)
+	toggle(tr("Ship collisions"),"gameplay","ship_collisions",true)
 	note(tr("Turn away on contact with vessels, as in the original. Station walls remain solid."))
 	toggle(tr("Boost field of view"),"view","boost_fov",true)
 	toggle(tr("Gameplay tips & control hints"),"interface","hints",true)
@@ -918,6 +926,8 @@ func gameplay_page() -> void:
 	toggle(tr("Autopilot status line"),"interface","autopilot_status",false)
 	toggle(tr("Friendly contact labels"),"interface","friend_labels",true)
 	group(tr("Interface"))
+	chooser(tr("Fishing feedback"),[tr("Fishing line"),tr("Timer on fish"),tr("Both"),tr("None")],index("interface","fishing_feedback",FishingFeedback.BOTH,FishingFeedback.NONE),"fishing_feedback",func(next):put("interface","fishing_feedback",next))
+	note(tr("Animated line at the bottom, remaining struggle count beside the fish, or both."))
 	var markers: int=(2 if flag("graphics","depth_limits_always",false) else 1) if flag("graphics","depth_limits",true) else 0
 	chooser(tr("Depth limit markers"),[tr("Off"),tr("Near limits"),tr("Always")],markers,"depth_limits",func(next):
 		put("graphics","depth_limits_always",next==2,false);put("graphics","depth_limits",next>0))

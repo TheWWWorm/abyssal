@@ -51,5 +51,24 @@ void fragment(){
   ALBEDO=mix(tint*.055,warm,filament*.8+rim*.12);
   ALPHA=.72+rim*.22;
  }
+ // Mass-driver energy keeps a bright leading point and a long, narrow
+ // streak. Texture motion follows simulation phase, including action freeze.
+ if(part==9 || part==11){
+  float along=clamp((p.z+6.75)/13.5,0.0,1.0);
+  float fade=1.0-smoothstep(.65,1.0,along);
+  float fleck=noise(vec3(p.xy*25.0,p.z*3.2-phase*12.0));
+  float thread=pow(.5+.5*sin(p.z*20.0-phase*25.0+atan(p.y+.00001,p.x+.00001)*3.0),4.0);
+  vec3 filament=mix(tint,vec3(.85,.95,1.0),.12);
+  ALBEDO=tint*.18+filament*(.22+.6*fleck+.2*thread);
+  ALPHA=(.5+.45*fleck)*fade;
+  if(part==11){ALBEDO=mix(tint,warm,.65)*(.65+.25*thread);ALPHA=.85*fade;}
+ }
+ if(part==10){
+  float radius=length(p.xy);
+  float core=exp(-radius*radius*8.0);
+  ALBEDO=mix(tint*.45,mix(tint,vec3(.90,.96,1.0),.7),core);
+  EMISSION=tint*core*.3;
+  ALPHA=(.12+.88*sqrt(core))*(1.0-smoothstep(.8,1.25,radius));
+ }
  ALPHA*=opacity;
 }

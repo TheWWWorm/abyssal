@@ -268,4 +268,5 @@ func dialogue(mission, phase: int) -> Array:
  var choices: Array = data.constants.e[key]
  var ending := text(int(choices[rng.next_int(choices.size())]),name)
  var message := text(int(data.constants.e["k:[S"][mission.kind]),name)+"\n\n"+ending if phase==0 else ending+"\n\n"+text(92 if phase==1 else 228)
+ if phase==1:message+="\n"+tr("Reward: %d cr")%mission.reward
  return [{"speaker":mission.sponsor,"text":message,"portrait":mission.portrait}]

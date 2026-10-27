@@ -9,6 +9,9 @@ const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const Reconstruction = preload("res://native/textures/reconstructed_textures.gd")
 const ReconstructionDialog = preload("res://native/presentation/reconstruction_dialog.gd")
 var content := Content.new()
+## A dive hands back the content it already loaded. Fresh starts and imports
+## still verify the files; returning to the title keeps this live session.
+var returning_from_game := false
 var camera := Camera3D.new()
 var abyss := preload("res://native/presentation/abyss.gd").new()
 var model: Node3D
@@ -333,7 +336,10 @@ func _ready() -> void:
 			"--cache": cache_path=args[i+1]
 			"--capture": capture_path=args[i+1]
 	if "--lights-off" in args: toggle_lights()
-	if not cache_path.is_empty():
+	if returning_from_game and not content.root.is_empty():
+		selected_jar=jar_path
+		prepare_title(true)
+	elif not cache_path.is_empty():
 		selected_jar=jar_path
 		open_cache(cache_path)
 	elif "--choose-jar" in args: status.text=tr("Choose your DEEP JAR to begin."); chooser.popup_centered_ratio(0.65)
@@ -492,11 +498,11 @@ func open_cache(path: String, verify_files: bool=true) -> void:
 		ask_language(question[0],question[1]);return
 	await prepare_title()
 
-func prepare_title() -> void:
+func prepare_title(reuse_content := false) -> void:
 	if apply_language():
 		# Another game's language: the title is drawn again in it.
 		get_tree().reload_current_scene.call_deferred();return
-	begin_content_work(tr("Preparing your local game content…"))
+	begin_content_work(tr("Loading…") if reuse_content else tr("Preparing your local game content…"))
 	await get_tree().process_frame
 	await get_tree().process_frame
 	catalog.clear()
@@ -507,7 +513,7 @@ func prepare_title() -> void:
 	for i in content.registry.size():
 		if int(content.registry[i].id)==0: initial=i; break
 	catalog.select(initial)
-	Reconstruction.restore(content.root,start_config_now())
+	if not reuse_content:Reconstruction.restore(content.root,start_config_now())
 	title_dock.load_content(content,save_path,settings_path)
 	apply_render_quality()
 	# The title builds station modules in batches; keep its progress visible
@@ -518,8 +524,9 @@ func prepare_title() -> void:
 	ready_for_preview=true
 	if inspector_open:show_model(initial)
 	finish_content_work();update_old_import()
-	await offer_reconstruction()
-	if wants_graphics_probe():start_graphics_probe.call_deferred()
+	if not reuse_content:
+		await offer_reconstruction()
+		if wants_graphics_probe():start_graphics_probe.call_deferred()
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): launch_game.call_deferred()
 
 func offer_reconstruction() -> void:

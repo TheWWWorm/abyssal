@@ -47,5 +47,32 @@ func run():
  expect(restored!=null and restored.rng.next_int(10000)==session.rng.next_int(10000),"Saved native RNG restores its next result")
  state.schema=1;state.erase("random_engine");state.random_state="12345"
  expect(saves.restore(synthetic,state)!=null,"Previous engine save migrates into native RNG")
+ check_eclipse_resale(data)
  print("PROVENANCE_RULES ",checks," checks; ",failures," failures")
  quit(1 if failures else 0)
+
+func check_eclipse_resale(data: Dictionary) -> void:
+ var session:=Session.new();session.new_game(data,"Early Eclipse",621)
+ session.campaign.chapter=12;session.station_id=28
+ session.ship.equipment.fill(null);session.ship.recompute()
+ var eclipse=session.make_equipment(42);session.ship.equip(eclipse)
+ var saves=preload("res://native/simulation/save_store.gd").new()
+ var restored=saves.restore(data,JSON.parse_string(JSON.stringify(saves.capture(session))))
+ expect(restored!=null,"An early shop Eclipse survives loading an existing save")
+ if restored==null:return
+ var economy:=Economy.new();economy.configure(restored)
+ var station: Dictionary=restored.stations[28]
+ eclipse=restored.ship.equipment.filter(func(item):return item!=null and item.id==42)[0]
+ restored.medals.evaluate(restored,100)
+ expect(restored.medals.pending[15]==0,"An installed Eclipse counts as armed for Pacifist")
+ var credits: int=restored.credits
+ expect(economy.sell_equipment(station,eclipse)==-1 and restored.credits==credits,"An early zero-price Eclipse can be removed without creating credits")
+ restored.medals.reset_trip();restored.medals.evaluate(restored,100)
+ expect(restored.medals.pending[15]>0,"Selling the early Eclipse permits an unarmed Pacifist trip")
+ for chapter in [41,42,47,48]:
+  restored.campaign.chapter=chapter
+  restored.ship.equipment.fill(null);restored.ship.recompute()
+  var story=restored.make_equipment(42);restored.ship.equip(story)
+  var blocked: bool=not restored.campaign.finished()
+  expect((economy.sell_equipment(station,story)==290)==blocked,"Eclipse resale follows the story protection boundary at chapter %d"%chapter)
+  expect(restored.ship.equipment.has(story)==blocked,"A protected story Eclipse stays aboard at chapter %d"%chapter)

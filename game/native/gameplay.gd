@@ -24,6 +24,7 @@ const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
 const GraphicsCredits = preload("res://native/presentation/graphics_credits.gd")
 var content
+var returning_to_menu := false
 var imported_art := preload("res://native/presentation/imported_art.gd").new()
 var stream_prompted := false
 var departure_elapsed := 0.0
@@ -138,6 +139,8 @@ class Reticle extends Control:
 			draw_arc(c,15.0,middle-.32,middle+.32,8,mark,2.0,true)
 var crosshair := Reticle.new()
 var struggle := preload("res://native/presentation/catch_progress.gd").new()
+var catch_counter := Label.new()
+var fishing_feedback := SettingsMenu.FishingFeedback.BOTH
 var instruments := preload("res://native/presentation/flight_instruments.gd").new()
 var condition := preload("res://native/presentation/ship_condition.gd").new()
 var bank_label := Label.new()
@@ -182,9 +185,8 @@ var bank_fire_hold := false
 ## auto fire working the guns only while they are selected. Off, auto fire
 ## always works the guns. Either way auto fire never fires the harpoon.
 var original_weapons := false
-## Automatic fire a transmission interrupted in flight, resumed when it ends:
-## a message mid-fight must not leave the guns silent. Menus the player opens
-## still stop it.
+## Automatic weapons suspended by a transmission, pause or Action freeze.
+## Resuming the same dive restores them; opening another menu stops them.
 var interrupted_auto := {}
 var modern_graphics := true
 var travel_status := Label.new()
@@ -323,6 +325,11 @@ func _ready() -> void:
 	ui.add_child(hud); hud.position=Vector2(26,24); hud.clip_text=true; hud.add_theme_font_size_override("font_size",18); hud.add_theme_color_override("font_color",Color("c9e7ea"))
 	ui.add_child(objective_label); objective_label.position=Vector2(26,82); objective_label.bbcode_enabled=true; objective_label.scroll_active=false; objective_label.mouse_filter=Control.MOUSE_FILTER_IGNORE; objective_label.add_theme_color_override("default_color",Color("b7cbd0"))
 	ui.add_child(struggle);struggle.size=Vector2(340,64);struggle.hide()
+	ui.add_child(catch_counter);catch_counter.mouse_filter=Control.MOUSE_FILTER_IGNORE;catch_counter.z_index=1
+	catch_counter.add_theme_font_size_override("font_size",22)
+	catch_counter.add_theme_color_override("font_color",Color.WHITE)
+	catch_counter.add_theme_color_override("font_outline_color",Color("02060c"))
+	catch_counter.add_theme_constant_override("outline_size",5);catch_counter.hide()
 	ui.add_child(travel_status);travel_status.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;travel_status.add_theme_font_size_override("font_size",15);travel_status.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	travel_status.add_theme_color_override("font_color",Color("8bd6ee"));travel_status.add_theme_color_override("font_shadow_color",Color.BLACK);travel_status.add_theme_constant_override("shadow_offset_y",2)
 	message.z_index=50;message.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
@@ -699,11 +706,13 @@ func confirm(title: String, question: String, accept: String, act: Callable, can
 	label(question,17)
 	button(accept,act)
 	button(tr("Cancel"),cancel)
+	back_row(cancel)
 func open_page(title: String, id: String, subtitle: String="") -> void:
 	demo_weapon_bar.release_contacts();demo_weapon_bar.hide()
-	if id=="dialogue" and page.is_empty() and session!=null and not session.docked:
+	catch_counter.hide()
+	if id in ["dialogue","pause"] and page.is_empty() and session!=null and not session.docked:
 		interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
-	elif not (id=="dialogue" and page=="dialogue"):interrupted_auto={}
+	elif not (id==page and id in ["dialogue","pause"]) and not (id=="pause" and page=="freeze"):interrupted_auto={}
 	clear_notice_history();wheel_throttle_remainder=0.0
 	# A checked offer is marked only on the chart that was opened for it.
 	if id!="map":Map.preview_mission=null
@@ -1131,6 +1140,7 @@ func catch_in_view(point: Array) -> bool:
 	return Rect2(ui.position,ui.size).has_point(camera.unproject_position(at))
 func update_catch_feedback(region, show_feedback: bool) -> void:
 	struggle.hide()
+	if fishing_feedback not in [SettingsMenu.FishingFeedback.LINE,SettingsMenu.FishingFeedback.BOTH]:return
 	var phase: float=view.combat.visual_time
 	for hook in region.fishing:
 		var id: int=hook.weapon.equipment_id if hook.weapon!=null else 15
@@ -1158,6 +1168,26 @@ func update_catch_feedback(region, show_feedback: bool) -> void:
 			struggle.present("struggle",100.0*(1.0-remaining/total),id,phase,kind,remaining*.001)
 			struggle.visible=show_feedback
 		break
+func update_catch_counter() -> void:
+	"""cx displays af's remaining struggle count beside the hooked creature,
+	independently of the scanner. Project after this frame's camera is placed."""
+	catch_counter.hide()
+	if fishing_feedback not in [SettingsMenu.FishingFeedback.TIMER,SettingsMenu.FishingFeedback.BOTH]:return
+	if not page.is_empty() or session.docked or world.region==null or world.region.cinematic() or view.transit_progress>=0 or view.departure_progress>=0:return
+	for hook in world.region.fishing:
+		var target=hook.target
+		if not hook.hooked or target==null or not target.is_creature:continue
+		if hook.towing or hook.ready_to_tow() or target.health.hull<=0:continue
+		var at: Vector3=world.render_pose(target).origin
+		if camera.is_position_behind(at):continue
+		var screen: Vector2=ui.get_global_transform().affine_inverse()*camera.unproject_position(at)
+		if not Rect2(Vector2.ZERO,ui.size).has_point(screen):continue
+		var ray:=PhysicsRayQueryParameters3D.create(camera.global_position,at,2);ray.hit_back_faces=true
+		if not view.get_world_3d().direct_space_state.intersect_ray(ray).is_empty():continue
+		catch_counter.text=str(target.countdown());catch_counter.size=catch_counter.get_minimum_size()
+		var desired:=screen+Vector2(12,-catch_counter.size.y-8)
+		catch_counter.position=desired.clamp(Vector2.ONE*6,(ui.size-catch_counter.size-Vector2.ONE*6).max(Vector2.ONE*6)).round()
+		catch_counter.show();return
 func auto_firing() -> bool:
 	"""Auto fire works the guns and never the harpoon. With the original
 	controls it works the selected bank, so selecting the harpoon pauses it
@@ -1951,6 +1981,9 @@ func show_action_freeze() -> void:
 	"""Holds the dive still and hands the camera over. Nothing is simulated or
 	saved while frozen, so resuming continues the same dive untouched."""
 	if session.docked or world.region==null or is_instance_valid(freeze_view): return
+	if page.is_empty():interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
+	auto_fire=false;weapon_presses.clear();world.weapon_pending.clear()
+	catch_counter.hide()
 	page="freeze"
 	overlay.hide()
 	touch.set_active(false)
@@ -1971,9 +2004,8 @@ func end_action_freeze(resume: bool) -> void:
 		freeze_view.queue_free()
 	freeze_view=null
 	view.process_mode=Node.PROCESS_MODE_INHERIT
-	page=""
-	if resume: close_page()
-	else: show_pause()
+	if resume:close_page()
+	else:show_pause()
 func show_transfer() -> void:
 	if session.demo_mode:notice(tr("Demo sessions are not saved."));return
 	open_page(tr("Transfer save"),"transfer")
@@ -2132,7 +2164,7 @@ func read_settings() -> void:
 	world.set_smooth_steering(bool(config.get_value("input","smooth_steering",false)))
 	world.set_manual_roll(bool(config.get_value("input","manual_roll",false)))
 	world.objective_travel_mode=setting_index(config,"gameplay","objective_travel",0,1)
-	world.ship_collisions=bool(config.get_value("gameplay","ship_collisions",false))
+	world.ship_collisions=bool(config.get_value("gameplay","ship_collisions",true))
 	view.boost_fov=bool(config.get_value("view","boost_fov",true))
 	original_weapons=bool(config.get_value("input","original_weapons",false));touch.original_weapons=original_weapons
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
@@ -2146,6 +2178,7 @@ func read_settings() -> void:
 	autopilot_status=bool(config.get_value("interface","autopilot_status",false))
 	friend_labels=bool(config.get_value("interface","friend_labels",true))
 	waypoint_edge=bool(config.get_value("interface","waypoint_edge",true))
+	fishing_feedback=setting_index(config,"interface","fishing_feedback",SettingsMenu.FishingFeedback.BOTH,SettingsMenu.FishingFeedback.NONE)
 	retro=bool(config.get_value("interface","retro_hud",true))
 	damage_feedback.flash_enabled=bool(config.get_value("interface","hit_flash",true))
 	hit_shake=bool(config.get_value("interface","hit_shake",true))
@@ -2210,6 +2243,7 @@ func save_settings() -> void:
 	config.set_value("interface","flight_messages",flight_messages);config.set_value("interface","dock_prompts",dock_prompts)
 	config.set_value("interface","autopilot_status",autopilot_status);config.set_value("interface","friend_labels",friend_labels)
 	config.set_value("interface","waypoint_edge",waypoint_edge)
+	config.set_value("interface","fishing_feedback",fishing_feedback)
 	config.set_value("interface","retro_hud",retro)
 	config.set_value("audio","music",dive_audio.music_gain); config.set_value("audio","effects",dive_audio.effects_gain)
 	config.set_value("graphics","weapon_effects",view.combat.enhanced_weapons)
@@ -2614,8 +2648,21 @@ func reload_game(path: String="") -> void:
 	TravelFade.uncover(ui)
 	if fell_back: notice(tr("Your save could not be read. Restored the previous checkpoint."))
 func return_to_menu() -> void:
+	if returning_to_menu:return
+	returning_to_menu=true
 	if session.docked: save_game(false)
-	world.dispose(); get_tree().change_scene_to_file("res://scenes/native_main.tscn")
+	set_process(false)
+	finish_return_to_menu.call_deferred()
+func finish_return_to_menu() -> void:
+	var menu=load("res://scenes/native_main.tscn").instantiate()
+	menu.content=content;menu.returning_from_game=true
+	menu.settings_path=settings_path;menu.save_path=save_path
+	# Let the dive release its world and restore the canvas before the title
+	# takes over the same viewport. Only the loaded content crosses over.
+	var tree := get_tree()
+	get_parent().remove_child(self)
+	tree.root.add_child(menu);tree.current_scene=menu
+	queue_free()
 func buy_limit(item) -> int:
 	"""What the purse, the hold and the station's shelf allow, whichever runs out
 	first. A free commodity would divide by nothing, so it buys what fits."""
@@ -3163,6 +3210,7 @@ func encounter_marker_label() -> String:
 	return tr("Mission target")
 
 func update_markers() -> void:
+	update_catch_counter()
 	if not page.is_empty() or world.region.cinematic() or view.transit_progress>=0:
 		for marker in markers: marker.hide()
 		return
@@ -3217,7 +3265,7 @@ func update_markers() -> void:
 			if button.has_area() and touch.shown(id):occupied.append(Rect2(touch.get_global_transform()*button.position,button.size*touch.get_global_transform().get_scale()))
 	# The objective runs taller than the labels' top margin on touch.
 	if objective_label.visible:occupied.append(Rect2(objective_label.global_position,Vector2(objective_label.size.x,minf(objective_label.size.y,objective_label.get_content_height()))*objective_label.scale))
-	for feedback in [hazard_warning,struggle,travel_status,message]:
+	for feedback in [hazard_warning,struggle,catch_counter,travel_status,message]:
 		if feedback.visible and (not feedback is Label or not feedback.text.is_empty()):occupied.append(feedback.get_global_rect())
 	# An enemy's hull bar gives way to these panels only, not to other labels.
 	var panels:=occupied.size()

@@ -12,6 +12,7 @@ var failures := 0
 var menu
 var output := ""
 var opening := false
+var return_verifications := 0
 
 func _initialize() -> void:run.call_deferred()
 func expect(ok: bool, message: String) -> void:
@@ -86,6 +87,26 @@ func run() -> void:
 		expect(await wait_for(func():return not Dialog.is_open()),"In-game settings reuse the generated cache")
 		expect(game.view.library.texture("data/textures/deep.bmp").get_width()==1024 and game.view.library.normal_map("data/textures/deep.bmp").get_width()==1024,"In-game settings reapply reconstructed colour and normals")
 		await capture("gameplay-settings")
-		game.queue_free();await settle()
+		# Model a graphics recommendation interrupted by entering the game.
+		# Returning must not restart that benchmark or re-verify the live import.
+		var live_content=game.content
+		var active_directory: String=Reconstruction.active.get(live_content.root,"")
+		config=ConfigFile.new();config.load(CONFIG);config.erase_section_key("graphics","detection");config.save(CONFIG)
+		var saved_settings := FileAccess.get_file_as_string(CONFIG)
+		game.return_to_menu()
+		expect(await wait_for(func():return current_scene!=null and current_scene.get_script()==Main),"Return to main menu installs the actual title scene")
+		menu=current_scene
+		if menu!=null:
+			menu.pack_importer.progress.connect(func(_done,_total):return_verifications+=1)
+			expect(await wait_for(func():return menu.ready_for_preview and not menu.content_starting),"The returned title becomes usable")
+			await settle()
+			expect(menu.content==live_content and return_verifications==0,"Returning reuses the loaded content without rereading or verifying the import")
+			expect(menu.settings_path==CONFIG and menu.save_path==DIRECTORY+"/save.json","Returning preserves the expedition's settings and save paths")
+			expect(Reconstruction.active.get(live_content.root,"")==active_directory and not Dialog.is_open(),"Returning retains reconstruction without another offer or validation")
+			expect(menu.title_dock.view.library.texture("data/textures/deep.bmp").get_width()==1024 and menu.title_dock.view.library.normal_map("data/textures/deep.bmp").get_width()==1024,"Reconstructed colour and normals remain enabled on return")
+			expect(not menu.probing() and not menu.title_dock.view.backdrop_close,"An interrupted graphics benchmark does not restart on return")
+			expect(FileAccess.get_file_as_string(CONFIG)==saved_settings,"Returning does not rewrite the saved reconstruction or graphics choices")
+			await capture("returned-title")
+			await close_menu()
 	cleanup.remove_tree(DIRECTORY);Reconstruction.active.clear()
 	print("RECONSTRUCTION_STARTUP ",failures," failures");quit(1 if failures else 0)

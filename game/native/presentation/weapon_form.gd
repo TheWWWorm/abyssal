@@ -108,16 +108,12 @@ func configure(id: int, color: Color) -> void:
 		ring(.87*power,.055,.1,-4,Vector3(-.65,.3,0),TAU*.78,2)
 		add_piece(spindle([Vector2(.65,0),Vector2(.48,1.4),Vector2(.3,2.7),Vector2(0,4.5)]),4,Vector3.ZERO,Vector3(power,power,1))
 	elif family=="mass":
-		add_piece(spindle([Vector2(0,-2.0),Vector2(.33,-1.1),Vector2(.35,1.8),Vector2(.52,2.1),Vector2(.52,2.35),Vector2(0,2.45)],16),1,Vector3.ZERO,Vector3(power,power,power))
-		for side in 4:
-			var a:=TAU*side/4
-			var strut:=add_piece(spindle([Vector2(.025,-1.3),Vector2(.065,.1),Vector2(.035,2.25)],8),2,Vector3(cos(a)*.40,sin(a)*.40,0)*power,Vector3(power,power,power))
-			strut.rotation.z=a
-		for side in 4:
-			var a:=TAU*side/4
-			var fin:=BoxMesh.new();fin.size=Vector3(.55,.075,.36)
-			var n:=add_piece(fin,2,Vector3(cos(a)*.5,sin(a)*.5,1.8)*power,Vector3.ONE*power);n.rotation.z=a
-		add_piece(spindle([Vector2(.42,2.1),Vector2(.7,3),Vector2(0,7)]),4,Vector3.ZERO,Vector3(power,power,1))
+		# The original is an elongated energy bolt with a flared leading
+		# point. Its narrow, textured trail has no metal casing or fins.
+		var size: Vector3=Vector3.ONE*[1.0,4.0/3.0,16.0/9.0][tier]
+		add_piece(spindle([Vector2(0,-6.8),Vector2(.11,-6.55),Vector2(.09,5.9),Vector2(0,6.75)],8),11,Vector3.ZERO,size)
+		add_piece(spindle([Vector2(0,-6.8),Vector2(.25,-6.5),Vector2(.28,3.8),Vector2(.20,6.25),Vector2(0,6.75)],8),9,Vector3.ZERO,size)
+		add_piece(spindle([Vector2(0,-6.85),Vector2(1.21,-6.65),Vector2(.25,-6.35),Vector2(0,-6.2)],4),10,Vector3.ZERO,size)
 	elif family=="coil":
 		add_piece(spindle([Vector2(0,-3.5),Vector2(.16,-1),Vector2(.21,1.0),Vector2(0,7.5)]),0,Vector3.ZERO,Vector3(power,power,power))
 		for i in 3+tier:
@@ -152,7 +148,7 @@ func advance(time: float, camera: Camera3D, rear: float=1000.0) -> void:
 	# obeying depth and never inflating into a white bloom sprite.
 	var distance:=global_position.distance_to(camera.global_position)
 	var pixel:=distance*2.0*tan(deg_to_rad(camera.fov*.5))/maxf(1,camera.get_viewport().get_visible_rect().size.y)
-	var base: float={"rail":1.8,"fusion":1.4,"coil":1.5,"mass":1.7,"torpedo":1.0,"hook":1.7,"eclipse":1.5}.get(family,1.0)
+	var base: float={"rail":1.8,"fusion":1.4,"coil":1.5,"mass":1.0,"torpedo":1.0,"hook":1.7,"eclipse":1.5}.get(family,1.0)
 	var factor:=clampf(maxf(base,pixel*(5.0 if family in ["mass","coil"] else 6.0)),base,8.0 if family=="hook" else 4.0)
 	scale=Vector3(factor,factor,1.0)
 	if family=="hook":scale*=HARPOON_HEAD_SCALE

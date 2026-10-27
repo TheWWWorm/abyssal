@@ -105,7 +105,10 @@ func run() -> void:
 	expect(view.combat.torpedo_wakes.size()==wake_count,"Repeated frozen frames emit no duplicate wake particles")
 	if DisplayServer.get_name()!="headless":
 		await check_ribbon(view)
-		await check_modern_forms()
+		var mass_colors: Dictionary={}
+		for form in view.combat.modern_forms.values():
+			if form.family=="mass":mass_colors[form.equipment]=form.tint
+		await check_modern_forms(mass_colors)
 	view.modern_graphics=true;view.combat.update(region,0,0)
 	for i in 40:view.combat.hook_line(Vector3.ZERO,Vector3(4,0,0),weapons[15])
 	expect(view.combat.hook_count==32,"Tether hardware respects its fixed pool capacity")
@@ -232,12 +235,38 @@ func white_pixels(viewport: SubViewport) -> int:
 			if not is_finite(pixel.r+pixel.g+pixel.b) or minf(pixel.r,minf(pixel.g,pixel.b))>.94:result+=1
 	return result
 
-func check_modern_forms() -> void:
+func check_mass_bolt(form, viewport: SubViewport, camera: Camera3D, environment: Environment) -> void:
+	camera.projection=Camera3D.PROJECTION_ORTHOGONAL;camera.size=30
+	camera.position=Vector3(20,0,0);camera.look_at(Vector3.ZERO)
+	environment.background_color=Color(.01,.03,.06)
+	form.advance(.35,camera);await frame_energy(viewport)
+	var frozen:=viewport.get_texture().get_image()
+	var background:=frozen.get_pixel(0,0)
+	var low:=Vector2i(192,192);var high:=Vector2i.ZERO
+	var colored:=0;var visible:=0
+	for y in frozen.get_height():
+		for x in frozen.get_width():
+			var pixel:=frozen.get_pixel(x,y)
+			if maxf(absf(pixel.r-background.r),maxf(absf(pixel.g-background.g),absf(pixel.b-background.b)))<.12:continue
+			low=low.min(Vector2i(x,y));high=high.max(Vector2i(x,y));visible+=1
+			if pixel.s>.5:colored+=1
+	var span:=high-low
+	expect(span.x>60 and span.x>span.y*4,"Mass Driver %d draws a long, thin energy streak from the side"%form.equipment)
+	expect(visible>0 and colored>visible*.9,"Mass Driver %d retains its supplied pigment throughout its energy trail"%form.equipment)
+	expect(form.pieces.all(func(piece):return piece.material_override.shader!=form.SOLID),"Mass Driver %d has no metal projectile casing"%form.equipment)
+	form.advance(.35,camera);await frame_energy(viewport)
+	expect(frozen.get_data()==viewport.get_texture().get_image().get_data(),"Frozen Mass Driver %d retains the same energy texture"%form.equipment)
+	form.advance(.75,camera);await frame_energy(viewport)
+	expect(frozen.get_data()!=viewport.get_texture().get_image().get_data(),"Mass Driver %d energy texture advances with simulation time"%form.equipment)
+	camera.projection=Camera3D.PROJECTION_PERSPECTIVE
+
+func check_modern_forms(mass_colors: Dictionary) -> void:
 	var viewport:=SubViewport.new();viewport.size=Vector2i(192,192);viewport.own_world_3d=true;viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS;root.add_child(viewport)
 	var env:=WorldEnvironment.new();env.environment=Environment.new();env.environment.background_mode=Environment.BG_COLOR;viewport.add_child(env)
 	var camera:=Camera3D.new();viewport.add_child(camera)
 	for id in [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,42]:
-		var form=preload("res://native/presentation/weapon_form.gd").new();form.configure(id,[Color("13c8ff"),Color("ffae14"),Color("e8273a")][id%3]);viewport.add_child(form)
+		var pigment: Color=mass_colors.get(id,[Color("13c8ff"),Color("ffae14"),Color("e8273a")][id%3])
+		var form=preload("res://native/presentation/weapon_form.gd").new();form.configure(id,pigment);viewport.add_child(form)
 		for bright in [false,true]:
 			env.environment.background_color=Color(.56,.70,.78) if bright else Color(.01,.03,.06)
 			for at in [Vector3(0,8,60),Vector3(40,8,10)]:
@@ -245,6 +274,14 @@ func check_modern_forms() -> void:
 				await frame_energy(viewport)
 				expect(contrast_pixels(viewport)>8,"Modern weapon %d has a readable silhouette at %s with bright water %s"%[id,at,bright])
 				expect(white_pixels(viewport)==0,"Modern weapon %d has no white obscuring flash"%id)
+				if id in [12,13,14]:
+					# A visible wake can hide a missing physical projectile in a
+					# whole-effect test. Inspect the metal alone on both backgrounds.
+					for piece in form.pieces:piece.visible=piece.material_override.shader==form.SOLID
+					await frame_energy(viewport)
+					expect(contrast_pixels(viewport)>8,"Weapon %d retains its physical body without the energy field at %s with bright water %s"%[id,at,bright])
+					for piece in form.pieces:piece.show()
+		if id in [9,10,11]:await check_mass_bolt(form,viewport,camera,env.environment)
 		var rotation: Array=form.moving.map(func(m):return m.node.rotation)
 		form.advance(.35,camera)
 		expect(form.moving.map(func(m):return m.node.rotation)==rotation,"Frozen weapon %d does not animate on wall time"%id)

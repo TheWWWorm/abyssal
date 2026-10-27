@@ -431,6 +431,7 @@ func check_station_availability(game) -> void:
  game.close_page()
 
 func check_continuous_catch(game) -> void:
+ var feedback_mode: int=game.fishing_feedback;game.fishing_feedback=game.SettingsMenu.FishingFeedback.LINE
  var region=game.world.region
  var fish=load("res://native/simulation/creature.gd").new()
  fish.struggle_total=5000;fish.struggle_remaining=5000;fish.struggle_time=0
@@ -451,6 +452,7 @@ func check_continuous_catch(game) -> void:
  game.update_catch_feedback(region,true)
  expect(game.struggle.visible and absf(game.struggle.value-50)<.1 and game.struggle.stage=="reel" and game.struggle.timer.text=="0.5 s","Reeling retains its diagram and countdown through collection")
  region.fishing=original;game.update_catch_feedback(region,false)
+ game.fishing_feedback=feedback_mode
 
 func check_catch_notice(game) -> void:
  # A catch names what went into the hold and its weight, not only "Caught".
@@ -476,7 +478,9 @@ func check_dialogue_keeps_auto_fire(game) -> void:
  game.close_page()
  expect(game.auto_fire and game.touch.automatic_weapons.has("guns"),"Automatic fire resumes when the transmission ends")
  game.show_pause();game.close_page()
- expect(not game.auto_fire and not game.touch.automatic_weapons.has("guns"),"A menu the player opens still stops automatic fire")
+ expect(game.auto_fire and game.touch.automatic_weapons.has("guns"),"Pause preserves automatic fire as in the original")
+ game.show_ship_status();game.close_page()
+ expect(not game.auto_fire and not game.touch.automatic_weapons.has("guns"),"Opening another menu stops automatic fire")
 
 func check_radio_chain(game) -> void:
  # cq holds the water through a whole exchange: a line waiting on the one
@@ -1208,6 +1212,19 @@ func check_confirmations(game) -> void:
  expect(game.page=="confirm","Reloading a checkpoint asks before discarding progress")
  named_button(game,"Cancel").pressed.emit();await process_frame
  expect(game.page=="pause","Declining a reload leaves the dive untouched")
+ game.session.docked=true
+ var accepted: Array=[]
+ for route in ["cancel","header","escape","gamepad"]:
+  game.confirm(game.store.slot_title(0),game.session.text(31),game.session.text(45),func():accepted.append(true),game.show_save_slots)
+  await process_frame
+  if route=="cancel":named_button(game,"Cancel").pressed.emit()
+  elif route=="header":toolbar_button(game.overlay,"BACK").pressed.emit()
+  elif route=="escape":
+   var key:=InputEventKey.new();key.pressed=true;key.physical_keycode=KEY_ESCAPE;key.keycode=KEY_ESCAPE;game._unhandled_input(key)
+  else:
+   var pad:=InputEventJoypadButton.new();pad.pressed=true;pad.button_index=JOY_BUTTON_B;game._input(pad)
+  expect(game.page=="save_slots" and accepted.is_empty(),"Overwrite %s cancels to the save list without writing"%route)
+ game.session.docked=false
  game.close_page()
 
 func check_option_focus(game) -> void:
@@ -1330,8 +1347,10 @@ func check_action_freeze(game) -> void:
  game.session.docked=false;game.close_page()
  var before: Transform3D=game.camera.global_transform
  var elapsed: int=game.world.region.elapsed_ms
- game.show_action_freeze();await process_frame;await process_frame
+ game.auto_fire=true;game.touch.automatic_weapons["guns"]=true;game.touch.automatic_weapons["hook"]=true
+ game.show_pause();game.show_action_freeze();await process_frame;await process_frame
  expect(game.page=="freeze" and is_instance_valid(game.freeze_view),"Action freeze takes over from the flight view")
+ expect(not game.auto_fire and game.touch.automatic_weapons.is_empty(),"Automatic weapons hold during Action freeze")
  # Without a visible way out, a touch player is stranded in the frozen scene.
  var bar: Control=game.freeze_view.toolbar
  for dimensions in [Vector2i(800,600),Vector2i(1280,720),Vector2i(1920,1080),Vector2i(2000,1175)]:
@@ -1377,10 +1396,18 @@ func check_action_freeze(game) -> void:
  expect(game.camera.global_transform.is_equal_approx(before),"Leaving restores the flight camera exactly")
  expect(game.view.library.headlight_mode==game.Headlights.Mode.CLASSIC and not game.abyss.headlights_enabled,"Leaving action freeze restores Classic beams without adding enhanced lights")
  # And the on-screen button does the same thing, for players with no keyboard.
- game.close_page();game.show_action_freeze();await process_frame;await process_frame
+ game.close_page()
+ expect(game.auto_fire and game.touch.automatic_weapons.has("guns") and game.touch.automatic_weapons.has("hook"),"Resuming through pause restores desktop and both touch automatic weapons after Action freeze")
+ game.show_pause();game.show_action_freeze();await process_frame;await process_frame
  toolbar_button(game.freeze_view.toolbar,"Resume").pressed.emit();await process_frame;await process_frame
  expect(game.page=="" and game.freeze_view==null,"The Resume control returns to the dive")
+ expect(game.auto_fire and game.touch.automatic_weapons.has("guns"),"Action freeze Resume restores the firing mode captured before opening pause")
  expect(game.camera.global_transform.is_equal_approx(before),"Resuming restores the flight camera exactly")
+ game.auto_fire=false;game.touch.automatic_weapons.clear();game.show_action_freeze();game.end_action_freeze(true)
+ expect(not game.auto_fire and game.touch.automatic_weapons.is_empty(),"Action freeze preserves an inactive firing mode")
+ game.auto_fire=true;game.touch.automatic_weapons["guns"]=true
+ game.show_pause();game.show_ship_status();game.show_pause();game.show_action_freeze();game.end_action_freeze(true)
+ expect(not game.auto_fire and game.touch.automatic_weapons.is_empty(),"Opening another menu discards the old pre-pause automatic weapons")
  game.headlight_mode=original_headlights;game.apply_headlights()
 
 func check_save_transfer(game) -> void:

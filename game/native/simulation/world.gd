@@ -10,7 +10,7 @@ const Spacing = preload("res://native/simulation/world_spacing.gd")
 const SPEEDS := [1,2,4,8,16]
 enum ObjectiveTravel { STREAM, OPEN_WATER }
 var objective_travel_mode := ObjectiveTravel.STREAM
-var ship_collisions := false
+var ship_collisions := true
 const COURSE_LOOKAHEAD := 60000.0
 const REGION_APPROACH_DISTANCE := preload("res://native/simulation/world_layout.gd").REGION_APPROACH_DISTANCE
 var session
@@ -756,7 +756,9 @@ func update_collision_bodies() -> void:
 			active_collision_bodies.append(neighbor)
 	for actor in region.enemies+region.friends:
 		if not ship_collisions:break
-		if not actor.collision_enabled or not actor.health.enabled or actor.health.hull<=0:continue
+		# Dormant freighters still occupy the water; their damage/targeting
+		# activation distance must not make a visible hull lose contact.
+		if not actor.collision_enabled or actor.health.hull<=0 or actor.state==4:continue
 		if actor.shapes.is_empty() and (actor.model_id<12 or actor.model_id==19):
 			var shape:=CollisionShape.new()
 			shape.origin=actor.pose.origin.duplicate()

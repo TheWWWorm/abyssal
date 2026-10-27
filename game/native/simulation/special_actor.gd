@@ -143,3 +143,10 @@ func advance_mine(delta_ms: int) -> void:
 func contains(point: Array) -> bool:
 	if kind!="freighter" or state==4:return false
 	return shapes.any(func(shape):return shape.contains(point))
+
+func avoidance_normal(point: Array) -> Array:
+	if kind!="freighter":return super.avoidance_normal(point)
+	# cf.b uses dp.a: steer radially away from the hull's centre. bb adds
+	# a small world-x bias, giving a hull at the exact centre a way out.
+	var away: Vector3=(Math.vector(point)-Math.vector(pose.origin)).normalized()*4096
+	return Math.array(away+Vector3(100,0,0))
