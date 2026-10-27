@@ -13,6 +13,7 @@ def main():
     pack(cache,portable)
     cases={
         "model_deformation_check.gd":cache,
+        "torpedo_model_check.gd":None,
         "platform_input_check.gd":cache,
         "gamepad_ui_check.gd":cache,
         "menu_feedback_check.gd":cache,
@@ -40,6 +41,7 @@ def main():
         'weapon_origin_check.gd':cache,
         'combat_feedback_check.gd':cache,
         'catch_feedback_check.gd':cache,
+        'trip_tallies_check.gd':cache,
         'demo_session_check.gd':cache,
         'demo_ui_check.gd':cache,
         'title_save_check.gd':cache,

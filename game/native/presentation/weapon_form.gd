@@ -2,6 +2,8 @@ extends Node3D
 ## Procedural modern weapon forms. Original simulation and Classic assets stay separate.
 const FIELD=preload("res://native/presentation/weapon_field.gdshader")
 const SOLID=preload("res://native/presentation/weapon_solid.gdshader")
+const TORPEDO=preload("res://native/presentation/torpedo_hull.gdshader")
+const TorpedoMesh=preload("res://native/presentation/torpedo_mesh.gd")
 const HOOK_GLOW=preload("res://native/presentation/weapon_hook_glow.gdshader")
 const HARPOON_COLORS=[Color("e6c519"),Color("e67b09"),Color("db231b")]
 const HARPOON_HEAD_SCALE=1.005
@@ -120,16 +122,14 @@ func configure(id: int, color: Color) -> void:
 			ring((.42+i*.16)*power,.045+i*.007,1.0+i*1.45,(3+i)*(-1 if i%2 else 1),Vector3(.08*i,.12*i,0),TAU*.86)
 		add_piece(spindle([Vector2(.1,-2.5),Vector2(.7,2),Vector2(0,9)]),4,Vector3.ZERO,Vector3(power,power,power))
 	elif family=="torpedo":
-		tint=Color("69969d")
-		add_piece(spindle([Vector2(0,-2.7),Vector2(.22,-2.5),Vector2(.42,-1.9),Vector2(.46,.9),Vector2(.34,1.8),Vector2(.3,2.25)],24),1,Vector3.ZERO,Vector3.ONE*power)
-		for side in 4:
-			var a:=TAU*side/4
-			var fin:=BoxMesh.new();fin.size=Vector3(.6,.075,1.1)
-			var n:=add_piece(fin,1,Vector3(cos(a)*.65,sin(a)*.65,1.4)*power,Vector3.ONE*power);n.rotation.z=a
 		tint=[Color("66cbb6"),Color("51aaff"),Color("ffc65b")][tier]
-		ring(.34*power,.075,2.2*power,0)
-		ring(.46*power,.045,-1.55*power,0)
-		add_piece(spindle([Vector2(.23,2.2),Vector2(.35,2.7),Vector2(.22,3.7),Vector2(0,5.2+tier*1.2)]),4,Vector3.ZERO,Vector3.ONE*power)
+		# Like the source, all three weapons share the same physical torpedo.
+		for mesh in [TorpedoMesh.build(),TorpedoMesh.propeller()]:
+			var hull:=add_piece(mesh,1)
+			var skin: ShaderMaterial=hull.material_override
+			skin.shader=TORPEDO;skin.render_priority=0
+			skin.set_shader_parameter("tier",tier)
+		moving.append({"node":pieces[-1],"base":Vector3.ZERO,"speed":-24.0})
 	elif family=="hook":
 		harpoon_tip()
 	else:
@@ -150,6 +150,9 @@ func advance(time: float, camera: Camera3D, rear: float=1000.0) -> void:
 	var pixel:=distance*2.0*tan(deg_to_rad(camera.fov*.5))/maxf(1,camera.get_viewport().get_visible_rect().size.y)
 	var base: float={"rail":1.8,"fusion":1.4,"coil":1.5,"mass":1.0,"torpedo":1.0,"hook":1.7,"eclipse":1.5}.get(family,1.0)
 	var factor:=clampf(maxf(base,pixel*(5.0 if family in ["mass","coil"] else 6.0)),base,8.0 if family=="hook" else 4.0)
+	# The original torpedo keeps its long cylindrical proportions in flight.
+	# Its bubble wake provides distant feedback without swelling the hull.
+	if family=="torpedo":factor=1.0
 	scale=Vector3(factor,factor,1.0)
 	if family=="hook":scale*=HARPOON_HEAD_SCALE
 

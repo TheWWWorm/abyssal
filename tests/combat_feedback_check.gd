@@ -101,8 +101,10 @@ func run() -> void:
 	weapons[12].advance(40);region.elapsed_ms+=40;view.combat.update(region,40,0)
 	expect(view.combat.torpedo_wakes[0].at==first_wake.at,"A guidance turn leaves the old wake at its emission point")
 	var wake_count: int=view.combat.torpedo_wakes.size()
+	var frozen_bubbles: PackedFloat32Array=view.combat.bubbles.multimesh.buffer
 	view.combat.update(region,0,0)
 	expect(view.combat.torpedo_wakes.size()==wake_count,"Repeated frozen frames emit no duplicate wake particles")
+	expect(view.combat.bubbles.multimesh.buffer==frozen_bubbles,"A frozen frame preserves bubble positions, opacity and the small-bubble pattern")
 	if DisplayServer.get_name()!="headless":
 		await check_ribbon(view)
 		var mass_colors: Dictionary={}
@@ -265,6 +267,9 @@ func check_modern_forms(mass_colors: Dictionary) -> void:
 	var env:=WorldEnvironment.new();env.environment=Environment.new();env.environment.background_mode=Environment.BG_COLOR;viewport.add_child(env)
 	var camera:=Camera3D.new();viewport.add_child(camera)
 	for id in [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,42]:
+		# Physical torpedoes retain the original world size rather than being
+		# inflated to six pixels. Inspect them at a small phone's render height.
+		viewport.size=Vector2i(384,384) if id in [12,13,14] else Vector2i(192,192)
 		var pigment: Color=mass_colors.get(id,[Color("13c8ff"),Color("ffae14"),Color("e8273a")][id%3])
 		var form=preload("res://native/presentation/weapon_form.gd").new();form.configure(id,pigment);viewport.add_child(form)
 		for bright in [false,true]:
@@ -277,7 +282,7 @@ func check_modern_forms(mass_colors: Dictionary) -> void:
 				if id in [12,13,14]:
 					# A visible wake can hide a missing physical projectile in a
 					# whole-effect test. Inspect the metal alone on both backgrounds.
-					for piece in form.pieces:piece.visible=piece.material_override.shader==form.SOLID
+					for piece in form.pieces:piece.visible=piece.material_override.shader in [form.SOLID,form.TORPEDO]
 					await frame_energy(viewport)
 					expect(contrast_pixels(viewport)>8,"Weapon %d retains its physical body without the energy field at %s with bright water %s"%[id,at,bright])
 					for piece in form.pieces:piece.show()

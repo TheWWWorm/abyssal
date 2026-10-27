@@ -103,7 +103,10 @@ func register_catch(creature_id: int,count: int) -> bool:
  if creature_id<0 or creature_id>=data.tables.goods.size() or count<=0 or not ship.can_carry(count):return false
  ship.set_cargo(Goods.merge(ship.cargo,[make_goods(creature_id,count)]))
  if creature_id<fish_found.size():
-  fish_found[creature_id]=true;counters.h+=1;medals.catches+=1
+  fish_found[creature_id]=true
+  # dj.g: algae (13–17) are discoveries and cargo, not fish for either
+  # the lifetime fishing record or the current departure's tally medal.
+  if creature_id<13 or creature_id>17:counters.h+=1;medals.catches+=1
  return true
 
 func update_rank() -> void:

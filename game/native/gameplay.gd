@@ -48,6 +48,7 @@ var overlay := preload("res://native/presentation/instrument_panel.gd").new()
 var column: VBoxContainer
 var classic_frame := preload("res://native/presentation/classic_frame.gd").new()
 var retro_hud := preload("res://native/presentation/retro_hud.gd").new()
+var trip_tallies := preload("res://native/presentation/trip_tallies.gd").new()
 var dashboard := preload("res://native/presentation/flight_dashboard.gd").new()
 var hazard_warning := preload("res://native/presentation/hazard_warning.gd").new()
 var damage_feedback := preload("res://native/presentation/damage_feedback.gd").new()
@@ -321,6 +322,7 @@ func _ready() -> void:
 	ui.add_child(instruments); instruments.position=Vector2(26,52)
 	ui.add_child(condition)
 	retro_hud.imported_art=imported_art;ui.add_child(retro_hud);retro_hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);retro_hud.hide()
+	trip_tallies.imported_art=imported_art;ui.add_child(trip_tallies)
 	ui.add_child(bank_label); bank_label.add_theme_font_size_override("font_size",13); bank_label.add_theme_color_override("font_color",Color("a6ced7")); bank_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT; bank_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(hud); hud.position=Vector2(26,24); hud.clip_text=true; hud.add_theme_font_size_override("font_size",18); hud.add_theme_color_override("font_color",Color("c9e7ea"))
 	ui.add_child(objective_label); objective_label.position=Vector2(26,82); objective_label.bbcode_enabled=true; objective_label.scroll_active=false; objective_label.mouse_filter=Control.MOUSE_FILTER_IGNORE; objective_label.add_theme_color_override("default_color",Color("b7cbd0"))
@@ -485,6 +487,7 @@ func layout() -> void:
 		if touch.free_right>touch.free_left+120:
 			hints.position.x=touch.free_left;hints.size.x=touch.free_right-touch.free_left
 	place_retro()
+	place_trip_tallies()
 	place_catch_feedback()
 	update_render_resolution()
 	crosshair.position=(get_viewport().get_visible_rect().get_center()-ui.position-crosshair.size*.5).round()
@@ -493,6 +496,10 @@ func layout() -> void:
 	dock_caption.position=Vector2(30,36);dock_caption.size=Vector2(ui.size.x*.5,80)
 	place_message()
 var layout_pending := false
+func place_trip_tallies() -> void:
+	trip_tallies.scale=Vector2.ONE*hud_scale()
+	var bottom := objective_label.position.y+minf(objective_label.size.y,objective_label.get_content_height())*objective_label.scale.y
+	trip_tallies.position=Vector2(objective_label.position.x,bottom+8)
 func place_catch_feedback() -> void:
 	if not touch.enabled():return
 	# The taller diagram sits above any thumb controls crossing its band,
@@ -615,6 +622,7 @@ func flight_notice_top() -> float:
 	if narrow_touch_hud():
 		var objective_height := minf(objective_label.size.y,objective_label.get_content_height())*objective_label.scale.y
 		top=maxf(top,objective_label.position.y+objective_height+14)
+		if trip_tallies.visible:top=maxf(top,trip_tallies.position.y+trip_tallies.size.y*trip_tallies.scale.y+14)
 	return top
 func narrow_touch_hud() -> bool:
 	return touch.enabled() and ui.size.x<900 and ui.size.x<ui.size.y
@@ -710,6 +718,7 @@ func confirm(title: String, question: String, accept: String, act: Callable, can
 func open_page(title: String, id: String, subtitle: String="") -> void:
 	demo_weapon_bar.release_contacts();demo_weapon_bar.hide()
 	catch_counter.hide()
+	trip_tallies.hide()
 	if id in ["dialogue","pause"] and page.is_empty() and session!=null and not session.docked:
 		interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
 	elif not (id==page and id in ["dialogue","pause"]) and not (id=="pause" and page=="freeze"):interrupted_auto={}
@@ -756,7 +765,7 @@ func open_page(title: String, id: String, subtitle: String="") -> void:
 		meaning.custom_minimum_size.x=meaning.get_minimum_size().x+14
 	overlay.show(); layout();layout.call_deferred();focus_page.call_deferred();settle_scroll.call_deferred(scroll)
 	if id!="dialogue":
-		for control in [classic_frame,retro_hud,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,travel_status,struggle]:control.hide()
+		for control in [classic_frame,retro_hud,trip_tallies,hazard_warning,damage_feedback,dashboard,hud,instruments,condition,bank_label,hints,objective_label,crosshair,dock_prompt,travel_status,struggle]:control.hide()
 	for marker in markers:marker.hide()
 func settle_scroll(scroll: ScrollContainer) -> void:
 	"""A page opens at its top, or as far down as its focused row needs.
@@ -1085,6 +1094,8 @@ func _process(delta: float) -> void:
 			objective_text+="\n[color=#%s]%s[/color]"%["ff7a6a" if left<30000 else "e4ce92",tr("Time left · %s")%clock_text(left)]
 		if auto_fire: objective_text+="\n"+tr("AUTO FIRE · %s to stop")%OS.get_keycode_string(key_bindings.auto_fire)
 		show_objective(objective_text,objective if not r.cinematic() else null)
+		trip_tallies.update(session.medals,flight_visible and page.is_empty() and view.transit_progress<0 and view.departure_progress<0,session.ship.passive_radar,session.ship.upgraded)
+		place_trip_tallies()
 		# The way out of a gate is a camera shot, not the chase view: its centre
 		# is not where the guns point, so the reticle waits for the hand-back.
 		crosshair.visible=view.camera_mode==0 and page.is_empty() and not r.cinematic() and not session.docked and not view.looking_around() and view.transit_progress<0 and view.departure_progress<0
@@ -1984,6 +1995,7 @@ func show_action_freeze() -> void:
 	if page.is_empty():interrupted_auto={"fire":auto_fire,"weapons":touch.automatic_weapons.keys()}
 	auto_fire=false;weapon_presses.clear();world.weapon_pending.clear()
 	catch_counter.hide()
+	trip_tallies.hide()
 	page="freeze"
 	overlay.hide()
 	touch.set_active(false)
@@ -3265,7 +3277,7 @@ func update_markers() -> void:
 			if button.has_area() and touch.shown(id):occupied.append(Rect2(touch.get_global_transform()*button.position,button.size*touch.get_global_transform().get_scale()))
 	# The objective runs taller than the labels' top margin on touch.
 	if objective_label.visible:occupied.append(Rect2(objective_label.global_position,Vector2(objective_label.size.x,minf(objective_label.size.y,objective_label.get_content_height()))*objective_label.scale))
-	for feedback in [hazard_warning,struggle,catch_counter,travel_status,message]:
+	for feedback in [hazard_warning,struggle,catch_counter,trip_tallies,travel_status,message]:
 		if feedback.visible and (not feedback is Label or not feedback.text.is_empty()):occupied.append(feedback.get_global_rect())
 	# An enemy's hull bar gives way to these panels only, not to other labels.
 	var panels:=occupied.size()

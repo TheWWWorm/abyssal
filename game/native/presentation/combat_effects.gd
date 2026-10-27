@@ -311,7 +311,7 @@ func projectile_color(visual) -> Color:
 	var color:=Color(.55,.75,.8)
 	if weight>.001:total/=weight;color=Color(total.x,total.y,total.z)
 	projectile_colors[id]=color;return color
-func sprite(node: MultiMeshInstance3D, index: int, at: Vector3, diameter: float, age: float, kind: float, color: Color) -> void:
+func sprite(node: MultiMeshInstance3D, index: int, at: Vector3, diameter: float, age: float, kind: float, color: Color, seed: float=0.0) -> void:
 	# Quads expand in the vertex shader, beyond their unit-mesh bounds.
 	# Include billboard corners and the minimum on-screen bubble diameter.
 	var radius := maxf(diameter,1.0)
@@ -321,7 +321,7 @@ func sprite(node: MultiMeshInstance3D, index: int, at: Vector3, diameter: float,
 	include_bounds(node,at,radius)
 	node.multimesh.set_instance_transform(index,Transform3D(Basis.IDENTITY,at))
 	node.multimesh.set_instance_color(index,color)
-	node.multimesh.set_instance_custom_data(index,Color(diameter,clampf(age,0,1),kind,0))
+	node.multimesh.set_instance_custom_data(index,Color(diameter,clampf(age,0,1),kind,seed))
 func burst(at: Vector3, radius: float, age: float, color: Color, debris: bool=false) -> void:
 	if burst_count>=bursts.multimesh.instance_count: return
 	sprite(bursts,burst_count,at,radius*2,age,0,color); burst_count+=1
@@ -418,23 +418,23 @@ func line_color(id: int) -> Color:
 			color=image.get_pixelv(Vector2i(clampi(int(at.x),0,image.get_width()-1),clampi(int(at.y),0,image.get_height()-1)))
 		harpoon_colors[id]=Color(color.r,color.g,color.b,HARPOON_OPACITY)
 	return harpoon_colors[id]
-func bubble(at: Vector3, scale: float, opacity: float, kind: int=1) -> void:
+func bubble(at: Vector3, scale: float, opacity: float, kind: int=1, seed: float=0.0) -> void:
 	if bubble_count>=bubbles.multimesh.instance_count or at.distance_squared_to(owner_view.camera.global_position)>160000: return
 	var distance: float=at.distance_to(owner_view.camera.global_position)
 	var visibility: float=(1.0-smoothstep(240.0,400.0,distance))*smoothstep(0.0,.12,1.0-opacity)
-	sprite(bubbles,bubble_count,at,maxf(0.04,scale),1-opacity*visibility,kind,Color("8bbbc8")); bubble_count+=1
+	sprite(bubbles,bubble_count,at,maxf(0.04,scale),1-opacity*visibility,kind,Color("c4e3e9") if kind==7 else Color("8bbbc8"),seed); bubble_count+=1
 func torpedo_tail(weapon, index: int, visual, at: Vector3) -> void:
 	var key:=str(weapon.get_instance_id())+":"+str(index)
 	var serial: int=weapon.launch_serials[index]
 	var anchor: Vector3=owner_view.world.geography.anchor
-	var rear: float=2.25*(1.0+clampi(weapon.equipment_id-12,0,2)*.2) if enhanced_weapons else maxf(0,visual.bounds().end.z)*2.0
+	var rear: float=WeaponForm.TorpedoMesh.TAIL_Z if enhanced_weapons else maxf(0,visual.bounds().end.z)*2.0
 	var tail: Vector3=at+visual.basis.z.normalized()*rear+anchor
 	if not torpedo_tails.has(key) or torpedo_tails[key].serial!=serial:
 		torpedo_tails[key]={"serial":serial,"at":tail,"time":visual_time};return
 	var previous: Dictionary=torpedo_tails[key]
 	var distance: float=tail.distance_to(previous.at)
 	var kind: int=clampi(weapon.equipment_id-12,0,2)
-	var spacing: float=[.8,1.2,1.1][kind]
+	var spacing: float=[.22,.18,.15][kind]
 	if distance<spacing:return
 	var count:=mini(12,floori(distance/spacing))
 	var right: Vector3=visual.basis.x.normalized();var up: Vector3=visual.basis.y.normalized()
@@ -443,10 +443,10 @@ func torpedo_tail(weapon, index: int, visual, at: Vector3) -> void:
 		var birth: float=lerpf(previous.time,visual_time,fraction)
 		var angle:=birth*25.0+n*2.39996
 		var radial: Vector3=right*cos(angle)+up*sin(angle)
-		var size: float=[.32,.13,.28][kind]
-		var spread: float=[.20,.10,.28][kind]
+		var size: float=[.10,.075,.13][kind]
+		var spread: float=[.26,.23,.30][kind]
 		var point: Vector3=previous.at.lerp(tail,fraction)+radial*spread
-		torpedo_wakes.append({"at":point,"time":birth,"kind":kind,"size":size*(.8+.3*sin(angle)),"drift":radial*.25+Vector3.UP*.4})
+		torpedo_wakes.append({"at":point,"time":birth,"kind":kind,"seed":birth*19.0+n*.73,"size":size*(.8+.3*sin(angle)),"drift":radial*.40+Vector3.UP*.4})
 		if torpedo_wakes.size()>512:torpedo_wakes.pop_front()
 	torpedo_tails[key]={"serial":serial,"at":tail,"time":visual_time}
 func show_torpedo_wakes() -> void:
@@ -458,8 +458,10 @@ func show_torpedo_wakes() -> void:
 		var age: float=maxf(0,visual_time-particle.time)
 		var span: float=[1.0,.60,.80][particle.kind]
 		if age>=span:continue
-		var opacity: float=[.58,.38,.48][particle.kind]*(1.0-age/span)
-		bubble(particle.at+particle.drift*age-anchor,particle.size*(1.0+age*.8),opacity,6 if particle.kind==2 else 5)
+		var opacity: float=[.75,.62,.78][particle.kind]*(1.0-age/span)
+		# One pooled quad contains several tiny bubbles, keeping a visible
+		# turbulent wash without spending an instance on every speck of foam.
+		bubble(particle.at+particle.drift*age-anchor,particle.size*4.2*(1.0+age*.8),opacity,7,particle.seed)
 func update_player_wake(region, milliseconds: float) -> void:
 	var dt := maxf(0,milliseconds*.001)
 	var anchor: Vector3=owner_view.world.geography.anchor
