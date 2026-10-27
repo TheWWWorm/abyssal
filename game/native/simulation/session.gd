@@ -220,6 +220,8 @@ func depart() -> bool:
 func accept_contract(mission) -> bool:
  if campaign.secondary.kind>=0 or mission.deposit>credits or not mission in stations[station_id].missions: return false
  campaign.secondary=mission; credits-=mission.deposit
+ # Its sponsor briefs it on the way out, or on arrival where it takes place.
+ mission.briefing=true
  stations[station_id].missions.erase(mission)
  return true
 

@@ -1290,6 +1290,13 @@ func check_display_ratios(game) -> void:
  expect(window.content_scale_aspect==Window.CONTENT_SCALE_ASPECT_KEEP and window.content_scale_size==display.RATIOS["4:3"],"A fixed ratio pins the picture shape")
  game.aspect_ratio="auto";game.update_render_resolution()
  expect(window.content_scale_aspect==Window.CONTENT_SCALE_ASPECT_EXPAND,"Auto returns the picture to the window")
+ # A smaller interface is a larger canvas over the same, still filled, window.
+ var full: Vector2i=window.content_scale_size
+ game.ui_scale=80;game.update_render_resolution()
+ expect(window.content_scale_aspect==Window.CONTENT_SCALE_ASPECT_EXPAND and window.content_scale_size==Vector2i((Vector2(full)/.8).round()),"Interface size scales the canvas without letterboxing")
+ var config := ConfigFile.new();config.set_value("view","ui_scale",33)
+ expect(display.ui_scale(config)==100,"An unknown interface size falls back to 100%")
+ game.ui_scale=100
  game.aspect_ratio=previous;game.update_render_resolution()
 
 func check_damage_bearings(game) -> void:

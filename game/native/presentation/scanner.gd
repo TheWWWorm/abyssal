@@ -1,5 +1,9 @@
 extends RefCounted
 ## cb radar visibility and close-range detail; projection belongs to the UI.
+
+## How far out, per axis in world units, a ship's hull bar reads. The
+## original's 240 m left too little warning; the bar now reads twice as far.
+const HULL_RANGE := 48000
 static func describe(actor, role: String, radar: int, mission_kind: int, player_position: Array) -> Dictionary:
 	var result := {"visible":false,"edge":false,"identify":false,"hull":-1.0,"recoverable":false,"role":role}
 	if not actor.health.enabled: return result
@@ -16,7 +20,7 @@ static func describe(actor, role: String, radar: int, mission_kind: int, player_
 	result.recoverable=actor.capturable and actor.state in [3,4]
 	var close := true
 	for axis in 3:
-		if absi(player_position[axis]-actor.pose.origin[axis])>24000: close=false
+		if absi(player_position[axis]-actor.pose.origin[axis])>HULL_RANGE: close=false
 	if close and actor.model_id not in [13,9996]:
 		result.hull=clampf(float(actor.health.hull)/maxi(1,actor.health.max_hull)*100.0,0,100)
 	return result

@@ -468,7 +468,8 @@ func enter_region(id: int) -> void:
 	# A story trip to a station has no encounter goal, but the original still
 	# plays its arrival exchange (br.c(), e.g. Talon hailing the sub in chapter
 	# 12). Its flag is the chapter record's own (e), so it plays once.
-	if region.mission.story and region.mission.briefing and (region.success!=null or region.mission.kind==8):
+	# A contract taken elsewhere is briefed by its sponsor on arrival, once.
+	if region.mission.briefing and (not region.mission.story or region.success!=null or region.mission.kind==8):
 		region.events.append({"kind":"briefing","mission":region.mission})
 		region.mission.briefing=false
 func dock() -> bool:

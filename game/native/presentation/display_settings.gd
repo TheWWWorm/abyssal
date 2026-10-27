@@ -22,12 +22,23 @@ static func framed_fov(vertical: float, visible: Vector2) -> float:
 static func valid(ratio: String) -> String:
 	return ratio if RATIOS.has(ratio) else "auto"
 
-static func apply(window: Window, ratio: String, fallback: Vector2i) -> void:
+## Interface sizes, in percent of the canvas's own. Smaller draws every
+## control and line of text smaller on a larger canvas; the picture still
+## fills the window, unlike a wider fixed ratio, which letterboxes it.
+const UI_SCALES := [70,80,90,100,110,125]
+static func ui_scale(config: ConfigFile) -> int:
+	var value: Variant=config.get_value("view","ui_scale",100)
+	return int(value) if (value is int or value is float) and int(value) in UI_SCALES else 100
+static func ui_scale_names() -> Array:
+	return UI_SCALES.map(func(percent): return "%d%%"%percent)
+
+static func apply(window: Window, ratio: String, fallback: Vector2i, scale_percent := 100) -> void:
 	## Assigning content_scale_size re-emits the window's size_changed, which is
 	## what calls this in the first place. Only write an actual change.
 	var chosen := valid(ratio)
 	# Auto keeps the engine's responsive sizing, recomputed from the real window.
-	var wanted: Vector2i = fallback if chosen=="auto" else RATIOS[chosen]
+	var base: Vector2i = fallback if chosen=="auto" else RATIOS[chosen]
+	var wanted := Vector2i((Vector2(base)*100.0/maxi(1,scale_percent)).round())
 	var shape := Window.CONTENT_SCALE_ASPECT_EXPAND if chosen=="auto" else Window.CONTENT_SCALE_ASPECT_KEEP
 	if window.content_scale_size!=wanted: window.content_scale_size=wanted
 	if window.content_scale_aspect!=shape: window.content_scale_aspect=shape

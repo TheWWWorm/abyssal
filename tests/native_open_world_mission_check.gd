@@ -90,6 +90,7 @@ func _initialize():
  audit_milestone_handoff()
  audit_persistent_chapters()
  check_travel_arrival_radio()
+ check_contract_arrival_briefing()
  audit_failure_and_saves()
  audit_radio_predicates()
  audit_swept_waypoints()
@@ -242,6 +243,25 @@ func check_travel_arrival_radio() -> void:
  expect(not session.dialogue(mission,0).is_empty(),"Chapter 12 has arrival lines")
  world.enter_region(start);world.enter_region(mission.destination)
  expect(world.region.events.filter(func(event):return event.kind=="briefing").is_empty(),"The exchange is not repeated on a second arrival")
+ world.dispose()
+
+func check_contract_arrival_briefing() -> void:
+ # A contract taken at one station for another is briefed by its sponsor on
+ # arrival there, through the gate or over open water, and only once.
+ var session=Session.new();session.new_game(data,"Contract arrival briefing",503)
+ while session.campaign.chapter<9:session.campaign.next_chapter(session.counters)
+ session.campaign.primary.kind=-1
+ session.prepare_station(0);unlock(session)
+ var contract=Mission.new();contract.kind=3;contract.destination=113;contract.destination_name=session.stations[113].name;contract.difficulty=2;contract.sponsor="Sponsor"
+ session.stations[0].missions.append(contract)
+ expect(session.accept_contract(contract),"The contract is accepted")
+ var world=World.new();world.configure(session);world.depart()
+ expect(world.region.mission!=contract,"The contract is not active away from its station")
+ world.enter_region(113)
+ expect(world.region.mission==contract and world.region.events.filter(func(event):return event.kind=="briefing").size()==1,"Arriving where a contract takes place plays its sponsor's briefing")
+ expect(not session.dialogue(contract,0).is_empty(),"The contract has a briefing")
+ world.region.events.clear();world.enter_region(0);world.enter_region(113)
+ expect(world.region.events.filter(func(event):return event.kind=="briefing").is_empty(),"The contract briefing is not repeated on a second arrival")
  world.dispose()
 
 func audit_persistent_chapters() -> void:

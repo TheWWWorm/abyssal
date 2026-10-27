@@ -294,6 +294,7 @@ const Display = preload("res://native/presentation/display_settings.gd")
 const SafeMargins = preload("res://native/platform/safe_margins.gd")
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 var aspect_ratio := "auto"
+var ui_scale := 100
 var settings_path := "user://native/settings.cfg"
 var world_spacing := preload("res://native/simulation/world_spacing.gd").new()
 const Coin=preload("res://native/presentation/coin_glyph.gd")
@@ -302,6 +303,7 @@ func _ready() -> void:
 	original_ui_size=get_window().content_scale_size
 	# The first layout below already applies the ratio, so it is read first.
 	aspect_ratio=Display.valid(str(settings_config().get_value("view","aspect_ratio","auto")))
+	ui_scale=Display.ui_scale(settings_config())
 	get_window().size_changed.connect(update_render_resolution)
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): save_path="user://native/capture-only.json"
 	add_child(camera); camera.current=true; camera.fov=65; camera.near=0.5; camera.far=View.DRAW_DISTANCE
@@ -2181,6 +2183,7 @@ func read_settings() -> void:
 	original_weapons=bool(config.get_value("input","original_weapons",false));touch.original_weapons=original_weapons
 	touch.layout=preload("res://native/input/touch_layout.gd").decode(config.get_value("input",TOUCH_LAYOUT_KEY,""))
 	aspect_ratio=Display.valid(str(config.get_value("view","aspect_ratio","auto")))
+	ui_scale=Display.ui_scale(config)
 	motion_steering=bool(config.get_value("input","motion",false))
 	motion_sensitivity=setting_number(config,"input","motion_sensitivity",0.5,0.0,1.0)
 	invert_motion_pitch=bool(config.get_value("input","motion_invert",false))
@@ -2251,6 +2254,7 @@ func save_settings() -> void:
 	config.set_value("input","motion_invert",invert_motion_pitch)
 	config.set_value("input",TOUCH_LAYOUT_KEY,preload("res://native/input/touch_layout.gd").encode(touch.layout))
 	config.set_value("view","aspect_ratio",aspect_ratio)
+	config.set_value("view","ui_scale",ui_scale)
 	config.set_value("interface","hints",gameplay_hints)
 	config.set_value("interface","flight_messages",flight_messages);config.set_value("interface","dock_prompts",dock_prompts)
 	config.set_value("interface","autopilot_status",autopilot_status);config.set_value("interface","friend_labels",friend_labels)
@@ -2521,6 +2525,7 @@ func briefing() -> void:
 		return
 	var mission=session.campaign.active
 	if mission.kind>=0:
+		if not mission.story:mission.briefing=false
 		show_dialogue(session.dialogue(mission,0),close_page)
 func show_dialogue(entries: Array, after: Callable, cue: String="message") -> void:
 	lines=entries; line_index=0; dialogue_done=after; dialogue_cue=cue
@@ -2773,10 +2778,12 @@ func contract_card(station: Dictionary, mission, parent: Node) -> void:
 	var foot := Control.new();foot.size_flags_vertical=Control.SIZE_EXPAND_FILL;foot.mouse_filter=Control.MOUSE_FILTER_IGNORE;body.add_child(foot)
 	# The original's offer dialogue (bz) has Check location (251): the chart
 	# on the destination, with only this offer marked, and Back to the board.
-	iconic(button(session.text(251),func():
+	var check := iconic(button(session.text(251),func():
 		map_destination=mission.destination;Map.preview_mission=mission
 		map_return=func():Map.preview_mission=null;show_market("missions")
 		show_map(),body),"map",22)
+	# Centred as Accept contract is below it, so the pair reads as one set.
+	check.alignment=HORIZONTAL_ALIGNMENT_CENTER
 	var accept := primary(iconic(button(tr("Accept contract"),func():
 		if session.campaign.secondary.kind>=0: notice(tr("Finish or abandon the accepted contract first."))
 		elif session.accept_contract(mission): show_station()
@@ -2833,7 +2840,6 @@ func show_map(autopilot_only: bool=false) -> void:
 	if tight: map_route_button.tooltip_text=tr("Set station autopilot")
 	map_route_button.set_meta("option","map_route")
 	stream_button=bar_button(tr("S.T.R.E.A.M. transfer") if tight else tr("Plan S.T.R.E.A.M. transfer"),map_stream,actions)
-	stream_button.visible=not atlas_autopilot_only
 	if map_return.is_valid():back_row(map_return);map_return=Callable()
 	else:
 		Map.preview_mission=null;back_row(show_station if session.docked else close_page)
@@ -3580,7 +3586,7 @@ func update_render_resolution() -> void:
 	var pixels := get_window().size
 	if pixels.x<=0 or pixels.y<=0: return
 	resizing=true
-	Display.apply(get_window(),aspect_ratio,Display.responsive_size(pixels,touch.enabled()))
+	Display.apply(get_window(),aspect_ratio,Display.responsive_size(pixels,touch.enabled()),ui_scale)
 	resizing=false
 	apply_side_margins()
 	GraphicsQuality.apply_viewport(get_viewport(),quality.merged({"modern":modern_graphics},true),pixels)
@@ -3693,9 +3699,15 @@ func habitat_picker(parent: Node) -> void:
 	for id in mini(13,session.fish_found.size()):
 		if session.fish_found[id]:choices.append([id,item_name(id)])
 	if habitat_range!=-1 and not choices.any(func(choice):return choice[0]==habitat_range):habitat_range=-1
-	var line := HBoxContainer.new();line.add_theme_constant_override("separation",8);parent.add_child(line)
+	# The caption over the list, not beside it: a narrow card squeezed it to
+	# a letter a line next to a long species name.
+	var line := VBoxContainer.new();line.add_theme_constant_override("separation",4);parent.add_child(line)
 	label(tr("Range on chart"),13,line).modulate=Color("93b5aa")
 	var picker := OptionButton.new();StationTheme.style_option(picker,golden(),touch.enabled());line.add_child(picker)
+	# The pictures are the original's full item art; at that size the button
+	# grew taller than the card.
+	picker.add_theme_constant_override("icon_max_width",34);picker.clip_text=true
+	picker.get_popup().add_theme_constant_override("icon_max_width",34)
 	for choice in choices:
 		picker.add_item(choice[1],choice[0] if choice[0]>=0 else 1000-choice[0])
 		# bp's list pictures: the cross for none, the last alga for the algae.

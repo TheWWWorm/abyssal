@@ -773,6 +773,9 @@ func display_page() -> void:
 	var ratio: String=Display.valid(str(load_config().get_value("view","aspect_ratio","auto")))
 	var ratios: Array=Display.names()
 	chooser(tr("Aspect ratio"),ratios.map(func(item): return tr("Auto") if item=="auto" else str(item)),maxi(0,ratios.find(ratio)),"aspect",func(next): put("view","aspect_ratio",ratios[next]))
+	var scales: Array=Display.UI_SCALES
+	var sized := chooser(tr("Interface size"),Display.ui_scale_names(),scales.find(Display.ui_scale(load_config())),"ui_scale",func(next): put("view","ui_scale",scales[next]))
+	sized.tooltip_text=tr("The size of menus, text and controls. The picture keeps filling the screen.")
 	var quality := Quality.read(load_config())
 	var screen: int=DisplayServer.screen_get_size(get_window().current_screen).y
 	var heights: Array=Quality.heights_for(maxi(screen,get_window().size.y))
