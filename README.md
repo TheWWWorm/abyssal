@@ -10,17 +10,21 @@ Abyssal is a separate game engine, built in Godot, that reads a DEEP JAR you alr
 
 ## What it looks like
 
-[![The submarine running in towards Rygg under its own headlights, two vessels coming out from the station under theirs](docs/screenshots/headlights-off-rygg.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-headlights-off-rygg.png)
+[![Abyssal trailer: a station from outside, a submarine passing under its headlights](docs/screenshots/trailer.jpg)](https://www.youtube.com/watch?v=Si5hHvZAoUE)
 
-[![Rygg station from outside, the submarine crossing in front of it](docs/screenshots/rygg-from-outside.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-rygg-from-outside.png)
+**[Watch the one-minute trailer on YouTube](https://www.youtube.com/watch?v=Si5hHvZAoUE)** - station approaches, open water in the regional colours, weapons and the harpoon, all rendered by the engine itself from a converted copy of the game.
 
-[![The engine module of a station, its rotor turning under the work lamps, lit by the submarine's headlights](docs/screenshots/station-engine.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-station-engine.png)
+![Nodal station in red water, a submarine passing below it with its headlights on](docs/screenshots/nodal-red-water.jpg)
 
-[![The submarine leaving a station's berth, its beams out ahead of it](docs/screenshots/leaving-the-berth.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-leaving-the-berth.png)
+![Gurevich station hanging in deep blue water, its work lamps lit, a submarine crossing beneath](docs/screenshots/gurevich-station.jpg)
 
-[![A S.T.R.E.A.M. gate opening in front of the submarine](docs/screenshots/stream-gate.jpg)](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-screenshot-stream-gate.png)
+![A submarine in bright blue water, its headlight beams cutting ahead of it](docs/screenshots/headlights-blue-water.jpg)
 
-Each picture opens at its full 5120x2880. There is also a [one-minute trailer in 4K](https://github.com/TheWWWorm/abyssal/releases/download/v1.0.0/abyssal-engine-1.0.0-trailer-4k.mp4) - stations from outside and in, a departure, a fight, the gate - rendered by the engine itself from a converted copy of the game.
+![A harpoon tether stretched from a submarine to a creature ahead of it](docs/screenshots/harpoon-tether.jpg)
+
+![A fight in open water: red plasma bolts leaving a small attack submarine, its targets ahead](docs/screenshots/plasma-fight.jpg)
+
+![A heavy submarine in gold-green water, its engines glowing red](docs/screenshots/aquarius-gold-water.jpg)
 
 ## Play in your browser
 

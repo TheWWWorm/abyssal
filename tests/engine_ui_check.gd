@@ -247,6 +247,7 @@ func run():
  game.world.region.player.pose.face([0,4096,0])
  expect(game.map_widget.heading()==Vector2.ZERO,"Vertical flight does not invent a north-facing map arrow")
  game.close_page();game._process(0)
+ await check_chart_actions_fit(game)
  expect(not game.objective_label.get_parsed_text().contains("Time "),"Time acceleration is not mixed into mission instructions")
  expect(game.objective_label.bbcode_enabled and game.objective_label.get_parsed_text().contains("CURRENT OBJECTIVE"),"Quest panel distinguishes title, body, progress and navigation hint")
  var timed=game.world.region;var limit: int=timed.time_limit;var spent: int=timed.elapsed_ms
@@ -1280,6 +1281,28 @@ func check_settings_sanitizing(game) -> void:
  expect(game.setting_index(config,"view","camera",0,3)==0,"A negative camera index is clamped")
  expect(game.setting_keycode(config,"fire",KEY_SPACE)==KEY_SPACE,"An impossible keycode keeps the action reachable")
  expect(game.setting_number(config,"audio","missing",0.4,0,1)==0.4,"A missing value uses its default")
+
+func check_chart_actions_fit(game) -> void:
+ # The chart's actions keep to one row: the full labels where they fit, the
+ # short ones once a label would wrap the row, as a 90% interface on a 20:9
+ # phone in Russian did.
+ var rows := func() -> int:
+  var tops := {}
+  for node in game.stream_button.get_parent().get_children():
+   if node.visible:tops[int(node.position.y)]=true
+  return tops.size()
+ var original_touch_mode: int=game.touch.mode
+ root.size=Vector2i(2400,1080);game.touch.mode=2
+ for scale in [100,90,80]:
+  game.ui_scale=scale;game.update_render_resolution();game.layout()
+  game.show_map()
+  for i in 3:await process_frame
+  expect(rows.call()==1,"Chart actions keep to one row at a %d%% interface"%scale)
+ game.stream_button.text="Plan a S.T.R.E.A.M. transfer through every gate on the way ".repeat(4)
+ for i in 3:await process_frame
+ expect(game.stream_button.text==game.tr("S.T.R.E.A.M. transfer") and game.map_route_button.text==game.tr("Autopilot") and rows.call()==1,"A label too long for the row switches the chart to its short labels")
+ game.close_page();game.ui_scale=100;game.touch.mode=original_touch_mode;root.size=Vector2i(1280,720);game.update_render_resolution();game.layout()
+ await process_frame
 
 func check_display_ratios(game) -> void:
  var display=preload("res://native/presentation/display_settings.gd")

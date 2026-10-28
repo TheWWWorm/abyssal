@@ -719,9 +719,10 @@ func run():
   # Bridges are drawn a hair short, so their basis is scaled; the turn is read from its orthonormal part.
   var turn: Basis=visual.transform.basis.orthonormalized()
   expect(is_equal_approx(turn.y.dot(Vector3.DOWN),1.0) and is_equal_approx(turn.z.y,0.0),"Station module %d is turned half a turn about its socket axis"%int(visual.record.id))
-  var index: int=view.station_nodes.find(visual)
-  expect(visual.transform.basis.get_scale().is_equal_approx(Vector3.ONE*view.station_trim(index)) and view.station_trim(index)<1.0 and view.station_trim(index)>0.99,"Module %d is drawn a fraction smaller, by a step its neighbours do not share, so overlapping faces do not fight"%index)
-  if index>0:expect(not is_equal_approx(view.station_trim(index),view.station_trim(index-1)),"Neighbouring modules take different trims")
+  var scale: Vector3=visual.transform.basis.get_scale()
+  expect(scale.x<1.0 and scale.x>=.99 and scale.is_equal_approx(Vector3.ONE*scale.x),"Station module %d is drawn a fraction smaller"%int(visual.record.id))
+ var clearance: float=load("res://native/presentation/station_separation.gd").CLEARANCE
+ expect(coplanar_gap(view.station_nodes)>=clearance*.99,"Overlapping modules of the current station share no face plane, so they do not fight")
  var rolled=Body.new();rolled.configure({"id":0,"percent":50,"tech":10},true,app.world.region.sine,content.data.station_geometry)
  var hangar_box=content.data.station_geometry.get("3308",{"center":[0,0,0]})
  # The root hangar is yawed half a turn as well: its box centre ends up at
@@ -750,6 +751,12 @@ func run():
  expect(view.neighbors.size()>4,"Open-world station coverage preserved")
  expect(view.gate_nodes.filter(func(gate):return gate.visible).size()==(2 if load("res://native/simulation/region.gd").split_gates else 1),"The current station shows each physical gate once")
  expect(view.neighbors.values().all(func(neighbor):return neighbor.root.get_children().all(func(part):return not part is Model or int(part.record.id)!=15)),"Streamed landmark stations do not add transient duplicate gates")
+ # Arriving over open water promotes a streamed station's modules to the
+ # current station, so they must be separated as rebuild() separates them.
+ var fighting:=0
+ for neighbor in view.neighbors.values():
+  if coplanar_gap(neighbor.root.get_children().filter(func(part):return part is Model))<clearance*.99:fighting+=1
+ expect(fighting==0,"Streamed stations share no face plane between overlapping modules, so they do not fight")
  var distant: int=-1
  for id in view.neighbors:
   if not view.neighbors[id].detail:distant=id;break
@@ -838,6 +845,16 @@ func run():
  player_mesh=view.player_model.figure.get_node("Mesh")
  expect(player_mesh.get_surface_override_material(0).get_shader_parameter("source_glow_visible")==true,"Classic ships retain their original glow geometry")
  await check_scene_particle_pitch(app)
+ # Station 77 needs some modules moved as well as trimmed; the move must
+ # outlast the frames that place its modules.
+ app.set_process(false);app.set_physics_process(false);view.set_process(false)
+ app.world.enter_region(77);app.session.docked=false;view.revision=-1;view.rebuild()
+ for i in 200:
+  if not view.rebuilding:break
+  await process_frame
+ view._process(1.0/60.0)
+ expect(view.station_nodes.any(func(node):return node.get_meta("station_shift",Vector3.ZERO)!=Vector3.ZERO),"Station 77 has a module moved clear of the faces it overlaps")
+ expect(coplanar_gap(view.station_nodes)>=clearance*.99,"Moved modules keep their faces clear after the frame places them")
  app.queue_free();await process_frame
  DirAccess.remove_absolute("user://stream-check.cfg")
  print("ENGINE_STREAM ",failures," failures")
@@ -859,6 +876,46 @@ func check_station_machinery(view) -> void:
  expect(engine.current_bones==before,"Three-blade rotor closes its repeating cycle without a pose jump")
  engine.queue_free()
  await process_frame
+
+func coplanar_gap(modules: Array) -> float:
+ """The least distance between overlapping, parallel solid faces of
+ different modules, as drawn; INF when none come within 30 cm."""
+ var Library=load("res://scripts/model_library.gd")
+ var faces: Array=[]
+ for m in modules.size():
+  var module=modules[m];var owner:=PackedInt32Array()
+  for b in module.source.bones.size():
+   for k in int(module.source.bones[b].vertices):owner.append(b)
+  var bones: Array=module.current_bones.map(func(bone):return module.global_transform*Library.matrix(bone))
+  for polygon in module.source.polygons:
+   if int(polygon.blend)!=0 or (int(polygon.pattern)!=0 and (int(polygon.pattern)&module.last_pattern)==0):continue
+   for t in range(0,polygon.indices.size()-2,3):
+    var corners: Array=[]
+    for j in 3:
+     var v:=int(polygon.indices[t+j]);corners.append(bones[owner[v]]*Library.point(module.source.vertices,v*3))
+    var normal: Vector3=(corners[1]-corners[0]).cross(corners[2]-corners[0])
+    if normal.length()<1e-6:continue
+    normal=normal.normalized()
+    faces.append({"module":m,"normal":normal,"plane":normal.dot(corners[0]),"corners":corners})
+ # Opposite faces of one plane have opposite offsets; their sizes sort together.
+ faces.sort_custom(func(a,b):return absf(a.plane)<absf(b.plane))
+ var least:=INF
+ for a in faces.size():
+  for b in range(a+1,faces.size()):
+   var first: Dictionary=faces[a];var second: Dictionary=faces[b]
+   if absf(second.plane)-absf(first.plane)>.3:break
+   if first.module==second.module or absf(first.normal.dot(second.normal))<.9995:continue
+   var n: Vector3=first.normal;var u:=n.cross(Vector3.UP if absf(n.y)<.9 else Vector3.RIGHT).normalized();var w:=n.cross(u)
+   var flat_a:=PackedVector2Array();var flat_b:=PackedVector2Array()
+   for q in first.corners:flat_a.append(Vector2(q.dot(u),q.dot(w)))
+   for q in second.corners:flat_b.append(Vector2(q.dot(u),q.dot(w)))
+   var area:=0.0
+   for shape in Geometry2D.intersect_polygons(flat_a,flat_b):
+    var signed:=0.0
+    for i in shape.size():signed+=shape[i].cross(shape[(i+1)%shape.size()])*.5
+    area+=absf(signed)
+   if area>=.05 and absf(n.dot(second.corners[0])-first.plane)<=.3:least=minf(least,absf(n.dot(second.corners[0])-first.plane))
+ return least
 
 func station_surface_triangles(view) -> Dictionary:
  var result: Dictionary={}

@@ -18,6 +18,7 @@ static func far_visibility(distance: float) -> float:
 
 const Model = preload("res://native/presentation/model.gd")
 const StationShadow = preload("res://native/presentation/station_shadow.gd")
+const StationSeparation = preload("res://native/presentation/station_separation.gd")
 const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
 const Abyss = preload("res://native/presentation/abyss.gd")
 const Library = preload("res://scripts/model_library.gd")
@@ -254,19 +255,14 @@ func rebuild() -> void:
 	if player_model!=null: player_model.apply_range(Model.ship_animation_range(world.session.ship.id,int(world.session.ship.upgraded)))
 	var parts: Array=[] if not station_nodes.is_empty() else world.region.station.parts
 	var prepared:=0;var frame_started:=Time.get_ticks_usec()
+	var separation:=StationSeparation.new()
 	for part in parts:
 		var visual=model(int(part.model_id),part.frame_ms)
 		if visual==null: continue
 		var pose=preload("res://native/simulation/ship_transform.gd").new(); pose.math.sine_table=world.region.sine; pose.origin=part.origin; pose.set_euler(0,part.yaw,0)
 		visual.transform=Model.station_transform(pose.godot_transform())
-		# The phone's modules overlap: bridges eighty metres long chained at a
-		# sixty-three metre step, habitats sixty-nine metres tall stacked at
-		# forty-five, a cap lying in the wall it meets. Its painter's order
-		# never minded; a depth buffer sees the same plane twice and fights
-		# over it. Each module is drawn a fraction smaller by a step that
-		# differs from its neighbours', so no two overlapping faces share a
-		# plane: at most a few centimetres over an eighty-metre module.
-		visual.transform=visual.transform.scaled_local(Vector3.ONE*station_trim(station_nodes.size()))
+		# Drawn a fraction smaller, so overlapping modules share no plane.
+		visual.transform=separation.place(visual.source,visual.transform);visual.set_meta("station_shift",separation.shifts[-1])
 		visual.configure_station(part)
 		station_nodes.append(visual)
 		add_station_collision(visual)
@@ -418,7 +414,8 @@ func _process(delta: float) -> void:
 		if camera.global_position.distance_squared_to(target)>0.01: camera.look_at(target,Vector3.UP)
 	place_limit_arrow(player_pose.origin)
 	for i in station_nodes.size():
-		var position: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(region.station.parts[i].origin,region.finale_station_offset))
+		# With the move that keeps its faces clear of the modules it overlaps.
+		var position: Vector3=Library.point(preload("res://native/simulation/fixed_math.gd").added(region.station.parts[i].origin,region.finale_station_offset))+station_nodes[i].get_meta("station_shift",Vector3.ZERO)
 		# Avoid propagating a stationary pose through meshes, lights and bodies.
 		if station_nodes[i].position!=position:station_nodes[i].position=position
 		animate_model(station_nodes[i],delta,1.0)
@@ -626,9 +623,6 @@ func _process(delta: float) -> void:
 	previous_particle_fraction=world.accumulator
 	combat.update(region,ms,delta*1000 if departure_progress>=0 else particle_ms)
 
-static func station_trim(index: int) -> float:
-	return 1.0-0.002*(1+(index%3))
-
 func set_depth_limits(on: bool, always := false) -> void:
 	depth_limits=on;depth_limits_always=on and always
 	for node in limit_nodes: node.visible=false
@@ -775,13 +769,16 @@ func stream_neighbors() -> void:
 		var root := Node3D.new();add_child(root)
 		root.position=Library.point(world.station_origin(id))-world.geography.anchor
 		var body=preload("res://native/simulation/station_body.gd").new();body.configure(world.session.stations[id],world.session.is_colonist_station(id),world.region.sine,world.session.data.get("station_geometry",{}))
+		var separation:=StationSeparation.new()
 		for part in body.parts:
 			# Distant stations reuse the compact source mesh with the selected
 			# material pack. Full models, light rigs and triangle colliders are near-only.
 			var visual=model(int(part.model_id),part.frame_ms,root,detailed)
 			if visual==null:continue
 			var pose=preload("res://native/simulation/ship_transform.gd").new();pose.math.sine_table=world.region.sine;pose.set_euler(0,part.yaw,0);pose.origin=part.origin
-			visual.transform=Model.station_transform(pose.godot_transform())
+			# Trimmed as rebuild() trims the current station, module for module:
+			# arriving over open water promotes these nodes to the current station.
+			visual.transform=separation.place(visual.source,Model.station_transform(pose.godot_transform()));visual.set_meta("station_shift",separation.shifts[-1])
 			visual.set_stream_visibility(0.0)
 			if detailed:
 				add_station_collision(visual)

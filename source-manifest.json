@@ -238,6 +238,7 @@
     "game/native/presentation/showroom_light.gd",
     "game/native/presentation/station_icon.gd",
     "game/native/presentation/station_preview.gd",
+    "game/native/presentation/station_separation.gd",
     "game/native/presentation/station_shadow.gd",
     "game/native/presentation/station_shadow.gdshader",
     "game/native/presentation/station_theme.gd",

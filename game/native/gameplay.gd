@@ -1788,7 +1788,7 @@ func show_ship_status(back: Callable=Callable()) -> void:
 		var described := label(about,14,vessel);described.add_theme_color_override("font_color",palette.text)
 	if ui.size.y>=700 and ui.size.x>=900:
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
-		identity.add_child(preview);preview.configure(content,ship.id,modern_graphics,view.library)
+		identity.add_child(preview);preview.configure(content,ship.id,modern_graphics,view.library,int(ship.upgraded))
 		preview.custom_minimum_size=Vector2(240,170)
 	var protections := HBoxContainer.new();protections.add_theme_constant_override("separation",10);vessel.add_child(protections)
 	for entry in [["hull",tr("Hull"),ship.hull],["shield",tr("Shield"),ship.shield],["armor",tr("Armor"),ship.armor]]:
@@ -2817,13 +2817,14 @@ func show_map(autopilot_only: bool=false) -> void:
 		show_station_card(-1,prompt[1],prompt[0])
 		for node in [map_route_button,stream_button]:
 			if is_instance_valid(node):node.disabled=true)
-	# A phone held landscape has too little width for the full labels in one
-	# row; a wrapped second row fell below the page's foot.
-	var tight: bool=ui.size.x<(1240 if touch.enabled() else 1000)
-	var search := LineEdit.new(); search.placeholder_text=tr("Search") if tight else tr("Find a station…"); search.custom_minimum_size.x=130 if tight else 170; actions.add_child(search)
+	# The full labels where they fit in one row, the short ones otherwise: a
+	# wrapped second row takes its height from the chart, and on a short
+	# screen fell below the page's foot. The room depends on the window, the
+	# interface size and the language, so it is measured as the row is laid out.
+	var search := LineEdit.new(); search.placeholder_text=tr("Find a station…"); search.custom_minimum_size.x=170; actions.add_child(search)
 	StationTheme.style_field(search,golden(),touch.enabled())
 	search.text_changed.connect(func(value): map_widget.filtered=value.to_lower(); map_widget.queue_redraw())
-	var picker := OptionButton.new(); map_picker=picker; picker.custom_minimum_size.x=160 if tight else 190
+	var picker := OptionButton.new(); map_picker=picker; picker.custom_minimum_size.x=190
 	StationTheme.style_option(picker,golden(),touch.enabled())
 	for station in session.stations: picker.add_item(station.name,station.id)
 	picker.selected=map_destination; picker.item_selected.connect(func(index): select_station(picker.get_item_id(index))); actions.add_child(picker)
@@ -2837,10 +2838,10 @@ func show_map(autopilot_only: bool=false) -> void:
 				if session.docked:return
 				if page=="departure":departure_route="encounter";return
 			world.navigate_encounter();close_page(),actions).tooltip_text=tr("Local encounter active · follow its waypoint before travelling to the next story station.")
-	map_route_button=bar_button(tr("Autopilot") if tight else tr("Set station autopilot"),map_autopilot,actions)
-	if tight: map_route_button.tooltip_text=tr("Set station autopilot")
+	map_route_button=bar_button(tr("Set station autopilot"),map_autopilot,actions)
 	map_route_button.set_meta("option","map_route")
-	stream_button=bar_button(tr("S.T.R.E.A.M. transfer") if tight else tr("Plan S.T.R.E.A.M. transfer"),map_stream,actions)
+	stream_button=bar_button(tr("Plan S.T.R.E.A.M. transfer"),map_stream,actions)
+	actions.sort_children.connect(func():shorten_chart_actions(actions,search,picker))
 	if map_return.is_valid():back_row(map_return);map_return=Callable()
 	else:
 		Map.preview_mission=null;back_row(show_station if session.docked else close_page)
@@ -3022,6 +3023,18 @@ func chart_legend() -> void:
 func chart_panel() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new(); style.bg_color=Color("071631cc"); style.border_color=Color("2f6fa8"); style.set_border_width_all(1); style.set_content_margin_all(10)
 	return style
+func shorten_chart_actions(actions: HFlowContainer, search: LineEdit, picker: OptionButton) -> void:
+	"""Switches the chart's actions to their short labels once the full ones
+	would not fit in one row. It does not switch back: the row is rebuilt
+	with the page."""
+	if actions.size.x<=0 or search.custom_minimum_size.x<170:return
+	var shown: Array=actions.get_children().filter(func(node):return node.visible)
+	var needed: float=actions.get_theme_constant("h_separation")*maxi(0,shown.size()-1)
+	for node in shown:needed+=node.get_combined_minimum_size().x
+	if needed<=actions.size.x:return
+	search.placeholder_text=tr("Search");search.custom_minimum_size.x=130;picker.custom_minimum_size.x=160
+	map_route_button.text=tr("Autopilot");map_route_button.tooltip_text=tr("Set station autopilot")
+	stream_button.text=tr("S.T.R.E.A.M. transfer")
 func bar_button(text: String, action: Callable, parent: Node) -> Button:
 	var node := button(text,action,parent); node.size_flags_horizontal=Control.SIZE_SHRINK_END; node.alignment=HORIZONTAL_ALIGNMENT_CENTER
 	return node
@@ -3865,7 +3878,7 @@ func equipment_browser(station: Dictionary, ships: bool=false) -> void:
 		var stage := glass(row,false,16);stage.size_flags_stretch_ratio=1.3 if ui.size.x>=1400 else .8
 		var preview=preload("res://native/presentation/ship_preview.gd").new()
 		stage.add_child(preview)
-		preview.configure(content,entries[market_selection].item.id,modern_graphics,view.library)
+		preview.configure(content,entries[market_selection].item.id,modern_graphics,view.library,int(entries[market_selection].item.upgraded))
 		# A drag across the showroom turns the hull instead of scrolling the page.
 		touch_scroll.gesture_control=preview
 		if ui.size.x<900:stage.custom_minimum_size.y=180

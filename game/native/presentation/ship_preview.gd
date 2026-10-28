@@ -28,7 +28,7 @@ var creature_ms := 0
 const Creature = preload("res://native/simulation/creature.gd")
 const ModelLibrary = preload("res://scripts/model_library.gd")
 
-func configure(content, id: int, modern: bool, library=null) -> void:
+func configure(content, id: int, modern: bool, library=null, faction: int=0) -> void:
  selected_id=id;name="ShipPreview";stretch=true
  custom_minimum_size=Vector2(280,280);size_flags_horizontal=Control.SIZE_EXPAND_FILL
  size_flags_vertical=Control.SIZE_EXPAND_FILL;mouse_filter=Control.MOUSE_FILTER_STOP
@@ -49,7 +49,9 @@ func configure(content, id: int, modern: bool, library=null) -> void:
   if library!=null:vessel.library=library
   viewport.add_child(vessel)
   vessel.configure(content.root,entry)
-  if id<=11:vessel.apply_range(vessel.ship_animation_range(id,0))
+  # A hull's emblem and paint are animation frames: colonist by default, the
+  # rebel livery for an upgraded hull, as the original flies it (bb).
+  if id<=11:vessel.apply_range(vessel.ship_animation_range(id,faction))
   bounds=vessel.solid_bounds();center=bounds.get_center();radius=maxf(8,bounds.size.length()*.45)
   break
  var cloud:=MultiMeshInstance3D.new();var mesh:=QuadMesh.new();mesh.size=Vector2.ONE
