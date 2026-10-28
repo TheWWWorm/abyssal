@@ -90,6 +90,7 @@ Builds that have actually been run through the importer:
 | Build | Result |
 | --- | --- |
 | Sony Ericsson 1.0.8 (English) | Developed and validated against this build |
+| 1.0.8 (Russian, Mascot Capsule) | Converts, including repacks with trailing bytes after the declared text records. Missing or damaged required text is still rejected |
 | Sony Ericsson 1.0.3 (Russian) | Converts; the engine check suite passes on it, and the game is in Russian |
 | Sony Ericsson 1.0.2 and 1.0.3 (English) | Convert. Their game data matches 1.0.8, so saves load on any of these Sony Ericsson builds in either language |
 | "Deep 3D: Submarine Odyssey (Mascot3D)" 1.0.8, Fishlabs manifest | Converts. It is the same build as the Sony Ericsson release apart from its manifest, but the circulating copy is repacked with its last entry a byte short, which stock ZIP readers refuse. The importer recovers the entry, checks its size and CRC, and produces identical content |

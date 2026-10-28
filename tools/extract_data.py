@@ -60,6 +60,33 @@ def language_root(root):
     if not languages:raise DataError(UNMATCHED+'no localisation under data/lang')
     return next((path for path in languages if path.name=='en'),languages[0])
 
+def language_strings(language,constants):
+    """Read the declared text slots, as the phone's count-bounded loader does.
+
+    Some repacks leave bytes after the last required string. They are not text
+    slots: reading them would reject a usable file or shift every later ID.
+    Counts come from this JAR's tables, never its version, filename or digest.
+    """
+    counts=[(name,len(constants[f'{field}:[Ljava.lang.String;']))
+            for field,name in zip('abcde',('main','ships','cargo','items','medals'))]
+    chapters=constants['a:[I']
+    if len(chapters)!=len(constants['g:[S'])-1:
+        raise DataError(UNMATCHED+'chapter language counts do not match the campaign')
+    counts.extend((str(index),count) for index,count in enumerate(chapters))
+    strings=[]
+    for name,count in counts:
+        if type(count) is not int or count<0:
+            raise DataError(UNMATCHED+'invalid language count for '+name)
+        r=Reader((language/f'{name}.lang').read_bytes())
+        for index in range(count):
+            offset=r.offset
+            try:strings.append(modified_utf8(r.take(r.u2())))
+            except (DataError,UnicodeError) as error:
+                reason='truncated record' if isinstance(error,DataError) else 'invalid modified UTF-8'
+                raise DataError(f'Invalid language data in {language.name}/{name}.lang '
+                                f'(string {index+1} of {count}, byte {offset}): {reason}') from error
+    return strings
+
 def extract(jar,root,digest=None):
     """digest names the archive the player chose when a repacked readable copy
     of it is what is being read; the content is keyed by the original."""
@@ -167,10 +194,8 @@ def read_profile(jar,root,digest=None):
         campaign.append({'chapter':chapter,'mission':record(active),'rebel_stations':sorted(set(changes))})
         events=evaluate(classes['cy'],'a','(I)[Ldk;',[{'_type':'cy',('a','[Law;'):[None]},chapter],statics,summary)
         if events:timelines[str(chapter)]=[{k:v for k,v in row.items() if k!='_type'} for row in events]
-    strings=[];language=language_root(root)
-    for name in ['main','ships','cargo','items','medals',*map(str,range(chapters-1))]:
-        r=Reader((language/f'{name}.lang').read_bytes())
-        while r.offset<len(r.data):strings.append(modified_utf8(r.take(r.u2())))
+    language=language_root(root)
+    strings=language_strings(language,constants['e'])
     # bw.a(int,boolean): each ';' ends a name, an empty one included, and text
     # after the last is ignored. The pool's size is a draw bound (ah.a), so a
     # dropped blank would shift every later sponsor name and random draw.

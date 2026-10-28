@@ -378,23 +378,44 @@ func row(title: String, value: String, key: String, action: Callable, parent: No
 		var shown := Label.new();shown.name="Value";shown.text=value;shown.mouse_filter=Control.MOUSE_FILTER_IGNORE
 		shown.add_theme_font_size_override("font_size",18 if touch else 15);shown.add_theme_color_override("font_color",colours().value)
 		shown.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT;shown.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		shown.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 		node.add_child(shown);shown.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);shown.offset_right=-16;shown.offset_left=16
-		make_room(node,shown)
 		node.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+		node.resized.connect(func(): make_room(node,shown))
+		shown.minimum_size_changed.connect(func(): make_room.call_deferred(node,shown))
+		make_room(node,shown)
 	return node
 
-func make_room(node: Button, shown: Label, extra := 0.0) -> void:
-	"""The name wraps short of the value rather than running under it."""
-	var room:=shown.get_combined_minimum_size().x+extra
+func make_room(node: Button, shown: Label) -> void:
+	"""Use two lines when a translated name and value cannot share the row.
+	Reserving the value's full width used to squeeze long names down to one
+	letter per line. Both get the row's width in the stacked layout."""
+	if not is_instance_valid(node) or not is_instance_valid(shown):return
+	var extra: float=-shown.offset_right-16
+	var title_width:=node.get_theme_font("font").get_string_size(node.text,HORIZONTAL_ALIGNMENT_LEFT,-1,node.get_theme_font_size("font_size")).x
+	var value_width:=shown.get_theme_font("font").get_string_size(shown.text,HORIZONTAL_ALIGNMENT_LEFT,-1,shown.get_theme_font_size("font_size")).x
+	var stacked: bool=title_width+value_width+42+extra>node.size.x
+	var right: float=16+extra if stacked else value_width+28+extra
+	shown.offset_left=14 if stacked else node.size.x-16-extra-value_width
+	# Measure after assigning the width: a value changed from On to a long
+	# translated choice must not retain its height from the old narrow slot.
+	var value_height:=shown.get_minimum_size().y
+	var bottom: float=value_height+12 if stacked else 6
 	for state in ["normal","hover","pressed","focus","disabled"]:
 		var style := node.get_theme_stylebox(state) as StyleBoxFlat
-		if style!=null: style.content_margin_right=room+28
+		if style!=null:
+			if style.content_margin_right!=right:style.content_margin_right=right
+			if style.content_margin_bottom!=bottom:style.content_margin_bottom=bottom
+	shown.horizontal_alignment=HORIZONTAL_ALIGNMENT_LEFT if stacked else HORIZONTAL_ALIGNMENT_RIGHT
+	shown.anchor_top=1.0 if stacked else 0.0
+	shown.offset_top=-value_height-6 if stacked else 0.0
+	shown.offset_bottom=-6 if stacked else 0.0
 
 func show_value(node: Button, text: String) -> void:
 	"""Another value for a row already built, with room made for it."""
 	var shown := node.get_node("Value") as Label
 	shown.text=text;node.accessibility_name=node.text+" · "+text
-	make_room(node,shown,-shown.offset_right-16)
+	make_room(node,shown)
 
 func toggle(title: String, section_name: String, key: String, fallback: bool, on_text := "", off_text := "", parent: Node=null) -> Button:
 	var value := flag(section_name,key,fallback)
@@ -438,9 +459,7 @@ func chooser(title: String, names: Array, current: int, key: String, choose: Cal
 	arrow.offset_left=-16-extent;arrow.offset_right=-16;arrow.offset_top=-extent*.5;arrow.offset_bottom=extent*.5
 	var value := node.get_node_or_null("Value") as Label
 	if value!=null:value.offset_right=-24-extent
-	for state in ["normal","hover","pressed","focus","disabled"]:
-		var style := node.get_theme_stylebox(state) as StyleBoxFlat
-		if style!=null: style.content_margin_right+=extent+8
+	if value!=null:make_room(node,value)
 	return node
 
 func slider(title: String, section_name: String, key: String, fallback: float, low: float, high: float, step: float, percent := false) -> HSlider:
@@ -702,6 +721,7 @@ func close_restart() -> void:
 func graphics_grid() -> GridContainer:
 	var grid := GridContainer.new();grid.columns=2 if size.x>=700 else 1
 	grid.add_theme_constant_override("h_separation",10);grid.add_theme_constant_override("v_separation",8);column.add_child(grid)
+	grid.resized.connect(func(): grid.columns=2 if size.x>=700 else 1)
 	return grid
 
 func graphics_options(keys: Array) -> void:

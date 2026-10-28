@@ -430,6 +430,7 @@
     "tests/readability_check.gd",
     "tests/reconstruction_check.gd",
     "tests/reconstruction_startup_check.gd",
+    "tests/settings_layout_check.gd",
     "tests/shadow_cache_render_check.gd",
     "tests/startup_flow_check.gd",
     "tests/station_shadow_check.gd",

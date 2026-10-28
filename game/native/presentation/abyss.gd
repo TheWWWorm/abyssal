@@ -506,7 +506,7 @@ func motion_cues() -> bool:
 
 func update_plankton(eye: Array) -> void:
 	"""The distant clouds, in open water only: not from a berth or a dock."""
-	plankton.visible=motion_cues() and not (world!=null and world.session.docked)
+	plankton.visible=motion_cues() and world!=null and world.region!=null and world.session!=null and not world.session.docked
 	if not plankton.visible:return
 	plankton.global_transform=Transform3D(Basis.IDENTITY,camera.global_position)
 	plankton_material.set_shader_parameter("cloud_origin",camera.global_position)

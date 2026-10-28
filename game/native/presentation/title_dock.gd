@@ -39,6 +39,7 @@ func _ready() -> void:
 	# on. The Abyss rig otherwise draws its two default headlight cones alone
 	# against the empty title background.
 	abyss.set_headlights(false);abyss.set_headlight_beams(false)
+	abyss.particles.hide()
 	environment=abyss.environment;sky_environment=abyss.environment.environment
 	# No station yet: the sky shader has nothing to sit behind, so hold the field.
 	abyss.environment.environment=dock_environment
@@ -82,6 +83,7 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	if is_processing():abyss.environment.environment=sky_environment
 	built=true
 	apply_atmosphere(config)
+	abyss.particles.show()
 
 func apply_atmosphere(config: ConfigFile) -> void:
 	var choices := OceanOptions.read(config)

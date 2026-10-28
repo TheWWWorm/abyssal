@@ -18,6 +18,7 @@ def main():
         "gamepad_ui_check.gd":cache,
         "menu_feedback_check.gd":cache,
         "readability_check.gd":cache,
+        "settings_layout_check.gd":None,
         "ocean_atmosphere_check.gd":cache,
         "ocean_options_check.gd":cache,
         "content_pack_check.gd":portable,

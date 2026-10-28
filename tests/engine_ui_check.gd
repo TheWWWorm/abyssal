@@ -17,7 +17,10 @@ func run():
  expect(not app.title_menu.logo.visible,"Original logo is absent before import")
  expect(app.title_menu.help.text.contains("W / S · Throttle"),"Title help describes graduated keyboard throttle by default")
  expect(app.title_dock.abyss.lamps.all(func(lamp):return not lamp.visible) and app.title_dock.abyss.beams.all(func(beam):return not beam.visible),"The empty title has no orphaned submarine headlights or beam cones")
+ expect(not app.title_dock.abyss.plankton.visible,"The empty title has no open-water plankton before content is imported")
+ expect(not app.title_dock.abyss.particles.visible,"The empty title stays clear of low-resolution particle trails")
  await app.open_cache(args[0]);await process_frame
+ expect(app.title_dock.abyss.particles.visible,"The imported station backdrop restores its water particles")
  expect(not app.title_menu.new_button.disabled and app.title_menu.logo.texture!=null,"Imported content enables play and supplies original logo")
  expect(not app.title_menu.continue_button.disabled,"Load stays available for importing the first save")
  # An import from before the water palette waits for the JAR again; a build

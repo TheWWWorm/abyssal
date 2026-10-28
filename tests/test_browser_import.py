@@ -3,7 +3,61 @@ import hashlib, io, json, pathlib, shutil, struct, subprocess, sys, tempfile, un
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
 from import_jar import bitmap, decode, pack, read_entry, model_format_problem
-from extract_data import has_converted_resource, midlet_version
+from extract_data import has_converted_resource, language_strings, midlet_version
+from class_data import DataError
+
+class LanguageDataTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.language=pathlib.Path(self.temporary.name)/'ru'
+        self.language.mkdir()
+        # Small, synthetic slot tables; no fixed game-version counts.
+        self.constants={f'{field}:[Ljava.lang.String;':[None]*count
+                        for field,count in zip('abcde',(2,1,1,1,1))}
+        self.constants.update({'a:[I':[1,2],'g:[S':[0,0,0]})
+        self.groups=[('main',['Привет','']),('ships',['Ship']),('cargo',['Cargo']),
+                     ('items',['Item']),('medals',['Medal']),('0',['First']),('1',['Second','Last'])]
+        for name,words in self.groups:
+            (self.language/f'{name}.lang').write_bytes(self.records(words))
+
+    @staticmethod
+    def records(words):
+        return b''.join(struct.pack('>H',len(raw))+raw for raw in (word.encode('utf-8') for word in words))
+
+    def test_declared_slots_ignore_trailing_bytes_without_shifting_ids(self):
+        expected=[word for _,words in self.groups for word in words]
+        for name,_ in self.groups:
+            path=self.language/f'{name}.lang';original=path.read_bytes()
+            for tail in (b'\xb8 #.',b'\x00',self.records(['Unused extra text'])):
+                with self.subTest(file=name,tail=tail):
+                    path.write_bytes(original+tail)
+                    self.assertEqual(language_strings(self.language,self.constants),expected)
+            path.write_bytes(original)
+
+    def test_counts_follow_the_selected_build(self):
+        self.constants['a:[Ljava.lang.String;']=[None]
+        self.constants['a:[I']=[1,1]
+        expected=['Привет','Ship','Cargo','Item','Medal','First','Second']
+        self.assertEqual(language_strings(self.language,self.constants),expected)
+
+    def test_required_records_still_reject_truncation_and_bad_text(self):
+        first=self.records(['Привет'])
+        for broken in (b'',b'\x00',b'\x00\x04abc',b'\x00\x01\xff'):
+            with self.subTest(record=broken):
+                (self.language/'main.lang').write_bytes(first+broken)
+                with self.assertRaisesRegex(DataError,r'ru/main\.lang \(string 2 of 2, byte 14\)'):
+                    language_strings(self.language,self.constants)
+
+    def test_modified_utf8_preserves_nul_and_supplementary_characters(self):
+        raw=b'\xc0\x80\xed\xa0\xbd\xed\xba\x80'
+        (self.language/'main.lang').write_bytes(struct.pack('>H',len(raw))+raw+b'\0\0')
+        self.assertEqual(language_strings(self.language,self.constants)[:2],['\0🚀',''])
+
+    def test_chapter_counts_must_cover_the_campaign(self):
+        self.constants['a:[I'].pop()
+        with self.assertRaisesRegex(DataError,'chapter language counts'):
+            language_strings(self.language,self.constants)
 
 class BrowserImportTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node.js is needed for browser picker checks')

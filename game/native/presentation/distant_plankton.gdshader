@@ -1,5 +1,5 @@
 shader_type spatial;
-// Motion cues: faint clouds of plankton and suspended matter a few hundred
+// Motion cues: faint wisps of plankton and suspended matter a few hundred
 // metres out, which stay put in the open water while the snow nearby rushes
 // past, so distance and speed can be judged where the water is otherwise
 // empty. A few dozen soft billboards in one draw, enhanced graphics only
@@ -19,9 +19,16 @@ uniform vec3 cloud_origin=vec3(0.0);
 const vec3 PERIOD=vec3(960.0,360.0,960.0);
 varying vec3 tint;
 varying float fade;
-varying float seed;
-varying float aspect;
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+varying flat float seed;
+varying flat float aspect;
+// A sine hash amplified small differences in the neighbouring noise cells
+// into rectangular seams on GPU. Keep the shared corners consistent without
+// a large trigonometric multiplier.
+float hash(vec2 p){
+	vec3 q=fract(vec3(p.xyx)*0.1031);
+	q+=dot(q,q.yzx+33.33);
+	return fract((q.x+q.y)*q.z);
+}
 float noise(vec2 p){
 	vec2 cell=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
 	return mix(mix(hash(cell),hash(cell+vec2(1.0,0.0)),f.x),mix(hash(cell+vec2(0.0,1.0)),hash(cell+vec2(1.0)),f.x),f.y);
@@ -34,7 +41,7 @@ void vertex(){
 	vec3 offset=mod(home+drift-eye_phase+PERIOD*0.5,PERIOD)-PERIOD*0.5;
 	float reach=length(offset);
 	fade=smoothstep(110.0,190.0,reach)*(1.0-smoothstep(330.0,450.0,reach))*(1.0-smoothstep(120.0,170.0,abs(offset.y)));
-	tint=ocean_spatial(ocean_radiance(offset)*2.0+ocean_radiance(vec3(0.0,1.0,0.0))*0.25);
+	tint=ocean_spatial(ocean_radiance(offset)*1.35+ocean_radiance(vec3(0.0,1.0,0.0))*0.08);
 	vec3 view_center=(VIEW_MATRIX*vec4(CAMERA_POSITION_WORLD+offset,1.0)).xyz;
 	// Spread wider than tall, as layers of drifting matter are.
 	vec2 size=INSTANCE_CUSTOM.y*vec2(INSTANCE_CUSTOM.z,1.0);
@@ -53,10 +60,12 @@ void fragment(){
 	vec2 grid=vec2(p.x*aspect,p.y)*5.0+seed*31.0;
 	vec2 cell=floor(grid);
 	vec2 at=fract(grid)-0.5-(vec2(hash(cell),hash(cell+7.3))-0.5)*0.7;
-	float radius=0.05+0.07*hash(cell+11.7);
+	float radius=0.025+0.04*hash(cell+11.7);
 	float pixel=max(fwidth(grid.x),fwidth(grid.y));
 	float speck=(1.0-smoothstep(radius-pixel*0.5,radius+pixel,length(at)))
 		*step(1.0-envelope*0.6,hash(cell+3.1))*(0.4+0.6*hash(cell+5.9));
-	ALBEDO=tint*(1.0+speck*0.5);
-	ALPHA=envelope*(0.16+speck*0.28)*fade;
+	// Just enough body to place the grains in the water. Bright, opaque
+	// patches read as glowing objects instead of suspended matter.
+	ALBEDO=tint;
+	ALPHA=envelope*(0.02+speck*0.14)*fade;
 }
