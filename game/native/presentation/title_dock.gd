@@ -24,6 +24,7 @@ var sky_environment: Environment
 var built := false
 var wanted_volumetric := true
 var wanted_detail := true
+var wanted_materials := false
 ## The camera draws only the water until the station is whole and the view
 ## has placed it on its orbit; before that it sits at the origin, inside
 ## whichever module is built there first.
@@ -71,6 +72,7 @@ func load_content(content, save_path: String, settings_path: String) -> void:
 	abyss.set_headlights(false);abyss.set_headlight_beams(false)
 	wanted_volumetric=bool(config.get_value("graphics","volumetric",true)) and RenderingServer.get_current_rendering_method()=="forward_plus"
 	wanted_detail=bool(config.get_value("graphics","detail",true))
+	wanted_materials=bool(config.get_value("graphics","calibrated_materials",false))
 	apply_lighting()
 	dive_audio.configure(world,content.root)
 	dive_audio.read_title_track(content.data)
@@ -117,6 +119,7 @@ func apply_lighting() -> void:
 	var env := sky_environment
 	env.volumetric_fog_enabled=view.modern_graphics and wanted_volumetric
 	env.ssao_enabled=view.modern_graphics and wanted_detail
+	OceanOptions.set_material_response(env,view.modern_graphics and wanted_materials)
 	env.glow_enabled=view.modern_graphics
 	if built:abyss.set_atmosphere(abyss.atmosphere)
 

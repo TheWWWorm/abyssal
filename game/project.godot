@@ -166,6 +166,10 @@ ocean_station_warmth={
 "type": "float",
 "value": 1.0
 }
+ocean_material_response={
+"type": "float",
+"value": 0.0
+}
 ocean_classic_sky={
 "type": "float",
 "value": 0.0

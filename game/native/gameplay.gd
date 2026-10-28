@@ -198,7 +198,7 @@ const MAX_NOTICE_HISTORY := 2
 const Headlights = preload("res://native/presentation/headlight_options.gd")
 var headlight_mode := Headlights.DEFAULT
 var headlight_previous := Headlights.DEFAULT
-var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"station_smoothing":false,"ship_smoothing":false,"depth_limits":true,"depth_limits_always":false}.merged(OceanOptions.defaults())
+var graphics := {"audio":true,"materials":true,"volumetric":true,"detail":true,"calibrated_materials":false,"station_smoothing":false,"ship_smoothing":false,"depth_limits":true,"depth_limits_always":false}.merged(OceanOptions.defaults())
 var map_widget
 var map_info: RichTextLabel
 var map_title: Label
@@ -2290,6 +2290,7 @@ func apply_graphics() -> void:
 	var env := abyss.environment.environment
 	env.volumetric_fog_enabled=modern_graphics and graphics.volumetric and RenderingServer.get_current_rendering_method()=="forward_plus"
 	env.ssao_enabled=modern_graphics and graphics.detail
+	OceanOptions.set_material_response(env,modern_graphics and graphics.calibrated_materials)
 	env.glow_enabled=modern_graphics;abyss.particles.visible=true
 	overlay.decorated=true;overlay.queue_redraw()
 	layout()

@@ -625,7 +625,7 @@ func affine_material(resource: String, blend: int, double_sided: bool, lit: bool
 		code += '#include "res://native/presentation/ocean_background.gdshaderinc"\nglobal uniform float ocean_visual_time;\nuniform float distance_haze=0.0;\n'
 		# Set each frame by abyss.gd: the depth-dimmed ambient and directional
 		# scale of the classic light, and the station window warmth choice.
-		code += "global uniform vec2 ocean_model_light;\nglobal uniform float ocean_station_warmth;\n"
+		code += "global uniform vec2 ocean_model_light;\nglobal uniform float ocean_station_warmth;\nglobal uniform float ocean_material_response;\n"
 		# Sky samples are numeric byte-color data. Avoid losing dark ramp values
 		# in Compatibility's 8-bit linear intermediate target.
 		code += "uniform sampler2D albedo : %s%s, repeat_disable;\n" % ["source_color, " if sky_pass == 0 else "",filtering]
@@ -734,7 +734,7 @@ void vertex() {
 			code+="uniform float normal_deviation_limit=0.161;\n"
 			var features := {"station_coating":"true","hull_coating":"true","replacement_enabled":"false","biology_enabled":"false","architecture_enabled":"false","painted_glass":"false","tail_lamp":"0","cabin_windows":"false","headlight_lens":"0","bioluminescence":"0.0"}
 			for feature in features:code+="#define %s %s\n"%[feature,features[feature]]
-		code += "void fragment(){\n"
+		code += "void fragment(){\nfloat glazing=0.0;\n"
 		# Both imported hangars map U along the door's height and V across
 		# its width. Slide sideways, keeping the painted frame outside the cut.
 		code += "bool door_panel=hangar_door && UV.x>49.5 && UV.x<59.5 && UV.y>98.5 && UV.y<108.5;\n#ifdef SURFACE_CUTOUT\nif(door_panel && hangar_open>0.0 && abs(UV.y-103.5)<5.0*hangar_open){discard;}\n#endif\nvec2 surface_uv=UV; if(door_panel){surface_uv.y-=sign(UV.y-103.5)*5.0*hangar_open;}\n"
@@ -828,6 +828,7 @@ if(hull_coating && !replacement_enabled){
 	ALBEDO=mix(ALBEDO,OUTPUT_IS_SRGB?to_srgb(glass_tint):glass_tint,hints.a*0.75);
 	ROUGHNESS=mix(ROUGHNESS,0.16,hints.a);
 	SPECULAR=mix(SPECULAR,0.5,hints.a);
+	glazing=hints.a;
 	if(tail_lamp>0){
 		// A stern pane is a tail lamp (1): steady red behind the glass,
 		// brightest in the middle of the frame; or an engine's dim glow (2).
@@ -988,6 +989,12 @@ if(replacement_enabled && architecture_enabled){
 				code += "ALPHA=0.5+0.5*alga_pigment;\n" if modern and lit else "ALPHA=0.5;\n"
 			elif blend == 4 or blend == 6:
 				code += "ALPHA=1.0;\n"
+		if modern and lit and blend == 0 and sky_pass == 0:
+			# Calibrated materials: the phone-era paint is very dark (median
+			# linear albedo about 0.08), so lights barely bounce off it. Lift it
+			# toward plausible paint, give station panels and hulls a smoother
+			# metallic finish for screen-space reflections; glazing keeps its own.
+			code += "if(ocean_material_response>0.5){vec3 paint=OUTPUT_IS_SRGB?to_linear(ALBEDO):ALBEDO;paint=vec3(1.0)-pow(vec3(1.0)-clamp(paint,0.0,1.0),vec3(2.5));ALBEDO=OUTPUT_IS_SRGB?to_srgb(paint):paint;if(station_coating){ROUGHNESS*=0.75;METALLIC=0.25;}else if(hull_coating&&!replacement_enabled){METALLIC=0.3*(1.0-glazing);ROUGHNESS*=0.8;}}\n"
 		if sky_pass==0 and blend in [4,6]:
 			# Add/subtract surfaces must attenuate toward zero. Their fog-disabled
 			# blend path ignores FOG; otherwise distant effects keep full brightness.

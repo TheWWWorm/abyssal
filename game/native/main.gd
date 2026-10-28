@@ -1519,6 +1519,8 @@ func apply_setting(section: String, key: String) -> void:
 		["graphics","volumetric"],["graphics","detail"]:
 			title_dock.wanted_volumetric=bool(config.get_value("graphics","volumetric",true)) and RenderingServer.get_current_rendering_method()=="forward_plus"
 			title_dock.wanted_detail=bool(config.get_value("graphics","detail",true));title_dock.apply_lighting()
+		["graphics","calibrated_materials"]:
+			title_dock.wanted_materials=bool(config.get_value("graphics","calibrated_materials",false));title_dock.apply_lighting()
 		["view","aspect_ratio"],["view","ui_scale"],["input","touch"]: fit_window();layout_ui()
 		["view","show_fps"]: fps_counter.set_enabled(fps_counter.wanted(config))
 		["view","fps_limit"],["view","vsync"]: Display.apply_frame_pacing(config)

@@ -569,7 +569,7 @@ func graphics_page() -> void:
 	colour.editable=enhanced
 	colour.tooltip_text=tr("How strongly each region's algae tint the open water. Lower is plain blue water, higher the region's own colour.")
 	group(tr("Surfaces and textures"))
-	graphics_options(["detail"])
+	graphics_options(["detail","calibrated_materials"])
 	var reconstruction := row(tr("Reconstructed textures"),tr("On") if flag("graphics","reconstructed_textures",false) else tr("Off"),"reconstructed_textures",request_reconstruction)
 	reconstruction.disabled=not can("content_root") or str(host.content_root.call()).is_empty()
 	reconstruction.tooltip_text=tr("Builds sharper textures and shallow surface relief from your imported game. Generated once, saved on this device. Custom texture packs take priority.")
@@ -709,7 +709,8 @@ func graphics_options(keys: Array) -> void:
 	var grid := graphics_grid()
 	var lighting := {
 		"volumetric":[tr("Volumetric light"),tr("Light and shadow in the surrounding water.")],
-		"detail":[tr("Surface shading detail"),tr("Fine shading and contact shadows on hulls and structures.")]
+		"detail":[tr("Surface shading detail"),tr("Fine shading and contact shadows on hulls and structures.")],
+		"calibrated_materials":[tr("Calibrated materials"),tr("Brighter paint and metallic hulls that catch more light, with screen-space reflections on Vulkan. Off: the original dark paint.")]
 	}
 	for key in keys:
 		if key=="headlight_mode":

@@ -179,6 +179,12 @@ func run() -> void:
 	await press(game.settings_panel,"cool_lighting")
 	expect(game.abyss.daylight.light_color==original_tint,"Turning cool lighting off restores the neutral light")
 	await press(game.settings_panel,"cool_lighting")
+	var env: Environment=game.abyss.environment.environment
+	expect(not game.graphics.calibrated_materials and not env.ssr_enabled,"Calibrated materials start off, without reflections")
+	await press(game.settings_panel,"calibrated_materials")
+	expect(game.graphics.calibrated_materials and env.ssr_enabled,"Calibrated materials and their reflections apply at once")
+	await press(game.settings_panel,"calibrated_materials")
+	expect(not game.graphics.calibrated_materials and not env.ssr_enabled,"Turning calibrated materials off restores the original paint")
 	expect(region.elapsed_ms==elapsed and game.abyss.ambient_clock==clock,"Comparing every option does not advance a frozen dive")
 	await check_headlight_modes(game)
 	game.queue_free();await process_frame;await process_frame

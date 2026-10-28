@@ -36,8 +36,9 @@ static var warm_station := true
 static func default_on(key: String) -> bool:
 	# White/Blue is a colour choice; all effect switches start enabled. The
 	# warm station look is one of them: switched off, stations take the
-	# original's pale cream window light.
-	return key!="blue_headlights"
+	# original's pale cream window light. Calibrated materials change the
+	# look of every surface, so they are opt-in.
+	return not key in ["blue_headlights","calibrated_materials"]
 
 static func station_lamp_color(overhead: bool, warm: bool) -> Color:
 	"""A station work lamp. The original stations have no lamps; their
@@ -51,6 +52,12 @@ static func station_window_warmth(warm: bool) -> float:
 	"""ocean_station_warmth: 0 keeps the window texels' own cream as their
 	emission, 1 shifts it to amber."""
 	return 1.0 if warm else 0.0
+
+static func set_material_response(env: Environment, calibrated: bool) -> void:
+	"""Calibrated materials (ocean_material_response in the model shader) and
+	the screen-space reflections their smoother paint and hulls rely on."""
+	RenderingServer.global_shader_parameter_set("ocean_material_response",1.0 if calibrated else 0.0)
+	env.ssr_enabled=calibrated and RenderingServer.get_current_rendering_method()=="forward_plus"
 
 static func flag(config: ConfigFile, section: String, key: String) -> bool:
 	var value: Variant=config.get_value(section,key,default_on(key))
