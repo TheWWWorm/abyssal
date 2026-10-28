@@ -59,7 +59,7 @@ func check_geometry() -> void:
 		for station in world.session.stations:
 			var origin: Array=world.station_origin(station.id)
 			expect(origin==[station.x*spacing*100,station.depth*8,station.y*spacing*100],"World placement uses %d m while preserving depth"%spacing)
-			expect(world.geography.stations[station.id].is_equal_approx(Vector3(origin[0],-origin[1],-origin[2])*.01),"Terrain anchors use the same world spacing")
+			expect(world.geography.stations[station.id].is_equal_approx(Vector3(origin[0],-origin[1],-origin[2])*.01),"Station anchors use the same world spacing")
 			expect(world.stream_denial(station.id)==denials[station.id],"Scaling preserves STREAM connectivity and engine upgrades")
 		expect(world.region.station.parts==local_parts,"Station modules retain their original local dimensions")
 		expect(is_equal_approx(world.map_kilometers(reach),reach*spacing/1000.0),"STREAM readout uses active spacing")

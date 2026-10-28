@@ -325,7 +325,7 @@ func _initialize() -> void:
 			crossing.advance(0.04)
 			if crossing.region.player.contact: contacts+=1
 			if not crossing.autopilot or crossing.region.failed: break
-		expect(not crossing.geography.seafloor_enabled and contacts==0,"Bottomless ocean route has no hidden terrain collisions")
+		expect(contacts==0,"Bottomless ocean route has no hidden terrain collisions")
 		expect(crossing.session.station_id==destination and not crossing.autopilot and not crossing.region.failed,"Autopilot crosses open water and reaches station "+str(destination))
 		expect(crossing.dock(),"Terrain-crossing arrival permits docking")
 		crossing_ms+=crossing.session.elapsed_ms; crossing.dispose()

@@ -133,7 +133,7 @@ func check_region_light() -> void:
 		last=next
 	expect(smooth and last.is_equal_approx(blue_water),"Travelling from one station to the next the colour changes gradually")
 	# Never in the tree, so the water's own nodes were never attached to it.
-	for node in [water.particles,water.environment,water.daylight,water.column_volume]:node.free()
+	for node in [water.particles,water.plankton,water.environment,water.daylight,water.column_volume]:node.free()
 	water.free()
 
 func check_glass_mask() -> void:

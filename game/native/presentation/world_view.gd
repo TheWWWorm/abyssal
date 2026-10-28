@@ -19,6 +19,7 @@ static func far_visibility(distance: float) -> float:
 const Model = preload("res://native/presentation/model.gd")
 const StationShadow = preload("res://native/presentation/station_shadow.gd")
 const StationSeparation = preload("res://native/presentation/station_separation.gd")
+const StationGlow = preload("res://native/presentation/station_glow.gd")
 const GraphicsQuality = preload("res://native/presentation/graphics_quality.gd")
 const Abyss = preload("res://native/presentation/abyss.gd")
 const Library = preload("res://scripts/model_library.gd")
@@ -264,6 +265,7 @@ func rebuild() -> void:
 		# Drawn a fraction smaller, so overlapping modules share no plane.
 		visual.transform=separation.place(visual.source,visual.transform);visual.set_meta("station_shift",separation.shifts[-1])
 		visual.configure_station(part)
+		if modern_graphics:StationGlow.attach(visual)
 		station_nodes.append(visual)
 		add_station_collision(visual)
 		if int(part.model_id)>=3300: add_station_lights(visual)
@@ -326,11 +328,12 @@ func bake_shaders() -> void:
 			var spot := SpotLight3D.new();spot.shadow_enabled=groups[g][2];spot.spot_range=OVEN_SPACING*.45;spot.spot_angle=60;spot.position=Vector3(0,0,120);group.add_child(spot)
 		for record in content.registry: model(int(record.id),32,group,false)
 	# The effect surfaces: shot trails and bursts, bubbles, the gate aperture,
-	# lamp halos and the hull wake are drawn from pools that stay empty until
-	# the first shot or the first station, and would compile then.
+	# lamp halos, the hull wake and the water's refraction are drawn from pools
+	# that stay empty until the first shot or the first station, and would
+	# compile then.
 	var tube := CylinderMesh.new();tube.radial_segments=6;tube.rings=1
 	var cone := CylinderMesh.new();cone.top_radius=0;cone.radial_segments=6;cone.rings=1
-	for entry in [[tube,"combat_line"],[QuadMesh.new(),"combat_sprite"],[QuadMesh.new(),"bubble"],[QuadMesh.new(),"gate_field"],[QuadMesh.new(),"vessel_wake"],[QuadMesh.new(),"particulate"],[cone,"headlight_beam"]]:
+	for entry in [[tube,"combat_line"],[QuadMesh.new(),"combat_sprite"],[QuadMesh.new(),"bubble"],[QuadMesh.new(),"gate_field"],[QuadMesh.new(),"vessel_wake"],[QuadMesh.new(),"particulate"],[QuadMesh.new(),"distortion"],[cone,"headlight_beam"]]:
 		var surface := MeshInstance3D.new();surface.mesh=entry[0]
 		var material := ShaderMaterial.new();material.shader=load("res://native/presentation/%s.gdshader"%entry[1]);surface.material_override=material
 		surface.custom_aabb=AABB(Vector3.ONE*-50,Vector3.ONE*100);oven.add_child(surface)
@@ -784,6 +787,8 @@ func stream_neighbors() -> void:
 				add_station_collision(visual)
 				if int(part.model_id)>=3300:add_station_lights(visual)
 			visual.configure_station(part)
+			# Far stations are seen by their windows and lamps (Enhanced).
+			if modern_graphics:StationGlow.attach(visual)
 		# Nearby stations are landmarks, not active transit destinations. Their
 		# gates used to pop in and out at the station stream boundary, sometimes
 		# putting several portals beside one station. Only the current region's

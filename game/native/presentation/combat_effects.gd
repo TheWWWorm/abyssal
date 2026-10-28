@@ -71,6 +71,12 @@ var projectile_bounds := {}
 var blood_clouds: Array = []
 var blood_count := 0
 var puff_count := 0
+## Enhanced graphics bend the water around detonations and in propulsion
+## streams (distortion.gdshader). The most important few are drawn; with none
+## alive the pool is hidden, so the screen is never copied for it.
+const DISTORTION_CAPACITY := 6
+var distortion := MultiMeshInstance3D.new()
+var distortions: Array = []
 
 func set_aftermath(on: bool) -> void:
 	if aftermath_enabled==on:return
@@ -125,6 +131,10 @@ func _ready() -> void:
 	var puff_quad := QuadMesh.new();puff_quad.size=Vector2.ONE
 	var puff_material := ShaderMaterial.new();puff_material.shader=preload("res://native/presentation/blood_puff.gdshader")
 	puff_quad.material=puff_material;pool(puffs,puff_quad,BLOOD_CAPACITY)
+	var lens_quad := QuadMesh.new();lens_quad.size=Vector2.ONE
+	var lens := ShaderMaterial.new();lens.shader=preload("res://native/presentation/distortion.gdshader")
+	# Before the water column (-125) and every other transparent surface.
+	lens.render_priority=-126;lens_quad.material=lens;pool(distortion,lens_quad,DISTORTION_CAPACITY);distortion.hide()
 	for i in 4:
 		var light := OmniLight3D.new(); light.shadow_enabled=false; light.omni_range=55; light.light_volumetric_fog_energy=0.2; light.hide(); add_child(light); lights.append(light)
 func reset(keep_player_wake: bool=false) -> void:
@@ -145,6 +155,7 @@ func reset(keep_player_wake: bool=false) -> void:
 	if not keep_player_wake: blood_clouds.clear(); puffs.multimesh.mesh.material.remove_meta("atlas_checked"); harpoon_colors.clear();projectile_colors.clear()
 	projectile_materials.clear();projectile_bounds.clear()
 	for node in [segments,ribbons,cables,hook_heads,bursts,bubbles,puffs]: node.multimesh.visible_instance_count=0
+	distortions.clear();distortion.multimesh.visible_instance_count=0;distortion.hide()
 	refresh_bounds()
 	for light in lights: light.hide()
 	segment_count=0; ribbon_count=0; hook_count=0; burst_count=0; bubble_count=0; projectile_count=0; light_count=0; blood_count=0; puff_count=0
@@ -362,6 +373,7 @@ func impact(event: Dictionary, age: float) -> void:
 	var right:=normal.cross(Vector3.RIGHT if absf(normal.y)>.98 else Vector3.UP).normalized()
 	var up:=right.cross(normal)
 	if event.get("homing",false):
+		if aftermath_enabled:shock(at,radius*1.6*5.0,age,.8,200.0,float(event.get("time",0)))
 		for i in 8:
 			var angle:=i*2.399963
 			var direction: Vector3=(right*cos(angle)+up*sin(angle)+normal*.6).normalized()
@@ -423,6 +435,46 @@ func bubble(at: Vector3, scale: float, opacity: float, kind: int=1, seed: float=
 	var distance: float=at.distance_to(owner_view.camera.global_position)
 	var visibility: float=(1.0-smoothstep(240.0,400.0,distance))*smoothstep(0.0,.12,1.0-opacity)
 	sprite(bubbles,bubble_count,at,maxf(0.04,scale),1-opacity*visibility,kind,Color("c4e3e9") if kind==7 else Color("8bbbc8"),seed); bubble_count+=1
+const SHOCK_MS := 900.0
+func distort(score: float, at: Vector3, axis: Vector3, width: float, kind: int, age: float, strength: float, phase: float) -> void:
+	"""Offer a refraction quad (distortion.gdshader): a camera-facing shock
+	ring of diameter width (kind 0), or a stream of that width along axis,
+	pointing at its source (kind 1). The highest scores are drawn."""
+	if strength>.01 and owner_view.modern_graphics:distortions.append([score,at,axis,width,kind,age,strength,phase])
+func shock(at: Vector3, diameter: float, age: float, strength: float, reach: float, seed: float) -> void:
+	if age<0 or age>=1:return
+	var distance: float=at.distance_to(owner_view.camera.global_position)
+	var fade: float=strength*pow(1.0-age,1.5)*smoothstep(0.0,.04,age)*(1.0-smoothstep(reach*.6,reach,distance))
+	distort(2.0+(1.0-age),at,Vector3.UP,diameter,0,age,fade,fposmod(seed*.618,TAU))
+func torpedo_stream(weapon, index: int, visual, at: Vector3, fraction: float) -> void:
+	var back: Vector3=visual.basis.z.normalized()
+	var length: float=trail_length(weapon,index,fraction,10.0)
+	if length<.3:return
+	var tail: Vector3=at+back*WeaponForm.TorpedoMesh.TAIL_Z
+	var distance: float=tail.distance_to(owner_view.camera.global_position)
+	distort(1.0+1.0/(1.0+distance*.05),tail+back*length*.5,-back*length,1.1,1,0.0,.9*(1.0-smoothstep(80.0,140.0,distance)),fposmod(visual_time*14.0+float(weapon.launch_serials[index]),TAU))
+func show_distortion() -> void:
+	distortions.sort_custom(func(a,b):return a[0]>b[0])
+	var count:=mini(distortions.size(),DISTORTION_CAPACITY)
+	var bounds:=AABB()
+	for i in count:
+		var entry: Array=distortions[i]
+		var at: Vector3=entry[1];var axis: Vector3=entry[2];var width: float=entry[3]
+		var normal:=axis.cross(Vector3.RIGHT)
+		if normal.length_squared()<.000001:normal=axis.cross(Vector3.UP)
+		distortion.multimesh.set_instance_transform(i,Transform3D(Basis(Vector3.RIGHT*width,axis,normal.normalized()),at))
+		distortion.multimesh.set_instance_custom_data(i,Color(entry[4],entry[5],entry[6],entry[7]))
+		var extent:=Vector3.ONE*(width+axis.length()*.5)
+		bounds=AABB(at-extent,extent*2) if i==0 else bounds.merge(AABB(at-extent,extent*2))
+	distortions.clear()
+	distortion.multimesh.visible_instance_count=count
+	# Hidden, the pool leaves the render list and no frame copies the screen.
+	distortion.visible=count>0
+	if count>0:
+		distortion.custom_aabb=bounds
+		var eye: Camera3D=owner_view.camera
+		var water: Environment=eye.environment if eye.environment!=null else eye.get_world_3d().environment
+		distortion.multimesh.mesh.material.set_shader_parameter("scene_exposure",water.tonemap_exposure if water!=null else 1.0)
 func torpedo_tail(weapon, index: int, visual, at: Vector3) -> void:
 	var key:=str(weapon.get_instance_id())+":"+str(index)
 	var serial: int=weapon.launch_serials[index]
@@ -496,6 +548,15 @@ func update_player_wake(region, milliseconds: float) -> void:
 				player_wake.append({"at":at+scatter*(.38 if boosting else .22),"velocity":frame.basis.z*(18.0 if boosting else 3+power*4)+scatter*(1.4 if boosting else .85)+Vector3.UP*.9,"age":0.0,"power":power,"size":size*(2.8 if boosting else 1.0),"boost":boosting})
 				wake_serial+=1
 		wake_previous=outlets.duplicate()
+	# The pumpjets' stream bends the water just behind each outlet.
+	var thrust: float=clampf(region.player.throttle/100.0,0,1)
+	var surge: bool=region.player.boost_active and not region.cinematic()
+	if region.player.health.hull>0 and (thrust>.05 or surge):
+		var back: Vector3=frame.basis.z.normalized()
+		var length: float=12.0 if surge else lerpf(3.0,7.0,thrust)
+		for side in outlets.size():
+			var middle: Vector3=outlets[side]-anchor+back*length*.5
+			distort(.5,middle,-back*length,1.6 if surge else lerpf(.8,1.3,thrust),1,0.0,1.0 if surge else lerpf(.4,.8,thrust),fposmod(visual_time*(6.0+thrust*8.0)+side*2.1,TAU))
 	for particle in player_wake:
 		var age: float=particle.age/2.4
 		var boosted: bool=particle.get("boost",false)
@@ -562,7 +623,7 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 				# The imported energy round is the whole shot. A separate bright
 				# wake behind it looked like an extra projectile from the chase view.
 				if weapon.homing:
-					if enhanced_weapons:torpedo_tail(weapon,i,visual,at)
+					if enhanced_weapons:torpedo_tail(weapon,i,visual,at);torpedo_stream(weapon,i,visual,at,fraction)
 					else:
 						var available := trail_length(weapon,i,fraction,velocity.length()*2.8)
 						for j in 14:
@@ -595,8 +656,11 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 			for i in event.delays.size():
 				var duration := 550.0 if owner_view.modern_graphics and aftermath_enabled else (1000.0 if event.delays.size()>1 else 4000.0)
 				var age: float = float(age_ms-int(event.delays[i]))/duration
-				if age<0 or age>=1: continue
 				var offset: Array = event.offsets[i] if i<event.offsets.size() else [0,0,0]
+				if aftermath_enabled:
+					var radius: float=36 if event.delays.size()>1 else 24
+					shock(Library.point(Math.added(event.position,offset)),radius*3.8,float(age_ms-int(event.delays[i]))/SHOCK_MS,1.0,450.0,float(event.time+i))
+				if age<0 or age>=1: continue
 				burst(Library.point(Math.added(event.position,offset)),36 if event.delays.size()>1 else 24,age,Color("ffbe85"),not owner_view.modern_graphics)
 	for i in range(blood_count,blood_clouds.size()): blood_clouds[i].hide()
 	if puff_count>0 and not puffs.multimesh.mesh.material.has_meta("atlas_checked"):
@@ -608,5 +672,6 @@ func update(region, milliseconds: int, render_milliseconds: float=-1.0) -> void:
 	bubbles.multimesh.visible_instance_count=bubble_count
 	puffs.multimesh.visible_instance_count=puff_count
 	refresh_bounds()
+	show_distortion()
 func _exit_tree() -> void:
-	for node in [segments,ribbons,cables,hook_heads,bursts,bubbles,puffs]: node.multimesh=null
+	for node in [segments,ribbons,cables,hook_heads,bursts,bubbles,puffs,distortion]: node.multimesh=null

@@ -34,7 +34,6 @@ def main():
         'story_rendezvous_check.gd':cache/'native-data.json',
         'actor_visibility_check.gd':cache,
         'native_stream_check.gd':cache,
-        'native_terrain_check.gd':cache,
         'engine_ui_check.gd':cache,
         'weapon_audio_check.gd':cache,
         'weapon_options_check.gd':cache,

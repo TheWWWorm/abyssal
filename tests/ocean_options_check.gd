@@ -127,6 +127,7 @@ func run() -> void:
 	await press(game.settings_panel,"marine_snow")
 	expect(not game.abyss.particle_material.get_shader_parameter("snow_enabled") and game.abyss.particle_material.get_shader_parameter("bioluminescence_enabled"),"Bioluminescence works with snow disabled")
 	await press(game.settings_panel,"marine_snow")
+	await check_motion_cues(game)
 	await press(game.settings_panel,"cabin_lights")
 	expect(not dark_cabin(game.view.player_model) and game.view.player_model.get_instance_id()==model_id,"The existing hull gains light without being replaced")
 	await press(game.settings_panel,"cabin_lights")
@@ -206,6 +207,27 @@ func check_headlight_migration() -> void:
 			expect(Headlights.read(config)==Headlights.Mode.CLASSIC and not config.has_section_key("graphics","beams"),"One saved mode replaces the old independent flags")
 			Headlights.write(config,Headlights.Mode.OFF)
 			expect(Headlights.previous(config)==Headlights.Mode.CLASSIC,"Switching off remembers Classic for the light shortcut")
+
+func check_motion_cues(game) -> void:
+	var abyss=game.abyss
+	var docked: bool=game.session.docked
+	var plain: int=abyss.MOTES
+	expect(not abyss.particle_material.get_shader_parameter("motion_cues") and abyss.particles.multimesh.visible_instance_count==plain and not abyss.plankton.visible,"A dive saved without motion cues has only the snow and empty distance")
+	await press(game.settings_panel,"motion_cues")
+	expect(game.graphics.motion_cues and abyss.particle_material.get_shader_parameter("motion_cues") and abyss.particles.multimesh.visible_instance_count==plain+abyss.NEAR_MOTES,"Motion cues add the near streaking motes at once, even while frozen")
+	game.session.docked=false;abyss.set_atmosphere(game.graphics)
+	expect(abyss.plankton.visible and abyss.plankton.multimesh.instance_count==abyss.PLANKTON_COUNT,"Distant plankton clouds appear in open water")
+	game.session.docked=true;abyss.set_atmosphere(game.graphics)
+	expect(not abyss.plankton.visible,"A docked view keeps the distance empty")
+	game.session.docked=false
+	# Classic is the original's empty water, whatever the saved choice.
+	game.view.modern_graphics=false;abyss.set_atmosphere(game.graphics)
+	expect(not abyss.plankton.visible and abyss.particles.multimesh.visible_instance_count==720 and not abyss.particle_material.get_shader_parameter("motion_cues"),"Classic never shows motion cues")
+	game.view.modern_graphics=true;abyss.set_atmosphere(game.graphics)
+	game.session.docked=docked
+	await press(game.settings_panel,"motion_cues")
+	expect(not game.graphics.motion_cues and not abyss.particle_material.get_shader_parameter("motion_cues") and abyss.particles.multimesh.visible_instance_count==plain and not abyss.plankton.visible,"Turning motion cues off restores the plain snow and empty distance")
+	await press(game.settings_panel,"motion_cues")
 
 func check_headlight_modes(game) -> void:
 	game.session.docked=false;game.view._process(0)

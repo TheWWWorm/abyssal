@@ -3,6 +3,7 @@ extends RefCounted
 const EngineLanguage = preload("res://native/presentation/engine_language.gd")
 const VISUALS := {
 	"marine_snow":["Marine snow","Fine suspended particles caught by the headlights."],
+	"motion_cues":["Motion cues","Nearby particles streak with your speed and turns, and faint plankton clouds drift far off in open water."],
 	"deep_darkness":["Deep-water darkness","Less ambient light and a darker sky at depth."],
 	"bioluminescence":["Bioluminescence","Disturbed glowing plankton and softly pulsing jellyfish."],
 	"explosion_aftermath":["Explosion aftermath","Short flashes followed by rising bubbles and sinking fragments."],
@@ -18,6 +19,7 @@ static func visuals() -> Dictionary:
 	"""VISUALS with the names and descriptions in the engine's language."""
 	return {
 		"marine_snow":[EngineLanguage.translate("Marine snow"),EngineLanguage.translate("Fine suspended particles caught by the headlights.")],
+		"motion_cues":[EngineLanguage.translate("Motion cues"),EngineLanguage.translate("Nearby particles streak with your speed and turns, and faint plankton clouds drift far off in open water.")],
 		"deep_darkness":[EngineLanguage.translate("Deep-water darkness"),EngineLanguage.translate("Less ambient light and a darker sky at depth.")],
 		"bioluminescence":[EngineLanguage.translate("Bioluminescence"),EngineLanguage.translate("Disturbed glowing plankton and softly pulsing jellyfish.")],
 		"explosion_aftermath":[EngineLanguage.translate("Explosion aftermath"),EngineLanguage.translate("Short flashes followed by rising bubbles and sinking fragments.")],

@@ -105,6 +105,21 @@ func run() -> void:
 	view.combat.update(region,0,0)
 	expect(view.combat.torpedo_wakes.size()==wake_count,"Repeated frozen frames emit no duplicate wake particles")
 	expect(view.combat.bubbles.multimesh.buffer==frozen_bubbles,"A frozen frame preserves bubble positions, opacity and the small-bubble pattern")
+	# Torpedoes are far ahead of the test camera; streams fade with distance.
+	camera.position=Vector3(0,5,300);view.combat.update(region,0,0)
+	var lens: MultiMeshInstance3D=view.combat.distortion
+	expect(lens.visible and lens.multimesh.visible_instance_count==3,"Each travelling torpedo bends the water in its stream")
+	var blast:={"kind":"explosion","position":[0,0,-6000],"creature":false,"delays":[0,0,0,0,0,0,0,0],"offsets":[[0,0,0],[800,0,0],[-800,0,0],[0,800,0],[0,-800,0],[800,800,0],[-800,-800,0],[800,-800,0]],"duration":1000,"time":region.elapsed_ms-200}
+	region.visual_events.append(blast);view.combat.update(region,0,0)
+	var rings:=0
+	for i in lens.multimesh.visible_instance_count:
+		if lens.multimesh.get_instance_custom_data(i).r==0:rings+=1
+	expect(lens.multimesh.visible_instance_count==Effects.DISTORTION_CAPACITY and rings==Effects.DISTORTION_CAPACITY,"Shock rings take the capped refraction pool before propulsion streams")
+	view.combat.set_aftermath(false);view.combat.update(region,0,0)
+	expect(lens.multimesh.visible_instance_count==3,"Without the explosion aftermath, detonations bend no water")
+	view.combat.set_aftermath(true);view.modern_graphics=false;view.combat.update(region,0,0)
+	expect(not lens.visible and lens.multimesh.visible_instance_count==0,"Classic graphics never sample the screen")
+	view.modern_graphics=true;region.visual_events.erase(blast);camera.position=Vector3(0,0,50);view.combat.update(region,0,0)
 	if DisplayServer.get_name()!="headless":
 		await check_ribbon(view)
 		var mass_colors: Dictionary={}
@@ -116,6 +131,7 @@ func run() -> void:
 	expect(view.combat.hook_count==32,"Tether hardware respects its fixed pool capacity")
 	view.combat.reset();expect(view.combat.ribbons.multimesh.visible_instance_count==0 and view.combat.hook_heads.multimesh.visible_instance_count==0,"Changing regions clears traces and attachment heads")
 	expect(view.combat.torpedo_wakes.is_empty() and view.combat.torpedo_tails.is_empty() and view.combat.modern_forms.is_empty(),"Changing regions clears torpedo history and modern form pools")
+	expect(not view.combat.distortion.visible,"Changing regions hides the refraction pool, so no frame copies the screen")
 	view.queue_free();camera.queue_free();world.region.dispose();world.region=null;await process_frame
 	print("COMBAT_FEEDBACK ",checks," checks; ",failures," failures");quit(1 if failures else 0)
 func frame_energy(viewport: SubViewport) -> float:

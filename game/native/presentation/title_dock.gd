@@ -7,7 +7,6 @@ extends Node3D
 const World = preload("res://native/simulation/world.gd")
 const View = preload("res://native/presentation/world_view.gd")
 const Abyss = preload("res://native/presentation/abyss.gd")
-const Terrain = preload("res://native/presentation/terrain.gd")
 const DiveAudio = preload("res://native/presentation/dive_audio.gd")
 const Session = preload("res://native/simulation/session.gd")
 const SaveStore = preload("res://native/simulation/save_store.gd")
@@ -15,7 +14,6 @@ const OceanOptions = preload("res://native/presentation/ocean_options.gd")
 var camera := Camera3D.new()
 var abyss := Abyss.new()
 var view := View.new()
-var terrain := Terrain.new()
 var world := World.new()
 var dive_audio := DiveAudio.new()
 var environment: WorldEnvironment
@@ -45,7 +43,6 @@ func _ready() -> void:
 	# No station yet: the sky shader has nothing to sit behind, so hold the field.
 	abyss.environment.environment=dock_environment
 	add_child(view);view.menu_backdrop=true
-	terrain.world=world;terrain.camera=camera;add_child(terrain)
 	dive_audio.world=world;add_child(dive_audio)
 
 func load_content(content, save_path: String, settings_path: String) -> void:

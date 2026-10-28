@@ -19,6 +19,25 @@ vec3 ocean_background(vec3 direction){
  #endif
  return water;
 }
+// The colour an unshaded spatial material writes to show radiance as the
+// water around it is shown. Forward+ tonemaps the sky and the material alike.
+// Compatibility shows the sky's sRGB as it is written, but takes a
+// material's colour as sRGB, decodes it, tonemaps it (ACES at abyss.gd's
+// exposure) and encodes it again (measured at 1.15: 0.2 shows as 0.18, 0.4
+// as 0.54), so a particle in the water's own colour came out far darker than
+// the water. There the curve is inverted per channel.
+vec3 ocean_spatial(vec3 radiance){
+ #if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+ // Godot's ACES fit; its output is divided by that of white (1.0) after
+ // the curve's exposure bias of 1.8.
+ vec3 t=clamp(radiance,vec3(0.0),vec3(1.2))*0.78108;
+ vec3 a=1.0-0.983729*t;vec3 b=0.0245786-0.432951*t;vec3 c=-(0.000090537+0.238081*t);
+ vec3 level=(-b+sqrt(b*b-4.0*a*c))/(2.0*a)/(1.8*1.15);
+ return mix(level*12.92,1.055*pow(level,vec3(1.0/2.4))-0.055,step(vec3(0.0031308),level));
+ #else
+ return radiance;
+ #endif
+}
 // Spatial FOG consumes linear radiance even when the Compatibility sky writes
 // sRGB. Feeding sky output into FOG applies gamma twice and lights up distant
 // geometry. Absorb surface contrast continuously into the surrounding water.

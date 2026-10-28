@@ -50,6 +50,21 @@ static var suspension: NoiseTexture3D
 ## The camera's own velocity in the open world, smoothed over a few frames;
 ## the enhanced snow is stretched along the water's movement past it.
 var camera_velocity := Vector3.ZERO
+## The camera's turning, radians a second about a world axis, smoothed the
+## same way; with motion cues the snow streaks across the view in a turn.
+var camera_spin := Vector3.ZERO
+var previous_view := Basis.IDENTITY
+## Motion cues' faint plankton clouds a few hundred metres out
+## (distant_plankton.gdshader), anchored in the open world.
+var plankton := MultiMeshInstance3D.new()
+var plankton_material := ShaderMaterial.new()
+const PLANKTON_COUNT := 40
+## The snow and bubbles, and after them the motes only motion cues show
+## (NEAR_CELL in particulate.gdshader).
+const MOTES := 1200
+const NEAR_MOTES := 360
+## The block of water the clouds repeat over (PERIOD in the shader).
+const PLANKTON_PERIOD := Vector3(960.0,360.0,960.0)
 var previous_eye := [0.0,0.0,0.0]
 var eye_known := false
 ## The noise lattices of ocean_radiance.gdshaderinc, metres to cells along
@@ -115,6 +130,7 @@ func _ready() -> void:
 	env.tonemap_exposure=1.15
 	env.glow_enabled=true
 	env.glow_intensity=0.85
+	set_tight_glow(env)
 	env.ssao_enabled=true
 	env.ssao_radius=1.3
 	env.ssao_intensity=0.9
@@ -174,20 +190,43 @@ func _ready() -> void:
 	cloud.transform_format=MultiMesh.TRANSFORM_3D
 	cloud.use_custom_data=true
 	cloud.mesh=mesh
-	cloud.instance_count=1200
+	cloud.instance_count=MOTES+NEAR_MOTES
 	var rng := RandomNumberGenerator.new()
 	rng.seed=902602
-	for i in cloud.instance_count:
+	for i in MOTES:
 		var bubble := i%3==0
 		var radius := rng.randf_range(0.16,0.48) if bubble else rng.randf_range(0.025,0.065)
 		cloud.set_instance_transform(i,Transform3D(Basis.IDENTITY.scaled(Vector3.ONE*radius),Vector3(rng.randf_range(-45,45),rng.randf_range(-45,45),rng.randf_range(-45,45))))
 		cloud.set_instance_custom_data(i,Color(rng.randf(),1 if bubble else 0,radius,1))
+	# Motion cues' own motes, close round the camera, drawn after the rest.
+	var near := RandomNumberGenerator.new();near.seed=290417
+	for i in range(MOTES,MOTES+NEAR_MOTES):
+		var radius := near.randf_range(0.025,0.06)
+		cloud.set_instance_transform(i,Transform3D(Basis.IDENTITY.scaled(Vector3.ONE*radius),Vector3(near.randf_range(-15,15),near.randf_range(-15,15),near.randf_range(-15,15))))
+		cloud.set_instance_custom_data(i,Color(near.randf(),0,radius,2))
 	particles.multimesh=cloud
 	# Shader-wrapped motes occupy a camera-centred 90 m cell. Keep the CPU
 	# bounds there too, including room for billboard corners and boost streaks.
 	particles.custom_aabb=AABB(Vector3.ONE*-60,Vector3.ONE*120)
 	particles.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(particles)
+	plankton_material.shader=preload("res://native/presentation/distant_plankton.gdshader")
+	# Drawn before the water column, which hazes them as it hazes distant hulls.
+	plankton_material.render_priority=-126
+	var card := QuadMesh.new();card.size=Vector2.ONE;card.material=plankton_material
+	var clouds := MultiMesh.new()
+	clouds.transform_format=MultiMesh.TRANSFORM_3D;clouds.use_custom_data=true;clouds.mesh=card
+	clouds.instance_count=PLANKTON_COUNT
+	var scatter := RandomNumberGenerator.new();scatter.seed=513077
+	for i in PLANKTON_COUNT:
+		var spot := Vector3(scatter.randf(),scatter.randf(),scatter.randf())*PLANKTON_PERIOD
+		clouds.set_instance_transform(i,Transform3D(Basis.IDENTITY,spot))
+		# Seed, half height in metres, width over height.
+		clouds.set_instance_custom_data(i,Color(scatter.randf(),scatter.randf_range(16.0,34.0),scatter.randf_range(1.4,2.4),0.0))
+	plankton.name="DistantPlankton";plankton.multimesh=clouds;plankton.top_level=true;plankton.visible=false
+	plankton.custom_aabb=AABB(-PLANKTON_PERIOD*.5-Vector3.ONE*90.0,PLANKTON_PERIOD+Vector3.ONE*180.0)
+	plankton.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(plankton)
 
 static func suspension_density() -> NoiseTexture3D:
 	"""The drifting density of the water, one texture for the water column,
@@ -198,6 +237,19 @@ static func suspension_density() -> NoiseTexture3D:
 	return suspension
 
 static var tested_beam: Shader
+## Glow for highlights only. With Godot's defaults (threshold 1, a wide
+## fourth level, no luminance cap) a plasma bolt or an explosion flash
+## spread into a white cloud that hid its own shape and the ship beside it.
+## A higher threshold leaves lit paint alone; the small levels keep a tight
+## halo round lamps and bolts, and the cap stops one flash flooding the view.
+static func set_tight_glow(env: Environment) -> void:
+	env.glow_hdr_threshold=1.25
+	env.glow_hdr_luminance_cap=6.0
+	env.set_glow_level(0,0.3)
+	env.set_glow_level(1,0.8)
+	env.set_glow_level(2,0.3)
+	env.set_glow_level(3,0.0)
+
 static func beam_shader(tested: bool) -> Shader:
 	"""The beam as drawn from outside it: the cone's near surface, depth
 	tested, so a beam behind a hull is hidden by the hardware on every GPU,
@@ -324,7 +376,15 @@ func _process(delta: float) -> void:
 	if eye_known and seconds>0.0:
 		var moved := Vector3(eye[0]-previous_eye[0],eye[1]-previous_eye[1],eye[2]-previous_eye[2])/seconds
 		if moved.length()<400.0:camera_velocity=camera_velocity.lerp(moved,1.0-exp(-seconds*10.0))
-	previous_eye=eye;eye_known=true
+		var turn: Quaternion=(camera.global_basis.orthonormalized()*previous_view.inverse()).get_rotation_quaternion()
+		if turn.w<0.0:turn=-turn
+		# The rotation vector, exact at small angles as well.
+		var axis := Vector3(turn.x,turn.y,turn.z)
+		var angle := 2.0*asin(minf(axis.length(),1.0))
+		# A cut to another camera or view is not a turn.
+		if angle<.6:camera_spin=camera_spin.lerp(axis*(angle/maxf(axis.length(),.000001)/seconds),1.0-exp(-seconds*10.0))
+	previous_eye=eye;eye_known=true;previous_view=camera.global_basis.orthonormalized()
+	update_plankton(eye)
 	# Reduce the world phase on the CPU; WebGL never subtracts large world
 	# coordinates to recover centimetre-size billboards during open-world travel.
 	particle_material.set_shader_parameter("eye_phase",Vector3(fposmod(eye[0],90),fposmod(eye[1],90),fposmod(eye[2],90)))
@@ -390,7 +450,9 @@ func update_water_particles(seconds: float, anchor: Vector3) -> void:
 	particle_material.set_shader_parameter("enhanced",1.0 if enhanced() else 0.0)
 	particle_material.set_shader_parameter("snow_enabled",atmosphere.marine_snow)
 	particle_material.set_shader_parameter("bioluminescence_enabled",atmosphere.bioluminescence)
-	particles.multimesh.visible_instance_count=1200 if enhanced() else 720
+	particle_material.set_shader_parameter("motion_cues",motion_cues())
+	particle_material.set_shader_parameter("camera_spin",camera_spin)
+	particles.multimesh.visible_instance_count=(MOTES+NEAR_MOTES if motion_cues() else MOTES) if enhanced() else 720
 	# The chase camera sits behind the hull. Bias the cloud ahead so its
 	# densest part actually reaches the two lamps instead of ending at them.
 	var focus := -camera.global_basis.z*24.0 if enhanced() else Vector3.ZERO
@@ -437,6 +499,19 @@ func update_water_particles(seconds: float, anchor: Vector3) -> void:
 		strengths.append(luminous_strength[i] if i<luminous_strength.size() else 0.0)
 	particle_material.set_shader_parameter("disturbance",trail)
 	particle_material.set_shader_parameter("disturbance_strength",strengths)
+
+func motion_cues() -> bool:
+	"""Motion cues are an enhanced departure from the original's empty water."""
+	return enhanced() and atmosphere.motion_cues
+
+func update_plankton(eye: Array) -> void:
+	"""The distant clouds, in open water only: not from a berth or a dock."""
+	plankton.visible=motion_cues() and not (world!=null and world.session.docked)
+	if not plankton.visible:return
+	plankton.global_transform=Transform3D(Basis.IDENTITY,camera.global_position)
+	plankton_material.set_shader_parameter("cloud_origin",camera.global_position)
+	plankton_material.set_shader_parameter("eye_phase",Vector3(fposmod(eye[0],PLANKTON_PERIOD.x),fposmod(eye[1],PLANKTON_PERIOD.y),fposmod(eye[2],PLANKTON_PERIOD.z)))
+	plankton_material.set_shader_parameter("drift",Vector3(fposmod(drift_offset.x,PLANKTON_PERIOD.x),fposmod(drift_offset.y,PLANKTON_PERIOD.y),fposmod(drift_offset.z,PLANKTON_PERIOD.z)))
 
 func set_headlights(on: bool) -> void:
 	headlights_enabled=on

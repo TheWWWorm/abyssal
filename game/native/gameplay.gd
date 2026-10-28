@@ -41,7 +41,6 @@ var camera := Camera3D.new()
 var abyss := preload("res://native/presentation/abyss.gd").new()
 var view := View.new()
 var dive_audio := preload("res://native/presentation/dive_audio.gd").new()
-var terrain := preload("res://native/presentation/terrain.gd").new()
 var canvas := CanvasLayer.new()
 var ui := Control.new()
 var overlay := preload("res://native/presentation/instrument_panel.gd").new()
@@ -308,7 +307,7 @@ func _ready() -> void:
 	if "--gameplay-capture" in OS.get_cmdline_user_args(): save_path="user://native/capture-only.json"
 	add_child(camera); camera.current=true; camera.fov=65; camera.near=0.5; camera.far=View.DRAW_DISTANCE
 	abyss.camera=camera; abyss.world=world; abyss.view=view; abyss.import_sky_ramp(content.root); Coin.install(content.root); add_child(abyss); dive_audio.world=world; add_child(dive_audio)
-	add_child(view); terrain.world=world; terrain.camera=camera; add_child(terrain); add_child(canvas); canvas.add_child(ui); ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); ui.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	add_child(view); add_child(canvas); canvas.add_child(ui); ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); ui.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ui.add_child(demo_weapon_bar)
 	demo_weapon_bar.stepped.connect(step_demo_weapon);demo_weapon_bar.finished.connect(finish_demo_weapon_test)
 	demo_weapon_bar.minimum_size_changed.connect(func():place_demo_weapon_bar.call_deferred())
@@ -2281,7 +2280,6 @@ func apply_graphics() -> void:
 	abyss.set_atmosphere(graphics)
 	abyss.set_water_colour(water_colour)
 	if rebuild:view.revision=-1
-	terrain.apply_pack(view.pack)
 	fps_counter.set_enabled(show_fps)
 	var shadows: int=quality.shadows if modern_graphics else 3
 	view.set_shadow_level(shadows);abyss.set_shadow_level(shadows)
