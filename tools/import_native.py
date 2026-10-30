@@ -5,7 +5,7 @@ The running Godot engine reads files only.
 import argparse, hashlib, json, pathlib, subprocess, tempfile, shutil, sys, zipfile
 from paths import ROOT, cache_home, tool
 from build import build
-from import_content import import_content
+from import_content import import_content, convert_audio
 from extract_data import extract
 # Developed against the Sony Ericsson release of DEEP 1.0.8. Recorded for reference
 # only: any DEEP MIDlet is imported, and conversion decides whether it matches.
@@ -15,7 +15,7 @@ VERSION='engine-2'
 def file_hash(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def importer_hash():
     digest=hashlib.sha256()
-    for path in sorted([*(ROOT/'runtime/java').rglob('*.java'),*(ROOT/'tools').glob('*.py')]):
+    for path in sorted([*(ROOT/'runtime/java').rglob('*.java'),*(ROOT/'tools').glob('*.py'),*(ROOT/'browser').glob('*.py')]):
         digest.update(path.relative_to(ROOT).as_posix().encode());digest.update(path.read_bytes())
     return digest.hexdigest()
 def portable_importer():
@@ -33,8 +33,10 @@ def deep_midlet(jar):
     fields=dict(line.split(': ',1) for line in manifest.splitlines() if ': ' in line)
     midlet=[part.strip() for part in fields.get('MIDlet-1','').split(',')]
     return len(midlet)==3 and midlet[2]=='DeepMIDlet'
-def model_format_problem(jar):
-    with zipfile.ZipFile(jar) as archive:return portable_importer().model_format_problem(archive.namelist())
+def jsr184(jar):
+    """The JSR-184 edition stores M3G models, which only the portable
+    converter reads; the Java converter reads the Mascot Capsule edition."""
+    with zipfile.ZipFile(jar) as archive:return any(name.startswith('data/') and name.endswith('.m3g') for name in archive.namelist())
 def readable_copy(jar,directory):
     """The Java converter reads the archive with java.util.zip, which refuses an
     entry whose compressed bytes run a byte short, as one circulating copy of
@@ -74,8 +76,6 @@ def prepare(jar):
     jar=pathlib.Path(jar).expanduser().resolve()
     if jar.stat().st_size>16*1024*1024:raise ValueError('JAR exceeds 16 MiB.')
     if not deep_midlet(jar):raise ValueError('Unsupported JAR: this is not a DEEP MIDlet.')
-    problem=model_format_problem(jar)
-    if problem:raise ValueError(problem)
     digest=file_hash(jar)
     home=cache_home()/'content';home.mkdir(parents=True,exist_ok=True)
     # Each JAR keys its own cache, so several builds can be imported side by side.
@@ -94,8 +94,12 @@ def prepare(jar):
         runtime=build()
         with tempfile.TemporaryDirectory(prefix='import-',dir=home) as temporary:
             source=readable_copy(jar,temporary)
-            stage=import_content(source,pathlib.Path(temporary),runtime)
-            extract(source,stage,digest)
+            if jsr184(source):
+                stage=pathlib.Path(temporary)/'content'
+                portable_importer().decode(source,stage,digest=digest);convert_audio(stage,runtime)
+            else:
+                stage=import_content(source,pathlib.Path(temporary),runtime)
+                extract(source,stage,digest)
             files={p.relative_to(stage).as_posix():file_hash(p) for p in sorted(stage.rglob('*')) if p.is_file()}
             (stage/'engine-import.json').write_text(json.dumps({'version':VERSION,'converter':importer_hash(),'jar_sha256':digest,'files':files},indent=2))
             # Publish a complete new cache, retaining old data until conversion succeeds.

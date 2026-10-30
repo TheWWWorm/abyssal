@@ -141,7 +141,6 @@ func importer_messages() -> Array:
 		tr("Preparing your local game content…"),tr("Preparing browser content cache…"),tr("Decoding resources: %d%%"),
 		tr("Reading game data…"),tr("Could not decode audio: %s"),tr("Damaged JAR entry: %s"),tr("JAR exceeds 16 MiB."),
 		tr("Unsupported JAR: not a readable MIDlet archive."),tr("Unsupported JAR: this is not a DEEP MIDlet."),
-		tr("Unsupported JAR: this DEEP build renders with JSR-184 (M3G) models under data/3d. Only the Mascot Capsule builds with MBAC models under data/v3d are supported, such as the Sony Ericsson release."),
 		tr("JAR exceeds import limits"),tr("Unsafe JAR entry"),tr("Unsupported JAR entry"),tr("Invalid BMP"),
 		tr("Importer files are missing. Re-export the complete Web build."),tr("Content import failed."),tr("Import failed."),
 		tr("Expected a JAR path and output pack path.")]
@@ -1295,7 +1294,15 @@ func refresh_title() -> void:
 				has_saved_game=true
 				if store.recovered and index==3:status.text=tr("Latest autosave is damaged; the previous save was loaded.")
 			elif index==3:status.text=store.failure
+		if status.text.is_empty():status.text=title_notice()
 	focus_title.call_deferred()
+
+func title_notice() -> String:
+	"""The standing title message when nothing more urgent is shown. The Nokia
+	(JSR-184) builds play, but their models were authored for a different
+	renderer than the Sony Ericsson release the engine follows."""
+	if not ready_for_preview or str(content.data.get("model_format",""))!="m3g":return ""
+	return tr("This Nokia edition of DEEP is supported, but the Sony Ericsson JAR gives the best experience.")
 
 func outdated_import() -> bool:
 	"""Content imported before the water palette was read has no palette key
@@ -1393,7 +1400,7 @@ func cancel_graphics_probe() -> void:
 	if not probing():return
 	graphics_probe.stop();graphics_probe.queue_free()
 	title_dock.view.backdrop_close=false
-	if status.text==tr("Choosing graphics settings for this device…"):status.text=""
+	if status.text==tr("Choosing graphics settings for this device…"):status.text=title_notice()
 	apply_render_quality()
 
 func finish_graphics_probe(preset: int) -> void:
@@ -1408,7 +1415,7 @@ func finish_graphics_probe(preset: int) -> void:
 	DirAccess.make_dir_recursive_absolute(settings_path.get_base_dir())
 	if config.save(settings_path)!=OK: status.text=tr("Could not save settings. Check your user folder.");return
 	apply_render_quality()
-	if status.text==tr("Choosing graphics settings for this device…"):status.text=""
+	if status.text==tr("Choosing graphics settings for this device…"):status.text=title_notice()
 	if first:show_graphics_choice(preset)
 
 func language_question() -> Array:

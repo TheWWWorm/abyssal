@@ -12,6 +12,7 @@ import struct
 import zipfile
 import zlib
 from micro3d import model, animation
+import m3g
 from extract_data import extract
 
 # The engine is developed against the Sony Ericsson release of DEEP 1.0.8, whose
@@ -48,23 +49,138 @@ def bitmap(data, alpha=False):
         for index in data[src:src+width]:
             if index >= palette_count: raise ValueError('BMP palette index outside table')
             rows.extend(palette[index])
+    return png(width, abs(height), rows)
+
+
+PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+
+def png(width, height, rows):
+    """RGBA PNG from filtered scanlines (filter byte 0 then RGBA texels)."""
     def chunk(kind, payload):
         return struct.pack('>I', len(payload))+kind+payload+struct.pack('>I', zlib.crc32(kind+payload))
-    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR', struct.pack('>IIBBBBB', width, abs(height), 8, 6, 0, 0, 0))+chunk(b'IDAT', zlib.compress(rows))+chunk(b'IEND', b'')
+    return PNG_SIGNATURE+chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0))+chunk(b'IDAT', zlib.compress(rows))+chunk(b'IEND', b'')
 
 
-MODEL_FORMAT = ('Unsupported JAR: this DEEP build renders with JSR-184 (M3G) models under data/3d. '
-                'Only the Mascot Capsule builds with MBAC models under data/v3d are supported, '
-                'such as the Sony Ericsson release.')
+def png_texels(data):
+    """Decode a non-interlaced 8-bit RGB, RGBA or indexed PNG into RGBA texels."""
+    if not data.startswith(PNG_SIGNATURE): raise ValueError('Invalid PNG')
+    offset, header, palette, alpha, compressed = 8, None, b'', b'', bytearray()
+    while offset+8 <= len(data):
+        length, kind = struct.unpack_from('>I4s', data, offset)
+        payload = data[offset+8:offset+8+length]; offset += 12+length
+        if len(payload) != length: raise ValueError('Truncated PNG')
+        if kind == b'IHDR': header = struct.unpack('>IIBBBBB', payload)
+        elif kind == b'PLTE': palette = payload
+        elif kind == b'tRNS': alpha = payload
+        elif kind == b'IDAT': compressed += payload
+        elif kind == b'IEND': break
+    if header is None: raise ValueError('Invalid PNG')
+    width, height, depth, colour, _, _, interlace = header
+    channels = {2: 3, 3: 1, 6: 4}.get(colour)
+    if depth != 8 or channels is None or interlace or not 0 < width <= 4096 or not 0 < height <= 4096: raise ValueError('Unsupported PNG encoding')
+    inflater = zlib.decompressobj(); raw = inflater.decompress(bytes(compressed), (width*channels+1)*height+1)
+    stride = width*channels
+    if len(raw) != (stride+1)*height: raise ValueError('Invalid PNG pixels')
+    texels, previous = bytearray(), bytearray(stride)
+    for y in range(height):
+        kind, line = raw[y*(stride+1)], bytearray(raw[y*(stride+1)+1:(y+1)*(stride+1)])
+        for i in range(stride):
+            a = line[i-channels] if i >= channels else 0; b = previous[i]; c = previous[i-channels] if i >= channels else 0
+            if kind == 1: line[i] = (line[i]+a) & 255
+            elif kind == 2: line[i] = (line[i]+b) & 255
+            elif kind == 3: line[i] = (line[i]+(a+b)//2) & 255
+            elif kind == 4:
+                p = a+b-c; pa, pb, pc = abs(p-a), abs(p-b), abs(p-c)
+                line[i] = (line[i]+(a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+            elif kind: raise ValueError('Invalid PNG filter')
+        for x in range(width):
+            if colour == 6: texels += line[x*4:x*4+4]
+            elif colour == 2: texels += line[x*3:x*3+3]+b'\xff'
+            else:
+                index = line[x]
+                if index*3+3 > len(palette): raise ValueError('PNG palette index outside table')
+                texels += palette[index*3:index*3+3]+bytes([alpha[index] if index < len(alpha) else 255])
+        previous = line
+    return width, height, texels
 
 
-def model_format_problem(names):
-    """The same game shipped in two 3D flavours, and the JSR-184 one carries no
-    MBAC data to decode. Only that build is named up front; any other layout
-    is left to conversion, which reports precisely what does not match."""
-    if any(name.startswith('data/v3d/') and name.endswith('.mbac') for name in names): return None
-    if any(name.startswith('data/3d/') and name.endswith('.m3g') for name in names): return MODEL_FORMAT
-    return None
+def translucence(width, height, texels):
+    """The atlas's alpha as the translucent faces read it. The low-detail
+    build dithers its atlases to fully clear or solid texels where the full
+    build has partial alpha, about as many solid as the alpha was high; the
+    share of solid texels around each texel recovers that alpha."""
+    alpha = bytes(texels[3::4])
+    if any(16 <= level <= 239 for level in alpha): return alpha
+    out = bytearray(len(alpha))
+    for y in range(height):
+        for x in range(width):
+            near = [alpha[min(height-1, max(0, y+j))*width+min(width-1, max(0, x+i))] for j in (-1, 0, 1) for i in (-1, 0, 1)]
+            out[y*width+x] = round(sum(near)/9)
+    return bytes(out)
+
+
+def m3g_atlas(width, height, texels, glows, alpha=None):
+    """The JSR-184 edition's RGBA atlas. Texels its glows sample have their
+    colour multiplied by their alpha (as translucence reads it), so they add
+    only their own light; the alpha still keys the cut-out and
+    half-transparent faces."""
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        for x in range(width):
+            r, g, b, a = texels[(y*width+x)*4:(y*width+x)*4+4]
+            light = alpha[y*width+x] if alpha else a
+            rows += bytes([r*light//255, g*light//255, b*light//255, a] if (x, y) in glows else [r, g, b, a])
+    return png(width, height, rows)
+
+
+def emblem_patterns(model_id):
+    """Frame -> emblem pattern, and the last frame shown. The JSR-184 renderer
+    moves a part's emblem texture down an eighth or a quarter of the atlas
+    from the frame range the game asks for; these tables give each part the
+    same emblem for the ranges it is shown in, as the Mascot Capsule
+    animations do for theirs."""
+    if 0 <= model_id < 12: return ({'0': 2, '3': 4, '6': 8}, 8) if model_id in (2, 4, 5, 6, 7, 8) else ({'0': 2, '1': 4, '2': 8}, 2)
+    if model_id in (3307, 3308): return {'0': 2, '3': 4}, 5
+    if model_id in (3300, 3311): return {'0': 2, '2': 4}, 3
+    if model_id in (3305, 3306, 3309, 3310): return {'0': 2, '2': 4}, 2
+    return {'0': 2, '1': 4, '2': 8}, 2
+
+
+def convert_m3g(root, models):
+    """Write the engine's model data for every registered model the JAR
+    stores as M3G, beside its name in the engine's model convention, and the
+    atlases those models sample."""
+    root = pathlib.Path(root); atlases, glows, converted = {}, {}, []
+    for record in models:
+        for texture in record['textures']:
+            source = root/(texture[:-4]+'.png')
+            if texture in atlases or not texture.endswith('.bmp') or not source.is_file(): continue
+            width, height, texels = png_texels(source.read_bytes())
+            atlases[texture] = width, height, texels, translucence(width, height, texels); glows[texture] = set()
+    for record in models:
+        source = root/(record['model'][:-5]+'.m3g')
+        if not record['model'].endswith('.mbac') or not source.is_file(): continue
+        texture = record['textures'][0]; atlas = atlases.get(texture)
+        shape, frames = m3g.model(source.read_bytes(), (atlas[0], atlas[1], atlas[3]) if atlas else None)
+        if atlas:
+            for polygon in shape['polygons']:
+                if polygon['blend'] == 4:
+                    corners = list(zip(polygon['attributes'][0::5], polygon['attributes'][1::5]))
+                    glows[texture].update(m3g.covered(atlas[0], atlas[1], corners))
+        if frames and shape['patterns'] > 1:
+            patterns, last = emblem_patterns(int(record['id']))
+            action = frames[0]
+            action['matrices'] += [action['matrices'][-1]]*(last-action['last_frame'])
+            action['last_frame'] = max(last, action['last_frame']); action['patterns'] = patterns
+        target = root/record['model']
+        pathlib.Path(str(target)+'.json').write_text(json.dumps(shape, separators=(',', ':')))
+        if frames: target.with_suffix('.mtra.json').write_text(json.dumps(frames, separators=(',', ':')))
+        converted.append(record['model'])
+    for texture, (width, height, texels, alpha) in atlases.items():
+        pathlib.Path(str(root/texture)+'.png').write_bytes(m3g_atlas(width, height, texels, glows[texture], alpha))
+    return converted
 
 
 def salvage(archive, entry):
@@ -100,21 +216,18 @@ def read_entry(archive, entry):
     except (zipfile.BadZipFile, zlib.error, EOFError): return salvage(archive, entry)
 
 
-def decode(jar, root, progress=lambda message: None):
+def decode(jar, root, progress=lambda message: None, digest=None):
     jar, root = pathlib.Path(jar), pathlib.Path(root)
     if jar.stat().st_size > 16*1024*1024: raise ValueError('JAR exceeds 16 MiB.')
     # Decide acceptance before anything is written, so a rejected JAR leaves no output.
     try:
         with zipfile.ZipFile(jar) as archive:
             manifest = archive.read('META-INF/MANIFEST.MF').decode('utf-8').replace('\r\n', '\n').replace('\n ', '')
-            names = archive.namelist()
     except (OSError, KeyError, ValueError, UnicodeDecodeError, zipfile.BadZipFile) as error:
         raise ValueError('Unsupported JAR: not a readable MIDlet archive.') from error
     fields = dict(line.split(': ', 1) for line in manifest.splitlines() if ': ' in line)
     midlet = [part.strip() for part in fields.get('MIDlet-1', '').split(',')]
     if len(midlet) != 3 or midlet[2] != 'DeepMIDlet': raise ValueError('Unsupported JAR: this is not a DEEP MIDlet.')
-    problem = model_format_problem(names)
-    if problem: raise ValueError(problem)
     launcher_icon = midlet[1].lstrip('/')
     root.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(jar) as archive:
@@ -134,6 +247,8 @@ def decode(jar, root, progress=lambda message: None):
             data = read_entry(archive, entry)
             # The phone launcher reads its icon directly, outside the resource envelope.
             if name != launcher_icon and path.suffix in {'.mbac', '.mtra', '.bmp', '.png'}: data = unwrap(data)
+            # A few M3G files are stored without the envelope.
+            if path.suffix == '.m3g' and not data.startswith(m3g.IDENTIFIER): data = unwrap(data)
             # A texture is kept as one PNG, the atlas as painted: the engine keys
             # its pure white (the phone's palette index 0) on the cut-out
             # polygons itself, so a modder has one file to work with.
@@ -144,7 +259,7 @@ def decode(jar, root, progress=lambda message: None):
             if path.suffix == '.bmp':
                 pathlib.Path(str(path)+'.png').write_bytes(bitmap(data))
     progress('Reading game data…')
-    extract(jar, root)
+    extract(jar, root, digest, prepare=lambda models: convert_m3g(root, models))
     return [p.relative_to(root).as_posix() for p in sorted(root.rglob('*')) if p.suffix in {'.mid', '.amr'}]
 
 

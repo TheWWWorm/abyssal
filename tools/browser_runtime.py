@@ -7,8 +7,9 @@ import urllib.request
 import zipfile
 from paths import ROOT, cache_home
 
-SOURCES = {'micro3d.py':'browser/micro3d.py', 'import_jar.py':'browser/import_jar.py',
-           'class_data.py':'tools/class_data.py', 'extract_data.py':'tools/extract_data.py'}
+SOURCES = {'micro3d.py':'browser/micro3d.py', 'm3g.py':'browser/m3g.py', 'import_jar.py':'browser/import_jar.py',
+           'class_data.py':'tools/class_data.py', 'class_names.py':'tools/class_names.py',
+           'reference_classes.py':'tools/reference_classes.py', 'extract_data.py':'tools/extract_data.py'}
 
 
 def stage_dependencies(destination, manifest):

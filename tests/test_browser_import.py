@@ -2,7 +2,8 @@
 import hashlib, io, json, pathlib, shutil, struct, subprocess, sys, tempfile, unittest, zipfile
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
-from import_jar import bitmap, decode, pack, read_entry, model_format_problem
+from import_jar import bitmap, convert_m3g, decode, emblem_patterns, pack, png, png_texels, read_entry, translucence
+import m3g
 from extract_data import has_converted_resource, language_strings, midlet_version
 from class_data import DataError
 
@@ -181,17 +182,103 @@ class BrowserImportTests(unittest.TestCase):
             with self.assertRaises(Exception) as outcome:decode(jar,pathlib.Path(folder)/'output')
             self.assertNotIn('Damaged JAR entry',str(outcome.exception))
 
-    def test_m3g_build_is_named_and_other_layouts_reach_conversion(self):
-        self.assertIsNone(model_format_problem(['META-INF/MANIFEST.MF','data/v3d/u0.mbac']))
-        self.assertIsNone(model_format_problem(['META-INF/MANIFEST.MF']))
-        self.assertIn('JSR-184',model_format_problem(['META-INF/MANIFEST.MF','data/3d/u0.m3g']))
+    def test_malformed_m3g_is_refused(self):
+        for data in (b'JSR184',m3g.IDENTIFIER+b'\x00\xff\xff\xff\x7f'):
+            with self.subTest(data=data),self.assertRaises(ValueError):m3g.model(data)
+
+    @staticmethod
+    def synthetic_m3g():
+        """A static emblem mesh, and an upright-turned group whose translucent
+        mesh slides along Z over two frames."""
+        def obj(kind,body):return struct.pack('<BI',kind,len(body))+body
+        plain=struct.pack('<III',0,0,0)
+        def node(extra=b'',tracks=()):
+            moved=struct.pack('<B3f3ff3f',1,*extra) if extra else b'\x00'
+            return struct.pack('<II',0,len(tracks))+b''.join(struct.pack('<I',t) for t in tracks)+struct.pack('<I',0)+moved+b'\x00'+b'\x01\x01\xff'+struct.pack('<I',0xffffffff)+b'\x00'
+        def array(size,rows):
+            fmt='<'+('b' if size==1 else 'h')*len(rows[0])
+            return obj(20,plain+struct.pack('<BBBH',size,len(rows[0]),0,len(rows))+b''.join(struct.pack(fmt,*r) for r in rows))
+        def material(rgb):return obj(13,plain+bytes(10)+bytes(rgb)+struct.pack('<f',1)+b'\x00')
+        texture=obj(17,plain+b'\x00\x00'+struct.pack('<I',0)+bytes(3)+bytes([228,241,241,208,210]))
+        def appearance(material_ref,texture_ref):return obj(3,plain+b'\x00'+struct.pack('<IIIIII',0,0,0,material_ref,1,texture_ref))
+        quad=[[0,0,0],[100,0,0],[0,100,0],[100,100,0]]
+        objects=[obj(0,b'\x01\x00\x00'+struct.pack('<II',0,0)+b'\x00'),   # 1 header
+            array(2,quad),array(1,[[0,0,127]]*4),array(2,[[16,0],[32,0],[16,16],[32,16]]),   # 2-4
+            obj(21,plain+bytes(4)+struct.pack('<I3ffII',2,0,0,0,1,3,0)+struct.pack('<II3ff',1,4,0,0,0,1/128)),   # 5
+            obj(11,plain+b'\x80'+struct.pack('<5I',4,0,1,2,3)+struct.pack('<II',1,4)),   # 6 one strip
+            material((255,0,0)),texture,appearance(7,8),   # 7-9 emblem
+            obj(14,node()+struct.pack('<III',5,1,6)+struct.pack('<I',9)),   # 10
+            obj(9,node()+struct.pack('<II',1,10)),   # 11 still group
+            obj(19,plain+bytes([176,192,0])+struct.pack('<IIIII',2,0,1,3,2)+struct.pack('<I3f',0,0,0,4)+struct.pack('<I3f',2,0,0,6)),   # 12
+            obj(1,plain+struct.pack('<ffiifi',1,1,0,0,0,0)),obj(2,plain+struct.pack('<III',12,13,275)),   # 13-14
+            material((0,255,0)),texture,appearance(15,16),   # 15-17 translucent
+            obj(14,node((0,0,4,1,1,1,0,1,0,0),tracks=(14,))+struct.pack('<III',5,1,6)+struct.pack('<I',17)),   # 18
+            obj(9,node((0,0,0,1,1,1,90,1,0,0))+struct.pack('<II',1,18))]   # 19 upright group
+        body=b''.join(objects);section=struct.pack('<BII',0,len(body)+13,len(body))+body
+        return m3g.IDENTIFIER+section+struct.pack('<I',__import__('zlib').adler32(section))
+
+    def test_m3g_placeholder_mesh_reads_as_an_empty_model(self):
+        # The low-detail build stands in a mesh with no vertex buffer for some models.
+        def obj(kind,body):return struct.pack('<BI',kind,len(body))+body
+        node=struct.pack('<III',0,0,0)+b'\x00\x00\x01\x01\xff'+struct.pack('<I',0xffffffff)+b'\x00'
+        body=(obj(0,b'\x01\x00\x00'+struct.pack('<II',0,0)+b'\x00')+obj(14,node+struct.pack('<II',0,0))
+              +obj(9,node+struct.pack('<II',1,2)))
+        section=struct.pack('<BII',0,len(body)+13,len(body))+body
+        shape,frames=m3g.model(m3g.IDENTIFIER+section+struct.pack('<I',__import__('zlib').adler32(section)))
+        self.assertEqual((shape['vertices'],shape['polygons'],frames),([],[],[]))
+        self.assertEqual([b['vertices'] for b in shape['bones']],[0])
+
+    def test_m3g_key_sharing_a_time_with_a_later_one_is_superseded(self):
+        sequence={'valid':[0,3],'interpolation':176,'keys':[(0,[90.0,-1.0,0.0]),(0,[1.0,1.0,1.0]),(1,[0.0,0.0,0.0]),(5,[1.0,1.0,1.0])]}
+        controller={'sequence_time':0.0,'speed':1.0,'world_time':0}
+        self.assertEqual(m3g.sample(sequence,controller,0),[1.0,1.0,1.0])
+        self.assertEqual(m3g.sample(sequence,controller,3),[0.5,0.5,0.5])
+
+    def test_m3g_parts_read_as_mascot_capsule_model_data(self):
+        shape,frames=m3g.model(self.synthetic_m3g())
+        self.assertEqual([(b['vertices'],b['parent']) for b in shape['bones']],[(4,-1),(4,-1)])
+        # The upright turn of the exporter's root group is not applied.
+        self.assertEqual([round(v,6) for v in shape['bones'][1]['matrix']],[1,0,0,0,0,1,0,0,0,0,1,4])
+        emblem=[p for p in shape['polygons'] if p['pattern']]
+        self.assertEqual(sorted({p['pattern'] for p in emblem}),[2,4,8])
+        first=next(p for p in emblem if p['pattern']==2)
+        # Strip faces are listed the other way round, and texels counted from their centres.
+        self.assertEqual(first['indices'],[1,0,2])
+        self.assertEqual(first['attributes'][:2],[31.5,-0.5])
+        second=next(p for p in emblem if p['pattern']==4 and p['indices']==first['indices'])
+        self.assertEqual(second['attributes'][1],15.5)
+        glow=[p for p in shape['polygons'] if p['blend']]
+        self.assertEqual({(p['blend'],p['double_sided']) for p in glow},{(4,True)})
+        self.assertEqual(shape['patterns'],4)
+        # Each frame is applied after the rest pose: half way, one unit along Z.
+        self.assertEqual(frames[0]['last_frame'],2)
+        self.assertAlmostEqual(frames[0]['matrices'][1][12+11],1.0)
+        self.assertAlmostEqual(frames[0]['matrices'][0][11],0.0)
+
+    def test_dithered_atlas_alpha_is_recovered(self):
+        # Half the texels solid in a checkerboard reads as about half alpha;
+        # an atlas that has partial alpha is read as it is.
+        dithered=bytes(v for y in range(4) for x in range(4) for v in (9,9,9,255 if (x+y)%2 else 0))
+        self.assertTrue(all(113<=a<=142 for a in translucence(4,4,dithered)[5:7]))
+        partial=bytes([9,9,9,128])*16
+        self.assertEqual(translucence(4,4,partial),bytes([128])*16)
+
+    def test_m3g_conversion_writes_models_atlas_and_emblem_frames(self):
         with tempfile.TemporaryDirectory() as folder:
-            root=pathlib.Path(folder);jar=root/'m3g.jar'
-            with zipfile.ZipFile(jar,'w') as archive:
-                archive.writestr('META-INF/MANIFEST.MF','MIDlet-1: Deep,/data/interface/icon.png,DeepMIDlet\r\n')
-                archive.writestr('data/3d/u0.m3g',b'JSR184')
-            with self.assertRaisesRegex(ValueError,'JSR-184'):decode(jar,root/'output')
-            self.assertFalse((root/'output').exists())
+            root=pathlib.Path(folder);(root/'data/3d').mkdir(parents=True);(root/'data/textures').mkdir()
+            (root/'data/3d/u4.m3g').write_bytes(self.synthetic_m3g())
+            rows=b''.join(b'\x00'+bytes([200,100,50,64])*128 for _ in range(128))
+            (root/'data/textures/deep.png').write_bytes(png(128,128,rows))
+            self.assertEqual(convert_m3g(root,[{'id':4,'model':'data/3d/u4.mbac','textures':['data/textures/deep.bmp']}]),['data/3d/u4.mbac'])
+            self.assertTrue(has_converted_resource(root,'data/3d/u4.mbac'))
+            frames=json.loads((root/'data/3d/u4.mtra.json').read_text())
+            self.assertEqual((frames[0]['patterns'],frames[0]['last_frame']),emblem_patterns(4))
+            self.assertEqual(emblem_patterns(4),({'0':2,'3':4,'6':8},8))
+            self.assertEqual(len(frames[0]['matrices']),9)
+            width,height,texels=png_texels((root/'data/textures/deep.bmp.png').read_bytes())
+            # Texels the glow samples add only their own light; the others keep their colour.
+            self.assertEqual(texels[(5*128+20)*4:(5*128+20)*4+4],bytes([50,25,12,64]))
+            self.assertEqual(texels[(100*128+100)*4:(100*128+100)*4+4],bytes([200,100,50,64]))
 
     def test_pack_is_keyed_by_the_converted_jar(self):
         with tempfile.TemporaryDirectory() as folder:

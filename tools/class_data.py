@@ -37,7 +37,7 @@ class ClassData:
             elif tag==15:value=(r.u1(),r.u2())
             else:raise DataError(f'Unsupported constant tag {tag}')
             self.pool[i]=(tag,value);i+=2 if tag in (5,6) else 1
-        r.u2();self.name=self.constant(r.u2());r.u2();r.take(r.u2()*2)
+        r.u2();self.name=self.constant(r.u2());parent=r.u2();self.super=self.constant(parent) if parent else None;r.take(r.u2()*2)
         self.fields=self.members(r);self.methods=self.members(r);self.attributes=self.attrs(r)
         if r.offset!=len(raw):raise DataError('Trailing class data')
     def constant(self,index):

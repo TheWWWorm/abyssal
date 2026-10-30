@@ -11,6 +11,8 @@ record operations below are inert schema summaries. No bytecode is emitted.
 """
 import hashlib, json, math, pathlib, re, zipfile
 from class_data import ClassData, DataError, Reader, default, evaluate, literal_matrices, modified_utf8
+from class_names import classes_of, mapping
+from reference_classes import CLASSES as REFERENCE
 
 TYPES={'I':'int','S':'short','B':'byte','Z':'boolean','J':'long','F':'float','D':'double','C':'char','Ljava/lang/String;':'java.lang.String'}
 def field_name(name,desc):return name+':'+TYPES.get(desc,desc.replace('/','.'))
@@ -87,10 +89,12 @@ def language_strings(language,constants):
                                 f'(string {index+1} of {count}, byte {offset}): {reason}') from error
     return strings
 
-def extract(jar,root,digest=None):
+def extract(jar,root,digest=None,prepare=None):
     """digest names the archive the player chose when a repacked readable copy
-    of it is what is being read; the content is keyed by the original."""
-    try:return read_profile(jar,root,digest)
+    of it is what is being read; the content is keyed by the original.
+    prepare(models) converts registered resources that need the registry
+    first, such as M3G models and their atlases."""
+    try:return read_profile(jar,root,digest,prepare)
     except DataError:raise
     except (OSError,ValueError,KeyError,IndexError,TypeError,AttributeError) as error:
         raise DataError(UNMATCHED+f'{type(error).__name__}: {error}') from error
@@ -107,15 +111,18 @@ def has_converted_resource(root,name):
     """BMP atlases are stored as PNGs by the portable importer. The native
     converter also keeps the original BMP, so accept either output layout."""
     path=root/name
+    if name.endswith('.mbac') and (root/(name+'.json')).is_file():return True # Converted from M3G.
     return path.is_file() or (name.endswith('.bmp') and (root/(name+'.png')).is_file())
 
-def read_profile(jar,root,digest=None):
+def read_profile(jar,root,digest=None,prepare=None):
     root=pathlib.Path(root);tables=table_rows(root)
     with zipfile.ZipFile(jar) as archive:
-        present=set(archive.namelist())
-        missing=[name for name in PROFILE_CLASSES if name+'.class' not in present]
+        # A separately obfuscated edition is read under the reference names.
+        found=classes_of(archive);renaming=mapping(found,REFERENCE)
+        if renaming:found={renaming.type(name):renaming.view(cls) for name,cls in found.items()}
+        missing=[name for name in PROFILE_CLASSES if name not in found]
         if missing:raise DataError(UNMATCHED+'missing '+', '.join(name+'.class' for name in missing))
-        classes={name:ClassData(archive.read(name+'.class')) for name in PROFILE_CLASSES}
+        classes={name:found[name] for name in PROFILE_CLASSES}
         music=music_table(archive)
         version=midlet_version(archive)
     statics={}
@@ -157,8 +164,9 @@ def read_profile(jar,root,digest=None):
     for owner in ('ah','e','bo','ab','f'):
         evaluate(classes[owner],'<clinit>','()V',[],statics,summary)
     evaluate(classes['ah'],'e','()V',[],statics,summary)
+    for model in models:model['textures']=[textures[model['texture_id']]]
+    converted=prepare(models) if prepare else None
     for model in models:
-        model['textures']=[textures[model['texture_id']]]
         for name in [model['model'],*model['textures']]:
             if not has_converted_resource(root,name):raise DataError('Missing registered resource: '+name)
     (root/'resource_registry.json').write_text(json.dumps(models,separators=(',',':')))
@@ -210,6 +218,8 @@ def read_profile(jar,root,digest=None):
     if music:out['music']=music
     # Shown to the player so they can tell which build a cache came from.
     if version:out['jar_version']=version
+    # Models converted from JSR-184 (the Nokia edition) rather than Mascot Capsule.
+    if converted:out['model_format']='m3g'
     # Optional presentation metadata. Read only a complete literal palette;
     # never evaluate the original scene setup or ecology code. A compatible
     # build without this table gets an empty one and neutral regional

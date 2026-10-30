@@ -123,7 +123,10 @@ func jar_edition(hash_fallback: bool=true) -> String:
 	version was recorded names the start of the JAR's hash instead."""
 	var version := str(data.get("jar_version",""))
 	var parts: Array[String]=["DEEP" if version.is_empty() else "DEEP "+version]
-	var language := str(data.get("language","")).to_upper()
+	# Fan translations often replace another folder's text, so the text decides.
+	var folder := str(data.get("language",""))
+	var language := preload("res://native/presentation/engine_language.gd").content_language(folder,data.get("strings",[]))
+	language=(folder if language.is_empty() else language).to_upper()
 	if not language.is_empty(): parts.append(language)
 	if hash_fallback and version.is_empty() and profile.length()>=8: parts.append(profile.left(8))
 	return " ".join(parts)
