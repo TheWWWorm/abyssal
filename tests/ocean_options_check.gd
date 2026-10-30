@@ -128,6 +128,7 @@ func run() -> void:
 	expect(not game.abyss.particle_material.get_shader_parameter("snow_enabled") and game.abyss.particle_material.get_shader_parameter("bioluminescence_enabled"),"Bioluminescence works with snow disabled")
 	await press(game.settings_panel,"marine_snow")
 	await check_motion_cues(game)
+	await check_small_fish(game)
 	await press(game.settings_panel,"cabin_lights")
 	expect(not dark_cabin(game.view.player_model) and game.view.player_model.get_instance_id()==model_id,"The existing hull gains light without being replaced")
 	await press(game.settings_panel,"cabin_lights")
@@ -228,6 +229,75 @@ func check_motion_cues(game) -> void:
 	await press(game.settings_panel,"motion_cues")
 	expect(not game.graphics.motion_cues and not abyss.particle_material.get_shader_parameter("motion_cues") and abyss.particles.multimesh.visible_instance_count==plain and not abyss.plankton.visible,"Turning motion cues off restores the plain snow and empty distance")
 	await press(game.settings_panel,"motion_cues")
+
+func check_small_fish(game) -> void:
+	var abyss=game.abyss
+	var docked: bool=game.session.docked
+	expect(not game.graphics.small_fish and not abyss.fish.visible,"A dive saved without small fish has empty open water")
+	await press(game.settings_panel,"small_fish")
+	game.session.docked=false;abyss.set_atmosphere(game.graphics)
+	expect(game.graphics.small_fish and abyss.fish.visible,"Small fish swim in open water as soon as they are chosen")
+	var fish=abyss.fish
+	var total := 0
+	for count in fish.counts:total+=count
+	expect(fish.multimesh.instance_count==total and fish.multimesh.mesh.get_surface_count()==1,"Every fish is drawn in one batch")
+	var kinds_seen: Dictionary={}
+	for kind in fish.kinds:kinds_seen[kind]=true
+	expect(kinds_seen.size()==3 and fish.counts.has(1),"The water holds schools, loose groups and single fish")
+	var reach_ok: bool=fish.places.size()==fish.kinds.size()
+	for i in fish.places.size():
+		var period: Vector3=fish.PERIODS[fish.kinds[i]];var wander: Vector3=fish.WANDERS[fish.kinds[i]]
+		reach_ok=reach_ok and absf(fish.places[i].x)<=period.x*.5+wander.x+fish.offsets[i].length()+.01 and absf(fish.places[i].y)<=period.y*.5+wander.y+fish.offsets[i].length()+.01
+	expect(reach_ok,"Fish stay in the block of water round the camera")
+	# Fish are anchored in the open world, however far out the eye is.
+	var eye := [4.0e6+11.5,-1.3e5,-7.2e6]
+	var far_hull := Vector3(0,-1000,0)
+	fish.update(0.0,10.0,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,far_hull,20000.0)
+	var first: PackedVector4Array=fish.places.duplicate()
+	fish.update(0.0,10.0,[eye[0]+3.0,eye[1],eye[2]],Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,far_hull,20000.0)
+	var anchored := true
+	for i in first.size():
+		if absf(first[i].x)<fish.PERIODS[fish.kinds[i]].x*.5-fish.WANDERS[fish.kinds[i]].x-4.0:anchored=anchored and absf(first[i].x-fish.places[i].x-3.0)<.01
+	expect(anchored,"Fish stay put in the water while the eye moves past, kilometres out")
+	# Fish dart off the path of a moving hull, so they learn its velocity.
+	fish.last_hull=Vector3.INF;fish.hull_motion=Vector3.ZERO
+	for step in 30:fish.update(.1,10.0,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,Vector3(0,0,-8.0*step),20000.0)
+	var motion: Vector3=fish.material.get_shader_parameter("hull_motion")
+	expect(motion.distance_to(Vector3(0,0,-80))<2.0,"Fish know how fast and which way the hull is going")
+	# A single fish swims away from a hull that comes close and stops...
+	var single: int=fish.kinds.find(fish.SINGLE)
+	fish.blocks[single]=Vector3.INF;fish.update(0.0,10.0,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,far_hull,20000.0)
+	var spot: Vector4=fish.places[single]
+	var hull_at: Vector3=Vector3(spot.x,spot.y,spot.z+6.0)
+	fish.last_hull=Vector3.INF;fish.hull_motion=Vector3.ZERO
+	for step in 20:fish.update(.1,10.0+step*.1,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,hull_at,20000.0)
+	spot=fish.places[single]
+	expect(Vector3(spot.x,spot.y,spot.z).distance_to(hull_at)>9.0,"A fish swims away from a hull that comes near")
+	# ...but a hull at full speed still overtakes it.
+	fish.blocks[single]=Vector3.INF;fish.update(0.0,12.0,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,far_hull,20000.0)
+	spot=fish.places[single]
+	var start: Vector3=Vector3(spot.x,spot.y,spot.z+40.0)
+	fish.last_hull=Vector3.INF;fish.hull_motion=Vector3.ZERO
+	for step in 21:fish.update(.1,12.0+step*.1,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,start-Vector3(0,0,2.0*step),20000.0)
+	spot=fish.places[single]
+	expect(Vector3(spot.x,spot.y,spot.z).distance_to(start-Vector3(0,0,40.0))<25.0,"A hull at full speed gains on fleeing fish")
+	var box := AABB(Vector3(-1000,-1000,-1000),Vector3(2000,2000,2000))
+	abyss.fish.obstacles.assign([box])
+	for step in 10:abyss.fish.update(.1,10.0,eye,Vector3.ZERO,Vector3.ZERO,Vector3.ZERO,Vector3(0,-1000,0),20000.0)
+	var hidden := true
+	for place in abyss.fish.places:hidden=hidden and place.w==0.0
+	expect(hidden,"Fish that would swim into a station dissolve")
+	abyss.fish.obstacles.clear();abyss.fish.obstacles_at=-INF
+	game.session.docked=true;abyss.set_atmosphere(game.graphics)
+	expect(not abyss.fish.visible,"A docked view has no fish")
+	game.session.docked=false
+	game.view.modern_graphics=false;abyss.set_atmosphere(game.graphics)
+	expect(not abyss.fish.visible,"Classic never shows small fish")
+	game.view.modern_graphics=true;abyss.set_atmosphere(game.graphics)
+	game.session.docked=docked
+	await press(game.settings_panel,"small_fish")
+	expect(not game.graphics.small_fish and not abyss.fish.visible,"Turning small fish off empties the water again")
+	await press(game.settings_panel,"small_fish")
 
 func check_headlight_modes(game) -> void:
 	game.session.docked=false;game.view._process(0)

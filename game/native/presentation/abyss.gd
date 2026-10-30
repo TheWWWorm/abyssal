@@ -65,6 +65,9 @@ const MOTES := 1200
 const NEAR_MOTES := 360
 ## The block of water the clouds repeat over (PERIOD in the shader).
 const PLANKTON_PERIOD := Vector3(960.0,360.0,960.0)
+## Schools of small fish in open water (small_fish.gd), made when the
+## ocean enters the scene so an unused one holds no meshes or textures.
+var fish: MultiMeshInstance3D
 var previous_eye := [0.0,0.0,0.0]
 var eye_known := false
 ## The noise lattices of ocean_radiance.gdshaderinc, metres to cells along
@@ -227,6 +230,8 @@ func _ready() -> void:
 	plankton.custom_aabb=AABB(-PLANKTON_PERIOD*.5-Vector3.ONE*90.0,PLANKTON_PERIOD+Vector3.ONE*180.0)
 	plankton.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(plankton)
+	fish=preload("res://native/presentation/small_fish.gd").new()
+	add_child(fish)
 
 static func suspension_density() -> NoiseTexture3D:
 	"""The drifting density of the water, one texture for the water column,
@@ -385,6 +390,7 @@ func _process(delta: float) -> void:
 		if angle<.6:camera_spin=camera_spin.lerp(axis*(angle/maxf(axis.length(),.000001)/seconds),1.0-exp(-seconds*10.0))
 	previous_eye=eye;eye_known=true;previous_view=camera.global_basis.orthonormalized()
 	update_plankton(eye)
+	update_fish(eye,seconds)
 	# Reduce the world phase on the CPU; WebGL never subtracts large world
 	# coordinates to recover centimetre-size billboards during open-world travel.
 	particle_material.set_shader_parameter("eye_phase",Vector3(fposmod(eye[0],90),fposmod(eye[1],90),fposmod(eye[2],90)))
@@ -512,6 +518,24 @@ func update_plankton(eye: Array) -> void:
 	plankton_material.set_shader_parameter("cloud_origin",camera.global_position)
 	plankton_material.set_shader_parameter("eye_phase",Vector3(fposmod(eye[0],PLANKTON_PERIOD.x),fposmod(eye[1],PLANKTON_PERIOD.y),fposmod(eye[2],PLANKTON_PERIOD.z)))
 	plankton_material.set_shader_parameter("drift",Vector3(fposmod(drift_offset.x,PLANKTON_PERIOD.x),fposmod(drift_offset.y,PLANKTON_PERIOD.y),fposmod(drift_offset.z,PLANKTON_PERIOD.z)))
+
+func small_fish() -> bool:
+	"""Ambient fish are an enhanced departure from the original's empty water."""
+	return enhanced() and atmosphere.small_fish
+
+func update_fish(eye: Array, seconds: float) -> void:
+	"""The fish swim in open water only: not from a berth or a dock."""
+	if fish==null:return
+	fish.visible=small_fish() and world!=null and world.region!=null and world.session!=null and not world.session.docked
+	if not fish.visible:return
+	var hull: Vector3=world.render_pose(world.region.player).origin
+	if view!=null and is_instance_valid(view.player_model):hull=view.player_model.global_position
+	# Stations to keep clear of, where the view draws any.
+	if view!=null and "station_nodes" in view and "neighbors" in view:
+		var roots: Array=view.station_nodes.duplicate()
+		for id in view.neighbors:roots.append(view.neighbors[id].root)
+		fish.refresh_obstacles(roots,ambient_clock)
+	fish.update(seconds,ambient_clock,eye,drift_offset,current,camera.global_position,hull,world.region.player.depth)
 
 func set_headlights(on: bool) -> void:
 	headlights_enabled=on

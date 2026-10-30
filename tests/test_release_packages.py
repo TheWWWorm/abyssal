@@ -51,6 +51,24 @@ class ReleaseTests(unittest.TestCase):
                     self.assertTrue(executable.stat().st_mode&0o111)
                     self.assertEqual((importer/'licenses/Node.txt').read_bytes(),b'synthetic license')
                     self.assertEqual((importer/'discord_presence.js').read_bytes(),(desktop_runtime.ROOT/'desktop/discord_presence.js').read_bytes())
+    def test_windows_stages_matching_node_executable(self):
+        records=json.loads((desktop_runtime.ROOT/'desktop/dependencies.json').read_text())['files']
+        with tempfile.TemporaryDirectory() as temp:
+            root=pathlib.Path(temp)
+            for platform in ['windows','windows-arm64']:
+                with self.subTest(platform=platform):
+                    record=next(r for r in records if r['platform']==platform)
+                    self.assertTrue(record['url'].endswith('.zip') and record['member'].endswith('/node.exe'))
+                    bundle=root/(platform+'.zip');payload=('synthetic '+platform).encode()
+                    with zipfile.ZipFile(bundle,'w') as archive:
+                        archive.writestr(record['member'],payload);archive.writestr(record['license_member'],b'synthetic license')
+                    output=root/platform;importer=output/'importer';(importer/'licenses').mkdir(parents=True)
+                    with patch.object(desktop_runtime,'stage_importer',return_value=importer),patch.object(desktop_runtime,'fetch',return_value=bundle) as fetch:
+                        desktop_runtime.stage(output,platform)
+                    fetch.assert_called_once_with(record)
+                    # The launcher looks for bin/<platform>/node.exe (main.gd).
+                    self.assertEqual(list((importer/'bin').iterdir()),[importer/'bin'/platform])
+                    self.assertEqual((importer/'bin'/platform/'node.exe').read_bytes(),payload)
     def test_macos_embeds_arm64_runtime_and_unnests_app(self):
         with tempfile.TemporaryDirectory() as temp:
             root=pathlib.Path(temp);stage=root/'build';stage.mkdir()

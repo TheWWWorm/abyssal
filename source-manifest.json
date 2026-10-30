@@ -238,6 +238,8 @@
     "game/native/presentation/ship_condition.gd",
     "game/native/presentation/ship_preview.gd",
     "game/native/presentation/showroom_light.gd",
+    "game/native/presentation/small_fish.gd",
+    "game/native/presentation/small_fish.gdshader",
     "game/native/presentation/station_icon.gd",
     "game/native/presentation/station_preview.gd",
     "game/native/presentation/station_separation.gd",

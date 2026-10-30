@@ -10,7 +10,7 @@ def custom_templates(values):
     templates={}
     for value in values or []:
         platform,separator,path=value.partition('=')
-        if not separator or platform not in {'linux','linux-arm64','windows','macos','web'} or not path:
+        if not separator or platform not in {'linux','linux-arm64','windows','windows-arm64','macos','web'} or not path:
             raise ValueError('--template requires a desktop or web PLATFORM=PATH')
         if platform in templates:raise ValueError('Duplicate template for '+platform)
         template=pathlib.Path(path).expanduser().resolve()
@@ -49,7 +49,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=pathlib.Path,required=True)
     parser.add_argument('--version',default='0.1.0-preview.5')
-    parser.add_argument('--platform',action='append',choices=['linux','linux-arm64','windows','macos','web','android'])
+    parser.add_argument('--platform',action='append',choices=['linux','linux-arm64','windows','windows-arm64','macos','web','android'])
     parser.add_argument('--godot',default=shutil.which('godot-4') or shutil.which('godot'))
     parser.add_argument('--version-code',type=int,default=5,help='Monotonically increasing Android version code')
     parser.add_argument('--validation',type=pathlib.Path,help='Player-facing platform support notes included with the release')
@@ -69,13 +69,15 @@ def main():
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):parser.error('Keep releases outside the engine source tree')
     output.mkdir(parents=True,exist_ok=True)
-    platforms=args.platform or ['linux','linux-arm64','windows','macos','web','android']
+    platforms=args.platform or ['linux','linux-arm64','windows','windows-arm64','macos','web','android']
     records=[]
     for platform in platforms:
         with tempfile.TemporaryDirectory(prefix='release-'+platform+'-',dir=output) as temp:
             folder=pathlib.Path(temp)/'build'
-            # One Windows package: the patched template starts on Vulkan and
-            # offers Direct3D 12 with AMD FSR, or with NVIDIA DLSS, in Settings.
+            # One x86-64 Windows package: the patched template starts on Vulkan
+            # and offers Direct3D 12 with AMD FSR, or with NVIDIA DLSS, in
+            # Settings. The vendor SDKs have no ARM build, so ARM Windows uses
+            # the official template with Vulkan and OpenGL only.
             runtime_args=['--windows-template',str(args.windows_template),'--fsr-sdk',str(args.fsr_sdk)] if platform=='windows' and args.windows_template else []
             if runtime_args and args.streamline:runtime_args+=['--streamline',str(args.streamline)]
             if platform in templates:runtime_args+=['--template',str(templates[platform])]
@@ -88,7 +90,7 @@ def main():
             if target.exists():raise FileExistsError('Release archive already exists: '+str(target))
             if platform=="android":shutil.copyfile(folder/"abyssal.apk",target)
             else:archive_build(folder,target,platform)
-            records.append({'platform':platform,'file':name,'bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'template':'release','signing':'unsigned' if platform in ['windows','macos'] else 'release key' if platform=='android' else 'not applicable','direct_jar_import':True})
+            records.append({'platform':platform,'file':name,'bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'template':'release','signing':'unsigned' if platform in ['windows','windows-arm64','macos'] else 'release key' if platform=='android' else 'not applicable','direct_jar_import':True})
     metadata={'version':args.version,'channel':'preview' if '-' in args.version else 'release','source_manifest_sha256':hashlib.sha256((ROOT/'source-manifest.json').read_bytes()).hexdigest(),'artifacts':records,'testing':'See VALIDATION.md for actual execution results; export success is not device validation.'}
     (output/'VALIDATION.md').write_text(args.validation.read_text() if args.validation else VALIDATION_PENDING)
     (output/'release.json').write_text(json.dumps(metadata,indent=2)+'\n')

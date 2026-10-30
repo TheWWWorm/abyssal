@@ -26,6 +26,13 @@
       "license_member": "node-v22.23.2-win-x64/LICENSE"
     },
     {
+      "platform": "windows-arm64",
+      "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-win-arm64.zip",
+      "sha256": "fec025a6da31757e3b6af84c5a1628e9d38442ca99a2161091d78f2fcfa35ef3",
+      "member": "node-v22.23.2-win-arm64/node.exe",
+      "license_member": "node-v22.23.2-win-arm64/LICENSE"
+    },
+    {
       "platform": "macos-arm64",
       "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-arm64.tar.gz",
       "sha256": "61130f394c1630d211dd50aecc4353d379480f36d3ac913cd85dbba1aed585c6",

@@ -4,7 +4,7 @@ import argparse, hashlib, json, os, pathlib, re, shutil, subprocess, tempfile
 from paths import ROOT, cache_home
 from branding import ARTWORK, web_assets
 from weapon_audio_assets import AUDIO, verify_audio
-PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'linux-arm64':('Linux','abyssal.arm64'),'windows':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
+PLATFORMS={'web':('Web','index.html'),'linux':('Linux','abyssal.x86_64'),'linux-arm64':('Linux','abyssal.arm64'),'windows':('Windows Desktop','abyssal.exe'),'windows-arm64':('Windows Desktop','abyssal.exe'),'macos':('macOS','abyssal.zip'),'android':('Android','abyssal.apk')}
 RECIPE = 'game/native/textures/reconstruction_recipe.json'
 
 VIEWPORT_DEFAULT = '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">'
@@ -128,11 +128,12 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
         text+='\n[abyssal]\n\n'+''.join(f'graphics_sdk/{sdk}=true\n' for sdk in sdks)
     # The title shows the package's version under its logo.
     text=text.replace('[application]\n','[application]\n\nconfig/version="%s"\n'%version,1)
-    # Desktop x86-64 keeps the project's Forward+ renderer (Vulkan), which the
-    # enhanced lighting is written for; the project falls back to OpenGL by
-    # itself where no Vulkan device exists. Web and Android have
-    # no Forward+; macOS and ARM Linux exports are unverified and stay on OpenGL.
-    if platform not in {'linux','windows'}:text=text.replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
+    # Desktop x86-64 and ARM Windows keep the project's Forward+ renderer
+    # (Vulkan), which the enhanced lighting is written for; the project falls
+    # back to OpenGL by itself where no Vulkan device exists. ARM Windows
+    # graphics ship Vulkan and Direct3D 12 drivers. Web and Android have no
+    # Forward+; macOS and ARM Linux exports are unverified and stay on OpenGL.
+    if platform not in {'linux','windows','windows-arm64'}:text=text.replace('renderer/rendering_method="forward_plus"','renderer/rendering_method="gl_compatibility"')
     # Android runs the Mobile renderer on Vulkan, with the same fallback to
     # OpenGL ES where the device has no usable Vulkan driver. The web has no
     # Vulkan or WebGPU path in this Godot: it stays on WebGL 2.
@@ -146,8 +147,10 @@ def stage_project(stage, platform, version="0.1.0-preview.5", version_code=5, te
     elif platform=='android':options={'architectures/armeabi-v7a':'false','architectures/arm64-v8a':'true','architectures/x86_64':'true','architectures/x86':'false','gradle_build/use_gradle_build':'true','gradle_build/min_sdk':'26','gradle_build/target_sdk':'36','package/unique_name':'"org.abyssal.engine"','package/name':'"Abyssal"','package/signed':'true','version/code':str(version_code),'version/name':json.dumps(version),'screen/immersive_mode':'true','permissions/internet':'false','permissions/vibrate':'true','permissions/read_external_storage':'false','permissions/write_external_storage':'false','permissions/manage_external_storage':'false'}
     elif platform=='macos':options={'application/bundle_identifier':'"org.abyssal.engine"','application/icon':'"res://ui/abyssal-icon.icns"','application/short_version':'"0.1"','application/version':'"0.1"','binary_format/architecture':'"universal"','codesign/codesign':'0','notarization/notarization':'0'}
     elif platform=='linux-arm64':options.update({'binary_format/architecture':'"arm64"','texture_format/etc2_astc':'true'})
+    # ARM Windows graphics read the same BC textures as x86-64 Windows.
+    elif platform=='windows-arm64':options['binary_format/architecture']='"arm64"'
     else:options['binary_format/architecture']='"x86_64"'
-    if platform=='windows':options.update({'application/icon':'"res://ui/abyssal-icon.ico"','application/modify_resources':'true'})
+    if platform in {'windows','windows-arm64'}:options.update({'application/icon':'"res://ui/abyssal-icon.ico"','application/modify_resources':'true'})
     if platform=='android':options['launcher_icons/adaptive_monochrome_432x432']='"res://ui/abyssal-monochrome.svg"'
     if template:options['custom_template/debug']=options['custom_template/release']=json.dumps(str(template))
     header=f'''[preset.0]
@@ -220,13 +223,13 @@ def stage_vendor_runtimes(output, fsr_sdk, streamline=None):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--platform',choices=PLATFORMS,required=True);p.add_argument('--output',type=pathlib.Path,required=True,help='An external build directory');p.add_argument('--godot',default=os.environ.get('GODOT_PATH') or shutil.which('godot-4') or shutil.which('godot'));p.add_argument('--release',action='store_true',help='Release template; Android requires configured signing credentials');p.add_argument('--stage-only',action='store_true');p.add_argument('--version',default='0.1.0-preview.5');p.add_argument('--version-code',type=int,default=5);p.add_argument('--template',type=pathlib.Path,help='Custom desktop or web export template for the selected platform and build type');p.add_argument('--windows-template',type=pathlib.Path,help='Windows template built with engine/godot-4.7/amd-fsr.patch, or with nvidia-dlss.patch and amd-fsr-after-nvidia-dlss.patch for --streamline');p.add_argument('--fsr-sdk',type=pathlib.Path,help='Directory prepared by prepare_fsr_sdk.py');p.add_argument('--streamline',type=pathlib.Path,help='Also NVIDIA DLSS: SDK directory prepared by prepare_streamline.py');p.add_argument('--nvidia-artwork',type=pathlib.Path,help='With --streamline: a directory with NVIDIA\'s '+NVIDIA_BADGE+' and '+NVIDIA_SPLASH);p.add_argument('--android-native-libs',type=pathlib.Path,help='Patched Godot platform/android/java/lib/libs directory; supplied architectures replace the official native libraries');args=p.parse_args()
-    if args.template and (args.platform not in {'linux','linux-arm64','windows','macos','web'} or args.windows_template):p.error('--template is for desktop or web exports and cannot be combined with --windows-template.')
+    if args.template and (args.platform not in {'linux','linux-arm64','windows','windows-arm64','macos','web'} or args.windows_template):p.error('--template is for desktop or web exports and cannot be combined with --windows-template.')
     if args.android_native_libs and args.platform!='android':p.error('--android-native-libs is only supported for Android.')
     if args.version_code<1:p.error("Android version code must be positive")
     output=args.output.expanduser().resolve()
     if output.is_relative_to(ROOT):p.error('Export outside the source directory.')
     if not args.godot and not args.stage_only:p.error('Install Godot 4.7 and matching export templates, or pass --godot.')
-    if bool(args.windows_template)!=bool(args.fsr_sdk) or (args.windows_template and args.platform!='windows'):p.error('The vendor SDK build needs --windows-template and --fsr-sdk, for Windows only.')
+    if bool(args.windows_template)!=bool(args.fsr_sdk) or (args.windows_template and args.platform!='windows'):p.error('The vendor SDK build needs --windows-template and --fsr-sdk, for x86-64 Windows only.')
     if args.streamline and not args.windows_template:p.error('--streamline needs --windows-template and --fsr-sdk.')
     if args.nvidia_artwork and not args.streamline:p.error('--nvidia-artwork needs --streamline.')
     selected_template=args.windows_template or args.template
@@ -255,7 +258,7 @@ def main():
         stage_browser_runtime(output)
         write_static_headers(output)
         print('Web build:',stamp_web_build(output))
-    if args.platform in {"linux","linux-arm64","windows","macos"}:
+    if args.platform in {"linux","linux-arm64","windows","windows-arm64","macos"}:
         from desktop_runtime import stage as stage_desktop_runtime, embed_macos
         stage_desktop_runtime(output,args.platform)
         if args.platform=="macos":embed_macos(output)

@@ -39,7 +39,7 @@ def stage(output,platform):
         else:
             with tarfile.open(archive,'r:*') as bundle:
                 binary=bundle.extractfile(record['member']).read();license_text=bundle.extractfile(record['license_member']).read()
-        executable=importer/'bin'/record['platform']/('node.exe' if platform=='windows' else 'node')
+        executable=importer/'bin'/record['platform']/('node.exe' if platform.startswith('windows') else 'node')
         executable.parent.mkdir(parents=True,exist_ok=True);executable.write_bytes(binary);executable.chmod(0o755)
         (importer/'licenses/Node.txt').write_bytes(license_text)
     shutil.copyfile(ROOT/'desktop/dependencies.json',importer/'desktop-dependencies.json')

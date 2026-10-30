@@ -49,7 +49,8 @@ func start() -> void:
 	if not RegEx.create_from_string("^[0-9]{17,20}$").search(client_id):return
 	var folder := OS.get_executable_path().get_base_dir()
 	var importer := folder.path_join("../Resources/importer").simplify_path() if OS.has_feature("macos") else folder.path_join("importer")
-	var platform := "macos-arm64" if OS.has_feature("macos") else "windows" if OS.has_feature("windows") else "linux-arm64" if OS.has_feature("arm64") else "linux"
+	var platform := "macos-arm64" if OS.has_feature("macos") else "windows" if OS.has_feature("windows") else "linux"
+	if platform!="macos-arm64" and OS.has_feature("arm64"):platform+="-arm64"
 	var executable := importer.path_join("bin/"+platform+"/"+("node.exe" if OS.has_feature("windows") else "node"))
 	var script := importer.path_join("discord_presence.js")
 	if not FileAccess.file_exists(executable) or not FileAccess.file_exists(script):

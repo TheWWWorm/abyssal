@@ -45,6 +45,7 @@ Needs WebGL 2 and a desktop-class browser. For the smoothest experience, and to 
 | Platform | Download | Start |
 | --- | --- | --- |
 | Windows x86-64 | `…-windows.zip` | `abyssal.exe` |
+| Windows on ARM (ARM64) | `…-windows-arm64.zip` | `abyssal.exe` |
 | Linux x86-64 | `…-linux.tar.gz` | `AbyssalEngine/abyssal.x86_64` |
 | Linux ARM64 (AArch64) | `…-linux-arm64.tar.gz` | `AbyssalEngine/abyssal.arm64` |
 | macOS Apple Silicon | `…-macos.zip` | `Abyssal.app` |
@@ -103,10 +104,11 @@ The title screen's bottom line names the imported build after the engine's versi
 
 ## Before you download - please read
 
-- **Windows and macOS have never been run on their native systems.** They are built and packaged, but not tested on real hardware. Both are unsigned and macOS is not notarized, so those systems may warn about or block them.
+- **Windows (x86-64 and ARM) and macOS have never been run on their native systems.** They are built and packaged, but not tested on real hardware. Both are unsigned and macOS is not notarized, so those systems may warn about or block them.
 - **macOS is Apple Silicon only.** Intel Macs cannot run this build.
 - **Linux x86-64 and Android** have local rendering checks; see the release’s `VALIDATION.md` for the exact checks and hardware limits.
 - **Linux x86-64 and Windows** start on Vulkan and fall back to OpenGL 3.3 without one; the Graphics page's Forward+ options (volumetric light, shading detail, temporal antialiasing) only take effect on Vulkan.
+- **Windows on ARM** is a native ARM64 build for Windows 11 on ARM (for example Snapdragon X laptops), using the same renderers. AMD FSR and NVIDIA DLSS have no ARM runtimes, so its Renderer row offers Vulkan and OpenGL only. The x86-64 package also runs on these devices through Windows' emulation. Native ARM Windows execution and gameplay are not yet verified.
 - **Linux ARM64** requires a 64-bit ARM Linux system and working OpenGL 3.3 or OpenGL ES 3.0 drivers. Native ARM Linux execution and gameplay are not yet verified. The archive is a desktop export; PortMaster handhelds require additional launcher and runtime integration, and compatibility depends on the device and firmware.
 - **The browser build needs a web host.** Opening `index.html` from your disk will not work.
 - **Android** is a sideloaded APK. From 1.2.0 it starts on Vulkan (Godot's Mobile renderer) and falls back to OpenGL ES 3 on a device without a usable Vulkan driver. Physical ARM64 hardware performance is not yet verified; Android validation uses an x86-64 emulator without a GPU, so the Vulkan path has only been built, not run.
@@ -267,9 +269,11 @@ As in the original, the water above takes the colour of the most common alga aro
 
 **Headlight brightness**, under Enhanced lighting, dims the headlights from 100% down to 20%: the light on surfaces, the visible beams and the marine snow they catch, for the player and other vessels.
 
-**Enhanced lighting** groups lamps, beam colour, cabin lights, warm station lights, cool ambient light and filtered sunlight. **Ocean atmosphere** contains volumetric light, deep-water darkness, regional water, marine snow, motion cues, bioluminescence and explosion aftermath. **Surfaces and textures** contains shading detail and the two texture filters. All effect switches start enabled; ship and station texture smoothing start off. Changes apply immediately and are saved between launches. Classic preserves the Enhanced choices for the next switch back.
+**Enhanced lighting** groups lamps, beam colour, cabin lights, warm station lights, cool ambient light and filtered sunlight. **Ocean atmosphere** contains volumetric light, deep-water darkness, regional water, marine snow, motion cues, small fish, bioluminescence and explosion aftermath. **Surfaces and textures** contains shading detail and the two texture filters. All effect switches start enabled; ship and station texture smoothing start off. Changes apply immediately and are saved between launches. Classic preserves the Enhanced choices for the next switch back.
 
 **Motion cues** help judge speed and distance in open water, which in the original is an empty gradient. Fine particles close to the submarine show in the surrounding water light as it gathers speed: faint at cruise, they draw out into longer streaks under boost and sweep across the view in a turn. A few faint clouds of drifting plankton hang a few hundred metres out, take the colour of the water behind them and fade into it with distance, so they stay put while the nearby particles rush past. The clouds are hidden while docked. This is a departure from the original, so Classic lighting never shows it; switch it off for the original's empty water with enhanced lighting.
+
+**Small fish** fill the open water with a little life: schools of tiny fish, loose groups whose fish each swim their own way, and single fish nearby. They come in several sizes and species, from slender silver sardines and banded bannerfish to mottled groupers, and redfish and dark lanternfish with glowing spots in the deep. Every fish turns and swims away as the submarine approaches; at full speed the submarine still overtakes them. They are lit like any hull, so in the deep they show mostly as they cross the headlights, and they fade out a few dozen metres away. They are scenery, not catchable creatures, keep clear of stations and are hidden while docked. Classic lighting never shows them.
 
 **Warm station lights** gives the station lamps and windows an amber light. Switched off, they take the pale cream of the original's window texels. From a few hundred metres out, a station's lit windows and lamps also glow softly through the water, so a distant station still reads as an inhabited place; a window or lamp hidden behind the structure does not glow.
 
@@ -386,7 +390,7 @@ python3 tools/export_game.py --platform linux --release --output /outside/repo/b
   --template /build/godot/bin/godot.linuxbsd.template_release.x86_64
 ```
 
-`--template` selects a custom Linux, ARM64 Linux, Windows, macOS or web template without enabling a vendor SDK. Use the template for the chosen architecture and release/debug build type. Release packaging accepts repeated `--template PLATFORM=PATH` arguments, for example `--template linux=/build/godot/bin/godot.linuxbsd.template_release.x86_64`. Windows builds with AMD FSR use `--windows-template` and `--fsr-sdk` instead, with both patches applied as shown below. A new template must be rebuilt for each target platform; selecting an Android native library does not change a desktop or browser build.
+`--template` selects a custom Linux, ARM64 Linux, Windows, ARM64 Windows, macOS or web template without enabling a vendor SDK. Use the template for the chosen architecture and release/debug build type. Release packaging accepts repeated `--template PLATFORM=PATH` arguments, for example `--template linux=/build/godot/bin/godot.linuxbsd.template_release.x86_64`. Windows builds with AMD FSR use `--windows-template` and `--fsr-sdk` instead, with both patches applied as shown below. A new template must be rebuilt for each target platform; selecting an Android native library does not change a desktop or browser build.
 
 For portable Linux releases, use the matching [Godot Buildroot SDK](https://github.com/godotengine/buildroot/releases/tag/godot-2023.08.x-4) to preserve compatibility with older glibc versions. Release 1.21.6 uses SDK `godot-2023.08.x-4`, which targets glibc 2.28. Extract it to a path without spaces, run its `relocate-sdk.sh`, add its `bin` directory to `PATH`, and pass its prefixed `CC`, `CXX`, `AR` and `RANLIB` tools to SCons. The x86-64 prefix is `x86_64-godot-linux-gnu`; ARM64 uses `aarch64-godot-linux-gnu` with `arch=arm64` and `--platform linux-arm64` when exporting. Check the resulting binary's required glibc versions before distributing it.
 
@@ -410,13 +414,15 @@ The rendered regression check needs a window and no game content. Run it with an
 ```sh
 # All player packages, including the offline desktop and Android importers:
 python3 tools/package_releases.py --version 1.0.0 --output /outside/repo/releases/1.0.0
-# A single unpackaged export (windows, linux, linux-arm64, macos, web, android):
+# A single unpackaged export (windows, windows-arm64, linux, linux-arm64, macos, web, android):
 python3 tools/export_game.py --platform linux --release --output /outside/repo/builds/linux
 # A standalone ARM64 Linux package:
 python3 tools/package_releases.py --platform linux-arm64 --version 1.0.0 --output /outside/repo/releases/arm64
+# A standalone Windows on ARM package, from Godot's official windows_release_arm64.exe template:
+python3 tools/package_releases.py --platform windows-arm64 --version 1.0.0 --output /outside/repo/releases/windows-arm64
 ```
 
-`package_releases.py` builds the Windows package from the vendor template when given `--windows-template`, `--fsr-sdk` and `--streamline` (see [AMD FSR and NVIDIA DLSS on Windows](#amd-fsr-and-nvidia-dlss-on-windows)); without them it uses Godot's stock template, whose Renderer row offers Vulkan and OpenGL only.
+`package_releases.py` builds the Windows package from the vendor template when given `--windows-template`, `--fsr-sdk` and `--streamline` (see [AMD FSR and NVIDIA DLSS on Windows](#amd-fsr-and-nvidia-dlss-on-windows)); without them it uses Godot's stock template, whose Renderer row offers Vulkan and OpenGL only. The `windows-arm64` package always uses the stock ARM64 template: the vendor SDKs ship x86-64 runtimes only.
 
 Builds fetch and verify pinned runtimes once into an external cache (`~/.cache/abyssal-engine` on Linux, `~/Library/Caches/abyssal-engine` on macOS, `%LOCALAPPDATA%/abyssal-engine` on Windows; override with `ABYSSAL_CACHE_HOME`). No JAR is needed to build. Pass `--godot /path/to/godot` or set `GODOT_PATH` if it is not on your PATH.
 
@@ -501,6 +507,8 @@ For development and private content testing, the desktop packages can prepare a 
 ```powershell
 # Windows PowerShell
 .\importer\bin\windows\node.exe .\importer\import.js "C:\path\DEEP.jar" "C:\path\private.abyss"
+# Windows on ARM
+.\importer\bin\windows-arm64\node.exe .\importer\import.js "C:\path\DEEP.jar" "C:\path\private.abyss"
 ```
 
 These packs contain converted game assets and remain private. Ordinary Android play imports the JAR directly.

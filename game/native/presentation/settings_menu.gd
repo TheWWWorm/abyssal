@@ -583,7 +583,7 @@ func graphics_page() -> void:
 	strength.editable=enhanced and Headlights.casts_light(Headlights.read(load_config()))
 	strength.tooltip_text=tr("How strongly the headlights light the water and nearby surfaces.")
 	group(tr("Ocean atmosphere"))
-	graphics_options(["volumetric","deep_darkness","regional_water","marine_snow","motion_cues","bioluminescence","explosion_aftermath"])
+	graphics_options(["volumetric","deep_darkness","regional_water","marine_snow","motion_cues","small_fish","bioluminescence","explosion_aftermath"])
 	var colour := slider(tr("Water colour"),"graphics","water_colour",OceanOptions.WATER_COLOUR_DEFAULT,0.0,1.0,0.05,true)
 	colour.editable=enhanced
 	colour.tooltip_text=tr("How strongly each region's algae tint the open water. Lower is plain blue water, higher the region's own colour.")

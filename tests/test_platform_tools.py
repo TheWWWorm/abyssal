@@ -112,9 +112,9 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertTrue((stage/'project.godot').is_file())
                 self.assertFalse((stage/'tools').exists())
                 self.assertFalse((stage/'data').exists())
-                # Desktop x86-64 keeps Forward+ with the OpenGL fallback; everything else exports on OpenGL.
+                # Desktop x86-64 and ARM Windows keep Forward+ with the OpenGL fallback; everything else exports on OpenGL.
                 settings=(stage/'project.godot').read_text()
-                if platform in {'linux','windows'}:
+                if platform in {'linux','windows','windows-arm64'}:
                     self.assertIn('renderer/rendering_method="forward_plus"',settings);self.assertIn('fallback_to_opengl3=true',settings)
                 else:self.assertNotIn('forward_plus',settings)
                 self.assertFalse(any(p.suffix in {'.jar','.abyss'} for p in stage.rglob('*')))
@@ -133,6 +133,12 @@ class PlatformToolsTests(unittest.TestCase):
                 self.assertIn('binary_format/architecture="'+architecture+'"',preset)
                 self.assertEqual(export_game.PLATFORMS[platform][1],'abyssal.'+architecture)
             self.assertIn('texture_format/etc2_astc=true',(pathlib.Path(folder)/'linux-arm64/export_presets.cfg').read_text())
+            for platform,architecture in [('windows','x86_64'),('windows-arm64','arm64')]:
+                preset=(pathlib.Path(folder)/platform/'export_presets.cfg').read_text()
+                self.assertIn('platform="Windows Desktop"',preset)
+                self.assertIn('binary_format/architecture="'+architecture+'"',preset)
+                for option in ['texture_format/s3tc_bptc=true','texture_format/etc2_astc=false','application/icon="res://ui/abyssal-icon.ico"']:self.assertIn(option,preset)
+                self.assertEqual(export_game.PLATFORMS[platform][1],'abyssal.exe')
             android=(pathlib.Path(folder)/'android/export_presets.cfg').read_text()
             for option in ['permissions/internet=false','permissions/manage_external_storage=false','permissions/vibrate=true',
                            'architectures/arm64-v8a=true','architectures/x86_64=true',
