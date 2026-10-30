@@ -2,7 +2,7 @@
 import hashlib, io, json, pathlib, shutil, struct, subprocess, sys, tempfile, unittest, zipfile
 sys.path[:0] = [str(pathlib.Path(__file__).resolve().parents[1]/p) for p in ('browser','tools')]
 from micro3d import Reader, model, animation, bone_matrix
-from import_jar import bitmap, convert_m3g, decode, emblem_patterns, pack, png, png_texels, read_entry, translucence
+from import_jar import ENLARGE, bitmap, convert_m3g, decode, emblem_patterns, enlarge_stunted, pack, png, png_texels, read_entry, translucence
 import m3g
 from extract_data import has_converted_resource, language_strings, midlet_version
 from class_data import DataError
@@ -254,6 +254,18 @@ class BrowserImportTests(unittest.TestCase):
         self.assertEqual(frames[0]['last_frame'],2)
         self.assertAlmostEqual(frames[0]['matrices'][1][12+11],1.0)
         self.assertAlmostEqual(frames[0]['matrices'][0][11],0.0)
+
+    def test_stunted_m3g_model_is_enlarged_with_its_offsets(self):
+        bone = {'vertices': 2, 'parent': -1, 'matrix': [1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, -2]}
+        shape = {'vertices': [0, 0, 0, 10, 4, -3], 'bones': [bone]}
+        frames = [{'matrices': [[1, 0, 0, 1, 0, 1, 0, 2, 0, 0, 1, 3]]}]
+        enlarge_stunted(shape, frames)
+        self.assertEqual(shape['vertices'], [0, 0, 0, 10*ENLARGE, 4*ENLARGE, -3*ENLARGE])
+        self.assertEqual(bone['matrix'], [1, 0, 0, 5*ENLARGE, 0, 1, 0, 0, 0, 0, 1, -2*ENLARGE])
+        self.assertEqual(frames[0]['matrices'][0], [1, 0, 0, ENLARGE, 0, 1, 0, 2*ENLARGE, 0, 0, 1, 3*ENLARGE])
+        crate = {'vertices': [0, 0, 0, 216, 100, 100], 'bones': []}
+        enlarge_stunted(crate, []); enlarge_stunted({'vertices': [], 'bones': []}, [])
+        self.assertEqual(crate['vertices'], [0, 0, 0, 216, 100, 100])
 
     def test_dithered_atlas_alpha_is_recovered(self):
         # Half the texels solid in a checkerboard reads as about half alpha;

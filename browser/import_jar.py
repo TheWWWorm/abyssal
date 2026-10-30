@@ -148,6 +148,28 @@ def emblem_patterns(model_id):
     return {'0': 2, '1': 4, '2': 8}, 2
 
 
+# World units: the player's submarine is about 2000 across and the smallest
+# object any build draws at its intended size, a crate, over 200.
+STUNTED, ENLARGE = 180, 32
+
+
+def extent(shape):
+    vertices = shape['vertices']
+    return max(max(vertices[i::3])-min(vertices[i::3]) for i in range(3)) if vertices else 0
+
+
+def enlarge_stunted(shape, frames):
+    """The low-detail build stores a few creatures at about 1/40 of their
+    size, and its code draws them that small. They are enlarged so they stay
+    visible in play."""
+    if not 0 < extent(shape) < STUNTED: return
+    shape['vertices'] = [round(v*ENLARGE, 3) for v in shape['vertices']]
+    # A uniform scale keeps each matrix's turn and moves its offset.
+    for matrix in [bone['matrix'] for bone in shape['bones']]+[frame for action in frames for frame in action['matrices']]:
+        for bone in range(0, len(matrix), 12):
+            for i in (3, 7, 11): matrix[bone+i] = round(matrix[bone+i]*ENLARGE, 3)
+
+
 def convert_m3g(root, models):
     """Write the engine's model data for every registered model the JAR
     stores as M3G, beside its name in the engine's model convention, and the
@@ -174,6 +196,7 @@ def convert_m3g(root, models):
             action = frames[0]
             action['matrices'] += [action['matrices'][-1]]*(last-action['last_frame'])
             action['last_frame'] = max(last, action['last_frame']); action['patterns'] = patterns
+        enlarge_stunted(shape, frames)
         target = root/record['model']
         pathlib.Path(str(target)+'.json').write_text(json.dumps(shape, separators=(',', ':')))
         if frames: target.with_suffix('.mtra.json').write_text(json.dumps(frames, separators=(',', ':')))
